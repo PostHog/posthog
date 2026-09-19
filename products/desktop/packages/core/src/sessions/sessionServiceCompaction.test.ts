@@ -84,6 +84,11 @@ function createHarness() {
     h: { extractSkillButtonId: () => undefined },
     getPersistedConfigOptions: () => undefined,
     setPersistedConfigOptions: vi.fn(),
+    billingStore: {
+      getBilling: () => undefined,
+      setBilling: vi.fn(),
+      removeBilling: vi.fn(),
+    },
     trpc: {
       agent: {
         prompt: { mutate: prompt },

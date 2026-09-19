@@ -511,6 +511,16 @@ export interface SessionServiceDeps {
     setAdapter(taskRunId: string, adapter: Adapter): void;
     removeAdapter(taskRunId: string): void;
   };
+  billingStore: {
+    getBilling(
+      taskRunId: string,
+    ): Partial<Record<Adapter, ModelAccess>> | undefined;
+    setBilling(
+      taskRunId: string,
+      billing: Partial<Record<Adapter, ModelAccess>>,
+    ): void;
+    removeBilling(taskRunId: string): void;
+  };
   readonly settings: {
     customInstructions?: string | null;
     rtkEnabledLocal?: boolean;
@@ -683,6 +693,26 @@ type DerivedPermissionRequest = Pick<
   CloudTaskPermissionRequestUpdate,
   "requestId" | "toolCall" | "options"
 >;
+
+/**
+ * Billing is a spawn-time credential choice, so the running agent only applies a
+ * switch when it respawns. Cloud runs always bill PostHog. A run whose adapter
+ * has no chosen billing stays on what it spawned with.
+ */
+export function billingRespawnNeeded(
+  run: Pick<
+    AgentSession,
+    "isCloud" | "adapter" | "codexModelAccess" | "claudeModelAccess"
+  >,
+  desired: Partial<Record<Adapter, ModelAccess>> | undefined,
+): boolean {
+  if (run.isCloud || !run.adapter) return false;
+  const want = desired?.[run.adapter];
+  if (want === undefined) return false;
+  const live =
+    run.adapter === "codex" ? run.codexModelAccess : run.claudeModelAccess;
+  return want !== live;
+}
 
 function getEntryTaskRunMarker(entry: StoredLogEntry): string | undefined {
   const method = entry.notification?.method;
@@ -2332,16 +2362,21 @@ export class SessionService {
         rtkEnabledLocal,
         spokenNarrationEnabled,
         bedrockGatewayVariant,
-        codexModelAccess,
+        codexModelAccess: settingsCodexModelAccess,
         claudeModelAccess: settingsClaudeModelAccess,
       } = this.d.settings;
+      // Billing is per conversation: resume under this run's own choice, and
+      // fall back to the global default only for a run that predates it.
+      const runBilling = this.d.billingStore.getBilling(taskRunId);
+      const codexModelAccess = runBilling?.codex ?? settingsCodexModelAccess;
+      const claudeModelAccess = runBilling?.claude ?? settingsClaudeModelAccess;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
         taskRunId,
         repoPath,
         rtkEnabled: rtkEnabledLocal,
         codexModelAccess,
-        claudeModelAccess: settingsClaudeModelAccess,
+        claudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
@@ -2358,6 +2393,17 @@ export class SessionService {
       });
 
       if (result) {
+        // Record the billing this respawn ran under, both on the session (the
+        // live value) and back in the store (normalized), so the next send only
+        // respawns again when the run's billing actually changes.
+        this.d.store.updateSession(taskRunId, {
+          codexModelAccess,
+          claudeModelAccess,
+        });
+        this.d.billingStore.setBilling(taskRunId, {
+          codex: codexModelAccess,
+          claude: claudeModelAccess,
+        });
         const liveConfigOptions = result.configOptions as
           | SessionConfigOption[]
           | undefined;
@@ -2483,9 +2529,11 @@ export class SessionService {
       this.sessionLastUsedAt.delete(session.taskId);
     }
     if (!opts?.preserveResumeState) {
-      // Reconnect restores the model and permission mode from these; only a
-      // permanent disconnect (archive, delete, fresh session) may drop them.
+      // Reconnect restores the model, billing and permission mode from these, so
+      // only a delete or a fresh session drops them. Archive keeps them because
+      // an undo resumes the same run.
       this.d.adapterStore.removeAdapter(taskRunId);
+      this.d.billingStore.removeBilling(taskRunId);
       this.d.removePersistedConfigOptions(taskRunId);
     }
   }
@@ -2794,6 +2842,10 @@ export class SessionService {
       this.d.adapterStore.setAdapter(taskRun.id, adapter);
     }
 
+    // Persist this run's billing so reconnects resume under it, and a switch
+    // in another conversation cannot change it.
+    this.d.billingStore.setBilling(taskRun.id, resolvedModelAccess);
+
     // Store the initial prompt on the session so retry/reset flows can
     // re-send it if the session errors after this point (e.g. subscription
     // error, agent crash, or prompt failure).
@@ -2836,11 +2888,14 @@ export class SessionService {
     this.d.store.setSession(session);
   }
 
-  async disconnectFromTask(taskId: string): Promise<void> {
+  async disconnectFromTask(
+    taskId: string,
+    opts?: { preserveResumeState?: boolean },
+  ): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) return;
 
-    await this.teardownSession(session.taskRunId);
+    await this.teardownSession(session.taskRunId, opts);
   }
 
   registerMountedTask(taskId: string): () => void {
@@ -4144,6 +4199,37 @@ export class SessionService {
     return upload;
   }
 
+  private localBillingRespawnNeeded(session: AgentSession): boolean {
+    return billingRespawnNeeded(
+      session,
+      this.d.billingStore.getBilling(session.taskRunId),
+    );
+  }
+
+  /**
+   * Record this run's billing choice. The running agent keeps its old credentials
+   * until the next send respawns it (see localBillingRespawnNeeded). The choice is
+   * per-run, so it never changes another conversation or the default for new tasks.
+   */
+  setSessionModelAccess(
+    taskId: string,
+    adapter: Adapter,
+    access: ModelAccess,
+  ): void {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session) return;
+    const taskRunId = session.taskRunId;
+    const current = this.d.billingStore.getBilling(taskRunId) ?? {
+      codex: session.codexModelAccess,
+      claude: session.claudeModelAccess,
+    };
+    if (current[adapter] === access) return;
+    this.d.billingStore.setBilling(taskRunId, {
+      ...current,
+      [adapter]: access,
+    });
+  }
+
   /**
    * Send a prompt to the agent.
    * Queues if a prompt is already pending.
@@ -4267,39 +4353,65 @@ export class SessionService {
     // Show the user's message in the chat immediately, before any respawn
     this.applyOptimisticPrompt(session.taskRunId, blocks, promptText);
 
-    if (promptReferencesAbsoluteFolder(prompt)) {
-      const repoPath = this.localRepoPaths.get(taskId);
-      if (repoPath) {
-        try {
-          await this.reconnectInPlace(taskId, repoPath);
-        } catch (err) {
-          this.d.log.error("Respawn failed; aborting prompt send", {
-            taskId,
-            err,
-          });
-          this.d.store.clearOptimisticItems(session.taskRunId);
-          this.d.store.updateSession(session.taskRunId, {
-            isPromptPending: false,
-            promptStartedAt: null,
-          });
+    // Additional-directory access and billing are both fixed at agent spawn, so
+    // applying either mid-conversation needs a respawn. reconnectInPlace
+    // re-reads the folders and this run's billing when it respawns.
+    const respawnReason = promptReferencesAbsoluteFolder(prompt)
+      ? "folder"
+      : this.localBillingRespawnNeeded(session)
+        ? "billing"
+        : null;
+    if (respawnReason) {
+      try {
+        session = await this.respawnInPlaceOrThrow(taskId, session);
+      } catch (err) {
+        this.d.log.error("Respawn failed; aborting prompt send", {
+          taskId,
+          respawnReason,
+          err,
+        });
+        this.d.store.clearOptimisticItems(session.taskRunId);
+        this.d.store.updateSession(session.taskRunId, {
+          isPromptPending: false,
+          promptStartedAt: null,
+        });
+        if (respawnReason === "folder") {
           this.d.toast.error("Couldn't grant the new folder access", {
             description:
               "The session needs to restart to pick up the added folder. Try sending again, or remove the folder reference.",
           });
-          throw err instanceof Error
-            ? err
-            : new Error("Failed to apply additional directories");
+        } else {
+          this.d.toast.error("Couldn't switch billing", {
+            description:
+              "The session needs to restart to apply it. Try sending again.",
+          });
         }
-        const refreshed = this.d.store.getSessionByTaskId(taskId);
-        if (refreshed) {
-          session = refreshed;
-        }
+        throw err instanceof Error
+          ? err
+          : new Error("Failed to restart the session");
       }
     }
 
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
     });
+  }
+
+  /**
+   * Respawn to apply a spawn-time change (an added folder or switched billing).
+   * A missing repo path leaves the session untouched. Throws on reconnect
+   * failure, which has already put the session in an error state.
+   */
+  private async respawnInPlaceOrThrow(
+    taskId: string,
+    session: AgentSession,
+  ): Promise<AgentSession> {
+    const repoPath = this.localRepoPaths.get(taskId);
+    if (!repoPath) return session;
+    if (!(await this.reconnectInPlace(taskId, repoPath))) {
+      throw new Error("Failed to restart the session");
+    }
+    return this.d.store.getSessionByTaskId(taskId) ?? session;
   }
 
   /**
@@ -4485,7 +4597,17 @@ export class SessionService {
     });
 
     try {
-      const result = await this.sendLocalPrompt(session, blocks, promptText);
+      // A message queued after a billing switch respawns first so it runs under
+      // the new billing. reconnectInPlace keeps the rest of the queue; on failure
+      // the catch below re-enqueues this message.
+      const activeSession = this.localBillingRespawnNeeded(session)
+        ? await this.respawnInPlaceOrThrow(taskId, session)
+        : session;
+      const result = await this.sendLocalPrompt(
+        activeSession,
+        blocks,
+        promptText,
+      );
       if (result.stopReason === "rate_limited") {
         this.d.store.prependQueuedMessages(taskId, drained);
         this.d.log.warn("Queued message hit a gateway limit; re-enqueued", {

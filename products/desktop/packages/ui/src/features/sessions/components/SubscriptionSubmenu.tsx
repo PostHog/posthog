@@ -52,12 +52,21 @@ interface SubscriptionSubmenuProps {
   adapter: Adapter;
   closeOnChange?: boolean;
   workspaceMode?: WorkspaceModeForAccess;
+  /**
+   * Per-conversation billing for a running local task. When set, the submenu
+   * reads and writes this run's choice through onScopedChange instead of the
+   * global default that new tasks inherit.
+   */
+  scopedValue?: ModelAccess;
+  onScopedChange?: (access: ModelAccess) => void;
 }
 
 export function SubscriptionSubmenu({
   adapter,
   closeOnChange = false,
   workspaceMode,
+  scopedValue,
+  onScopedChange,
 }: SubscriptionSubmenuProps): React.JSX.Element | null {
   const subscription = useAdapterSubscription(adapter);
   const cloudTask = workspaceMode === "cloud";
@@ -71,17 +80,39 @@ export function SubscriptionSubmenu({
   ) {
     return null;
   }
+  // Cloud always bills PostHog, so a per-conversation choice only applies off
+  // cloud.
+  const scopedAccess = cloudTask ? undefined : scopedValue;
   const providerLabel = PROVIDER_LABEL[adapter];
   const value: ModelAccess = cloudTask
     ? subscriptionModelAccess(subscription, "cloud")
-    : subscription.subscriptionOn
-      ? "own-subscription"
-      : "posthog-gateway";
-  const valueLabel =
-    subscriptionModelAccess(subscription, workspaceMode ?? "local") ===
-    "own-subscription"
-      ? providerLabel
-      : "PostHog";
+    : scopedAccess !== undefined
+      ? scopedAccess
+      : subscription.subscriptionOn
+        ? "own-subscription"
+        : "posthog-gateway";
+  // Effective billing (what the run actually bills) drives the label.
+  const billsOwnSubscription =
+    scopedAccess !== undefined
+      ? scopedAccess === "own-subscription"
+      : subscriptionModelAccess(subscription, workspaceMode ?? "local") ===
+        "own-subscription";
+  const valueLabel = billsOwnSubscription ? providerLabel : "PostHog";
+  // Requested billing drives the login note: someone who picked the provider
+  // must see the prompt to log in even while the run still bills PostHog.
+  const wantsOwnSubscription =
+    scopedAccess !== undefined
+      ? scopedAccess === "own-subscription"
+      : subscription.subscriptionOn;
+  // A running conversation can only switch to a provider the agent can reach. The
+  // subprocess takes its credentials at spawn, and the server silently falls back
+  // to PostHog when the provider login is not active, which would leave the run
+  // billing PostHog while the menu reads the provider. Offer the option only once
+  // login is confirmed. New-task composers keep it, since login can complete
+  // before the task starts.
+  const scopedRunning = onScopedChange !== undefined && !cloudTask;
+  const ownSubscriptionLoginBlocked =
+    scopedRunning && subscription.loginState !== "logged-in";
 
   return (
     <DropdownMenuSub>
@@ -94,19 +125,23 @@ export function SubscriptionSubmenu({
       <DropdownMenuSubContent>
         <DropdownMenuRadioGroup
           value={value}
-          onValueChange={(next) =>
-            cloudTask && adapter === "claude"
-              ? subscription.setCloudSubscriptionOn?.(
-                  next === "own-subscription",
-                )
-              : applyModelAccess(
-                  adapter,
-                  next === "own-subscription"
-                    ? "own-subscription"
-                    : "posthog-gateway",
-                  subscription.loggedIn,
-                )
-          }
+          onValueChange={(next) => {
+            const access: ModelAccess =
+              next === "own-subscription"
+                ? "own-subscription"
+                : "posthog-gateway";
+            if (cloudTask && adapter === "claude") {
+              subscription.setCloudSubscriptionOn?.(
+                next === "own-subscription",
+              );
+            } else if (onScopedChange) {
+              // A per-conversation menu routes to the run, never the global
+              // default, even when the run has no resolved billing to echo yet.
+              onScopedChange(access);
+            } else {
+              applyModelAccess(adapter, access, subscription.loggedIn);
+            }
+          }}
         >
           <DropdownMenuRadioItem
             value="posthog-gateway"
@@ -136,19 +171,20 @@ export function SubscriptionSubmenu({
             <DropdownMenuRadioItem
               value="own-subscription"
               closeOnClick={closeOnChange}
+              disabled={ownSubscriptionLoginBlocked}
+              className={ownSubscriptionLoginBlocked ? "opacity-60" : undefined}
             >
               {providerLabel}
             </DropdownMenuRadioItem>
           )}
         </DropdownMenuRadioGroup>
         {!cloudTask &&
-          subscription.subscriptionOn &&
+          (wantsOwnSubscription || ownSubscriptionLoginBlocked) &&
           !subscription.loggedIn && (
-            // A quiet inline note rather than a permanent menu row: it appears
-            // only once the provider option is picked without a confirmed
-            // login, and sessions keep running on PostHog until the login
-            // completes. Unknown status counts as not logged in, so the note
-            // stays reachable when the status check cannot run or is pending.
+            // Inline note rather than a menu row: it shows after the provider is
+            // picked, or for a running conversation where the provider is disabled
+            // until login. Unknown status counts as not logged in, so the note
+            // still shows when the check is pending or failed.
             <div className="px-2 py-1.5 text-muted-foreground text-xs">
               <button
                 type="button"

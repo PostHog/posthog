@@ -77,24 +77,31 @@ function subscriptionState(
     flagEnabled: boolean;
     subscriptionOn: boolean;
     loggedIn: boolean;
+    loginState: "logged-in" | "logged-out" | "unknown";
     cloudFlagEnabled: boolean;
     cloudSubscriptionOn: boolean;
   }>,
 ) {
-  const state = {
+  const merged = {
     flagEnabled: true,
     subscriptionOn: true,
     loggedIn: true,
-    status: { loginState: "logged-in" as const },
-    loginState: "logged-in" as const,
     needsConnection: false,
     setSubscriptionOn: () => {},
     ...overrides,
   };
-  // Mirror the real hook: the connection is only "needed" once the
-  // subscription is picked while logged out.
-  state.needsConnection = state.subscriptionOn && !state.loggedIn;
-  return state;
+  // Mirror the real hook: loginState takes precedence over loggedIn, and the
+  // connection is only "needed" once the subscription is picked while logged out.
+  const loginState =
+    merged.loginState ?? (merged.loggedIn ? "logged-in" : "logged-out");
+  const loggedIn = loginState === "logged-in";
+  return {
+    ...merged,
+    loggedIn,
+    loginState,
+    status: { loginState },
+    needsConnection: merged.subscriptionOn && !loggedIn,
+  };
 }
 
 const ultracodeDocsUrl = "https://code.claude.com/docs/en/workflows";
@@ -1111,5 +1118,61 @@ describe("ReasoningLevelSelector", () => {
           "Log in to Claude Code to use Anthropic billing.",
       ),
     ).toBeInTheDocument();
+  }, 20000);
+
+  it("blocks switching a running conversation to Anthropic until login is active", async () => {
+    // Logged out: the server would fall back to PostHog, so a running
+    // conversation cannot switch to Anthropic. The option is disabled and the
+    // login note explains how to enable it.
+    useAdapterSubscription.mockReturnValue(
+      subscriptionState({ subscriptionOn: false, loginState: "logged-out" }),
+    );
+    const onBillingScopedChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { unmount } = render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          adapter="claude"
+          showBillingMenu
+          workspaceMode="local"
+          billingScopedValue="posthog-gateway"
+          onBillingScopedChange={onBillingScopedChange}
+        />
+      </Theme>,
+    );
+
+    await openAdvanced(user);
+    await openSub(user, /^Billing/);
+    expect(
+      screen.getByRole("menuitemradio", { name: "Anthropic" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    await expect(
+      screen.findByRole("button", { name: "Log in to Claude Code" }),
+    ).resolves.toBeInTheDocument();
+    unmount();
+
+    // Logged in: the same running conversation can switch to Anthropic.
+    useAdapterSubscription.mockReturnValue(
+      subscriptionState({ subscriptionOn: false, loginState: "logged-in" }),
+    );
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          adapter="claude"
+          showBillingMenu
+          workspaceMode="local"
+          billingScopedValue="posthog-gateway"
+          onBillingScopedChange={onBillingScopedChange}
+        />
+      </Theme>,
+    );
+
+    await openAdvanced(user);
+    await openSub(user, /^Billing/);
+    expect(
+      screen.getByRole("menuitemradio", { name: "Anthropic" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
   }, 20000);
 });
