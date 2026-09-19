@@ -194,6 +194,15 @@ class ReplaceFilters(CloningVisitor):
             )
         return exprs
 
+    def _enclosing_compare_operation(self, chain_str: str, example: str) -> CompareOperationWrapper:
+        if not self.compare_operations:
+            raise QueryError(
+                f"`{{{chain_str}}}` only works on one side of a comparison, for example `{example}`. "
+                "With no date range set, the placeholder removes the comparison around it, "
+                "so it has no value on its own."
+            )
+        return self.compare_operations[-1]
+
     def _resolve_table(self, chain: list) -> Optional[Table]:
         """Resolve an AST field chain to the underlying database table, or None if not found."""
         if self.database is None:
@@ -335,7 +344,9 @@ class ReplaceFilters(CloningVisitor):
                 return exprs[0]
             return ast.And(exprs=exprs)
         if node.chain == ["filters", "dateRange", "from"]:
-            compare_op_wrapper = self.compare_operations[-1]
+            compare_op_wrapper = self._enclosing_compare_operation(
+                "filters.dateRange.from", "timestamp >= {filters.dateRange.from}"
+            )
 
             if no_filters:
                 compare_op_wrapper.skip = True
@@ -350,7 +361,9 @@ class ReplaceFilters(CloningVisitor):
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
         if node.chain == ["filters", "dateRange", "to"]:
-            compare_op_wrapper = self.compare_operations[-1]
+            compare_op_wrapper = self._enclosing_compare_operation(
+                "filters.dateRange.to", "timestamp <= {filters.dateRange.to}"
+            )
 
             if no_filters:
                 compare_op_wrapper.skip = True

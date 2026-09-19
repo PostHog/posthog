@@ -291,6 +291,27 @@ class TestFilters(BaseTest):
             f"SELECT event FROM events WHERE equals(true, true) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    @parameterized.expand(
+        [
+            (
+                "date_from_in_call",
+                "SELECT dateDiff('day', {filters.dateRange.from}, now()) AS age FROM events",
+                "filters.dateRange.from",
+            ),
+            ("date_to_in_column", "SELECT {filters.dateRange.to} FROM events", "filters.dateRange.to"),
+        ]
+    )
+    def test_replace_filters_date_range_placeholder_outside_comparison_raises(
+        self, _name: str, query: str, chain_str: str
+    ):
+        # Regression: an empty comparison stack raised IndexError, so the user got a server error
+        with self.assertRaisesMessage(QueryError, f"`{{{chain_str}}}` only works on one side of a comparison"):
+            replace_filters(
+                self._parse_select(query),
+                HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                self.team,
+            )
+
     def test_replace_filters_all_time_stays_unbounded(self):
         # "All time" must not gain an end-of-today cap: unlike QueryDateRange (where "all" means
         # "since the first event"), here it promises the whole table, including future-dated
