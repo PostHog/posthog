@@ -40,7 +40,11 @@ export const piSessionHealthOutput = z.object({
 });
 
 export const resumePiSessionInput = z.object({
-  taskContext: piTaskContextInput.pick({ taskId: true, cwd: true }),
+  taskContext: piTaskContextInput.pick({
+    taskId: true,
+    cwd: true,
+    channelMode: true,
+  }),
 });
 
 export type ResumePiSessionInput = z.infer<typeof resumePiSessionInput>;

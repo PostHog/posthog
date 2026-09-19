@@ -9,7 +9,7 @@ export interface PiRunInput {
 }
 
 export interface PiResumeInput {
-  taskContext: Pick<TaskContextInput, "taskId" | "cwd">;
+  taskContext: Pick<TaskContextInput, "taskId" | "cwd" | "channelMode">;
 }
 
 export interface PiRunner {
