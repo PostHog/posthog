@@ -20,7 +20,8 @@ Races resolve per key, never failing the rest of a batch: a concurrent create co
 ## Layout
 
 - `src/service/` — gRPC surface; `mod.rs` is dispatch-only, each RPC family has its own module (`get_or_create.rs`)
-- `src/storage/` — `IdentityStorage` trait + Postgres implementation (primary pool only; identity reads must never be stale)
+- `src/storage/` — `IdentityStorage` trait + Postgres implementation (primary only; identity reads must never be stale)
+- `src/pools.rs` — the two primary pools, split by how long a statement holds its connection: fast (resolution, op bookkeeping) and heavy (stub creation, attach, saga transactions, GC), sized by `MAX_PG_CONNECTIONS` and `HEAVY_MAX_PG_CONNECTIONS`
 - `src/leader.rs` — `PropertyWriter` trait + router-backed implementation
 - `src/lifecycle/` — the lifecycle engine: merge and delete sagas, sweeper, GC
 - Shared person primitives (row type, storage errors, uuidv5 scheme) live in `personhog-common::persons`
@@ -36,6 +37,13 @@ Tests need the persons database (`posthog_persons`) with `rust/persons_migration
 ```bash
 cargo test -p personhog-identity
 ```
+
+## Query tags
+
+Every statement carries `/* service='personhog-identity', operation='<name>' */` in front, the SQLCommenter shape both pganalyze and pgcollector parse, so load and latency can be cut by code path.
+Compile-time checked queries get it from `op = "..."` on the `mirrored_query*!` macros; statements built at runtime wrap their SQL in `personhog_common::query_tag!("<name>", sql)`.
+Operation names are `<saga or store>_<step>_<what>`, for example `merge_flip_lock_persons` or `stub_create_mappings`.
+See `rust/pgcollector/docs/query-tags.md` for the key vocabulary.
 
 ## Parked lifecycle ops
 

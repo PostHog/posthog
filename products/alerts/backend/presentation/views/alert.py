@@ -36,6 +36,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions import as_drf_validation_error
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
@@ -67,21 +68,22 @@ from products.alerts.backend.evaluation.validation import (
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
-from products.alerts.backend.facade.api import (
-    INSIGHT_ALERT_DESTINATION_TYPES,
-    INSIGHT_ALERT_EVENT_IDS,
-    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
-    MAX_DESTINATIONS_PER_ALERT,
+from products.alerts.backend.facade.api import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+)
+from products.alerts.backend.facade.destinations import (
+    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+    MAX_DESTINATIONS_PER_ALERT,
     build_insight_alert_slack_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
-    validate_and_normalize_schedule_start_time,
     validate_destination_data,
 )
+from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -90,7 +92,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 
@@ -463,7 +465,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     schedule_start_time = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.",
+        help_text="Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
@@ -701,7 +703,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             schedule_start_time_changed = validated_data["schedule_start_time"] != instance.schedule_start_time
 
         instance = super().update(instance, validated_data)
-        if schedule_restriction_changed and not schedule_start_time_changed:
+        if schedule_restriction_changed or schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
 
@@ -1465,16 +1467,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
             )
 
-        hog_functions = create_alert_destination_hog_functions(
-            [
-                build_insight_alert_slack_config(
-                    team=alert.team, alert_id=str(alert.id), alert_name=alert.name, data=data
-                )
-            ],
-            request=self.request,
-            alert_id=str(alert.id),
-            allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
-        )
+        try:
+            hog_function_ids = create_alert_destination_hog_functions(
+                [build_insight_alert_slack_config(alert_id=str(alert.id), alert_name=alert.name, data=data)],
+                team_id=alert.team_id,
+                created_by_id=request.user.id,
+                alert_id=str(alert.id),
+                allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+            )
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
@@ -1486,7 +1488,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "type": data["type"],
             },
         )
-        response = AlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        response = AlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
         return Response(response.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -1501,12 +1503,15 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
-        soft_delete_alert_destinations(
-            team_id=self.team_id,
-            alert_id=str(alert.id),
-            allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
-            hog_function_ids=hog_function_ids,
-        )
+        try:
+            soft_delete_alert_destinations(
+                team_id=self.team_id,
+                alert_id=str(alert.id),
+                allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+                hog_function_ids=hog_function_ids,
+            )
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),

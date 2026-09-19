@@ -86,6 +86,12 @@ The dashboard "enqueues precompute" as a side effect; it never waits on it.
 | 6   | No-join                    | Unfiltered: path-bounce, path-bounce+avg-time, or simple breakdown without session fields                                                                                                                                      | `stats_table_no_join_*`                                                                                              |
 | 7   | Full join                  | Fallback per shape                                                                                                                                                                                                             | `stats_table_path_bounce`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_simple_breakdown`, … |
 
+### Traffic metrics alongside conversion goals
+
+`WebStatsTableQuery.includeTrafficMetrics` adds sessions and retains pageviews alongside conversion columns. Traffic visitors and sessions require a pageview or screenview; goal-only sessions contribute to conversions without increasing the traffic denominator. The option defaults to off, preserving existing callers.
+
+Queries with this option bypass the simple-breakdown and paths lazy caches and use the supported live or preaggregated execution path. Event and action conversion goals can carry property filters, which restrict conversions rather than traffic.
+
 ### Goals, vitals, external clicks
 
 | Runner                      | Tier 1                        | Fallback                                 | Notes                                                         |
@@ -154,3 +160,5 @@ Suffix conventions: `*_lazy_query` = bucket read (served from precompute), `*_la
 Find the request in query_log and check `query_type`.
 A `*_lazy_query` taking seconds is a bucket-read problem (rare).
 A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, >90d range, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
+
+Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.

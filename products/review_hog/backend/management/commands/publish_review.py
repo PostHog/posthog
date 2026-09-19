@@ -7,7 +7,11 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import DEFAULT_URGENCY_THRESHOLD
+from products.review_hog.backend.reviewer.constants import (
+    DEFAULT_URGENCY_THRESHOLD,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+)
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
@@ -53,6 +57,12 @@ class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--pr-url", required=True, help="GitHub PR URL the review was computed for")
         parser.add_argument("--team-id", type=int, required=True, help="Team the review is persisted under")
+        parser.add_argument(
+            "--review-mode",
+            choices=(REVIEW_MODE_FULL, REVIEW_MODE_FLASH),
+            default=REVIEW_MODE_FULL,
+            help="Mode that produced the stored review; use flash to preserve its Flash labels",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -68,7 +78,12 @@ class Command(BaseCommand):
             raise CommandError(f"No review found for {repository}#{pr_number} on team {team_id}. Run run_review first.")
         if report.run_count == 0 or not report.report_markdown:
             raise CommandError(f"Review for {repository}#{pr_number} hasn't completed a run yet; nothing to publish.")
-        head_sha = report.head_sha
+        # The head the latest COMPLETED turn reviewed. `head_sha` advances at turn START, so a turn
+        # that fetched a new commit and then failed leaves it pointing past the findings published
+        # here — positioning them against that diff anchors comments on shifted lines and burns the
+        # published-head watermark on a commit the turn never reviewed. Pre-column rows fall back,
+        # like every other latest-turn reader.
+        head_sha = report.completed_head_sha or report.head_sha
         if not head_sha:
             raise CommandError(f"Review for {repository}#{pr_number} has no reviewed head_sha; nothing to publish.")
 
@@ -114,6 +129,7 @@ class Command(BaseCommand):
             token=token,
             urgency_threshold=_run_threshold(report.run_urgency_threshold),
             installation_id=installation_id,
+            review_mode=options["review_mode"],
         )
         if outcome.posted:
             self.stdout.write(self.style.SUCCESS(f"ReviewHog ✓ published {repository}#{pr_number}"))

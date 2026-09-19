@@ -15,6 +15,7 @@ const config: SignalScoutConfigApi = {
     skill_name: 'signals-scout-revenue-watch',
     description: 'Watches revenue changes.',
     scout_origin: 'custom',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',

@@ -5,6 +5,7 @@ interface CloudStreamDisconnectedBannerProps {
   errorTitle?: string;
   errorMessage?: string;
   onRetry?: () => void;
+  retryLabel?: string;
   onRestart?: () => void;
 }
 
@@ -12,6 +13,7 @@ export function CloudStreamDisconnectedBanner({
   errorTitle,
   errorMessage,
   onRetry,
+  retryLabel = "Retry",
   onRestart,
 }: CloudStreamDisconnectedBannerProps) {
   return (
@@ -39,7 +41,7 @@ export function CloudStreamDisconnectedBanner({
       <Flex gap="2">
         {onRetry && (
           <Button variant="soft" size="1" color="red" onClick={onRetry}>
-            Retry
+            {retryLabel}
           </Button>
         )}
         {onRestart && (

@@ -30,12 +30,6 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
-import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
-import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { Paths } from 'scenes/paths/Paths'
-import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -51,6 +45,7 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -59,7 +54,13 @@ import { FunnelStepsTable } from 'products/product_analytics/frontend/insights/f
 import { FunnelTimeToConvertTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTimeToConvertTable/FunnelTimeToConvertTable'
 import { FunnelTrendsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTrendsTable/FunnelTrendsTable'
 import { Journeys } from 'products/product_analytics/frontend/insights/journeys/Journeys'
+import { Paths } from 'products/product_analytics/frontend/insights/paths/Paths'
+import { PathCanvasLabel } from 'products/product_analytics/frontend/insights/paths/PathsLabel'
 import { RetentionContainer } from 'products/product_analytics/frontend/insights/retention/RetentionContainer'
+import { InsightsTable } from 'products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable'
+import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotLegend'
+import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
+import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -99,6 +100,46 @@ function DashboardInsightRefreshHintOrLoading({
         )
     }
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
+}
+
+function isNonEmptyResult(rows: unknown): boolean {
+    return Array.isArray(rows) ? rows.length > 0 : rows != null
+}
+
+/** A settled query came back with rows. An empty success is `result: []`, so presence alone is not enough. */
+export function hasResultRows(insightData: Record<string, any> | null | undefined): boolean {
+    return isNonEmptyResult(insightData?.result) || isNonEmptyResult(insightData?.results)
+}
+
+/**
+ * The "PostHog AI" section offers to explain the insight, so it only belongs next to results worth explaining.
+ * It stays up while the query is in flight so it doesn't appear only once the chart draws. A query that
+ * returned rows keeps it, even when the chart reads as empty, since that is what people ask PostHog AI about.
+ */
+export function shouldShowAIAnalysisSection({
+    editMode,
+    embedded,
+    inSharedMode,
+    hasQuerySource,
+    insightDataLoading,
+    hasBlockingEmptyState,
+    hasResults,
+}: {
+    editMode?: boolean
+    embedded?: boolean
+    inSharedMode?: boolean
+    hasQuerySource: boolean
+    insightDataLoading: boolean
+    hasBlockingEmptyState: boolean
+    hasResults: boolean
+}): boolean {
+    if (editMode || embedded || inSharedMode || !hasQuerySource) {
+        return false
+    }
+    if (insightDataLoading) {
+        return true
+    }
+    return !hasBlockingEmptyState && hasResults
 }
 
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
@@ -476,22 +517,17 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
-        // Only show in view mode
-        if (editMode) {
-            return null
-        }
-
-        // Don't show in embedded or shared mode
-        if (embedded || inSharedMode) {
-            return null
-        }
-
-        // Only show for insight query nodes (use querySource which is the actual InsightQueryNode)
-        if (!querySource) {
-            return null
-        }
-
-        return <InsightAIAnalysis />
+        return shouldShowAIAnalysisSection({
+            editMode,
+            embedded,
+            inSharedMode,
+            hasQuerySource: !!querySource,
+            insightDataLoading,
+            hasBlockingEmptyState: !!BlockingEmptyState,
+            hasResults: hasResultRows(insightData),
+        }) ? (
+            <InsightAIAnalysis />
+        ) : null
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
@@ -519,7 +555,18 @@ export function InsightVizDisplay({
                 )}
                 data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
-                {disableHeader ? null : <InsightDisplayConfig />}
+                {disableHeader ? null : (
+                    <InsightDisplayConfig
+                        chartTypeControl={
+                            <ChartAlternatives
+                                insightProps={insightProps}
+                                editMode={editMode}
+                                embedded={embedded}
+                                inSharedMode={inSharedMode}
+                            />
+                        }
+                    />
+                )}
                 {showingResults && (
                     <>
                         {!embedded &&

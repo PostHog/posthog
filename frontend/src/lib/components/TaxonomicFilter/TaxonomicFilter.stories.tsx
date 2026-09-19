@@ -6,11 +6,10 @@ import { delay } from 'msw'
 import { useEffect } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { CategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -20,6 +19,7 @@ import { type AnyPropertyFilter, AvailableFeature, EntityTypes, PropertyFilterTy
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
+import { taxonomicFilterCategoryLayoutLogic } from './taxonomicFilterCategoryLayoutLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterProps } from './types'
 
@@ -61,14 +61,14 @@ export const DashboardPropertySearch: Story = {
         enableKeywordShortcuts: true,
         collapseUrlsToContainsRow: true,
     },
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
-        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
-    },
+    parameters: { testOptions: { waitForSelector: '.taxonomic-infinite-list' } },
 }
 
 function EventsStoryRender(args: TaxonomicFilterProps): JSX.Element {
     useMountedLogic(actionsModel)
+    const { setActiveTab } = useActions(
+        taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+    )
 
     const { setIndex } = useActions(
         infiniteListLogic({
@@ -80,7 +80,10 @@ function EventsStoryRender(args: TaxonomicFilterProps): JSX.Element {
 
     // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
     // - we do want to show the definition popover here too
-    useDelayedOnMountEffect(() => setIndex(1))
+    useDelayedOnMountEffect(() => {
+        setActiveTab(TaxonomicFilterGroupType.Events)
+        setIndex(1)
+    })
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -108,6 +111,9 @@ export const EventsPremium: Story = {
     render: (args) => {
         useMountedLogic(actionsModel)
         useAvailableFeatures([AvailableFeature.INGESTION_TAXONOMY])
+        const { setActiveTab } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
 
         const { setIndex } = useActions(
             infiniteListLogic({
@@ -117,7 +123,10 @@ export const EventsPremium: Story = {
             })
         )
 
-        useDelayedOnMountEffect(() => setIndex(1))
+        useDelayedOnMountEffect(() => {
+            setActiveTab(TaxonomicFilterGroupType.Events)
+            setIndex(1)
+        })
 
         return (
             <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -532,18 +541,8 @@ export const MCPToolCallContextLeadsWithMCPProperties: Story = {
     },
 }
 
-function CategoryDropdownStoryRender({
-    variant,
-    ...args
-}: TaxonomicFilterProps & { variant: CategoryDropdownVariant }): JSX.Element {
+function CategoryDropdownStoryRender(args: TaxonomicFilterProps): JSX.Element {
     useMountedLogic(actionsModel)
-    useMountedLogic(featureFlagLogic)
-
-    useEffect(() => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-            [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
-        })
-    }, [variant])
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -565,32 +564,48 @@ const CATEGORY_DROPDOWN_PARAMETERS = {
     testOptions: { waitForSelector: '.taxonomic-infinite-list' },
 }
 
-export const CategoryDropdownControl: Story = {
-    render: (args) => <CategoryDropdownStoryRender {...args} variant="control" />,
+export const CategoryDropdown: Story = {
+    render: CategoryDropdownStoryRender,
     args: CATEGORY_DROPDOWN_ARGS,
-    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
     parameters: {
         ...CATEGORY_DROPDOWN_PARAMETERS,
         docs: {
             description: {
-                story: 'A/B test control: left-hand Categories column is visible and Tab/Shift+Tab cycles between categories.',
+                story: 'The active category appears as a pill in the search input. Open it to browse categories or dock the category rail.',
             },
         },
     },
 }
 
-export const CategoryDropdownPill: Story = {
-    render: (args) => <CategoryDropdownStoryRender {...args} variant="pill" />,
+export const CategoryRailPinned: Story = {
+    render: CategoryRailStoryRender,
     args: CATEGORY_DROPDOWN_ARGS,
-    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
     parameters: {
-        ...CATEGORY_DROPDOWN_PARAMETERS,
+        testOptions: { waitForSelector: '[data-attr="taxonomic-category-rail-unpin"]' },
         docs: {
             description: {
-                story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
+                story: 'Pinned categories remain visible beside the results on wide layouts.',
             },
         },
     },
+}
+
+function CategoryRailStoryRender(args: TaxonomicFilterProps): JSX.Element {
+    useMountedLogic(actionsModel)
+    const { setCategoryRailPinned } = useActions(taxonomicFilterCategoryLayoutLogic)
+
+    useEffect(() => {
+        setCategoryRailPinned(true)
+        return () => {
+            setCategoryRailPinned(false)
+        }
+    }, [setCategoryRailPinned])
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
 }
 
 // The committed selection of a renamed series ('signed up', renamed "Completed sign-up")
@@ -639,7 +654,7 @@ export const RenamedSeriesSelected: Story = {
     },
 }
 
-export const RenamedSeriesSelectedPill: Story = {
+export const RenamedSeriesSelectedWithAllResults: Story = {
     render: (args) => {
         useMountedLogic(actionsModel)
         return (
@@ -650,14 +665,13 @@ export const RenamedSeriesSelectedPill: Story = {
     },
     args: {
         ...RENAMED_SERIES_ARGS,
-        taxonomicFilterLogicKey: 'renamed-series-selected-pill',
+        taxonomicFilterLogicKey: 'renamed-series-selected-all',
     },
     parameters: {
         ...RENAMED_SERIES_PARAMETERS,
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
         docs: {
             description: {
-                story: "Same renamed-series selection in the pill category-dropdown variant: the Categories column is folded into the search input's pill, and the promoted committed row still shows the rename with the underlying event.",
+                story: 'Same renamed-series selection with All results. The promoted committed row still shows the rename with the underlying event.',
             },
         },
     },
@@ -694,6 +708,62 @@ export const FailedFetchOffersRetry: Story = {
         docs: {
             description: {
                 story: 'When the search request fails, the list says so and offers a retry, rather than showing the same "No results" as a genuine empty search.',
+            },
+        },
+    },
+}
+
+export const CohortsWithRealtimeStates: Story = {
+    args: {
+        taxonomicFilterLogicKey: 'cohorts-realtime',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+        // The opt-in a feature flag's release conditions set. Without it the rows carry no tag,
+        // which is what every other cohort picker in the app renders.
+        showCohortFlagTargeting: true,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/': [
+                    {
+                        id: 1,
+                        name: 'Viewed pricing this week',
+                        count: 4321,
+                        is_static: false,
+                        realtime: { state: 'ready', ready_at: '2023-07-03T09:40:00Z', build: null },
+                    },
+                    {
+                        id: 2,
+                        name: 'Completed onboarding',
+                        count: 210,
+                        is_static: false,
+                        realtime: {
+                            state: 'building',
+                            ready_at: null,
+                            build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+                        },
+                    },
+                    {
+                        id: 3,
+                        name: 'Churn risk',
+                        count: 76,
+                        is_static: false,
+                        realtime: { state: 'needs_attention', ready_at: null, build: null },
+                    },
+                    { id: 4, name: 'Beta testers', count: 89, is_static: true, realtime: null },
+                    { id: 5, name: 'Signed up last month', count: 1200, is_static: false, realtime: null },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
+        // The preparing cohort's tag holds a spinner while its build runs, so the runner cannot
+        // wait for every loader to disappear here.
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-tag"]' },
+        docs: {
+            description: {
+                story: 'Cohort rows carry their realtime state, so someone picking one for a feature flag sees which cohorts flags can already target and which are still being prepared.',
             },
         },
     },

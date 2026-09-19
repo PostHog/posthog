@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef, evidence_key_for
 from products.business_knowledge.backend.learning.providers import get_learning_provider, register_learning_provider
@@ -10,7 +11,15 @@ from products.business_knowledge.backend.models.constants import LearningProvide
 class ConversationsLearningProvider:
     name: str = LearningProvider.CONVERSATIONS
 
-    def collect(self, team_id: int, *, since: datetime, limit: int) -> list[EvidenceRef]:
+    def collect(
+        self,
+        team_id: int,
+        *,
+        since: datetime,
+        limit: int,
+        offset: int = 0,
+        ticket_id: UUID | None = None,
+    ) -> list[EvidenceRef]:
         from products.conversations.backend.facade.api import (  # noqa: PLC0415 — keeps temporalio off the startup path
             list_resolved_ticket_revisions,
         )
@@ -25,8 +34,15 @@ class ConversationsLearningProvider:
                 ticket_id=revision.ticket_id,
                 ticket_number=revision.ticket_number,
                 resolution_comment_id=revision.resolution_comment_id,
+                revision_at=revision.revision_at,
             )
-            for revision in list_resolved_ticket_revisions(team_id, since=since, limit=limit)
+            for revision in list_resolved_ticket_revisions(
+                team_id,
+                since=since,
+                limit=limit,
+                offset=offset,
+                ticket_id=ticket_id,
+            )
         ]
 
     def load(self, ref: EvidenceRef) -> EvidenceBundle | None:

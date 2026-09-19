@@ -23,7 +23,10 @@ import deltalake
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import MaterializeViewInputs, materialize_view_activity
 from posthog.temporal.data_modeling.activities.incremental_write import IncrementalWriteError
-from posthog.temporal.data_modeling.activities.materialize_view import get_aws_storage_options
+from posthog.temporal.data_modeling.activities.materialize_view import (
+    FAILED_UPDATE_REASON_PREFIX,
+    get_aws_storage_options,
+)
 
 from products.data_modeling.backend.facade.api import get_incremental_state
 
@@ -44,6 +47,18 @@ def _batch(days: list[datetime | None], counts: list[int], *, value_column: str 
     return pa.RecordBatch.from_arrays(arrays, names=["day", value_column])
 
 
+def _unsigned_batch(day: datetime, count: int, flag: int) -> pa.RecordBatch:
+    arrays = cast(
+        Collection[pa.Array],
+        [
+            pa.array([day], type=pa.timestamp("us", tz="UTC")),
+            pa.array([count], type=pa.uint64()),
+            pa.array([flag], type=pa.uint8()),
+        ],
+    )
+    return pa.RecordBatch.from_arrays(arrays, names=["day", "c", "flag"])
+
+
 def _rows(table_uri: str) -> list[tuple[Any, Any]]:
     """Stored rows as (day, value), sorted, so tests assert content rather than counts."""
     table = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
@@ -52,13 +67,21 @@ def _rows(table_uri: str) -> list[tuple[Any, Any]]:
     return sorted(pairs, key=lambda pair: (pair[0] is None, pair[0]))
 
 
-def _mock_hogql_table(*batches: pa.RecordBatch, value_column: str = "c", windows: list[Any] | None = None):
+def _mock_hogql_table(
+    *batches: pa.RecordBatch,
+    value_column: str = "c",
+    windows: list[Any] | None = None,
+    column_types: list[tuple[str, str]] | None = None,
+):
     """Stand in for one run: yields the given batches, ignoring the window.
 
     The window's effect on the generated SQL is covered by the filter-injection tests; what matters
     here is what the write path does with the rows that come back. ``windows`` collects the window
     each run was given, for tests that assert on the computed lower bound.
     """
+    # DateTime64 so the activity's arrow transform passes an already-typed timestamp
+    # through, the way it does for a real ClickHouse DateTime64 column.
+    types = column_types or [("day", "DateTime64(6, 'UTC')"), (value_column, "Int64")]
 
     def factory(*args, **kwargs):
         if windows is not None:
@@ -67,9 +90,7 @@ def _mock_hogql_table(*batches: pa.RecordBatch, value_column: str = "c", windows
 
         async def generator():
             for batch in batches:
-                # DateTime64 so the activity's arrow transform passes an already-typed timestamp
-                # through, the way it does for a real ClickHouse DateTime64 column.
-                yield batch, [("day", "DateTime64(6, 'UTC')"), (value_column, "Int64")]
+                yield batch, types
 
         return generator()
 
@@ -95,11 +116,12 @@ async def _run(
     enabled: bool = True,
     value_column: str = "c",
     windows: list[Any] | None = None,
+    column_types: list[tuple[str, str]] | None = None,
 ):
     with (
         unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view.hogql_table",
-            _mock_hogql_table(*batches, value_column=value_column, windows=windows),
+            _mock_hogql_table(*batches, value_column=value_column, windows=windows, column_types=column_types),
         ),
         unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view._incremental_enabled",
@@ -136,6 +158,7 @@ class TestIncrementalMaterialization:
         state = get_incremental_state(asaved_query)
         assert state.last_run_mode == "full_refresh"
         assert state.watermark is not None
+        assert state.has_incremental_history is True
 
         # The runs UI reads the mode off the job to explain what its row count means.
         await database_sync_to_async(ajob.refresh_from_db)()
@@ -279,6 +302,70 @@ class TestIncrementalMaterialization:
         await database_sync_to_async(asaved_query.refresh_from_db)()
         assert get_incremental_state(asaved_query).watermark is None
 
+    async def test_an_unsigned_column_stays_incremental_across_runs(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        column_types = [("day", "DateTime64(6, 'UTC')"), ("c", "UInt64"), ("flag", "UInt8")]
+
+        with _settings(bucket_name):
+            first = await _run(
+                activity_environment, ateam, anode, ajob, adag, _unsigned_batch(DAY1, 10, 1), column_types=column_types
+            )
+            await _run(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _unsigned_batch(DAY2, 20, 200),
+                column_types=column_types,
+            )
+
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.run_mode == "incremental"
+        assert ajob.full_refresh_reason is None
+
+        table = deltalake.DeltaTable(first.table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
+        stored = sorted(
+            zip(table.column("day").to_pylist(), table.column("c").to_pylist(), table.column("flag").to_pylist())
+        )
+        assert stored == [(DAY1, 10, 1), (DAY2, 20, 200)]
+
+    async def test_a_rebuild_after_a_failed_update_is_not_labelled_a_first_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+
+        with _settings(bucket_name):
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]))
+
+            with pytest.raises(IncrementalWriteError):
+                await _run(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _batch([DAY2], [20], value_column="renamed"),
+                    value_column="renamed",
+                )
+
+            await _run(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _batch([DAY2], [20], value_column="renamed"),
+                value_column="renamed",
+            )
+
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.run_mode == "full_refresh"
+        assert ajob.full_refresh_reason is not None
+        assert ajob.full_refresh_reason.startswith(FAILED_UPDATE_REASON_PREFIX)
+
     async def test_a_definition_change_forces_a_rebuild(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
@@ -297,6 +384,9 @@ class TestIncrementalMaterialization:
 
         await database_sync_to_async(asaved_query.refresh_from_db)()
         assert get_incremental_state(asaved_query).last_run_mode == "full_refresh"
+
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.full_refresh_reason == "definition changed"
 
     async def test_a_zero_row_window_leaves_the_table_and_watermark_alone(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
@@ -417,7 +507,9 @@ class TestIncrementalMaterialization:
                 await _run(activity_environment, ateam, anode, ajob, adag, *batches)
 
         await database_sync_to_async(asaved_query.refresh_from_db)()
-        assert get_incremental_state(asaved_query).watermark is None
+        state = get_incremental_state(asaved_query)
+        assert state.watermark is None
+        assert state.has_incremental_history is True
 
     async def test_lookback_shifts_the_second_runs_window(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

@@ -274,7 +274,9 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
-    loadTags: () => any // tagsModel
+    loadTags: () => {
+        value: true
+    } // tagsModel
     appendMessage: (message: CommentType) => {
         message: CommentType
     }
@@ -1060,6 +1062,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                                 message.item_context?.slack_author_name ||
                                 message.item_context?.teams_author_name ||
                                 message.item_context?.teams_author_email ||
+                                message.item_context?.github_login ||
                                 message.item_context?.email_from_name
                             if (messageAuthorName) {
                                 displayName = messageAuthorName

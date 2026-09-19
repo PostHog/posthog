@@ -38,6 +38,29 @@ TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     3_600_000.0,
 ]
 
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS = ("tasks_modal_launch_preparation_latency",)
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS = [
+    100.0,
+    250.0,
+    500.0,
+    750.0,
+    1_000.0,
+    1_500.0,
+    2_000.0,
+    2_500.0,
+    3_000.0,
+    4_000.0,
+    5_000.0,
+    6_000.0,
+    8_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    45_000.0,
+    60_000.0,
+]
+
 TASKS_RUN_TOKENS_HISTOGRAM_METRICS = ("tasks_run_total_tokens",)
 TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS = [
     10_000.0,
@@ -132,10 +155,14 @@ def _model_label(value: str | None) -> str:
     return normalized if runtime_adapter_for(normalized) else "other"
 
 
-def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool) -> str:
+def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool, from_import_run: bool = False) -> str:
     if same_run_resume:
         return "same_run_and_snapshot" if using_modal_snapshot else "same_run"
-    return "snapshot_only" if using_modal_snapshot else "neither"
+    if using_modal_snapshot:
+        return "snapshot_only"
+    # An import run never had a sandbox, so there is no working tree to lose: the successor
+    # starts from the transcript alone by design, not because a snapshot went missing.
+    return "imported_transcript" if from_import_run else "neither"
 
 
 def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
@@ -144,7 +171,8 @@ def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
             "tasks_process_resume_mode",
             "Resuming process-task runs by the resume state available at provision time. "
             "same_run labels identify a restart of the current run. neither means no snapshot "
-            "or same-run state accompanied the resume, so the prior working tree could not be restored.",
+            "or same-run state accompanied the resume, so the prior working tree could not be restored. "
+            "imported_transcript means the resumed run only held an imported transcript and had no tree.",
         ).add(1)
     except Exception:
         pass
@@ -281,6 +309,16 @@ def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
         meter.create_counter(
             "tasks_sandbox_wedge_probe",
             "Sandbox pressure probe results after credential file write failures",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_tool_call_only_heartbeat() -> None:
+    try:
+        _metric_meter().create_counter(
+            "tasks_tool_call_only_heartbeat",
+            "Run keep-alives carried only by an unfinished tool call through a long event silence",
         ).add(1)
     except Exception:
         pass

@@ -57,7 +57,7 @@ import type { RunStatus } from './runStreamLogic'
 import { taskDraftListeners } from './taskDraftListeners'
 import type { DraftRecovery } from './taskDraftPersistence'
 import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
-import { taskWarmLogic } from './taskWarmLogic'
+import { taskWarmLogic, type WarmSubmission } from './taskWarmLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 export interface RunInteractionLogicProps {
@@ -251,8 +251,8 @@ export interface runInteractionLogicActions {
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
     } // runStreamLogic
-    markTurnComplete: () => {
-        value: true
+    markTurnComplete: (isReplay?: boolean | undefined) => {
+        isReplay: boolean
     } // runStreamLogic
     permissionResponseFailed: (requestId: string) => {
         requestId: string
@@ -1053,6 +1053,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 !props.runId ||
                 !values.isTerminal ||
                 !values.dataProcessingAccepted ||
+                values.startingRun ||
                 values.draftRecovery ||
                 cache.restoringTaskDraft
             ) {
@@ -1312,8 +1313,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             },
 
             // The agent finished a turn — drain any staged follow-ups.
-            markTurnComplete: () => {
-                actions.flushQueue()
+            markTurnComplete: ({ isReplay }) => {
+                if (!isReplay) {
+                    actions.flushQueue()
+                }
             },
 
             // The new model may not support the current effort — clamp the override so it never holds an
@@ -1391,7 +1394,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
                         }
                     )
-                    getWarmLogic()?.actions.consumeWarm()
+                    const warmSubmission: WarmSubmission = { projectId, lease: null }
+                    getWarmLogic()?.actions.prepareSubmit(warmSubmission)
                     actions.beginTaskDraftDelivery(content)
                     actions.resetComposerForm()
                     actions.startOptimisticResume(content)
@@ -1403,6 +1407,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (!isCurrent()) {
                         return
                     }
+                    getWarmLogic()?.actions.consumeWarm(warmSubmission, result.latest_run?.id ?? null)
                     const run = result.latest_run
                     if (!run?.id) {
                         throw new Error('The run response did not include a run')

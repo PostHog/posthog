@@ -235,6 +235,8 @@ def _gemini_client() -> GeminiClient:
     try:
         return genai.Client(
             api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
+            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+            posthog_privacy_mode=True,
             posthog_client=posthoganalytics.default_client,
             http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
         )

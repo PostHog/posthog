@@ -82,8 +82,8 @@ jobs:
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
-        runs-on: ubuntu-latest
-        # `Run migrations` builds the schema from scratch on ubuntu-latest with no schema cache and
+        runs-on: ubuntu-24.04
+        # `Run migrations` builds the schema from scratch on ubuntu-24.04 with no schema cache and
         # takes 22-29 minutes, so a 30-minute budget left no headroom and cut the job off mid-migrate
         # on two of three recent runs. `Build skills`, the step this job exists for, takes 10 seconds.
         timeout-minutes: 45
@@ -345,16 +345,6 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
-            - name: Resolve published agent version
-              id: agent-version
-              run: |
-                  version=$(curl -fsSL --retry 3 https://registry.npmjs.org/@posthog%2fagent/latest | jq -r '.version')
-                  if [[ -z "$version" || "$version" == "null" ]]; then
-                    echo "Could not resolve the latest @posthog/agent version" >&2
-                    exit 1
-                  fi
-                  echo "version=$version" >> "$GITHUB_OUTPUT"
-
             - parallel:
                   - name: Build and push container image (base)
                     id: build
@@ -367,8 +357,9 @@ jobs:
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                         tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
                         platforms: linux/arm64,linux/amd64
+                        # AGENT_VERSION is not passed here: the Dockerfile's ARG default is the
+                        # pinned, reviewed version. Bump it there, not by resolving npm "latest".
                         build-args: |
-                            AGENT_VERSION=${{ steps.agent-version.outputs.version }}
                             COMMIT_HASH=${{ github.sha }}
 
                   - name: Build and push container image (notebook)
@@ -434,7 +425,7 @@ jobs:
     sandbox_base_image_check:
         needs: [changes, build_skills, sandbox_base_build]
         name: Sandbox Base Image Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         permissions: {}
