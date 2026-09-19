@@ -9,17 +9,18 @@ import {
   type RpcClientOptions,
   type RpcEventListener,
 } from "@earendil-works/pi-coding-agent";
+import type { PiEnrichmentConfig } from "@posthog/harness/extensions/enrichment";
 import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import type {
+  CloudRegion,
   McpServerConnection,
   McpToolPermissionDecision,
   McpToolPermissionRequest,
   McpToolPolicy,
 } from "@posthog/shared";
+import type { TaskContext } from "@posthog/shared/task-context";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
-import type { PiEnrichmentConfig } from "./enrichment-extension";
 import { safePiEnvironment } from "./rpc-environment";
-import type { TaskContext } from "./task-system-prompt";
 import type {
   PiExtensionEvent,
   PiQueueSnapshot,
@@ -49,7 +50,7 @@ export type PiRpcClient = RpcClient & {
 };
 
 export interface PiRpcProviderOptions {
-  region?: "us" | "eu" | "dev";
+  region?: CloudRegion;
   apiKey: string;
   baseUrl?: string;
   headers?: Record<string, string>;

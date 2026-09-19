@@ -6,8 +6,8 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 
 from posthog.models.integration import Integration
+from posthog.security.url_validation import INVALID_HOST_MESSAGE, UNREACHABLE_HOST_MESSAGE
 
-from products.batch_exports.backend.api.batch_export import INVALID_HOST_MESSAGE
 from products.batch_exports.backend.tests.api.operations import create_batch_export
 
 pytestmark = [
@@ -72,17 +72,20 @@ def test_creating_postgres_batch_export_using_integration(client: HttpClient, te
 
 
 @pytest.mark.parametrize(
-    "host",
+    "host, expected_message",
     [
-        "169.254.169.254",
-        "127.0.0.1",
-        "10.0.0.1",
-        "192.168.1.1",
-        "postgres://alice:hunter2@db.example.com/app",
+        # A blocked name and a name that does not resolve report the same thing, so the error
+        # cannot be used to find which addresses exist inside our network.
+        ("169.254.169.254", UNREACHABLE_HOST_MESSAGE),
+        ("127.0.0.1", UNREACHABLE_HOST_MESSAGE),
+        ("10.0.0.1", UNREACHABLE_HOST_MESSAGE),
+        ("192.168.1.1", UNREACHABLE_HOST_MESSAGE),
+        # The form is wrong, which is settled before any lookup, so this one says what to fix.
+        ("postgres://alice:hunter2@db.example.com/app", INVALID_HOST_MESSAGE),
     ],
 )
 def test_creating_postgres_batch_export_validates_integration_host(
-    client: HttpClient, temporal, organization, team, user, host
+    client: HttpClient, temporal, organization, team, user, host, expected_message
 ):
     """Test that the integration's host is SSRF-validated when creating a Postgres batch export.
 
@@ -112,7 +115,7 @@ def test_creating_postgres_batch_export_validates_integration_host(
         response = create_batch_export(client, team.pk, batch_export_data)
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == INVALID_HOST_MESSAGE
+    assert response.json()["detail"] == expected_message
     assert host not in response.content.decode()
     assert "hunter2" not in response.content.decode()
 

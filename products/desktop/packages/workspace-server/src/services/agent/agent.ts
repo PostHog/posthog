@@ -44,7 +44,6 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
-import { buildTaskSystemPrompt } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
@@ -58,7 +57,9 @@ import {
 import type * as AgentTypes from "@posthog/agent/types";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch } from "@posthog/git/queries";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import { fetchPosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
+import { buildTaskSystemPrompt } from "@posthog/harness/extensions/task-system-prompt";
 import { APP_META_SERVICE, type IAppMeta } from "@posthog/platform/app-meta";
 import {
   BUNDLED_RESOURCES_SERVICE,
@@ -86,6 +87,8 @@ import {
   type ExecutionMode,
   isAuthError,
   type ModelAccess,
+  readAgentToolName,
+  readMcpToolName,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -150,11 +153,6 @@ function isDevBuild(): boolean {
 
 /** Mark all content blocks as hidden so the renderer doesn't show a duplicate user message on retry */
 type MessageCallback = (message: unknown) => void;
-
-/** Shape of the `_meta.claudeCode` extension field on tool call updates. */
-interface ClaudeCodeToolMeta {
-  claudeCode?: { toolName?: string };
-}
 
 class NdJsonTap {
   private decoder = new TextDecoder();
@@ -781,7 +779,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
    */
   private async mountContextWiki(
     credentials: Credentials,
-  ): Promise<AgentTypes.ContextWikiEnv | null> {
+  ): Promise<ContextWikiEnv | null> {
     const authToken = await this.agentAuthAdapter.gatewayAuthToken();
     if (!authToken) {
       return null;
@@ -797,14 +795,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     if (!mount) {
       return null;
     }
-    // The publish token mirrors POSTHOG_API_KEY exactly: gatewayAuthToken()
-    // just re-synced it, so it is absent for impersonated sessions (an
-    // impersonation credential must never reach agent subprocesses) and fresh
-    // after any token rotation or account switch.
+    const publishToken = await this.agentAuthAdapter.gatewayPublishToken();
     return {
       path: mount.path,
       commitsPath: mount.commitsPath,
-      personalApiKey: process.env.POSTHOG_API_KEY || undefined,
+      personalApiKey: publishToken ?? undefined,
     };
   }
 
@@ -1279,6 +1274,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             ...(logUrl && {
               persistence: { taskId, runId: taskRunId, logUrl },
             }),
+            ...(!isPreview && { taskId }),
             taskRunId,
             environment: "local",
             sessionId: existingSessionId,
@@ -1314,6 +1310,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
           cwd: repoPath,
           mcpServers,
           _meta: {
+            ...(!isPreview && { taskId }),
             taskRunId,
             environment: "local",
             systemPrompt,
@@ -2202,9 +2199,8 @@ For git operations while detached:
           return;
         }
 
-        const toolName = (update._meta as ClaudeCodeToolMeta | undefined)
-          ?.claudeCode?.toolName;
-        if (!toolName?.startsWith("mcp__")) return;
+        const toolName = readMcpToolName(update._meta);
+        if (!toolName) return;
 
         const session = service.sessions.get(taskRunId);
         if (update.sessionUpdate === "tool_call") {
@@ -2376,13 +2372,7 @@ For git operations while detached:
         params?: {
           update?: {
             sessionUpdate?: string;
-            _meta?: {
-              claudeCode?: {
-                toolName?: string;
-                toolResponse?: unknown;
-                bashCommand?: string;
-              };
-            };
+            _meta?: unknown;
             content?: Array<{ type?: string; text?: string }>;
           };
         };
@@ -2399,8 +2389,7 @@ For git operations while detached:
       // toolName (e.g. in terminal output).
       this.maybeAttachCreatedPr(taskRunId, session, update);
 
-      const toolMeta = update._meta?.claudeCode;
-      const toolName = toolMeta?.toolName;
+      const toolName = readAgentToolName(update._meta);
       if (!toolName) return;
 
       this.trackAgentFileActivity(taskRunId, session, toolName);

@@ -12,13 +12,16 @@ import {
 } from "@phosphor-icons/react";
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
+import { readRunMode } from "@posthog/core/sidebar/buildSidebarData";
+import { resolveEffectiveCloudStatus } from "@posthog/core/task-detail/cloudRunState";
 import {
+  Button,
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner as QuillSpinner,
   Text as QuillText,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS, type WorkspaceMode } from "@posthog/shared";
@@ -29,17 +32,27 @@ import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { ShellTerminal } from "@posthog/ui/features/terminal/ShellTerminal";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { secureRandomString } from "@posthog/ui/utils/random";
 import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useOptionalAuthenticatedClient } from "../../auth/authClient";
 import { useAuthStateValue } from "../../auth/store";
 import { useCurrentUser } from "../../auth/useCurrentUser";
 import { useAutoresearchDraftStore } from "../../autoresearch/autoresearchDraftStore";
+import { SpaceSelect } from "../../canvas/components/SpaceSelect";
+import { useTaskChannels } from "../../canvas/hooks/useTaskChannels";
+import { useBluebirdFlag } from "../../feature-flags/useBluebirdFlag";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
 import { useDraftStore } from "../../message-editor/draftStore";
@@ -92,20 +105,24 @@ function CellStatusBadge({
     taskRunEnvironment: task.latest_run?.environment,
   });
 
-  const label = STATUS_LABEL[status];
+  const displayStatus = cell.hasUnseenCompletion ? "completed" : status;
+  const label = STATUS_LABEL[displayStatus];
   if (label === null) return null;
 
   const taskRunStatus = isCloud
-    ? (session?.cloudStatus ?? task.latest_run?.status ?? undefined)
+    ? (resolveEffectiveCloudStatus(task, session) ?? undefined)
     : undefined;
 
   return (
-    <span className="inline-flex items-center gap-0.5 rounded bg-gray-3 px-1 py-0.5 text-[10px] text-gray-11">
+    <span
+      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] ${cell.hasUnseenCompletion ? "bg-primary text-primary-foreground" : "bg-gray-3 text-gray-11"}`}
+    >
       <TaskIcon
         workspaceMode={workspaceMode ?? undefined}
-        isGenerating={session?.isPromptPending}
-        needsPermission={(session?.pendingPermissions?.size ?? 0) > 0}
+        isGenerating={status === "running"}
+        needsPermission={status === "waiting"}
         taskRunStatus={taskRunStatus}
+        runMode={readRunMode(task.latest_run?.state)}
         prState={prState}
         hasDiff={hasDiff}
         size={10}
@@ -127,7 +144,30 @@ function EnvironmentBadge({ mode }: { mode: WorkspaceMode | null }) {
   );
 }
 
-function EmptyCell({ cellIndex }: { cellIndex: number }) {
+export function CommandCenterEmptyCell({ action }: { action: ReactNode }) {
+  return (
+    <Empty className="h-full border-0 bg-gray-1">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Plus size={20} />
+        </EmptyMedia>
+        <EmptyTitle>Empty tile</EmptyTitle>
+        <EmptyDescription>
+          Drag a task from the sidebar, or add one.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>{action}</EmptyContent>
+    </Empty>
+  );
+}
+
+function EmptyCell({
+  cellIndex,
+  replaceExisting,
+}: {
+  cellIndex: number;
+  replaceExisting: boolean;
+}) {
   const [selectorOpen, setSelectorOpen] = useState(false);
   // The command-center terminal is unavailable on cloud-only hosts.
   const { localWorkspaces } = useHostCapabilities();
@@ -140,6 +180,18 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   const layout = useCommandCenterStore((s) => s.layout);
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
+  const spacesEnabled = useBluebirdFlag();
+  const { channels, personalChannel } = useTaskChannels({
+    enabled: spacesEnabled,
+  });
+  const [pickedSpaceId, setPickedSpaceId] = useState<string | null>(null);
+  // A task created without a space lands in #me, so the chip starts there. The
+  // flag gates the chip here rather than through the query, whose cache another
+  // surface may have already filled.
+  const spaceId = spacesEnabled
+    ? (pickedSpaceId ?? personalChannel?.id ?? null)
+    : null;
+  const space = channels.find((c) => c.id === spaceId);
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
@@ -171,8 +223,8 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   );
 
   const handleNewTask = useCallback(() => {
-    if (sessionId) startCreating(cellIndex, sessionId);
-  }, [startCreating, cellIndex, sessionId]);
+    if (sessionId) startCreating(cellIndex, sessionId, replaceExisting);
+  }, [startCreating, cellIndex, sessionId, replaceExisting]);
 
   // Claiming the tile is what keeps the run in the grid: without it the task
   // exists but its session has nowhere to render.
@@ -200,6 +252,8 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
     if (!sessionId) return;
     stopCreating(sessionId);
     clearComposerDraft(sessionId);
+    // The next task in this tile starts from #me again, like its prompt draft.
+    setPickedSpaceId(null);
   }, [stopCreating, sessionId]);
 
   useEffect(() => {
@@ -236,6 +290,21 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
             sessionId={sessionId}
             onTaskCreated={handleTaskCreated}
             showNewTaskSuggestions={false}
+            allowNoRepo
+            channelId={spaceId ?? undefined}
+            channelRepositories={space?.repositories}
+            channelGithubIntegration={space?.github_integration}
+            spaceSelector={
+              spaceId
+                ? ({ disabled }) => (
+                    <SpaceSelect
+                      value={spaceId}
+                      onChange={setPickedSpaceId}
+                      disabled={disabled}
+                    />
+                  )
+                : undefined
+            }
           />
         </div>
       </div>
@@ -243,8 +312,8 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   }
 
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="flex select-none flex-col items-center gap-2">
+    <CommandCenterEmptyCell
+      action={
         <TaskSelector
           cellIndex={cellIndex}
           open={selectorOpen}
@@ -253,20 +322,18 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
           onNewTerminal={localWorkspaces ? handleNewTerminal : undefined}
           onBrainrot={brainrotMode ? handleBrainrot : undefined}
         >
-          <button
+          <Button
             type="button"
             onClick={() => setSelectorOpen(true)}
-            className="flex items-center gap-1.5 rounded-md border border-gray-7 border-dashed px-3 py-1.5 text-[12px] text-gray-10 transition-colors hover:border-gray-9 hover:text-gray-12"
+            variant="outline"
+            size="default"
           >
             <Plus size={12} />
             Add task
-          </button>
+          </Button>
         </TaskSelector>
-        <QuillText className="text-[11px] text-gray-9">
-          or drag a task from the sidebar
-        </QuillText>
-      </div>
-    </div>
+      }
+    />
   );
 }
 
@@ -421,11 +488,7 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
           onLoad={handleLoad}
           className="h-full w-full border-0"
         />
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-11">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
-        )}
+        {loading && <LoadingState className="absolute inset-0" />}
       </div>
     </div>
   );
@@ -546,9 +609,7 @@ function CanvasCell({
       </div>
       <div className="min-h-0 flex-1">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
+          <LoadingState />
         ) : dashboard?.kind === "grid" ? (
           <GridCanvasView canvasId={canvasId} interactive={false} />
         ) : dashboard ? (
@@ -595,7 +656,9 @@ function PopulatedCell({
   }, [clearCell, cell.cellIndex]);
 
   return (
-    <Flex direction="column" height="100%">
+    <div
+      className={`flex h-full flex-col ${cell.hasUnseenCompletion ? "ring-2 ring-primary ring-inset" : ""}`}
+    >
       <Flex
         align="center"
         gap="2"
@@ -647,7 +710,7 @@ function PopulatedCell({
           isActiveSession={isActiveSession}
         />
       </Flex>
-    </Flex>
+    </div>
   );
 }
 
@@ -674,7 +737,12 @@ export function CommandCenterPanel({
   }
 
   if (!cell.taskId || !cell.task) {
-    return <EmptyCell cellIndex={cell.cellIndex} />;
+    return (
+      <EmptyCell
+        cellIndex={cell.cellIndex}
+        replaceExisting={cell.taskId !== null}
+      />
+    );
   }
 
   return (

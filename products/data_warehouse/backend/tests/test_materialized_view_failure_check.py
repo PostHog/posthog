@@ -25,13 +25,14 @@ class TestMaterializedViewFailureCheck(BaseTest):
         status: str | None = None,
         latest_error: str | None = None,
         deleted: bool | None = False,
+        is_materialized: bool = True,
     ) -> DataWarehouseSavedQuery:
         return DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name=name,
             query={"kind": "HogQLQuery", "query": "select 1"},
             created_by=self.user,
-            is_materialized=True,
+            is_materialized=is_materialized,
             status=status,
             latest_error=latest_error,
             deleted=deleted,
@@ -86,10 +87,15 @@ class TestMaterializedViewFailureCheck(BaseTest):
         self._job(view, DataModelingJobStatus.COMPLETED, ran_at=NOW)
         assert self._detected_ids() == set()
 
-    def test_a_duckgres_shadow_success_does_not_stand_in_for_the_serving_run(self) -> None:
+    def test_a_managed_warehouse_shadow_success_does_not_stand_in_for_the_serving_run(self) -> None:
         view = self._view()
         self._job(view, DataModelingJobStatus.FAILED, ran_at=NOW - dt.timedelta(minutes=1))
-        self._job(view, DataModelingJobStatus.COMPLETED, ran_at=NOW, engine=DataModelingJobEngine.DUCKGRES)
+        self._job(
+            view,
+            DataModelingJobStatus.COMPLETED,
+            ran_at=NOW,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+        )
         assert self._detected_ids() == {str(view.id)}
 
     def test_a_view_whose_deleted_flag_was_never_written_is_still_visible(self) -> None:
@@ -99,6 +105,13 @@ class TestMaterializedViewFailureCheck(BaseTest):
 
     def test_a_deleted_view_is_not_reported(self) -> None:
         view = self._view(deleted=True)
+        self._job(view, DataModelingJobStatus.FAILED)
+        assert self._detected_ids() == set()
+
+    def test_a_view_that_is_no_longer_materialized_is_not_reported(self) -> None:
+        # Reverting a materialization leaves its last failed run as the newest job.
+        # Nothing is expected to refresh the view any more, so there is no stale data to warn about.
+        view = self._view(is_materialized=False)
         self._job(view, DataModelingJobStatus.FAILED)
         assert self._detected_ids() == set()
 

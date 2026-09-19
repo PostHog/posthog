@@ -1331,8 +1331,8 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                         },
                         // A hog template that is a single {…} expression resolves to the expression's raw
                         // value, so this string becomes a whole block: a chart of the alerted insight when
-                        // the anomaly investigation rendered one (`insight_chart_url` set by
-                        // investigate_anomaly_activity), otherwise the plain divider — Slack has no way to
+                        // one was rendered (`insight_chart_url`, set for any firing alert by
+                        // dispatch_alert_notification), otherwise the plain divider. Slack has no way to
                         // omit a block conditionally, and an image block with an empty URL fails the send.
                         "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
                         {
@@ -1734,6 +1734,17 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'health-alerts'
         case '$batch_export_run_failed':
             return 'batch-export-alerts'
+        case '$billing_alert_firing':
+        case '$billing_alert_resolved':
+        case '$billing_alert_errored':
+        case '$billing_alert_auto_disabled':
+            return 'billing-alerts'
+        case '$replay_vision_alert_firing':
+        case '$replay_vision_alert_resolved':
+        case '$replay_vision_alert_errored':
+        case '$replay_vision_alert_auto_disabled':
+        case '$replay_vision_alert_match':
+            return 'replay-vision-alerts'
         default:
             return 'standard'
     }

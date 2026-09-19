@@ -49,10 +49,14 @@ export interface UseTaxonomicGroupsContextInput {
     metadataSource?: AnyDataNode
     suggestedFiltersLabel?: string
     excludedProperties?: ExcludedProperties
+    /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
+    includeHiddenEvents?: boolean
     propertyAllowList?: AllowedProperties
     selectedProperties?: SelectedProperties
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts?: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting?: boolean
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
     hogQLExpressionShowBreakdownLabelHint?: boolean
@@ -146,6 +150,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
             personMetadataPropertyDefinitions,
             maxContextOptions: input.maxContextOptions ?? (EMPTY_ARRAY as unknown as MaxContextTaxonomicFilterOption[]),
             hideBehavioralCohorts: input.hideBehavioralCohorts ?? false,
+            showCohortFlagTargeting: input.showCohortFlagTargeting ?? false,
             endpointFilters: input.endpointFilters,
             hogQLExpressionComponentProps,
             // `featureFlags` from featureFlagLogic returns the project's
@@ -153,6 +158,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
             // `Record<string, boolean | string | undefined>` the
             // taxonomic-groups builder accepts.
             featureFlags: featureFlags as unknown as BuildTaxonomicGroupsContext['featureFlags'],
+            includeHiddenEvents: input.includeHiddenEvents,
         }
     }, [
         currentTeam,
@@ -175,9 +181,11 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         input.metadataSource,
         input.suggestedFiltersLabel,
         input.excludedProperties,
+        input.includeHiddenEvents,
         input.propertyAllowList,
         input.maxContextOptions,
         input.hideBehavioralCohorts,
+        input.showCohortFlagTargeting,
         input.endpointFilters,
         input.hogQLGlobals,
         input.hogQLExpressionShowBreakdownLabelHint,

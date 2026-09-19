@@ -4,6 +4,11 @@ import { basename, dirname, join } from "node:path";
 import type { RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
+import { resolveContextWikiPath } from "@posthog/harness/extensions/context-wiki";
+import {
+  buildStoreSkillsInstructions,
+  syncStoreSkills,
+} from "@posthog/harness/extensions/skills-store";
 import {
   type AgentConversationEvent,
   type AgentTurnUsage,
@@ -17,11 +22,11 @@ import {
   type TaskRunArtifact,
 } from "@posthog/shared";
 import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import type { TaskContext } from "@posthog/shared/task-context";
 import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
-import { resolveContextWikiPath } from "../context-wiki";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import {
   createPiRpcClient,
@@ -32,13 +37,13 @@ import {
 } from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
-import type { TaskContext } from "../pi/task-system-prompt";
 import {
   type PiExtensionEvent,
   piExtensionUIResponseSchema,
   type RpcExtensionUIResponse,
 } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
+import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
@@ -46,7 +51,6 @@ import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
-import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig } from "./types";
 
 const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
@@ -69,6 +73,7 @@ interface PiCloudSession {
 const emptySchema = z.object({});
 const MAX_PENDING_EVENTS = 1_000;
 const MAX_PENDING_LOG_ENTRIES = 10_000;
+const MAX_COVERED_EVENT_IDS = 10_000;
 const LOG_FLUSH_ENTRY_COUNT = 100;
 
 const userMessageCommandSchema = z
@@ -131,6 +136,7 @@ export class PiAgentServer {
   });
   private readonly posthogAPI: PostHogAPIClient;
   private readonly eventStreamSender: TaskRunEventStreamSender | null;
+  private readonly nextEventId = createEventIdSource();
   private server: ServerType | null = null;
   private session: PiCloudSession | null = null;
   private initializationPromise: Promise<void> | null = null;
@@ -646,6 +652,10 @@ export class PiAgentServer {
       task_prewarmed: taskRun ? runState?.prewarmed === true : null,
       ai_stage:
         typeof runState?.ai_stage === "string" ? runState.ai_stage : null,
+      ai_agent_name:
+        typeof runState?.ai_agent_name === "string"
+          ? runState.ai_agent_name
+          : null,
       task_execution_environment: "cloud",
     });
 
@@ -664,6 +674,10 @@ export class PiAgentServer {
         apiUrl: this.config.apiUrl,
         projectId: this.config.projectId,
         apiKey: this.config.apiKey,
+        interactionOrigin:
+          process.env.POSTHOG_CODE_INTERACTION_ORIGIN ??
+          process.env.CODE_INTERACTION_ORIGIN ??
+          process.env.TWIG_INTERACTION_ORIGIN,
       },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
@@ -1056,7 +1070,12 @@ export class PiAgentServer {
     return sync;
   }
 
-  private broadcast(event: Record<string, unknown>): void {
+  private broadcast(rawEvent: Record<string, unknown>): void {
+    const eventId = this.nextEventId();
+    const event: Record<string, unknown> = {
+      ...rawEvent,
+      event_id: eventId,
+    };
     const isConversationEvent =
       event.type === "pi_event" || event.type === "pi_run_started";
     const isExtensionMessage =
@@ -1075,6 +1094,7 @@ export class PiAgentServer {
               method: "_posthog/pi_extension_event",
               params: event,
             },
+            event_id: eventId,
           }
         : {
             id: typeof event.id === "string" ? event.id : undefined,
@@ -1085,6 +1105,7 @@ export class PiAgentServer {
               event.type === "pi_event"
                 ? (event.event as AgentConversationEvent)
                 : undefined,
+            event_id: eventId,
           };
       const toolCallId = updatedToolCallId(logEntry.event);
       const pendingLogIndex = toolCallId
@@ -1094,9 +1115,19 @@ export class PiAgentServer {
         : -1;
       if (pendingLogIndex >= 0) {
         const previous = this.pendingLogEntries[pendingLogIndex];
+        const coveredEventIds = previous?.covered_event_ids ?? [];
+        if (
+          previous?.event_id &&
+          coveredEventIds.length < MAX_COVERED_EVENT_IDS
+        ) {
+          coveredEventIds.push(previous.event_id);
+        }
         this.pendingLogEntries[pendingLogIndex] = {
           ...logEntry,
           event: mergeToolCallUpdate(previous?.event, logEntry.event),
+          ...(coveredEventIds.length > 0
+            ? { covered_event_ids: coveredEventIds }
+            : {}),
         };
       } else {
         this.pendingLogEntries.push(logEntry);
@@ -1140,12 +1171,23 @@ export class PiAgentServer {
         : -1;
       if (pendingEventIndex >= 0) {
         const previous = this.pendingEvents[pendingEventIndex];
+        const coveredEventIds =
+          (previous?.covered_event_ids as string[] | undefined) ?? [];
+        if (
+          typeof previous?.event_id === "string" &&
+          coveredEventIds.length < MAX_COVERED_EVENT_IDS
+        ) {
+          coveredEventIds.push(previous.event_id);
+        }
         this.pendingEvents[pendingEventIndex] = {
           ...event,
           event: mergeToolCallUpdate(
             previous?.event as AgentConversationEvent | undefined,
             event.event as AgentConversationEvent | undefined,
           ),
+          ...(coveredEventIds.length > 0
+            ? { covered_event_ids: coveredEventIds }
+            : {}),
         };
       } else {
         this.pendingEvents.push(event);

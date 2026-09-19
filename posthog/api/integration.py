@@ -97,6 +97,7 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
+    resolve_aliased_oauth_kind,
 )
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
@@ -211,6 +212,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
     )
     try:
         # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
+        # nosemgrep: inbound-webhooks-go-through-ingress -- this signs a marketplace install redirect, not a webhook delivery, so there is nothing for the dispatcher to fan out
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -624,6 +626,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     def create(self, validated_data: Any) -> Any:
         team_id = self.context["team_id"]
+        config_in = validated_data.get("config") or {}
+
+        # A kind that borrows another kind's connected app returns on the owner's callback path, so
+        # the client posts the path's kind. Both kinds derive the same integration id from the same
+        # provider account, so the grant would overwrite the borrowed kind's working integration
+        # with a token its API rejects. Promote the state kind before anything keys on it.
+        state = config_in.get("state")
+        validated_data["kind"] = resolve_aliased_oauth_kind(
+            validated_data["kind"], state if isinstance(state, str) else ""
+        )
         kind = validated_data["kind"]
 
         # Setting push identity verification is a security policy change, not a credential upload, so it
@@ -638,7 +650,6 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # still be classified as a create and could land `disabled` over the policy an admin had just
         # written. Omitting the key entirely stays open to members and is what connecting a channel
         # without touching the policy does — that path preserves whatever is already stored.
-        config_in = validated_data.get("config") or {}
         requested_verification = config_in.get("push_identity_verification")
         # Registering/clearing public keys is a security-policy change (it decides which signer is
         # trusted), so it carries the same admin bar as the mode. `is not None` covers clearing too.
@@ -1269,7 +1280,11 @@ class IntegrationViewSet(
         "request_access",
     ]
     permission_classes = [IntegrationManagementPermission]
-    queryset = defer_repository_cache_fields(Integration.objects.all())
+    # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
+    # page boundary. Clients page this list to find one kind, so a dropped row reads as
+    # "not configured". Order oldest-first: several clients take the first row of a kind as their
+    # default connection.
+    queryset = defer_repository_cache_fields(Integration.objects.all()).order_by("created_at", "id")
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
@@ -2265,14 +2280,12 @@ class IntegrationViewSet(
         if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
             raise ValidationError("Unsupported provider endpoint")
 
-        host: str | None = None
-
         if context == "email":
             integration_id = request.data.get("integration_id")
             if not integration_id:
                 raise ValidationError("integration_id is required for email context")
             try:
-                domain, service_id, variables = resolve_email_context(integration_id, self.team_id)
+                resolved = resolve_email_context(integration_id, self.team_id)
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(
@@ -2285,7 +2298,7 @@ class IntegrationViewSet(
                 raise ValidationError("proxy_record_id is required for proxy context")
             organization = self.organization
             try:
-                domain, service_id, host, variables = resolve_proxy_context(proxy_record_id, str(organization.id))
+                resolved = resolve_proxy_context(proxy_record_id, str(organization.id))
             except ValueError as e:
                 capture_exception(
                     e, {"proxy_record_id": proxy_record_id, "organization_id": organization.id, "context": context}
@@ -2298,15 +2311,17 @@ class IntegrationViewSet(
 
         try:
             url = generate_apply_url(
-                domain=domain,
-                service_id=service_id,
-                variables=variables,
-                host=host,
+                domain=resolved.root_domain,
+                service_id=resolved.service_id,
+                variables=resolved.variables,
+                host=resolved.host,
                 provider_endpoint=provider_endpoint,
                 redirect_uri=redirect_uri,
             )
         except DomainConnectSigningKeyMissing as e:
-            capture_exception(e, {"context": context, "domain": domain, "provider_endpoint": provider_endpoint})
+            capture_exception(
+                e, {"context": context, "domain": resolved.root_domain, "provider_endpoint": provider_endpoint}
+            )
             raise ValidationError(
                 "Automatic DNS configuration is temporarily unavailable for this provider. "
                 "Please configure your DNS records manually."
@@ -2316,9 +2331,9 @@ class IntegrationViewSet(
                 e,
                 {
                     "context": context,
-                    "domain": domain,
-                    "service_id": service_id,
-                    "host": host,
+                    "domain": resolved.root_domain,
+                    "service_id": resolved.service_id,
+                    "host": resolved.host,
                     "provider_endpoint": provider_endpoint,
                     "redirect_uri": redirect_uri,
                 },

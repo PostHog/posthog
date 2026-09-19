@@ -20,6 +20,10 @@ from django.conf import settings
 import requests
 from prometheus_client import Counter
 
+from products.tasks.backend.logic.services.gateway_model_pin import PRODUCT_ALLOWED_MODELS, model_allowed_by_product_pin
+from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
+
 logger = logging.getLogger(__name__)
 
 AI_GATEWAY_TOKEN_MINTS = Counter(
@@ -33,12 +37,14 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",
     "posthog_ai": "posthog_ai",
+    "review_hog": "review_hog",
     "scout_suggestions": "signals",
     "signal_report": "signals",
     "signals_chat": "signals",
     "signals_scout": "signals",
     "slack": "slack_app",
     "support_reply": "conversations",
+    "workflow": "workflows",
 }
 
 # Mirrors SIGNALS_STAGE_PRODUCTS + SCOUT_STAGE_PREFIX in gateway.ts.
@@ -57,13 +63,20 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # stages are set only by server flows: pipeline stages by the flows that start
 # them, `inbox` / `chat` by `Task.create_run`. A caller owning a report can reach
 # `signals_inbox`, so the per-run cap and the product's daily budget bound those two.
+# review_hog qualifies because validate_origin_product reserves the origin and
+# the resolver requires the server-stamped `internal` flag; rows predating the
+# reservation resolve to posthog_code and cannot mint. slack_app also needs the
+# PATCH-protected `interaction_origin` stamp (mint_refusal), older rows included.
 MINTABLE_PRODUCTS = frozenset(
     {
+        "review_hog",
+        "slack_app",
         "signals_scout",
         "signals_research",
         "signals_implementation",
         "signals_repo_selection",
         "signals_custom_agent",
+        "workflows",
         "signals_inbox",
         "signals_chat",
         "signals_scout_suggestions",
@@ -74,6 +87,11 @@ MINTABLE_PRODUCTS = frozenset(
 # ceiling. Mirrors the stages `Task.create_run` stamps.
 INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
 
+# Interactive runs with no wall-clock cap; their tokens last the sandbox lifetime.
+SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"slack_app"})
+
+_PRODUCT_ALLOWED_MODELS = PRODUCT_ALLOWED_MODELS
+
 # Minting is optional (no token = Python-gateway fallback), so the total budget
 # stays a few seconds: 2 attempts x 3s + one short backoff, not a 30s provisioning stall.
 _MINT_ATTEMPTS = 2
@@ -83,6 +101,11 @@ _MINT_TIMEOUT_SECONDS = 3
 def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
     """The `ai_product` the agent server will resolve for this run."""
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
+    # Stored rows may carry a caller-set review_hog origin predating its
+    # reservation; only the server-stamped `internal` flag admits the mintable product.
+    if gateway_product == "review_hog" and not internal:
+        logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
+        return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"
     if gateway_product == "signals" and ai_stage:
@@ -107,17 +130,60 @@ def sandbox_product_routed(ai_product: str, ai_stage: str | None, products_csv: 
     return False
 
 
+def mint_refusal(
+    ai_product: str, *, team_id: int, state: dict[str, Any] | None, model: str | None, runtime: str | None
+) -> str | None:
+    """Why a routed run must not mint; a run without a token stays on the Python gateway."""
+    if ai_product != "slack_app":
+        return None
+    if not is_slack_interaction_state(state):
+        return "no_slack_provenance"
+    # The Pi harness reads only LLM_GATEWAY_URL.
+    if runtime == "pi":
+        return "pi_runtime"
+    # The gateway denies an off-pin model with no fallback.
+    if not model_allowed_by_product_pin(ai_product, model):
+        return "model_outside_pin"
+    # The Python gateway refuses every call once AI credits run out; the Go gateway has no such check.
+    # An unknown balance is no licence to spend.
+    try:
+        over_budget = _team_over_ai_credit_budget(team_id)
+    except Exception:
+        logger.warning(
+            "ai_gateway_token: ai credit lookup failed, run stays on the Python gateway",
+            extra={"team_id": team_id},
+            exc_info=True,
+        )
+        return "ai_credits_unknown"
+    if over_budget:
+        return "ai_credits_exhausted"
+    return None
+
+
+def _team_over_ai_credit_budget(team_id: int) -> bool:
+    from posthog.models import Team  # noqa: PLC0415
+
+    from ee.billing.quota_limiting import is_team_over_ai_credit_budget  # noqa: PLC0415
+
+    api_token = Team.objects.filter(id=team_id).values_list("api_token", flat=True).first()
+    if not api_token:
+        return False
+    return is_team_over_ai_credit_budget(api_token)
+
+
 def _token_ttl_seconds(ai_product: str) -> int:
     """Token lifetime: the explicit setting, else this product's own run-duration cap plus a
     settle buffer, so a capped run cannot outlive its token (expiry under a live run fails
-    every remaining LLM call with no fallback). Only the interactive products are exempt from
-    the background cap, so only they derive the longer ceiling; giving every token the longest
+    every remaining LLM call with no fallback). Only interactive products are exempt from
+    the background cap, so only they derive a longer ceiling; giving every token the longest
     one would widen the window on a leaked background token for no run that could use it.
     A disabled cap derives the 24h mint maximum. Clamped to mint bounds (60s..24h).
     """
     configured = int(settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS or 0)
     if configured <= 0:
-        if ai_product in INTERACTIVE_MINTABLE_PRODUCTS:
+        if ai_product in SANDBOX_BOUND_MINTABLE_PRODUCTS:
+            run_cap = MAX_SANDBOX_TTL_SECONDS
+        elif ai_product in INTERACTIVE_MINTABLE_PRODUCTS:
             # These runs are exempt from the background cap, so their own ceiling is the only
             # one that bounds them; zero means unbounded and derives the mint maximum.
             run_cap = int(getattr(settings, "TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS", 0) or 0)
@@ -196,6 +262,9 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
     }
     if user:
         body["user"] = user
+    allowed_models = _PRODUCT_ALLOWED_MODELS.get(ai_product)
+    if allowed_models:
+        body["allowed_models"] = allowed_models
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:

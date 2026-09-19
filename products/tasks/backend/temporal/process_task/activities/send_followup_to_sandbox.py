@@ -1,6 +1,4 @@
 import time
-import threading
-import contextvars
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, NoReturn
@@ -12,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.user_integration import ReauthorizationRequired, UserIntegration
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -55,6 +54,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     loop_mcp_installation_allowlist,
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
+    mcp_exclude_tools_from_state,
     record_message_actor,
     sandbox_identity_scope,
     upgrade_run_to_user_authorship,
@@ -96,7 +96,9 @@ DENIAL_BRAKE_CONSUMED_REQUEST_ID_KEY = "followup_denial_brake_request_id"
 # attempt, detected via heartbeat timeout) and for delivery-unknown failures.
 # Application failures that write an error sentinel raise non-retryable.
 SEND_FOLLOWUP_MAX_ATTEMPTS = 3
-SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS = 15
+# `HeartbeaterSync` divides the activity's heartbeat timeout by this factor, so 4 against the
+# 1-minute timeout both callers set gives a 15-second interval.
+SEND_FOLLOWUP_HEARTBEAT_FACTOR = 4
 STEER_DECLINED_OUTCOME = "steer_declined"
 STEER_DECLINE_REASON_UNREPORTED = "unreported"
 STEER_DECLINE_REASON_ACTOR_MISMATCH = "actor_mismatch"
@@ -132,23 +134,8 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> str | None:
     so a worker restart is detected within the heartbeat timeout instead of
     the 35-minute start_to_close.
     """
-    stop_heartbeat = threading.Event()
-    heartbeat_ctx = contextvars.copy_context()
-
-    def _heartbeat_loop() -> None:
-        while not stop_heartbeat.wait(SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS):
-            try:
-                activity.heartbeat()
-            except Exception:
-                return
-
-    heartbeat_thread = threading.Thread(target=lambda: heartbeat_ctx.run(_heartbeat_loop), daemon=True)
-    heartbeat_thread.start()
-    try:
+    with HeartbeaterSync(factor=SEND_FOLLOWUP_HEARTBEAT_FACTOR, logger=logger):
         return _deliver_followup(input)
-    finally:
-        stop_heartbeat.set()
-        heartbeat_thread.join(timeout=2)
 
 
 def _current_attempt() -> int:
@@ -791,6 +778,7 @@ def _refresh_sandbox_mcp(
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
+        exclude_tools=mcp_exclude_tools_from_state(state),
     )
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,
@@ -974,6 +962,7 @@ def _refresh_sandbox_github(
     sandbox = lookup.sandbox
 
     repository = task.repository
+    repositories = task.repositories or ([repository] if repository else [])
     token: str | None = None
     try:
         token = get_sandbox_github_token(
@@ -1021,7 +1010,7 @@ def _refresh_sandbox_github(
         if token:
             applied = False
             try:
-                applied = apply_github_credentials_to_sandbox(sandbox, repository, token)
+                applied = apply_github_credentials_to_sandbox(sandbox, repositories, token)
             except Exception:
                 logger.warning(
                     "refresh_github_apply_failed",
@@ -1044,7 +1033,7 @@ def _refresh_sandbox_github(
         # is_running() check and here, or timed out), so guard it like the rebind above and fail
         # closed on the exception rather than letting it escape uncontrolled.
         try:
-            cleared = clear_github_credentials_from_sandbox(sandbox, repository)
+            cleared = clear_github_credentials_from_sandbox(sandbox, repositories)
         except Exception:
             logger.warning("refresh_github_logout_errored", run_id=run_id, user_id=actor_user.id, exc_info=True)
             return SandboxRebindFailure.LOGOUT_ERRORED

@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import KEY_REJECTED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source import (
     CloudzeroSource,
@@ -53,24 +54,24 @@ class TestGetSchemas:
         tables = {t["name"]: t for t in CloudzeroSource().get_documented_tables()}
         assert set(tables) == set(ENDPOINTS)
         assert "Incremental" in tables["Costs"]["sync_methods"]
-        assert tables["Dimensions"]["sync_methods"] == ["Full refresh"]
+        # Costs is the only endpoint CloudZero lets us filter by time, so every other table
+        # can only be synced by full refresh.
+        assert [name for name, table in tables.items() if table["sync_methods"] != ["Full refresh"]] == ["Costs"]
 
 
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", True, (True, None)),
-            ("invalid", False, (False, "Invalid credentials")),
+            ("valid", (True, None)),
+            ("invalid", (False, KEY_REJECTED_MESSAGE)),
         ]
     )
-    def test_plumbs_transport_result(
-        self, _name: str, transport_result: bool, expected: tuple[bool, str | None]
-    ) -> None:
+    def test_plumbs_transport_result(self, _name: str, transport_result: tuple[bool, str | None]) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source.validate_cloudzero_credentials",
             return_value=transport_result,
         ) as mocked:
-            assert CloudzeroSource().validate_credentials(_config(), team_id=1) == expected
+            assert CloudzeroSource().validate_credentials(_config(), team_id=1) == transport_result
         mocked.assert_called_once_with("key")
 
 
@@ -119,9 +120,22 @@ class TestResumableWiring:
         assert response.partition_keys == ["usage_date"]
         assert response.partition_mode == "datetime"
 
-    def test_dimensions_uses_id_primary_key_and_no_partitioning(self) -> None:
+    @parameterized.expand(
+        [
+            ("Budgets", ["id"]),
+            ("Dimensions", ["id"]),
+            ("Insights", ["id"]),
+            ("RecommendationTypes", ["id"]),
+            # CloudZero names the recommendation key `recommendation_id`, not `id`. A wrong key
+            # here seeds duplicate rows that every later merge multi-matches.
+            ("Recommendations", ["recommendation_id"]),
+        ]
+    )
+    def test_non_cost_endpoints_use_their_own_key_and_no_partitioning(
+        self, schema_name: str, expected_primary_keys: list[str]
+    ) -> None:
         inputs = MagicMock()
-        inputs.schema_name = "Dimensions"
+        inputs.schema_name = schema_name
         inputs.team_id = 1
         inputs.job_id = "test_job"
         inputs.should_use_incremental_field = False
@@ -131,11 +145,11 @@ class TestResumableWiring:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source.cloudzero_source"
         ) as mocked:
-            mocked.return_value.name = "Dimensions"
+            mocked.return_value.name = schema_name
             mocked.return_value.column_hints = None
             response = CloudzeroSource().source_for_pipeline(_config(), manager, inputs)
 
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == expected_primary_keys
         assert response.partition_keys is None
         assert response.partition_mode is None
 

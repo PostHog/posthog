@@ -1,5 +1,5 @@
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from django.utils.timezone import now
@@ -31,7 +31,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         SessionRecordingViewed.objects.all().delete()
         SessionRecording.objects.all().delete()
 
-        with freeze_time("2023-01-01T12:00:00Z"):
+        with time_machine.travel("2023-01-01T12:00:00Z", tick=False):
             self.session_id = str(uuid7())
             self.produce_replay_summary(
                 "user",
@@ -68,7 +68,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         assert "access_token" in response.json()
         return response.json()["access_token"]
 
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_enable_sharing_creates_access_token(self) -> None:
         token = self._enable_sharing(self.session_id)
         assert isinstance(token, str) and len(token) > 0
@@ -95,7 +95,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             ),
         ]
     )
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_sharing_token_forbidden_access_scenarios(self, _name: str, url_builder) -> None:
         self.other_team = create_team(organization=self.organization)
 
@@ -107,7 +107,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         response = self.client.get(url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_sharing_token_allows_authorized_access(self) -> None:
         token = self._enable_sharing(self.session_id)
 
@@ -125,7 +125,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             "end_time": "2022-12-31T12:00:00Z",
         }
 
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_sharing_token_allows_snapshot_access(self) -> None:
         token = self._enable_sharing(self.session_id)
 
@@ -153,7 +153,7 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
 
         self.member_user = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
 
-        with freeze_time("2023-01-01T12:00:00Z"):
+        with time_machine.travel("2023-01-01T12:00:00Z", tick=False):
             self.session_id = str(uuid7())
             produce_replay_summary(
                 team_id=self.team.pk,
@@ -190,7 +190,7 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
             ("editor", status.HTTP_200_OK),
         ]
     )
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_enable_sharing_requires_editor_access(self, access_level: str, expected_status: int) -> None:
         self._grant_recording_access(access_level)
         self.client.force_login(self.member_user)
@@ -208,7 +208,7 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
             ("editor", status.HTTP_200_OK),
         ]
     )
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_enable_sharing_requires_editor_access_to_sharing_configuration_resource(
         self, access_level: str, expected_status: int
     ) -> None:
@@ -226,7 +226,7 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
 
         assert response.status_code == expected_status, response.json()
 
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_sharing_response_exposes_user_access_level(self) -> None:
         self.client.force_login(self.member_user)
 

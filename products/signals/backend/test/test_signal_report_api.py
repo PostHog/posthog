@@ -1,8 +1,8 @@
 import json
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
@@ -16,14 +16,18 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import exceptions, status
+from rest_framework.request import Request
 from social_django.models import UserSocialAuth
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.constants import AvailableFeature
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthApplication
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -31,8 +35,14 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.actions.backend.models.action import Action
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.artefact_schemas import ChannelAssignment
 from products.signals.backend.implementation_pr import (
+    ImplementationPr,
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
@@ -48,11 +58,19 @@ from products.signals.backend.models import (
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
+    TASK_RUN_TYPE_RESEARCH,
     append_task_run_artefact,
     record_implementation_task,
     record_report_task,
 )
-from products.signals.backend.views import classify_report_list_client
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
+from products.signals.backend.throttles import ReportMetricRefreshThrottle
+from products.signals.backend.views import (
+    PR_CI_STATUS_MAX_REPORTS,
+    SignalReportViewSet,
+    classify_report_list_client,
+    parse_pr_ci_status_report_ids,
+)
 from products.tasks.backend.facade.api import Channel
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
@@ -60,7 +78,7 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
 
 
-def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
+def authenticate_as_sandbox_token(test: APIBaseTest, *, scopes: list[str] | None = None) -> None:
     for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
         OAuthApplication.objects.get_or_create(
             client_id=client_id,
@@ -72,7 +90,11 @@ def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
                 "algorithm": "RS256",
             },
         )
-    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=["task:read", "task:write"])
+    token = create_oauth_access_token_for_user(
+        test.user,
+        test.team.id,
+        scopes=scopes if scopes is not None else ["task:read", "task:write"],
+    )
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -87,6 +109,28 @@ class TestReportListClientClassification(SimpleTestCase):
     )
     def test_classifies_user_agent(self, _name: str, user_agent: str, expected: str) -> None:
         assert classify_report_list_client(user_agent) == expected
+
+
+class TestReportMetricRefreshThrottle(SimpleTestCase):
+    def test_uses_one_team_bucket_for_every_auth_method(self) -> None:
+        throttle = ReportMetricRefreshThrottle()
+        view = SimpleNamespace(team_id=42)
+        requests = [
+            cast(Request, SimpleNamespace(user=SimpleNamespace(is_authenticated=True, pk=user_id)))
+            for user_id in (1, 2)
+        ]
+
+        first_key, second_key = (throttle.get_cache_key(request, view) for request in requests)
+
+        assert first_key == second_key
+        assert first_key is not None and "team_42" in first_key
+
+    def test_refresh_action_uses_the_user_aware_throttle(self) -> None:
+        assert SignalReportViewSet.refresh_metrics.kwargs["throttle_classes"] == [
+            ReportMetricRefreshThrottle,
+            ClickHouseBurstRateThrottle,
+            ClickHouseSustainedRateThrottle,
+        ]
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -173,6 +217,61 @@ class TestSignalReportListAPI(APIBaseTest):
         defaults.update(kwargs)
         return SignalReport.objects.create(**defaults)
 
+    def _enable_feature(self, feature: AvailableFeature) -> None:
+        self.organization.available_product_features = [
+            {"name": feature, "key": feature},
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
+    @staticmethod
+    def _affected_users_metric(*, series: dict) -> dict:
+        return {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "role": "primary",
+            "value": 17,
+            "value_at": "2026-08-29T12:00:00Z",
+            "series": [4, 6, 7],
+            "value_format": "count",
+            "unit": "users",
+            "query": trends_metric_query(series=[series]),
+            "caption": "Unique people in the last 30 days.",
+            "comparison": {"value": 11, "label": "Previous period"},
+        }
+
+    @staticmethod
+    def _legacy_queryless_metric() -> dict:
+        return {
+            "metric_id": "conversion-impact",
+            "title": "Conversion impact",
+            "kind": "conversion_rate",
+            "role": "supporting",
+            "value": 12,
+            "value_at": "2026-08-29T12:00:00Z",
+            "value_format": "percentage",
+            "unit": None,
+            "query": None,
+            "caption": "Observed during research.",
+            "comparison": {"value": 15, "label": "Previous period"},
+        }
+
+    @staticmethod
+    def _legacy_unsupported_series_metric(*, series: dict) -> dict:
+        return {
+            "metric_id": "legacy-impact",
+            "title": "Legacy impact",
+            "kind": "custom",
+            "role": "supporting",
+            "value": 12,
+            "value_at": "2026-08-29T12:00:00Z",
+            "value_format": "count",
+            "unit": "events",
+            "query": trends_metric_query(series=[series]),
+            "caption": None,
+            "comparison": {"value": 9, "label": "Previous period"},
+        }
+
     def _priority_artefact(
         self,
         report: SignalReport,
@@ -221,6 +320,290 @@ class TestSignalReportListAPI(APIBaseTest):
         )
         art.save()
         return art
+
+    def test_list_and_retrieve_include_typed_impact_metrics_without_running_them(self) -> None:
+        metric = {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "role": "primary",
+            "value": 17,
+            "value_at": "2026-08-29T12:00:00Z",
+            "series": [3, 5, 9],
+            "value_format": "count",
+            "unit": "users",
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+            "caption": "Unique people in the last 30 days.",
+            "comparison": None,
+        }
+        report = self._create_report(metrics=[metric])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        row = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))
+        assert row["metrics"][0]["value"] == 17.0
+        assert row["metrics"][0]["series"] == [3.0, 5.0, 9.0]
+        assert "query" not in row["metrics"][0]
+        assert "comparison" not in row["metrics"][0]
+
+        retrieve_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert retrieve_response.status_code == status.HTTP_200_OK
+        assert retrieve_response.json()["metrics"][0]["metric_id"] == "affected-users"
+        assert retrieve_response.json()["metrics"][0]["query"] == metric["query"]
+
+    def test_property_restricted_member_cannot_read_metric_snapshot_or_definition(self) -> None:
+        self._enable_feature(AvailableFeature.PROPERTY_ACCESS_CONTROL)
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="secret_plan",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        metric = self._affected_users_metric(
+            series={
+                "kind": "EventsNode",
+                "event": "$exception",
+                "math": "dau",
+                "properties": [
+                    {
+                        "key": "secret_plan",
+                        "value": ["enterprise"],
+                        "operator": "exact",
+                        "type": "event",
+                    }
+                ],
+            }
+        )
+        report = self._create_report(metrics=[metric])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        list_metric = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))["metrics"][
+            0
+        ]
+        assert list_metric["value"] is None
+        assert list_metric["value_at"] is None
+        assert list_metric["series"] is None
+        assert "query" not in list_metric
+        assert "comparison" not in list_metric
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert detail_metric["series"] is None
+        assert "comparison" not in detail_metric
+        assert detail_metric["query"] is None
+
+    def test_viewer_property_grant_keeps_live_query_but_hides_userless_snapshot(self) -> None:
+        self._enable_feature(AvailableFeature.PROPERTY_ACCESS_CONTROL)
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="secret_plan",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.READ.value,
+        )
+        metric = self._affected_users_metric(series={"kind": "EventsNode", "event": "$exception", "math": "dau"})
+        report = self._create_report(metrics=[metric])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        list_metric = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))["metrics"][
+            0
+        ]
+        assert list_metric["value"] is None
+        assert list_metric["value_at"] is None
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert "comparison" not in detail_metric
+        assert detail_metric["query"] == metric["query"]
+
+    def test_action_restricted_member_cannot_read_metric_snapshot_or_definition(self) -> None:
+        self._enable_feature(AvailableFeature.ACCESS_CONTROL)
+        action = Action.objects.create(team=self.team, name="Restricted action")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="action",
+            resource_id=str(action.id),
+            access_level="none",
+        )
+        metric = self._affected_users_metric(series={"kind": "ActionsNode", "id": action.id, "math": "dau"})
+        report = self._create_report(metrics=[metric])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        list_metric = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))["metrics"][
+            0
+        ]
+        assert list_metric["value"] is None
+        assert list_metric["value_at"] is None
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert "comparison" not in detail_metric
+        assert detail_metric["query"] is None
+
+    def test_queryless_snapshot_is_redacted_when_action_provenance_cannot_be_proven(self) -> None:
+        self._enable_feature(AvailableFeature.ACCESS_CONTROL)
+        action = Action.objects.create(team=self.team, name="Restricted action")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="action",
+            resource_id=str(action.id),
+            access_level="none",
+        )
+        report = self._create_report(metrics=[self._legacy_queryless_metric()])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        list_metric = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))["metrics"][
+            0
+        ]
+        assert list_metric["value"] is None
+        assert list_metric["value_at"] is None
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert "comparison" not in detail_metric
+        assert detail_metric["query"] is None
+
+    def test_queryless_snapshot_is_redacted_for_scoped_task_token(self) -> None:
+        report = self._create_report(metrics=[self._legacy_queryless_metric()])
+        authenticate_as_sandbox_token(
+            self,
+            scopes=["task:read", "query:read", "event_definition:read", "action:read"],
+        )
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert "comparison" not in detail_metric
+        assert detail_metric["query"] is None
+
+    def test_legacy_unsupported_series_and_snapshot_are_redacted(self) -> None:
+        unsupported_series = (
+            {
+                "kind": "DataWarehouseNode",
+                "id": "events",
+                "id_field": "uuid",
+                "table_name": "events",
+                "timestamp_field": "timestamp",
+                "distinct_id_field": "distinct_id",
+                "math": "total",
+            },
+            {
+                "kind": "GroupNode",
+                "operator": "OR",
+                "nodes": [{"kind": "EventsNode", "event": "$exception", "math": "total"}],
+                "math": "total",
+            },
+        )
+
+        for series in unsupported_series:
+            with self.subTest(kind=series["kind"]):
+                report = self._create_report(metrics=[self._legacy_unsupported_series_metric(series=series)])
+
+                detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+                assert detail_response.status_code == status.HTTP_200_OK
+                detail_metric = detail_response.json()["metrics"][0]
+                assert detail_metric["value"] is None
+                assert detail_metric["value_at"] is None
+                assert "comparison" not in detail_metric
+                assert detail_metric["query"] is None
+
+    @parameterized.expand(
+        [
+            ("missing_query_scope", ["task:read", "event_definition:read"]),
+            ("missing_event_scope", ["task:read", "query:read"]),
+        ]
+    )
+    def test_task_token_cannot_read_event_metric_without_cross_resource_scopes(
+        self, _name: str, scopes: list[str]
+    ) -> None:
+        metric = self._affected_users_metric(series={"kind": "EventsNode", "event": "$exception", "math": "dau"})
+        report = self._create_report(metrics=[metric])
+        authenticate_as_sandbox_token(self, scopes=scopes)
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert "comparison" not in detail_metric
+        assert detail_metric["query"] is None
+
+    def test_task_token_cannot_read_action_metric_without_action_scope(self) -> None:
+        action = Action.objects.create(team=self.team, name="Scoped action")
+        metric = self._affected_users_metric(series={"kind": "ActionsNode", "id": action.id, "math": "dau"})
+        report = self._create_report(metrics=[metric])
+        authenticate_as_sandbox_token(self, scopes=["task:read", "query:read"])
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert "comparison" not in detail_metric
+        assert detail_metric["query"] is None
+
+    def test_fully_scoped_task_token_can_read_event_metric(self) -> None:
+        metric = self._affected_users_metric(series={"kind": "EventsNode", "event": "$exception", "math": "dau"})
+        report = self._create_report(metrics=[metric])
+        authenticate_as_sandbox_token(
+            self,
+            scopes=["task:read", "query:read", "event_definition:read"],
+        )
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] == 17.0
+        assert detail_metric["value_at"] == "2026-08-29T12:00:00Z"
+        assert "comparison" not in detail_metric
+        assert detail_metric["query"] == metric["query"]
+
+    def test_legacy_report_serializes_an_empty_metric_set(self) -> None:
+        report = self._create_report()
+
+        response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["metrics"] == []
 
     def _maybe_actionability_artefact(
         self, report: SignalReport, actionability: str | None
@@ -293,16 +676,36 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["priority"] == "P0"
 
     @parameterized.expand([("unassigned", False), ("assigned", True)])
-    def test_retrieve_includes_channel_id(self, _name, assign):
+    def test_channel_id_is_the_same_in_the_list_and_the_detail(self, _name, assign):
         channel = Channel.objects.create(team=self.team, name="Reports") if assign else None
         report = self._create_report()
         if channel:
             self._assign_channel(report, channel)
+        expected = str(channel.id) if channel else None
 
         url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["channel_id"] == (str(channel.id) if channel else None)
+        assert response.json()["channel_id"] == expected
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(report.id))
+        assert row["channel_id"] == expected
+
+    def test_artefact_count_is_the_same_in_the_list_and_the_detail(self):
+        report = self._create_report()
+        self._priority_artefact(report, priority="P1")
+        self._actionability_artefact(report, actionability="immediately_actionable")
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(report.id))
+        assert row["artefact_count"] == 2
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["artefact_count"] == 2
 
     def test_filter_by_channel_id_narrows_to_that_space(self):
         channel = Channel.objects.create(team=self.team, name="Reports")
@@ -340,6 +743,10 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["channel_id"] is None
+
+        list_response = self.client.get(self._list_url())
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(report.id))
+        assert row["channel_id"] is None
 
     def test_filter_by_channel_id_rejects_non_uuid(self):
         response = self.client.get(self._list_url(channel_id="not-a-uuid"))
@@ -668,6 +1075,38 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is False
 
+    def test_is_suggested_reviewer_is_the_same_in_the_list_and_the_detail(self):
+        # The list resolves the reviewer set once for the team; the detail resolves it for the one
+        # report it renders. A report must not read as "needs your review" in only one of them.
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            uid="github-test-suggested-list-detail",
+            extra_data={"login": "suggestedgh"},
+        )
+        mine = self._create_report()
+        self._actionability_artefact(mine, actionability="immediately_actionable")
+        someone_elses = self._create_report()
+        self._actionability_artefact(someone_elses, actionability="immediately_actionable")
+        for report, login in ((mine, "suggestedgh"), (someone_elses, "someoneelse")):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"github_login": login}]),
+            )
+
+        list_response = self.client.get(self._list_url(status="ready"))
+        assert list_response.status_code == status.HTTP_200_OK
+        rows = {r["id"]: r["is_suggested_reviewer"] for r in list_response.json()["results"]}
+        assert rows[str(mine.id)] is True
+        assert rows[str(someone_elses.id)] is False
+
+        for report, expected in ((mine, True), (someone_elses, False)):
+            detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+            assert detail.status_code == status.HTTP_200_OK
+            assert detail.json()["is_suggested_reviewer"] is expected
+
     # --- implementation_pr_url ---
 
     def _create_implementation_task_with_run(
@@ -747,7 +1186,8 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
         assert response.json()["implementation_pr_state"] == SignalReportAssignment.PrState.OPEN
 
-    def test_task_run_pr_is_used_as_fallback_when_assignment_has_no_pr(self):
+    @parameterized.expand([("missing",), ("empty",), ("task_only",)])
+    def test_task_run_pr_is_used_as_fallback_when_assignment_has_no_pr(self, source: str):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
@@ -768,6 +1208,23 @@ class TestSignalReportListAPI(APIBaseTest):
             report_id=str(report.id),
             task_id=str(task.id),
             relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+        )
+        if source == "missing":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).delete()
+        elif source == "empty":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).update(pr_url="")
+        else:
+            SignalReportAssignment.all_teams.create(
+                team=self.team, report=report, actor_kind="task", actor_task_id=task.id
+            )
+            SignalReportTask.objects.filter(report=report).delete()
+            SignalReportArtefact.objects.filter(report=report, type="task_run").delete()
+
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            state={"ai_stage": "research"},
+            output={"pr_url": "https://github.com/org/repo/pull/99", "pr_merged": True},
         )
 
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
@@ -775,13 +1232,71 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/7"
         assert row["implementation_pr_state"] == SignalReportAssignment.PrState.UNKNOWN
         assert row["work_state"] == "in_review"
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+        assert detail["implementation_pr_url"] == row["implementation_pr_url"]
+        assert detail["implementation_pr_merged"] is False
 
         with_pr = self.client.get(self._list_url(has_implementation_pr="true"))
         assert str(report.id) in {item["id"] for item in with_pr.json()["results"]}
         unclaimed = self.client.get(self._list_url(unclaimed="true"))
         assert str(report.id) not in {item["id"] for item in unclaimed.json()["results"]}
 
-    def test_assignment_pr_wins_over_task_run_output(self):
+    def test_legacy_research_task_pr_does_not_match_implementation_pr_filters(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report(status=SignalReport.Status.IN_PROGRESS)
+        task = Task.objects.create(
+            team=self.team,
+            title="Research task",
+            description="Investigate the report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=report,
+            task=task,
+            relationship=TASK_RUN_TYPE_RESEARCH,
+        )
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output={},
+            state={},
+        )
+        TaskRun.objects.filter(pk=run.pk).update(output={"pr_url": "https://github.com/example/repo/pull/7"})
+
+        list_response = self.client.get(self._list_url(include_all_statuses="true"))
+        list_row = next(row for row in list_response.json()["results"] if row["id"] == str(report.id))
+        detail_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert list_row["pull_requests"] == []
+        assert list_row["implementation_pr_url"] is None
+        assert detail_response.json()["pull_requests"] == []
+        assert detail_response.json()["implementation_pr_url"] is None
+        assert str(report.id) not in {
+            row["id"]
+            for row in self.client.get(
+                self._list_url(include_all_statuses="true", has_implementation_pr="true")
+            ).json()["results"]
+        }
+        assert str(report.id) in {
+            row["id"]
+            for row in self.client.get(
+                self._list_url(include_all_statuses="true", has_implementation_pr="false")
+            ).json()["results"]
+        }
+        assert str(report.id) in {
+            row["id"]
+            for row in self.client.get(self._list_url(include_all_statuses="true", unclaimed="true")).json()["results"]
+        }
+        assert str(report.id) not in {
+            row["id"]
+            for row in self.client.get(self._list_url(include_all_statuses="true", unclaimed="false")).json()["results"]
+        }
+
+    @parameterized.expand([("legacy", True, 42), ("migrated", False, 42)])
+    def test_distinct_legacy_pr_remains_visible_alongside_task_pr(self, _name, legacy, expected_number):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
@@ -803,16 +1318,22 @@ class TestSignalReportListAPI(APIBaseTest):
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/org/repo/pull/7"},
         )
-        assignment = SignalReportAssignment.all_teams.get(report=report)
+        assignment = SignalReportAssignment.all_teams.create(team=self.team, report=report)
         assignment.pr_url = "https://github.com/org/repo/pull/42"
         assignment.repository = "org/repo"
         assignment.pr_number = 42
         assignment.pr_state = SignalReportAssignment.PrState.UNKNOWN
         assignment.save()
+        if legacy:
+            SignalReportArtefact.objects.filter(report=report, type="pull_request").delete()
 
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
-        assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+        assert row["implementation_pr_url"] == f"https://github.com/org/repo/pull/{expected_number}"
+        assert {pr["url"] for pr in row["pull_requests"]} == {
+            "https://github.com/org/repo/pull/7",
+            "https://github.com/org/repo/pull/42",
+        }
 
     @parameterized.expand(
         [
@@ -860,7 +1381,14 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_assignment(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
         self._create_assignment(report_without_pr)
 
-        result = fetch_implementation_pr_urls_for_reports([str(report_with_pr.id), str(report_without_pr.id)])
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign_report = SignalReport.objects.create(team=other_team)
+        SignalReportAssignment.all_teams.create(
+            team=other_team, report=foreign_report, pr_url="https://github.com/example/private/pull/1"
+        )
+        result = fetch_implementation_pr_urls_for_reports(
+            [str(report_with_pr.id), str(report_without_pr.id), str(foreign_report.id)], team_id=self.team.id
+        )
 
         assert result == {str(report_with_pr.id): "https://github.com/org/repo/pull/42"}
 
@@ -875,16 +1403,16 @@ class TestSignalReportListAPI(APIBaseTest):
 
         single = seed(1)
         with CaptureQueriesContext(connection) as for_one:
-            fetch_implementation_pr_state_for_reports(single)
+            fetch_implementation_pr_state_for_reports(single, team_id=self.team.id)
         baseline = len(for_one.captured_queries)
 
         page = single + seed(5)
         with CaptureQueriesContext(connection) as for_many:
-            result = fetch_implementation_pr_state_for_reports(page)
+            result = fetch_implementation_pr_state_for_reports(page, team_id=self.team.id)
 
         assert len(result) == 6
         assert len(for_many.captured_queries) == baseline
-        assert baseline == 1
+        assert baseline == 6
 
     # --- has_implementation_pr filter ---
 
@@ -921,7 +1449,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.get(self._list_url(has_implementation_pr="true"))
+            response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
 
         assert response.status_code == status.HTTP_200_OK
         # All association subqueries must stay team-scoped. Without the scope the planner can
@@ -1367,6 +1895,50 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["dismissal_reason"] == "analysis_wrong"
 
+    def _repo_selection_artefact(
+        self, report: SignalReport, *, repository: str | None, created_at: datetime | None = None
+    ) -> SignalReportArtefact:
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=json.dumps({"repository": repository, "reason": "pick"}),
+        )
+        art.save()
+        if created_at is not None:
+            SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
+        return art
+
+    def test_list_surfaces_latest_repo_slug(self):
+        report = self._create_report()
+        self._repo_selection_artefact(report, repository="acme/old", created_at=timezone.now() - timedelta(days=1))
+        self._repo_selection_artefact(report, repository="acme/new")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["repo_slug"] == "acme/new"
+
+    def test_list_prefetches_only_latest_repo_selection(self):
+        report = self._create_report()
+        self._repo_selection_artefact(report, repository="acme/old", created_at=timezone.now() - timedelta(days=1))
+        latest = self._repo_selection_artefact(report, repository="acme/new")
+
+        reports = list(
+            SignalReportViewSet()._prefetch_signal_report_priority_artefacts(SignalReport.objects.filter(pk=report.pk))
+        )
+
+        assert reports[0].prefetched_repo_selection_artefacts == [latest]
+
+    def test_list_repo_slug_null_without_selection(self):
+        report = self._create_report()
+        self._repo_selection_artefact(report, repository=None)
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["repo_slug"] is None
+
 
 class TestAssociatedTaskRunsForReports(APIBaseTest):
     """`SignalReport.associated_task_runs_for_reports` — the batched, page-wide counterpart of
@@ -1624,7 +2196,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         # The inbox PR is superseded by a fix that landed elsewhere, so the receiver must close it
         # with the resolve-specific comment rather than leave it open.
         report = self._create_report()
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
                     self._state_url(str(report.id)),
@@ -1632,7 +2204,10 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                     content_type="application/json",
                 )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, reason="resolved")
+        # The caller rides along so the comment on the PR can name who resolved the report.
+        mock_task.delay.assert_called_once_with(
+            report_id=str(report.id), team_id=self.team.id, reason="resolved", actor_user_id=self.user.id
+        )
 
     def test_state_transition_response_includes_source_products(self):
         report = self._create_report()
@@ -1794,6 +2369,47 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert json.loads(selections[-1].content)["repository"] is None
 
+    def test_repeat_wrong_repo_dismissal_does_not_record_the_correction_as_the_rejected_repo(self):
+        # The first dismissal makes the correction the report's newest selection, so the repeat reads
+        # it back as the "selected" repository. Recorded as-is, the pair says the reviewer rejected the
+        # repository they named, which tells scouts to avoid the correction and renders a
+        # self-contradictory lesson into the selection prompt.
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository="acme/website", reason="initial pick"),
+            attribution=ArtefactAttribution.system(),
+        )
+        payload = json.dumps(
+            {
+                "state": "suppressed",
+                "dismissal_reason": "wrong_repo",
+                "corrected_repository": "acme/checkout",
+            }
+        )
+
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/website", "acme/checkout"],
+        ):
+            for _ in range(2):
+                response = self.client.post(
+                    self._state_url(str(report.id)), data=payload, content_type="application/json"
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+        dismissals = list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+            ).order_by("created_at")
+        )
+        assert len(dismissals) == 2
+        first = json.loads(dismissals[0].content)
+        assert (first["selected_repository"], first["corrected_repository"]) == ("acme/website", "acme/checkout")
+        repeat = json.loads(dismissals[1].content)
+        assert (repeat["selected_repository"], repeat["corrected_repository"]) == (None, "acme/checkout")
+
     def test_rejects_unknown_state(self):
         report = self._create_report()
         response = self.client.post(
@@ -1823,6 +2439,32 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
         assert report.signals_at_run == 15
+
+    @parameterized.expand(
+        [
+            ("snooze", {"snooze_for": 1}),
+            ("dismissal", {"snooze_for": 1, "dismissal_reason": "already_fixed", "dismissal_note": "Fixed"}),
+            ("feedback", {"dismissal_reason": "already_fixed"}),
+        ]
+    )
+    def test_pause_does_not_restore_an_archived_report(self, _name, pause_input):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", **pause_input}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert report.status_before_suppression == SignalReport.Status.READY
+        assert not report.artefacts.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).exists()
 
     @parameterized.expand([("zero", 0), ("negative", -1), ("too_large", 100_001)])
     def test_snooze_for_out_of_bounds_rejected(self, _name, snooze_for):
@@ -1871,6 +2513,72 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+    @parameterized.expand(
+        [
+            # A detail view that lags the server (the PR was closed on GitHub first) re-sends the
+            # verdict the report already holds; the feedback on that click must not be lost.
+            ("dismiss", "suppressed", SignalReport.Status.SUPPRESSED, SignalReport.Status.READY),
+            ("resolve", "resolved", SignalReport.Status.RESOLVED, None),
+        ]
+    )
+    def test_repeating_a_verdict_the_report_already_holds_records_the_feedback(
+        self, _name, target, current_status, prior_status
+    ):
+        report = self._create_report(report_status=current_status)
+        if prior_status is not None:
+            report.status_before_suppression = prior_status
+            report.save(update_fields=["status_before_suppression"])
+
+        with (
+            patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_close_pr,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps(
+                    {"state": target, "dismissal_reason": "report_unclear", "dismissal_note": "still can't see it"}
+                ),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["dismissal_reason"] == "report_unclear"
+        assert response.json()["dismissal_note"] == "still can't see it"
+
+        report.refresh_from_db()
+        assert report.status == current_status
+        assert report.status_before_suppression == prior_status
+
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        content = json.loads(dismissal.content)
+        assert content["reason"] == "report_unclear"
+        assert content["note"] == "still can't see it"
+        assert content["user_id"] == self.user.id
+        mock_close_pr.delay.assert_not_called()
+
+    def test_repeating_a_verdict_without_feedback_is_a_no_op_success(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "suppressed"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+        ).exists()
+
+    def test_restoring_a_report_already_in_the_inbox_is_still_refused(self):
+        report = self._create_report(report_status=SignalReport.Status.POTENTIAL)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
 
     @parameterized.expand(
         [
@@ -2022,20 +2730,20 @@ class TestAvailableReviewersAPI(APIBaseTest):
             email=f"user{n:04d}@example.com",
         )
 
-    def _login_map(self, count: int) -> dict[str, SimpleNamespace]:
-        return {f"gh{n}": self._fake_user(n) for n in range(count)}
+    def _member_map(self, count: int) -> dict[str, SimpleNamespace]:
+        return {str(uuid.UUID(int=n)): self._fake_user(n) for n in range(count)}
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_returns_all_members_without_cap(self, mock_map):
         # 250 > the old hard cap of 100: every member must come back now.
-        mock_map.return_value = self._login_map(250)
+        mock_map.return_value = self._member_map(250)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 250
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_search_query_filters_server_side(self, mock_map):
-        mock_map.return_value = self._login_map(250)
+        mock_map.return_value = self._member_map(250)
         response = self.client.get(self._url(query="User0123"))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -2043,48 +2751,48 @@ class TestAvailableReviewersAPI(APIBaseTest):
         assert next(iter(body.values()))["email"] == "user0123@example.com"
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_no_exception_captured_under_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._login_map(50)
+        mock_map.return_value = self._member_map(50)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_not_called()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_exception_captured_over_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 1201
         mock_capture.assert_called_once()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_threshold_capture_deduplicated_across_requests(self, mock_map, mock_capture):
         # Repeated popover opens for the same over-threshold org must report at most once.
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         for _ in range(3):
             assert self.client.get(self._url()).status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_threshold_not_triggered_by_search_requests(self, mock_map, mock_capture):
         # A search-as-you-type request must not spam the threshold capture.
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         response = self.client.get(self._url(query="User0001"))
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_not_called()
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_empty_org_returns_empty(self, mock_map):
         mock_map.return_value = {}
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {}
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_missing_team_map_returns_empty(self, mock_map):
         # The helper returns None for an unknown team; the view coalesces it to an empty result.
         mock_map.return_value = None
@@ -2238,8 +2946,6 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
 
 
 class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
-    """task_run artefacts ARE the task↔report association: associate-me defaults + the reports task_id filter."""
-
     def _artefacts_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
 
@@ -2270,45 +2976,27 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
             **extra,
         )
 
-    def test_associate_task_by_body(self):
+    def test_task_association_is_created_by_claim_and_retries_are_idempotent(self):
         report = self._create_report()
         task = self._create_task()
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/claim/"
+        responses = [
+            self.client.post(url, {}, format="json", headers={"X-PostHog-Task-Id": str(task.id)}) for _ in range(2)
+        ]
+        assert all(response.status_code == 200 for response in responses)
+        assert responses[0].json()["assignee"]["claim_id"] == responses[1].json()["assignee"]["claim_id"]
+        artefact = SignalReportArtefact.objects.get(report=report, type="task_run")
+        assert artefact.task_id == task.id
+        assert str(artefact.claim_id) == responses[0].json()["assignee"]["claim_id"]
+        assert json.loads(artefact.content)["product"] == "tasks"
 
+    def test_task_association_cannot_be_written_directly(self):
+        report = self._create_report()
+        task = self._create_task()
         response = self._associate(report, {"task_id": str(task.id)})
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        body = response.json()
-        assert body["content"]["task_id"] == str(task.id)
-        # product/type default to the generic agent-run identifiers.
-        assert body["content"]["product"] == "tasks"
-        assert body["content"]["type"] == "agent_run"
-        artefact = SignalReportArtefact.objects.get(id=body["id"])
-        # The entry is attributed to the task it records.
-        assert str(artefact.task_id) == str(task.id)
-
-    def test_associate_is_idempotent(self):
-        report = self._create_report()
-        task = self._create_task()
-
-        first = self._associate(report, {"task_id": str(task.id)})
-        second = self._associate(report, {"task_id": str(task.id)})
-        assert first.status_code == status.HTTP_201_CREATED
-        assert second.status_code == status.HTTP_200_OK
-        assert second.json()["id"] == first.json()["id"]
-        assert (
-            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count()
-            == 1
-        )
-
-    def test_associate_with_custom_product_and_type(self):
-        report = self._create_report()
-        task = self._create_task()
-
-        response = self._associate(report, {"task_id": str(task.id), "product": "billing", "type": "anomaly_scan"})
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN)
-        content = json.loads(artefact.content)
-        assert content["product"] == "billing"
-        assert content["type"] == "anomaly_scan"
+        assert response.status_code == 400
+        assert "read-only" in response.json()["error"]
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
 
     def test_associate_with_invalid_product_returns_400(self):
         report = self._create_report()
@@ -2319,17 +3007,6 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
         assert not SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN
         ).exists()
-
-    def test_associate_defaults_to_header_task(self):
-        # "Associate me with this report" — empty content, the agent's own task comes from the header.
-        report = self._create_report()
-        task = self._create_task()
-
-        response = self._associate(report, {}, headers={"X-PostHog-Task-Id": str(task.id)})
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN)
-        assert json.loads(artefact.content)["task_id"] == str(task.id)
-        assert str(artefact.task_id) == str(task.id)
 
     def test_associate_without_task_returns_400(self):
         report = self._create_report()
@@ -2748,6 +3425,28 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
 
 
 class TestSignalReportPrEndpoints(APIBaseTest):
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository", return_value=None)
+    def test_selecting_a_linked_pr_and_rejecting_another_reports_pr(self, _integration):
+        report = self._create_report(with_pr=False)
+        other_report = self._create_report(with_pr=False)
+        linked = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/claim/",
+            {"pull_requests": ["https://github.com/example/app/pull/1", "https://github.com/example/sdk/pull/2"]},
+            format="json",
+        ).json()["pull_requests"]
+        selected = next(pr for pr in linked if pr["url"].endswith("/2"))
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository") as integration:
+            integration.return_value.get_pull_request_checks.return_value = {"success": True, "checks": []}
+            response = self.client.get(f"{self._checks_url(str(report.id))}?pull_request_id={selected['id']}")
+            assert response.status_code == 200
+            integration.return_value.get_pull_request_checks.assert_called_once_with("example/sdk", 2)
+            assert (
+                self.client.get(
+                    f"{self._checks_url(str(other_report.id))}?pull_request_id={selected['id']}"
+                ).status_code
+                == 404
+            )
+
     def _create_report(self, report_status: str = SignalReport.Status.READY, *, with_pr: bool = True) -> SignalReport:
         report = SignalReport.objects.create(
             team=self.team,
@@ -2882,8 +3581,20 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
-    def test_pr_checks_success_returns_checks(self):
+    @parameterized.expand([("assignment",), ("legacy",), ("claim",)])
+    def test_pr_checks_success_returns_checks(self, source: str):
         report = self._create_report()
+        if source != "assignment":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).delete()
+            Task = apps.get_model("tasks", "Task")
+            TaskRun = apps.get_model("tasks", "TaskRun")
+            task = Task.objects.create(team=self.team, title="Implementation", description="Fix a bug")
+            TaskRun.objects.create(
+                team=self.team, task=task, output={"pr_url": "https://github.com/PostHog/posthog/pull/7"}
+            )
+            SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+            if source == "claim":
+                SignalReportAssignment.objects.for_team(self.team.id).create(team=self.team, report=report)
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         checks = [{"name": "unit", "status": "completed", "conclusion": "success", "url": "https://gh/1"}]
@@ -2932,6 +3643,35 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
 
+    def test_pr_checks_missing_permission_returns_remediation_for_selected_legacy_task_output(self):
+        report = self._create_report()
+        SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).delete()
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(team=self.team, title="Implementation", description="Fix a bug")
+        TaskRun.objects.create(team=self.team, task=task, output={"pr_url": "https://github.com/example/legacy/pull/7"})
+        SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+        selected_pr_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals:{self.team.id}:example/legacy:7"))
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_pull_request_checks.return_value = {
+            "success": False,
+            "error_code": "github_checks_permission_missing",
+        }
+
+        response = self.client.get(f"{self._checks_url(str(report.id))}?pull_request_id={selected_pr_id}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == {
+            "code": "github_checks_permission_missing",
+            "error": (
+                "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant the Checks "
+                "permission."
+            ),
+            "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
+        }
+        github.return_value.get_pull_request_checks.assert_called_once_with("example/legacy", 7)
+
     def test_pr_comments_success_returns_comments(self):
         report = self._create_report()
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
@@ -2954,3 +3694,301 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"comments": comments}
+
+
+class TestPrCiStatusReportIdsParsing(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("blank", "   "),
+            ("only_separators", ",,"),
+            ("not_a_uuid", "not-a-uuid"),
+            ("one_bad_id_among_good_ones", "3f1e0f4a-0000-4000-8000-000000000001,nope"),
+        ]
+    )
+    def test_an_unusable_report_ids_param_is_rejected(self, _name, raw):
+        # A list scan asks about ids it holds, so a malformed list is the caller's bug. Answering for
+        # the ids that happen to parse would hide it behind rows that quietly never show CI state.
+        with self.assertRaises(exceptions.ValidationError):
+            parse_pr_ci_status_report_ids(raw)
+
+    def test_more_ids_than_one_request_may_ask_about_are_rejected(self):
+        raw = ",".join(str(uuid.uuid4()) for _ in range(PR_CI_STATUS_MAX_REPORTS + 1))
+        with self.assertRaises(exceptions.ValidationError):
+            parse_pr_ci_status_report_ids(raw)
+
+    def test_padded_ids_are_accepted(self):
+        report_id = uuid.uuid4()
+        assert parse_pr_ci_status_report_ids(f" {report_id} , {report_id} ") == [report_id, report_id]
+
+
+class TestSignalReportPrCiStatuses(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The resolved statuses are cached per team, repo, and PR, so a test must not read what an
+        # earlier one warmed.
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _create_report(self, title: str) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title=title,
+            summary="Test summary",
+            signal_count=1,
+        )
+
+    def _url(self, report_ids) -> str:
+        query = urlencode({"report_ids": ",".join(str(report_id) for report_id in report_ids)})
+        return f"/api/projects/{self.team.id}/signals/reports/pr_ci_statuses/?{query}"
+
+    @staticmethod
+    def _pr(number: int, *, merged: bool = False) -> ImplementationPr:
+        return ImplementationPr(url=f"https://github.com/PostHog/posthog/pull/{number}", merged=merged)
+
+    def _patch_github(self):
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        return github
+
+    def test_open_prs_resolve_in_one_batch_and_everything_else_is_left_out(self):
+        # The mapping is the whole contract: a report has to get its own PR's CI state, and a merged
+        # or PR-less report must not be painted at all. One GitHub call covers the page.
+        red = self._create_report("red")
+        green = self._create_report("green")
+        landed = self._create_report("landed")
+        without_pr = self._create_report("no pr")
+        github = self._patch_github()
+        github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: {
+            reference: ("failing" if reference.number == 7 else "passing") for reference in references
+        }
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={
+                str(red.id): [self._pr(6), self._pr(7)],
+                str(green.id): [self._pr(8)],
+                str(landed.id): [self._pr(9, merged=True)],
+            },
+        ):
+            response = self.client.get(self._url([red.id, green.id, landed.id, without_pr.id]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(response.json()["statuses"], key=lambda entry: entry["report_id"]) == sorted(
+            [
+                {"report_id": str(red.id), "ci_status": "failing"},
+                {"report_id": str(green.id), "ci_status": "passing"},
+            ],
+            key=lambda entry: entry["report_id"],
+        )
+        github.return_value.get_pull_request_ci_statuses.assert_called_once()
+        requested = github.return_value.get_pull_request_ci_statuses.call_args.args[0]
+        assert sorted(reference.number for reference in requested) == [6, 7, 8]
+        github.assert_called_once_with(
+            self.team.id,
+            "PostHog/posthog",
+            source="signals_pr_ci_status",
+            priority=Priority.NORMAL,
+        )
+
+    @parameterized.expand(
+        [
+            ("failing", ["passing", "failing"], "failing"),
+            ("pending", ["passing", "pending"], "pending"),
+            ("incomplete", ["passing", None], None),
+            ("known_failure", ["failing", None], "failing"),
+            ("no_checks", ["passing", "none"], "none"),
+        ]
+    )
+    def test_stack_ci_never_hides_secondary_or_unreadable_pr(self, _name, states, expected):
+        report = self._create_report("stack")
+        github = self._patch_github()
+        github.return_value.get_pull_request_ci_statuses.side_effect = lambda refs: {
+            ref: states[ref.number - 1] for ref in refs if states[ref.number - 1] is not None
+        }
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={
+                str(report.id): [
+                    self._pr(1),
+                    self._pr(2),
+                    ImplementationPr(url="https://github.com/PostHog/posthog/pull/3", state="closed", merged=False),
+                ]
+            },
+        ):
+            response = self.client.get(self._url([report.id]))
+        assert response.status_code == 200
+        assert response.json()["statuses"] == (
+            [{"report_id": str(report.id), "ci_status": expected}] if expected else []
+        )
+
+    def test_a_second_scan_reads_the_cached_status_instead_of_calling_github(self):
+        # Every list load and poll would otherwise cost a GitHub call per open PR.
+        report = self._create_report("cached")
+        github = self._patch_github()
+        github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
+            references, "passing"
+        )
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
+        ):
+            first = self.client.get(self._url([report.id]))
+            second = self.client.get(self._url([report.id]))
+
+        assert first.json() == second.json() == {"statuses": [{"report_id": str(report.id), "ci_status": "passing"}]}
+        github.return_value.get_pull_request_ci_statuses.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("no_integration_reaches_the_repository", "lookup", None),
+            ("the_lookup_is_rate_limited", "lookup", GitHubRateLimitError("slow down")),
+            ("the_lookup_is_shed", "lookup", GitHubEgressBudgetExhausted("shed")),
+            ("the_fetch_is_rate_limited", "fetch", GitHubRateLimitError("slow down")),
+            ("the_fetch_is_shed", "fetch", GitHubEgressBudgetExhausted("shed")),
+            ("the_fetch_fails_upstream", "fetch", Exception("boom")),
+        ]
+    )
+    def test_the_list_still_loads_when(self, _name, failing_step, failure):
+        # CI state decorates a list the reader already has. A GitHub problem has to cost them the
+        # glyph, never the list.
+        report = self._create_report("unreachable")
+        github = self._patch_github()
+        if failing_step == "lookup":
+            github.return_value = None
+            github.side_effect = failure
+        else:
+            github.return_value.get_pull_request_ci_statuses.side_effect = failure
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
+        ):
+            response = self.client.get(self._url([report.id]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"statuses": []}
+
+    def test_a_batch_that_landed_before_a_rate_limit_is_kept(self):
+        # An inbox wider than one GraphQL batch splits into several calls. Throwing away the batch
+        # GitHub already answered for would cost every row its glyph, and the next poll would buy the
+        # same answer again while GitHub is still limiting us.
+        batch_size = GitHubIntegration.PR_CI_STATUS_BATCH_SIZE
+        reports = [self._create_report(f"pr {n}") for n in range(batch_size + 1)]
+        pr_by_report = {str(report.id): [self._pr(n + 1)] for n, report in enumerate(reports)}
+        github = self._patch_github()
+        calls: list[int] = []
+
+        def fetch(references):
+            calls.append(len(references))
+            if len(calls) > 1:
+                raise GitHubRateLimitError("slow down")
+            return dict.fromkeys(references, "passing")
+
+        github.return_value.get_pull_request_ci_statuses.side_effect = fetch
+        url = self._url([report.id for report in reports])
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value=pr_by_report,
+        ):
+            first = self.client.get(url)
+            # The batch that never went out is not remembered as unreadable, because nothing was
+            # learned about it, so it resolves as soon as GitHub answers again.
+            github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
+                references, "passing"
+            )
+            second = self.client.get(url)
+
+        assert calls == [batch_size, 1]
+        assert len(first.json()["statuses"]) == batch_size
+        assert len(second.json()["statuses"]) == batch_size + 1
+
+    def test_another_teams_report_is_never_answered_for(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_report = SignalReport.objects.create(
+            team=other_team, status=SignalReport.Status.READY, title="theirs", summary="s", signal_count=1
+        )
+        github = self._patch_github()
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(other_report.id): [self._pr(7)]},
+        ) as fetch_pr_state:
+            response = self.client.get(self._url([other_report.id]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"statuses": []}
+        fetch_pr_state.assert_not_called()
+        github.assert_not_called()
+
+    def test_a_malformed_report_ids_param_is_a_400(self):
+        # Wiring guard for the parsing covered in TestPrCiStatusReportIdsParsing.
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/pr_ci_statuses/?report_ids=nope")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("resolved", SignalReport.Status.RESOLVED), ("failed", SignalReport.Status.FAILED)])
+    def test_a_terminal_report_costs_no_github_call(self, _name, report_status):
+        # Its pull request has landed or been closed, so the pill never shows a CI glyph for it and
+        # the fetch would be spent on something no reader can act on.
+        report = self._create_report("terminal")
+        SignalReport.objects.filter(id=report.id).update(status=report_status)
+        github = self._patch_github()
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
+        ) as fetch_pr_state:
+            response = self.client.get(self._url([report.id]))
+
+        assert response.json() == {"statuses": []}
+        fetch_pr_state.assert_not_called()
+        github.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("rate_limited", GitHubRateLimitError("slow down")),
+            ("shed", GitHubEgressBudgetExhausted("shed")),
+            ("failing_upstream", Exception("boom")),
+        ]
+    )
+    def test_a_lookup_that_never_reached_github_is_asked_again(self, _name, failure):
+        # A lookup that was throttled, shed, or failed learned nothing about the repository. Recording
+        # it as unreadable would hold the glyph off the row for the whole five-minute window, over a
+        # condition that usually clears within one poll.
+        report = self._create_report("transient")
+        github = self._patch_github()
+        github.side_effect = failure
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
+        ):
+            first = self.client.get(self._url([report.id]))
+            github.side_effect = None
+            github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
+                references, "passing"
+            )
+            second = self.client.get(self._url([report.id]))
+
+        assert first.json() == {"statuses": []}
+        assert second.json() == {"statuses": [{"report_id": str(report.id), "ci_status": "passing"}]}
+
+    def test_a_pull_request_github_cannot_read_is_not_probed_again(self):
+        # The repository probe and the query would otherwise run on every list load and every poll
+        # for a pull request that is never going to resolve.
+        report = self._create_report("unreadable")
+        github = self._patch_github()
+        github.return_value = None
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={str(report.id): [self._pr(7)]},
+        ):
+            first = self.client.get(self._url([report.id]))
+            second = self.client.get(self._url([report.id]))
+
+        assert first.json() == second.json() == {"statuses": []}
+        github.assert_called_once()

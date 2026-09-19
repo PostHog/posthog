@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from aiohttp import ClientSession
 
@@ -39,7 +39,7 @@ class TestHealthCheckServer:
                     assert data["idle_seconds"] < 1.0
                     assert data["max_idle_seconds"] == 2.0
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     async def test_healthz_returns_unhealthy_when_idle_too_long(self):
         """Test that /healthz returns 503 when idle time exceeds threshold."""
 
@@ -157,14 +157,14 @@ class TestHealthCheckServer:
     async def test_idle_time_accuracy(self):
         """Test that idle_time is calculated accurately."""
 
-        with freeze_time("2024-01-01 12:00:00") as frozen_time:
+        with time_machine.travel("2024-01-01 12:00:00", tick=False) as frozen_time:
             tracker = LivenessTracker()
             async with create_server(tracker):
                 # Record activity at t=0
                 tracker.record_activity_execution()
 
                 # Move time forward 0.5 seconds
-                frozen_time.tick(timedelta(seconds=0.5))
+                frozen_time.shift(timedelta(seconds=0.5))
 
                 async with ClientSession() as session:
                     async with session.get("http://localhost:18001/healthz") as response:
@@ -175,7 +175,7 @@ class TestHealthCheckServer:
     async def test_healthz_transition_from_healthy_to_unhealthy(self):
         """Test that health status changes as time passes."""
 
-        with freeze_time("2024-01-01 12:00:00") as frozen_time:
+        with time_machine.travel("2024-01-01 12:00:00", tick=False) as frozen_time:
             tracker = LivenessTracker()
             async with create_server(tracker):
                 tracker.record_activity_execution()
@@ -186,7 +186,7 @@ class TestHealthCheckServer:
                         assert response.status == 200
 
                 # Move time forward past threshold (2 seconds + buffer)
-                frozen_time.tick(timedelta(seconds=2.5))
+                frozen_time.shift(timedelta(seconds=2.5))
 
                 # Should now be unhealthy
                 async with ClientSession() as session:

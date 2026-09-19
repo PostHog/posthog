@@ -13,7 +13,10 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
+from products.access_control.backend.models.role import RoleMembership
+
 from .. import logic, weekly_digest, weekly_digest_delivery
+from ..indexed_embedding import EMBEDDING_TABLES
 from ..logic import external_references, rules
 from ..models import (
     ErrorTrackingIssue,
@@ -25,6 +28,7 @@ from ..remote_config import build_error_tracking_config as build_error_tracking_
 from . import contracts
 from .contracts import (
     CrashFreeSummary as CrashFreeSummary,
+    DocumentEmbeddingTable as DocumentEmbeddingTable,
     ExceptionSummary as ExceptionSummary,
 )
 
@@ -106,7 +110,11 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
 def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssueAssignmentNotification:
     role_member_user_ids: list[int] = []
     if assignment.role_id:
-        role_member_user_ids = list(assignment.role.members.values_list("id", flat=True))
+        role_member_user_ids = list(
+            RoleMembership.objects.filter(role=assignment.role)
+            .valid_for_authorization()
+            .values_list("user_id", flat=True)
+        )
 
     issue = assignment.issue
     return contracts.ErrorTrackingIssueAssignmentNotification(
@@ -125,8 +133,8 @@ def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssu
     )
 
 
-def list_issues(team_id: int) -> list[contracts.ErrorTrackingIssuePreview]:
-    issues = logic.list_issues(team_id)
+def list_issues(team_id: int, limit: int = logic.MAX_LISTED_ISSUES) -> list[contracts.ErrorTrackingIssuePreview]:
+    issues = logic.list_issues(team_id, limit=limit)
     return [_to_issue_preview(issue) for issue in issues]
 
 
@@ -773,3 +781,17 @@ def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
     weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
+
+
+def document_embedding_tables() -> list[DocumentEmbeddingTable]:
+    """Every per-model embeddings table.
+
+    Other products embed their documents into these tables too, so a sweep that removes a
+    product's rows needs the full list rather than the one model it writes with.
+    """
+    return [
+        DocumentEmbeddingTable(
+            sharded_table=table.sharded_table_name(), distributed_table=table.distributed_table_name()
+        )
+        for table in EMBEDDING_TABLES
+    ]

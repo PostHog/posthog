@@ -3,10 +3,10 @@
 database "posthog" {
   patch_table "kafka_property_values" {
     engine "kafka" {
-      broker_list         = "warpstream_ingestion"
-      topic_list          = "kafka_topic_list = 'clickhouse_property_values'"
-      group_name          = "kafka_group_name = 'clickhouse_property_values'"
-      format              = "kafka_format = 'JSONEachRow'"
+      collection          = "warpstream_ingestion"
+      topic_list          = "clickhouse_property_values"
+      group_name          = "clickhouse_property_values"
+      format              = "JSONEachRow"
       num_consumers       = 1
       thread_per_consumer = true
     }

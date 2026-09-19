@@ -161,10 +161,11 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_prob
     changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != _entry_field_value(entry, f)]
     for f in changed:
         setattr(template, f, _entry_field_value(entry, f))
-    if entry.disabled and template.is_active:
-        template.is_active = False
-        changed.append("is_active")
-        logger.warning("mcp_catalog_sync.deactivated_disabled_entry", url=entry.url)
+    if entry.disabled:
+        if template.is_active:
+            template.is_active = False
+            changed.append("is_active")
+            logger.warning("mcp_catalog_sync.deactivated_disabled_entry", url=entry.url)
     elif "auth_type" in changed and template.is_active:
         # The row was vetted and activated under the old auth model — e.g. an
         # oauth→api_key flip would route new installs through the API-key branch

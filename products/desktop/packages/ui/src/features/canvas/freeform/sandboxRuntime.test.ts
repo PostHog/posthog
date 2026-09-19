@@ -2,7 +2,8 @@ import {
   CANVAS_SDK_MODULE_SOURCE,
   CANVAS_SDK_SPECIFIER,
 } from "@posthog/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import builderSource from "../../../../../../../canvas/packages/canvas_builder/build.mjs?raw";
 import {
   buildSandboxDocument,
   decodeJsxUnicodeEscapes,
@@ -103,6 +104,76 @@ describe("decodeJsxUnicodeEscapes", () => {
 });
 
 describe("buildSandboxDocument", () => {
+  it("publishes navigation and the same GitHub URL restriction as the host", () => {
+    const source = builderSource.match(/const runtime = `([^`]*)`/)?.[1];
+    if (!source) throw new Error("Published runtime not found");
+    const listeners = new Map<string, (event: unknown) => void>();
+    const postMessage = vi.fn();
+    const frame = {
+      ph: undefined as unknown as {
+        navigate: {
+          toNewTask: (options: { prompt: string; repository: string }) => void;
+        };
+        openExternal: (url: string) => void;
+      },
+    };
+    const userActivation = { isActive: true };
+    const parent = {};
+    new Function(
+      "window",
+      "document",
+      "location",
+      "parent",
+      "navigator",
+      "addEventListener",
+      source,
+    )(
+      frame,
+      document,
+      { hash: "" },
+      parent,
+      { userActivation },
+      (name: string, listener: (event: unknown) => void) =>
+        listeners.set(name, listener),
+    );
+    listeners.get("message")?.({
+      source: parent,
+      data: { channel: "posthog-canvas", type: "connect" },
+      ports: [{ postMessage, addEventListener: vi.fn(), start: vi.fn() }],
+    });
+    frame.ph.navigate.toNewTask({
+      prompt: "Inspect this PR",
+      repository: "example/app",
+    });
+    expect(postMessage).toHaveBeenCalledWith({
+      channel: "posthog-canvas",
+      type: "navigate",
+      nav: {
+        target: "compose-task",
+        prompt: "Inspect this PR",
+        repository: "example/app",
+      },
+    });
+    frame.ph.openExternal("https://github.com/example/app/pull/42");
+    expect(postMessage).toHaveBeenLastCalledWith({
+      channel: "posthog-canvas",
+      type: "open-external",
+      url: "https://github.com/example/app/pull/42",
+    });
+    expect(() => frame.ph.openExternal("https://github.com/login")).toThrow(
+      "not allowed",
+    );
+    expect(() =>
+      frame.ph.openExternal("https://github.com.evil.com/example/app/pull/42"),
+    ).toThrow("not allowed");
+    userActivation.isActive = false;
+    expect(() =>
+      frame.ph.navigate.toNewTask({
+        prompt: "Inspect",
+        repository: "example/app",
+      }),
+    ).toThrow("user action");
+  });
   it("inlines the unicode-escape decoder into the bootstrap", () => {
     const html = buildSandboxDocument();
     expect(html).toContain(
@@ -121,6 +192,10 @@ describe("buildSandboxDocument", () => {
     expect(imports[CANVAS_SDK_SPECIFIER]).toBe(CANVAS_SDK_MODULE_SOURCE);
     expect(imports.react).toContain("esm.sh");
     expect(imports["react/jsx-runtime"]).toContain("esm.sh");
+  });
+
+  it("treats null connector options as an omitted refresh value", () => {
+    expect(buildSandboxDocument()).toContain("refresh: options?.refresh");
   });
 
   it("inlines the external-anchor resolver into the bootstrap", () => {

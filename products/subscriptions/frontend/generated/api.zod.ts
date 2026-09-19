@@ -15,6 +15,8 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsCreateBodyContextsMax = 3
+
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -89,6 +91,22 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        contexts: zod
+            .array(
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
+            )
+            .max(subscriptionsCreateBodyContextsMax)
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])
@@ -192,12 +210,38 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
-            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
+            .describe(
+                "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options."
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -206,6 +250,8 @@ export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
+
+export const subscriptionsUpdateBodyContextsMax = 3
 
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
@@ -281,6 +327,22 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        contexts: zod
+            .array(
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
+            )
+            .max(subscriptionsUpdateBodyContextsMax)
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])
@@ -384,12 +446,38 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
-            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
+            .describe(
+                "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options."
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -398,6 +486,8 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAg
 
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
+
+export const subscriptionsPartialUpdateBodyContextsMax = 3
 
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
@@ -473,6 +563,22 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        contexts: zod
+            .array(
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
+            )
+            .max(subscriptionsPartialUpdateBodyContextsMax)
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])
@@ -581,11 +687,37 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
-            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
+            .describe(
+                "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options."
+            ),
     })
     .describe('Standard Subscription serializer.')

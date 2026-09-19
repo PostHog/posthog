@@ -2,11 +2,12 @@ import { MakeLogicType, afterMount, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 
 import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
 import { ErrorTrackingIssue, ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { RELATED_ERRORS_WINDOW_HOURS, parseLogTimestamp } from 'products/logs/frontend/utils'
 
 export interface RelatedErrorsLogicProps {
     logUuid: string
@@ -72,16 +73,14 @@ export const relatedErrorsLogic = kea<relatedErrorsLogicType>([
         relatedIssues: {
             __default: [] as MaxErrorTrackingIssuePreview[],
             loadRelatedIssues: async (): Promise<MaxErrorTrackingIssuePreview[]> => {
-                // Handle both ISO strings and epoch timestamps (seconds or milliseconds)
-                const parsed = Number(props.logTimestamp)
-                const timestamp = Number.isNaN(parsed) ? dayjs(props.logTimestamp) : dayjs(parsed)
+                const timestamp = parseLogTimestamp(props.logTimestamp)
 
                 const query: ErrorTrackingQuery = {
                     kind: NodeKind.ErrorTrackingQuery,
                     orderBy: 'last_seen',
                     dateRange: {
-                        date_from: timestamp.subtract(6, 'hours').toISOString(),
-                        date_to: timestamp.add(6, 'hours').toISOString(),
+                        date_from: timestamp.subtract(RELATED_ERRORS_WINDOW_HOURS, 'hours').toISOString(),
+                        date_to: timestamp.add(RELATED_ERRORS_WINDOW_HOURS, 'hours').toISOString(),
                     },
                     filterGroup: {
                         type: FilterLogicalOperator.And,

@@ -1,7 +1,10 @@
+import errno
+
 import pytest
 from unittest.mock import patch
 
 from posthog.models import Organization, Team
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -63,3 +66,50 @@ class TestCalculateTableSizeActivity:
         table.refresh_from_db()
         assert table.size_in_s3_mib == 12.5
         assert table.url_pattern == "https://posthog-owned.example/team/stripe_charge_repartitioned"
+
+    def test_survives_a_concurrent_team_deletion(self) -> None:
+        # get_size_of_folder() (an S3 listing) can take long enough for the team owning this job
+        # to be deleted meanwhile, cascading away the job and table rows before this activity's
+        # own save() runs. Django's update_fields save() used to surface that as an unhandled
+        # DatabaseError ("Save with update_fields did not affect any rows") instead of the same
+        # clean early exit the DoesNotExist checks give a schema/job deleted before this activity
+        # even starts.
+        team = _team()
+        schema, table, job = _schema_table_job(team)
+
+        def _slow_listing(_folder: str) -> float:
+            team.delete()
+            return 12.5
+
+        with patch.object(calc, "get_size_of_folder", side_effect=_slow_listing):
+            calculate_table_size_activity(
+                CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
+            )
+
+        assert not ExternalDataJob.objects.filter(id=job.id).exists()
+        assert not DataWarehouseTable.objects.filter(id=table.id).exists()
+
+    def test_reraises_fd_exhaustion_as_non_reportable(self) -> None:
+        # get_size_of_folder() builds a fresh S3 client per call, which can hit a bare OSError
+        # (EMFILE/ENFILE) when this worker is briefly out of file descriptors. That's our own
+        # transient capacity, not a bug in this activity, so it must not reach error tracking -
+        # it used to, because nothing here classified it before re-raising.
+        team = _team()
+        schema, _table, job = _schema_table_job(team)
+
+        with patch.object(calc, "get_size_of_folder", side_effect=OSError(errno.EMFILE, "Too many open files")):
+            with pytest.raises(NonReportableError):
+                calculate_table_size_activity(
+                    CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
+                )
+
+    def test_reraises_unrelated_os_error(self) -> None:
+        team = _team()
+        schema, _table, job = _schema_table_job(team)
+
+        with patch.object(calc, "get_size_of_folder", side_effect=OSError(errno.EACCES, "Permission denied")):
+            with pytest.raises(OSError) as exc_info:
+                calculate_table_size_activity(
+                    CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
+                )
+        assert not isinstance(exc_info.value, NonReportableError)

@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { SurveyQuestionType } from 'posthog-js'
 
 import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 
@@ -9,14 +8,9 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
-import { Survey, SurveyEventName, SurveyEventProperties, SurveyQuestion } from '~/types'
+import { Survey, SurveyQuestion } from '~/types'
 
-import { buildPartialResponsesFilter, createAnswerFilterHogQLExpression } from './utils'
-
-function escapeSqlIdentifier(value: string): string {
-    // Collapse newlines first (a multi-line alias is undesirable and fragile), then escape quotes.
-    return value.replace(/\s*[\r\n]+\s*/g, ' ').replace(/"/g, '""')
-}
+import { buildSurveyResponseSQLQuery } from './utils'
 
 interface SurveySQLHelperProps {
     isOpen: boolean
@@ -24,55 +18,9 @@ interface SurveySQLHelperProps {
 }
 
 export function SurveySQLHelper({ isOpen, onClose }: SurveySQLHelperProps): JSX.Element {
-    const { survey, answerFilters } = useValues(surveyLogic)
-
-    const filterConditions = createAnswerFilterHogQLExpression(answerFilters, survey as Survey)
-
-    const generateSingleQuestionQuery = (question: SurveyQuestion, index: number): string => {
-        return `SELECT
-    distinct_id,
-    getSurveyResponse(${index}, '${question.id}'${
-        question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
-    }) AS "${escapeSqlIdentifier(question.question)}",
-    timestamp
-FROM
-    events
-WHERE
-    event = '${SurveyEventName.SENT}'
-    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
-    ${buildPartialResponsesFilter(survey as Survey)}
-    ${filterConditions ? filterConditions : ''}
-ORDER BY
-    timestamp DESC
-LIMIT
-    100`
-    }
-
-    const generateFullSurveyQuery = (): string => {
-        const questionSelects = survey.questions
-            .map((question: SurveyQuestion, index: number) => {
-                return `    getSurveyResponse(${index}, '${question.id}'${
-                    question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
-                }) AS "${escapeSqlIdentifier(question.question)}"`
-            })
-            .join(',\n')
-
-        return `SELECT
-    distinct_id,
-${questionSelects},
-    timestamp
-FROM
-    events
-WHERE
-    event = '${SurveyEventName.SENT}'
-    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
-    ${buildPartialResponsesFilter(survey as Survey)}
-    ${filterConditions ? filterConditions : ''}
-ORDER BY
-    timestamp DESC
-LIMIT
-    100`
-    }
+    const { survey, answerFilters, timestampFilter, archivedResponsesFilter } = useValues(surveyLogic)
+    const queryFilters = { answerFilters, timestampFilter, archivedResponsesFilter }
+    const fullSurveyQuery = buildSurveyResponseSQLQuery(survey as Survey, queryFilters)
 
     // Function to open query in a new insight
     const openInInsight = (query: string): void => {
@@ -89,7 +37,7 @@ LIMIT
                     <p>
                         <b>Important:</b> Since March 7, 2025, survey responses are stored using question IDs
                         ([UUID](https://en.wikipedia.org/wiki/Universally_unique_identifier)) instead of indexes. The
-                        queries below handle both formats using the <code>coalesce</code> function.
+                        queries below merge captured answers from both formats into one row per submission.
                     </p>
                     <p>
                         <b>Note:</b> These queries only include response filters set on the table. Additional property
@@ -110,13 +58,13 @@ LIMIT
                             <LemonButton
                                 icon={<IconOpenInNew />}
                                 size="small"
-                                onClick={() => openInInsight(generateFullSurveyQuery())}
+                                onClick={() => openInInsight(fullSurveyQuery)}
                                 tooltip="Open as new insight"
                                 noPadding
                             />
                         }
                     >
-                        {generateFullSurveyQuery()}
+                        {fullSurveyQuery}
                     </CodeSnippet>
                 </div>
 
@@ -137,13 +85,17 @@ LIMIT
                                         <LemonButton
                                             icon={<IconOpenInNew />}
                                             size="small"
-                                            onClick={() => openInInsight(generateSingleQuestionQuery(question, index))}
+                                            onClick={() =>
+                                                openInInsight(
+                                                    buildSurveyResponseSQLQuery(survey as Survey, queryFilters, index)
+                                                )
+                                            }
                                             tooltip="Open as new insight"
                                             noPadding
                                         />
                                     }
                                 >
-                                    {generateSingleQuestionQuery(question, index)}
+                                    {buildSurveyResponseSQLQuery(survey as Survey, queryFilters, index)}
                                 </CodeSnippet>
                             </div>
                         ))}

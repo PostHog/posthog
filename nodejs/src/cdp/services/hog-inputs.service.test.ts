@@ -198,6 +198,20 @@ describe('Hog Inputs', () => {
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
+        it('rejects liquid inputs whose leaves together exceed the invocation budget', async () => {
+            const leaf = `{% for i in (1..600) %}${'a'.repeat(10_000)}{% endfor %}`
+            hogFunction = createHogFunction({
+                ...hogFunction,
+                inputs: {
+                    ...hogFunction.inputs,
+                    liquid_object: { value: { first: leaf, second: leaf }, templating: 'liquid' },
+                },
+            })
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).rejects.toThrow(
+                'liquid output limit exceeded'
+            )
+        })
+
         it('should load integration inputs and replace access tokens with placeholders', async () => {
             hogFunction = createHogFunction({
                 ...hogFunction,
@@ -263,6 +277,21 @@ describe('Hog Inputs', () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
             expect(inputs.oauth).toMatchInlineSnapshot(`null`)
+        })
+
+        it('should not load a posthog connection', async () => {
+            const connectionId = team.id + 2
+            await insertIntegration(hub.postgres, team.id, {
+                id: connectionId,
+                kind: 'posthog',
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('connection-token') },
+            })
+            hogFunction.inputs = { connection: { value: connectionId } }
+            hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.connection).toBeNull()
         })
 
         it('should add unsubscribe url if email input is present', async () => {

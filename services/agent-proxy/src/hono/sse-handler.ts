@@ -16,6 +16,7 @@
 //   Keepalive            — eventName='keepalive', data={"type":"keepalive"}
 //   Terminal             — eventName='stream-end',  data={"status":"complete"}
 //   Rotation             — eventName='end',          data={"type":"rotated"}
+//   Resync               — eventName='end',          data={"type":"resync","reason":"trimmed"}
 //   Stream error         — eventName='error',        data={"error":"<msg>"}
 //   Stream unavailable   — eventName='error',        data={"error":"Stream not available"}
 
@@ -29,8 +30,10 @@ import {
     SSE_EVENT_KEEPALIVE,
     SSE_EVENT_STREAM_END,
     SSE_PAYLOAD_KEEPALIVE,
+    SSE_PAYLOAD_RESYNC,
     SSE_PAYLOAD_ROTATED,
     SSE_PAYLOAD_STREAM_END,
+    STREAM_CURSOR_RECHECK_STALL_MS,
     WAIT_DELAY_INCREMENT_MS,
     WAIT_INITIAL_DELAY_MS,
     WAIT_MAX_DELAY_MS,
@@ -41,7 +44,7 @@ import {
 import { logger } from '../lib/logging.js'
 import { TaskRunRedisStream } from '../lib/redis-stream.js'
 import type { StreamConnectionOutcome } from '../lib/types.js'
-import { TaskRunStreamError } from '../lib/types.js'
+import { TaskRunStreamCursorTrimmedError, TaskRunStreamError } from '../lib/types.js'
 import {
     observeStreamConnectionClosed,
     observeStreamConnectionOpened,
@@ -87,11 +90,14 @@ export function formatSseEvent(data: Record<string, unknown>, opts?: { eventId?:
  *      stream appears or the 120s timeout fires (yields unavailable error event
  *      and returns on timeout; yields keepalive every 20s while waiting).
  *   3. Resolves startId from lastEventId / startLatest / '0'.
- *   4. On reconnect (lastEventId set): observes stream length and checks for
- *      resume gap (best-effort — catches all exceptions, never breaks stream).
+ *   4. On reconnect (lastEventId set): observes stream length (best-effort) and
+ *      checks for a resume gap. A resync-capable client gets the resync frame
+ *      when its cursor was trimmed, and a stream error when the check fails.
  *   5. Iterates readStreamEntries:
  *      - null  → yield keepalive
  *      - entry → yield formatSseEvent(event, {eventId})
+ *      A resync-capable client also gets the resync frame when its cursor is
+ *      trimmed while the connection is stalled mid-stream.
  *   6. After generator returns (completion sentinel consumed): yield stream-end
  *      terminal event; set outcome = 'completed'.
  *   7. On TaskRunStreamError: yield error event; set outcome = 'stream_error'.
@@ -107,12 +113,16 @@ export async function* streamTaskRunEvents(
         lastEventId?: string | null
         startLatest?: boolean
         presenceGated?: boolean
+        isTerminal?: boolean
+        resyncCapable?: boolean
     }
 ): AsyncGenerator<Buffer, void, unknown> {
     const originProduct = opts.originProduct ?? 'unknown'
     const lastEventId = opts.lastEventId ?? null
     const startLatest = opts.startLatest ?? false
     const presenceGated = opts.presenceGated ?? false
+    const isTerminal = opts.isTerminal ?? false
+    const resyncCapable = opts.resyncCapable ?? false
 
     const redisStream = new TaskRunRedisStream(streamKey, redis)
     const connectionStartedAt = Date.now()
@@ -152,6 +162,18 @@ export async function* streamTaskRunEvents(
         let lastKeepaliveAt = waitStartedAt
         let waitedForStream = false
         while (!(await redisStream.exists())) {
+            if (isTerminal) {
+                if (lastEventId && resyncCapable) {
+                    observeStreamResumeGap(originProduct)
+                    logger.warn('stream:resume_gap', { streamKey, lastEventId, resyncCapable, reason: 'expired' })
+                    outcome = 'resync'
+                    yield formatSseEvent(SSE_PAYLOAD_RESYNC, { eventName: SSE_EVENT_END })
+                    return
+                }
+                outcome = 'drained'
+                yield formatSseEvent(SSE_PAYLOAD_STREAM_END, { eventName: SSE_EVENT_STREAM_END })
+                return
+            }
             if (!waitedForStream) {
                 waitedForStream = true
                 logger.debug('stream:waiting', { streamKey })
@@ -196,17 +218,43 @@ export async function* streamTaskRunEvents(
             startId = '0'
         }
 
-        // -- Resume gap detection (only on reconnects; best-effort) --
+        // -- Resume gap detection (only on reconnects) --
+        let resumePointTrimmed = false
         if (lastEventId) {
             try {
                 observeStreamLengthOnConnect(await redisStream.getLength())
-                if (await redisStream.resumePointTrimmed(lastEventId)) {
-                    observeStreamResumeGap(originProduct)
-                    logger.warn('stream:resume_gap', { streamKey, lastEventId })
-                }
-            } catch {
-                logger.warn('stream:attach_observe_failed', { streamKey })
+            } catch (err) {
+                logger.warn('stream:attach_observe_failed', {
+                    streamKey,
+                    error: err instanceof Error ? err.message : String(err),
+                })
             }
+            try {
+                resumePointTrimmed = await redisStream.resumePointTrimmed(lastEventId)
+            } catch (err) {
+                logger.warn('stream:resume_check_failed', {
+                    streamKey,
+                    lastEventId,
+                    resyncCapable,
+                    error: err instanceof Error ? err.message : String(err),
+                })
+                if (resyncCapable) {
+                    outcome = 'stream_error'
+                    yield formatSseEvent(makeSseErrorPayload('Connection lost to task run stream'), {
+                        eventName: SSE_EVENT_ERROR,
+                    })
+                    return
+                }
+            }
+            if (resumePointTrimmed) {
+                observeStreamResumeGap(originProduct)
+                logger.warn('stream:resume_gap', { streamKey, lastEventId, resyncCapable, reason: 'trimmed' })
+            }
+        }
+        if (resumePointTrimmed && resyncCapable) {
+            outcome = 'resync'
+            yield formatSseEvent(SSE_PAYLOAD_RESYNC, { eventName: SSE_EVENT_END })
+            return
         }
 
         // Dedicated connection for the blocking XREAD loop so it cannot delay the
@@ -244,6 +292,7 @@ export async function* streamTaskRunEvents(
                 startId,
                 keepaliveIntervalMs: KEEPALIVE_INTERVAL_MS,
                 blockingRedis: dedupRedis,
+                ...(resyncCapable ? { cursorRecheckAfterStallMs: STREAM_CURSOR_RECHECK_STALL_MS } : {}),
             })) {
                 await refreshWatched(Date.now())
 
@@ -266,7 +315,12 @@ export async function* streamTaskRunEvents(
             outcome = 'completed'
             yield formatSseEvent(SSE_PAYLOAD_STREAM_END, { eventName: SSE_EVENT_STREAM_END })
         } catch (err) {
-            if (err instanceof TaskRunStreamError) {
+            if (err instanceof TaskRunStreamCursorTrimmedError) {
+                observeStreamResumeGap(originProduct)
+                logger.warn('stream:resume_gap', { streamKey, cursor: err.cursor, resyncCapable, reason: 'stalled' })
+                outcome = 'resync'
+                yield formatSseEvent(SSE_PAYLOAD_RESYNC, { eventName: SSE_EVENT_END })
+            } else if (err instanceof TaskRunStreamError) {
                 outcome = 'stream_error'
                 logger.error('stream:error', { streamKey, error: err.message })
                 yield formatSseEvent(makeSseErrorPayload(err.message), { eventName: SSE_EVENT_ERROR })

@@ -1,7 +1,7 @@
 import datetime
 from zoneinfo import ZoneInfo
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +12,8 @@ from dateutil import parser
 from parameterized import parameterized
 
 from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode, IntervalType
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -352,7 +354,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
         self.assertEqual(cached_earliest_timestamp, earliest_timestamp)
 
-    @freeze_time("2021-01-21")
+    @time_machine.travel("2021-01-21", tick=False)
     def test_unfiltered_earliest_timestamp_returns_earliest_event(self):
         _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
         _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2020-01-06T14:10:00Z")
@@ -362,7 +364,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
             2020, 1, 4, 14, 10, tzinfo=datetime.UTC
         )
 
-    @freeze_time("2021-01-21")
+    @time_machine.travel("2021-01-21", tick=False)
     def test_unfiltered_earliest_timestamp_floors_at_2015(self):
         # Events before 2015-01-01 are treated as corrupt and ignored.
         _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="1984-01-06T14:10:00Z")
@@ -373,12 +375,12 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert get_earliest_timestamp_unfiltered(self.team) == datetime.datetime(2015, 1, 1, 1, tzinfo=datetime.UTC)
 
-    @freeze_time("2021-01-21")
+    @time_machine.travel("2021-01-21", tick=False)
     def test_unfiltered_earliest_timestamp_falls_back_when_no_events(self):
         # No events: fall back to now - DEFAULT_EARLIEST_TIME_DELTA (one week).
         assert get_earliest_timestamp_unfiltered(self.team) == datetime.datetime(2021, 1, 14, tzinfo=datetime.UTC)
 
-    @freeze_time("2021-01-21")
+    @time_machine.travel("2021-01-21", tick=False)
     def test_unfiltered_earliest_timestamp_caches_real_result(self):
         _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2021-01-01T12:00:00Z")
         flush_persons_and_events()
@@ -390,6 +392,26 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         flush_persons_and_events()
 
         assert get_earliest_timestamp_unfiltered(self.team) == earliest_timestamp
+
+    def test_unfiltered_earliest_timestamp_reads_in_sort_key_order(self):
+        printed: list[str | None] = []
+        lookups: list[str | None] = []
+
+        def run(*args, **kwargs):
+            lookups.append(get_query_tags().lookup)
+            response = execute_hogql_query(*args, **kwargs)
+            printed.append(response.clickhouse)
+            return response
+
+        with patch("posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query", side_effect=run):
+            get_earliest_timestamp_unfiltered(self.team)
+
+        assert printed[0] is not None
+        self.assertRegex(
+            printed[0],
+            r"ORDER BY\s+toDate\(events\.timestamp\) ASC,\s+toTimeZone\(events\.timestamp, %\(hogql_val_\d+\)s\) ASC\s+LIMIT 1",
+        )
+        self.assertEqual(lookups, ["earliest_timestamp"])
 
     @parameterized.expand(
         [
@@ -535,6 +557,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
             tags = get_query_tags()
             captured["product"] = tags.product
             captured["feature"] = tags.feature
+            captured["lookup"] = tags.lookup
             result = MagicMock()
             result.results = [[datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)]]
             return result
@@ -548,3 +571,4 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         self.assertEqual(captured["product"], expected_product)
         self.assertEqual(captured["feature"], expected_feature)
+        self.assertEqual(captured["lookup"], "earliest_timestamp")

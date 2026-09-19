@@ -71,6 +71,7 @@ import type {
     SavedQueryLineageRequestApi,
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
+    SavedQueryResumeSchedulesRequestApi,
     SavedQueryRunApi,
     TableApi,
     ViewLinkApi,
@@ -1825,21 +1826,21 @@ export const getWarehouseSavedQueriesResumeSchedulesCreateUrl = (projectId: stri
 }
 
 /**
- * Resume paused materialization schedules for multiple matviews.
+ * Resume materialization for several models that were suspended after repeated failures.
  *
  * Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
- * This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+ * This endpoint is idempotent - calling it on models that are already running is safe.
  */
 export const warehouseSavedQueriesResumeSchedulesCreate = async (
     projectId: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryResumeSchedulesRequestApi: SavedQueryResumeSchedulesRequestApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesResumeSchedulesCreateUrl(projectId), {
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseSavedQueriesResumeSchedulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryResumeSchedulesRequestApi),
     })
 }
 

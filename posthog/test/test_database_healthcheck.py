@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from django.test import TestCase
@@ -14,7 +14,7 @@ class TestDatabaseHealthcheck(TestCase):
     def test_healthcheck(self):
         self.healthcheck.is_postgres_connected_check = mock.MagicMock(return_value=True)  # type: ignore
 
-        with freeze_time("2021-01-01T00:00:00Z") as frozen_time:
+        with time_machine.travel("2021-01-01T00:00:00Z", tick=False) as frozen_time:
             self.assertTrue(self.healthcheck.is_connected())
             self.assertEqual(self.healthcheck.hits, 0)
             self.assertEqual(self.healthcheck.misses, 1)
@@ -34,7 +34,7 @@ class TestDatabaseHealthcheck(TestCase):
 
             self.healthcheck.is_postgres_connected_check.reset_mock()
             # 30 seconds later
-            frozen_time.tick(delta=30)
+            frozen_time.shift(30)
 
             self.assertTrue(self.healthcheck.is_connected())
             self.healthcheck.is_postgres_connected_check.assert_called_once()
@@ -43,7 +43,7 @@ class TestDatabaseHealthcheck(TestCase):
             self.assertEqual(self.healthcheck.last_check, 53648641)
 
             # 30 seconds later
-            frozen_time.tick(delta=30)
+            frozen_time.shift(30)
             self.healthcheck.is_postgres_connected_check = mock.MagicMock(return_value=False)  # type: ignore
 
             self.assertFalse(self.healthcheck.is_connected())
@@ -54,7 +54,7 @@ class TestDatabaseHealthcheck(TestCase):
     def test_set_is_connected(self):
         self.healthcheck.is_postgres_connected_check = mock.MagicMock(return_value=True)  # type: ignore
 
-        with freeze_time("2021-01-01T00:00:00Z") as frozen_time:
+        with time_machine.travel("2021-01-01T00:00:00Z", tick=False) as frozen_time:
             self.healthcheck.set_connection(True)
 
             self.assertTrue(self.healthcheck.is_connected())
@@ -72,7 +72,7 @@ class TestDatabaseHealthcheck(TestCase):
             self.assertEqual(self.healthcheck.last_check, 53648640)
 
             # 30 seconds later
-            frozen_time.tick(delta=30)
+            frozen_time.shift(30)
 
             self.assertTrue(self.healthcheck.is_connected())
             self.healthcheck.is_postgres_connected_check.assert_called_once()

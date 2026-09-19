@@ -38,6 +38,9 @@ export function useTasks(
         repository: filters?.repository,
         createdBy,
         internal,
+        // The sidebar and every other full-list consumer narrow the task before use
+        // and never read its description, so ask for the basic payload without it.
+        basic: true,
       }) as unknown as Promise<Task[]>,
     {
       enabled: (options?.enabled ?? true) && !!currentUser?.id,
@@ -77,6 +80,8 @@ export function useSlackTasks(options?: {
       client.getTasks({
         originProduct: "slack",
         internal,
+        // Only slack origin/thread fields are read off these rows; ask for the basic payload.
+        basic: true,
       }) as unknown as Promise<Task[]>,
     {
       enabled: options?.enabled ?? true,

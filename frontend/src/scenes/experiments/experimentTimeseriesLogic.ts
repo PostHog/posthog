@@ -67,27 +67,6 @@ export interface experimentTimeseriesLogicActions {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion
     } // eventUsageLogic
-    clearTimeseries: () => {
-        value: true
-    }
-    clearTimeseriesFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    clearTimeseriesSuccess: (
-        timeseries: null,
-        payload?: {
-            value: true
-        }
-    ) => {
-        timeseries: null
-        payload?: {
-            value: true
-        }
-    }
     loadTimeseries: ({ metric }: { metric: ExperimentMetric }) => {
         metric: ExperimentMetric
     }
@@ -165,7 +144,6 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     })),
 
     actions(() => ({
-        clearTimeseries: true,
         recalculateTimeseries: ({ metric }: { metric: ExperimentMetric }) => ({ metric }),
     })),
 
@@ -186,7 +164,6 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     )
                     return response
                 },
-                clearTimeseries: () => null,
                 recalculateTimeseries: async ({ metric }: { metric: ExperimentMetric }) => {
                     if (!metric.fingerprint) {
                         throw new Error('Metric fingerprint is required')

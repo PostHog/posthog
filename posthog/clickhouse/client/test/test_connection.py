@@ -1,14 +1,14 @@
 import pytest
 from unittest.mock import patch
 
-from clickhouse_pool import ChPool
-
 from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import (
+    ClickHouseChPool,
     ClickHouseCredentials,
     ClickHouseUser,
     RefreshingChPool,
     Workload,
+    get_clickhouse_creds,
     get_http_client,
     get_http_kwargs,
     get_pool,
@@ -44,7 +44,7 @@ def test_connection_pool_creation_without_offline_cluster(settings):
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
 
     online_pool = get_pool(Workload.ONLINE)
-    assert type(online_pool) is ChPool  # a user with no password file keeps a plain, non-refreshing pool
+    assert type(online_pool) is ClickHouseChPool  # a user with no password file keeps a non-refreshing pool
     assert get_pool(Workload.ONLINE) is online_pool
     assert get_pool(Workload.OFFLINE) is online_pool
     assert get_pool(Workload.DEFAULT) is online_pool
@@ -115,6 +115,22 @@ def test_password_file_env_registers_file_backed_user(monkeypatch, tmp_path):
     creds = init_clickhouse_users()[ClickHouseUser.COHORTS]
     assert creds.user == "cohorts"
     assert creds.read_password() == "cohorts-token-value"
+
+
+def test_business_knowledge_credentials_do_not_fall_back_to_default(monkeypatch):
+    default_creds = ClickHouseCredentials(user="default", password="default-password")
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: default_creds})
+
+    with pytest.raises(RuntimeError, match="CLICKHOUSE_BUSINESS_KNOWLEDGE_USER"):
+        get_clickhouse_creds(ClickHouseUser.BUSINESS_KNOWLEDGE)
+
+
+def test_deletion_executor_credentials_do_not_fall_back_to_default(monkeypatch):
+    default_creds = ClickHouseCredentials(user="default", password="default-password")
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: default_creds})
+
+    with pytest.raises(RuntimeError, match="CLICKHOUSE_DELETION_EXECUTOR_USER"):
+        get_clickhouse_creds(ClickHouseUser.DELETION_EXECUTOR)
 
 
 def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeypatch, tmp_path):

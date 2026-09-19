@@ -12,6 +12,8 @@ from parameterized import parameterized
 
 from posthog.schema import (
     HogLanguage,
+    HogQLAutocomplete,
+    HogQLFilters,
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLQuery,
@@ -24,6 +26,7 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
+from posthog.api.services.query import process_query_model
 from posthog.models import EventDefinition, PropertyDefinition, Team
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -88,6 +91,57 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_TEMPLATE, query=query, response=None),
             team=self.team,
         )
+
+    def test_metadata_reuses_sources_fetched_by_autocomplete(self):
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query="select ",
+            language=HogLanguage.HOG_QL,
+            startPosition=7,
+            endPosition=7,
+        )
+        process_query_model(self.team, autocomplete, user=self.user)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = get_hogql_metadata(
+                query=HogQLMetadata(
+                    kind="HogQLMetadata",
+                    language=HogLanguage.HOG_QL,
+                    query="select event from events",
+                    response=None,
+                ),
+                team=self.team,
+                user=self.user,
+            )
+
+        assert response.isValid
+        assert not any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
+
+    def test_filtered_metadata_reuses_sources_fetched_by_autocomplete(self):
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query="select ",
+            language=HogLanguage.HOG_QL,
+            startPosition=7,
+            endPosition=7,
+        )
+        process_query_model(self.team, autocomplete, user=self.user)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = get_hogql_metadata(
+                query=HogQLMetadata(
+                    kind="HogQLMetadata",
+                    language=HogLanguage.HOG_QL,
+                    query="select event from events where {filters}",
+                    filters=HogQLFilters(),
+                    response=None,
+                ),
+                team=self.team,
+                user=self.user,
+            )
+
+        assert response.isValid
+        assert not any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
 
     def test_metadata_valid_expr_select(self):
         metadata = self._expr("select 1")
@@ -372,6 +426,54 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
+
+    @parameterized.expand(
+        [
+            "$virt_traffic_type",
+            "$virt_traffic_category",
+            "$virt_is_bot",
+            "$virt_bot_name",
+            "$virt_bot_operator",
+        ]
+    )
+    def test_metadata_does_not_warn_for_virtual_property(self, prop: str):
+        # Virtual traffic properties are computed at query time and never stored as PropertyDefinition
+        # rows, so the validator must treat them as known — read_taxonomy lists the same set.
+        # The unrelated definition is what makes this assertion mean anything: a project with no
+        # definitions at all never warns, so without a row here the case passes however the validator behaves.
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select(f"SELECT properties.{prop} FROM events WHERE properties.{prop} = 'x'")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    def test_metadata_warns_for_virtual_property_bracket_access(self):
+        # Dot access (`properties.$virt_is_bot`) is remapped by the resolver onto the computed field, but
+        # bracket access reads the raw JSON blob, where the virtual value is never stored. So a bracket
+        # reference to a virtual property returns an empty value and must still warn, unlike the dot form.
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties['$virt_is_bot'] FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(
+            [warning.message for warning in taxonomy_warnings],
+            ["Property '$virt_is_bot' was not found in this project taxonomy."],
+        )
+
+    def test_metadata_warns_for_unknown_virtual_property(self):
+        # A `$virt_`-prefixed name that is not a real virtual property (e.g. a typo) is still unknown,
+        # so the warning must state it, rather than the prefix silently passing validation.
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties.$virt_trafic_type FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(
+            [warning.message for warning in taxonomy_warnings],
+            ["Property '$virt_trafic_type' was not found in this project taxonomy."],
+        )
 
     def test_metadata_skips_suggestion_lookup_for_known_event(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
