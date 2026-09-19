@@ -20,6 +20,7 @@ import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -39,6 +40,7 @@ import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { ColumnConfiguratorLogicProps, columnConfiguratorLogic } from './columnConfiguratorLogic'
+import { ColumnToHogQL, columnsToSelectedProperties } from './columnsToSelectedProperties'
 
 let uniqueNode = 0
 
@@ -137,6 +139,14 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         }
     }
 
+    const columnFromTaxonomicFilter: ColumnToHogQL = isGroupsQuery(query.source)
+        ? taxonomicGroupFilterToHogQL
+        : isActorsQuery(query.source)
+          ? taxonomicPersonFilterToHogQL
+          : isSessionsQuery(query.source)
+            ? taxonomicSessionFilterToHogQL
+            : taxonomicEventFilterToHogQL
+
     let taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
     if (isGroupsQuery(query.source)) {
         taxonomicGroupTypes = [
@@ -161,6 +171,13 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 : []),
         ]
     }
+
+    const selectedProperties = columnsToSelectedProperties({
+        columns,
+        taxonomicGroupTypes,
+        toHogQL: columnFromTaxonomicFilter,
+        implicitPrefixGroupType: isSessionsQuery(query.source) ? TaxonomicFilterGroupType.SessionProperties : undefined,
+    })
 
     const showPersistedColumnReorder =
         isEventsQuery(query.source) ||
@@ -251,17 +268,21 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                             width={width}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             value={undefined}
+                                            selectedProperties={selectedProperties}
+                                            keepSearchOnSelect
                                             onChange={(group, value) => {
-                                                const column = isGroupsQuery(query.source)
-                                                    ? taxonomicGroupFilterToHogQL(group.type, value)
-                                                    : isActorsQuery(query.source)
-                                                      ? taxonomicPersonFilterToHogQL(group.type, value)
-                                                      : isSessionsQuery(query.source)
-                                                        ? taxonomicSessionFilterToHogQL(group.type, value)
-                                                        : taxonomicEventFilterToHogQL(group.type, value)
-                                                if (column !== null) {
-                                                    selectColumn(column)
+                                                const column = columnFromTaxonomicFilter(group.type, value)
+                                                if (column === null) {
+                                                    lemonToast.error("This property can't be a column on this table")
+                                                    return
                                                 }
+                                                // A column keeps whatever text the table stored, so a labeled
+                                                // or unprefixed one never equals what the converter builds.
+                                                // Gate on the keys that drew the check, not on the column string.
+                                                if (selectedProperties[group.type]?.includes(value)) {
+                                                    return
+                                                }
+                                                selectColumn(column)
                                             }}
                                             popoverEnabled={false}
                                             selectFirstItem={false}
