@@ -6,6 +6,8 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -37,6 +39,30 @@ class TestHogFunction(TestCase):
         assert item.name == "Test"
         assert item.hog == ""
         assert not item.enabled
+
+    @parameterized.expand(
+        [("secret_last", [False, True]), ("secret_first", [True, False]), ("no_longer_secret", [False])]
+    )
+    def test_stored_secrets_never_move_to_plaintext(self, _name: str, secret_flags: list[bool]) -> None:
+        secret = {"value": "example-private-value"}
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Secret storage",
+            type="destination",
+            inputs_schema=[{"key": "credential", "type": "string", "secret": True}],
+            inputs={"credential": secret},
+        )
+        function.inputs_schema = [
+            {"key": "message", "type": "string"},
+            *[{"key": "credential", "type": "string", "secret": secret_flag} for secret_flag in secret_flags],
+        ]
+        function.inputs = {"credential": secret, "message": {"value": "example-public-value"}}
+
+        function.save()
+
+        function.refresh_from_db()
+        assert function.inputs == {"message": {"value": "example-public-value"}}
+        assert (function.encrypted_inputs or {}) == ({"credential": secret} if any(secret_flags) else {})
 
     def test_hog_function_team_no_filters_compilation(self):
         item = HogFunction.objects.create(name="Test", team=self.team, type="destination")

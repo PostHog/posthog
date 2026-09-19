@@ -11,9 +11,10 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 
 from posthog.cdp.validation import (
+    FunctionInputsSerializer,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
-    MappingsSerializer,
+    InputsSchemaSerializer,
     RecordAliasRewriter,
     compile_hog,
     generate_template_bytecode,
@@ -27,7 +28,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
 def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False, context_extra=None):
-    serializer = MappingsSerializer(
+    serializer = FunctionInputsSerializer(
         data={
             "inputs_schema": schema,
             "inputs": inputs,
@@ -144,6 +145,24 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 "hidden": False,
             },
         ]
+
+    @parameterized.expand(
+        [("same", ["message", "message"]), ("whitespace", ["message", " message "]), ("coerced", [42, "42"])]
+    )
+    def test_duplicate_input_schema_keys_are_rejected(self, _name: str, keys: list[str | int]) -> None:
+        with self.assertRaisesMessage(ValidationError, "Each input key must be unique"):
+            InputsSchemaSerializer().run_validation([{"key": key, "type": "string"} for key in keys])
+
+    @parameterized.expand([("boolean", False), ("string", "false"), ("zero", "0")])
+    def test_false_secret_flags_do_not_restore_stored_values(self, _name: str, secret_flag: bool | str) -> None:
+        assert (
+            validate_inputs(
+                [{"key": "credential", "type": "string", "secret": secret_flag}],
+                {},
+                context_extra={"encrypted_inputs": {"credential": {"value": "example-private-value"}}},
+            )
+            == {}
+        )
 
     def test_validate_inputs(self):
         inputs_schema = create_example_inputs_schema()
@@ -850,7 +869,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 },
             ),
         ]:
-            serializer = MappingsSerializer(
+            serializer = FunctionInputsSerializer(
                 data={
                     "inputs_schema": inputs_schema,
                     "inputs": inputs,
@@ -877,7 +896,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             {"key": "secret_field", "type": "string", "required": True, "secret": True},
         ]
 
-        serializer = MappingsSerializer(
+        serializer = FunctionInputsSerializer(
             data={
                 "inputs_schema": inputs_schema,
                 "inputs": {"secret_field": input_value},

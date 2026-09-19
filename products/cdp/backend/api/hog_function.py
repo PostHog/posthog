@@ -33,7 +33,7 @@ from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
-    InputsSchemaItemSerializer,
+    InputsSchemaSerializer,
     InputsSerializer,
     MappingsSerializer,
     compile_hog,
@@ -359,8 +359,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         allow_null=True,
         help_text="Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.",
     )
-    inputs_schema = serializers.ListField(
-        child=InputsSchemaItemSerializer(required=True),
+    inputs_schema = InputsSchemaSerializer(
         required=False,
         help_text="Schema defining the configurable input parameters for this function.",
     )

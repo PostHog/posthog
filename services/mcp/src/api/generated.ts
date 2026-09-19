@@ -46819,9 +46819,9 @@ export namespace Schemas {
     export type MappingsInputs = {[key: string]: InputsItem};
 
     export interface Mappings {
-      name?: string;
       inputs_schema?: InputsSchemaItem[];
       inputs?: MappingsInputs;
+      name?: string;
       filters?: HogFunctionFilters;
     }
 

@@ -176,7 +176,6 @@ export const HogFunctionsCreateBody = () => zod.object({
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -242,6 +241,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -440,7 +440,6 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -506,6 +505,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -822,7 +822,6 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
             mappings: zod
                 .array(
                     zod.object({
-                        name: zod.string().optional(),
                         inputs_schema: zod
                             .array(
                                 zod.object({
@@ -899,6 +898,7 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                                 })
                             )
                             .optional(),
+                        name: zod.string().optional(),
                         filters: zod
                             .object({
                                 source: zod
