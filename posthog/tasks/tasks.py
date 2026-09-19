@@ -13,6 +13,7 @@ from django.utils import timezone
 
 import requests
 from celery import shared_task
+from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
 from redis import Redis
 from rest_framework.exceptions import APIException
@@ -50,6 +51,11 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER = Counter(
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
     "posthog_feature_flag_last_called_at_sync_chunk_failures_total",
     "ClickHouse chunk queries that failed during feature flag last_called_at sync",
+)
+
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER = Counter(
+    "posthog_feature_flag_last_called_at_sync_retry_recoveries_total",
+    "Feature flag last_called_at sync runs that completed on a Celery retry after an earlier attempt failed",
 )
 
 
@@ -1329,6 +1335,8 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         registry=self.metrics_registry,
     )
 
+    run_failed = False
+
     try:
         redis_client = get_client()
 
@@ -1621,13 +1629,20 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
 
     except Exception as e:
+        run_failed = True
         duration = (timezone.now() - start_time).total_seconds()
         logger.exception("Feature flag sync failed", error=e, duration_seconds=duration)
-        capture_exception(
-            e, additional_properties={"feature": "feature_flags", "task": "sync_feature_flag_last_called"}
-        )
+        properties = {"feature": "feature_flags", "task": "sync_feature_flag_last_called"}
+        if isinstance(e, UnknownPacketFromServerError):
+            # The driver puts the unexpected packet number and the host in the message, so every
+            # occurrence fingerprints as a new error tracking issue. Group them under one issue.
+            properties["$exception_fingerprint"] = "sync_feature_flag_last_called.UnknownPacketFromServerError"
+        capture_exception(e, additional_properties=properties)
         raise
     finally:
+        if not run_failed and (self.request.retries or 0) > 0:
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER.inc()
+
         # Always release the lock
         cache.delete(LOCK_KEY)
 
