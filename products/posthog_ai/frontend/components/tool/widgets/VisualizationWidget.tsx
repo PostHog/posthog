@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions } from 'kea'
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconEye, IconHide, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -30,6 +30,14 @@ import { MessageTemplate } from '../../../messages/MessageTemplate'
 import { visualizationTypeToQuery } from '../../../utils/visualizationQuery'
 
 const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as const
+
+/**
+ * Whether a loaded response matched nothing. A response that is still loading, or one whose shape
+ * carries no row list, is not treated as empty — the card only shrinks on a result we are sure about.
+ */
+function responseIsEmpty(response: Record<string, unknown> | null | undefined): boolean {
+    return !!response && Array.isArray(response.results) && response.results.length === 0
+}
 
 export interface VisualizationWidgetProps {
     content: VisualizationArtifactContent
@@ -82,11 +90,30 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
     const { loadCohortsByIds } = useActions(cohortsModel)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [internalCollapsed, setInternalCollapsed] = useState(false)
+    const [isResultEmpty, setIsResultEmpty] = useState(false)
     const isCollapsed = controlledCollapsed ?? internalCollapsed
-    const setCollapsed = (next: boolean): void => {
-        setInternalCollapsed(next)
-        onCollapsedChange?.(next)
-    }
+    const setCollapsed = useCallback(
+        (next: boolean): void => {
+            setInternalCollapsed(next)
+            onCollapsedChange?.(next)
+        },
+        [onCollapsedChange]
+    )
+
+    const queryContext = useMemo<QueryContext>(
+        () => ({ ...QUERY_CONTEXT_POSTHOG_AI, onQueryData: (data) => setIsResultEmpty(responseIsEmpty(data)) }),
+        []
+    )
+
+    // A thread that asks for data the project does not have gets a card per attempt, each holding a
+    // chart-sized box of nothing. Shrink those to a line so the answer below them stays reachable.
+    const hasAutoCollapsed = useRef(false)
+    useEffect(() => {
+        if (isResultEmpty && !hasAutoCollapsed.current) {
+            hasAutoCollapsed.current = true
+            setCollapsed(true)
+        }
+    }, [isResultEmpty, setCollapsed])
 
     // Build query from either artifact content or inline visualization message
     const query = useMemo(() => {
@@ -105,8 +132,11 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
         <div className="flex flex-col w-full">
             {!isCollapsed && (
                 <div className={clsx('flex flex-col overflow-auto', isFunnelsQuery(rawQuery) ? 'h-[580px]' : 'h-96')}>
-                    <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} />
+                    <Query query={query} readOnly embedded context={queryContext} />
                 </div>
+            )}
+            {isCollapsed && isResultEmpty && (
+                <p className="m-0 mb-2 text-sm text-secondary">No data matched this query.</p>
             )}
             <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
                 {isInsightVizNode(query) ? (
