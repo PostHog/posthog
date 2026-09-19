@@ -25,6 +25,7 @@ from uuid import UUID
 from django.db.models import Prefetch, QuerySet
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
+from products.warehouse_sources.backend.activity_logging_utils import get_external_data_source_detail_name
 from products.warehouse_sources.backend.file_uploads import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
@@ -40,7 +41,10 @@ from products.warehouse_sources.backend.models.column_statistics import (
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import (
+    ExternalDataSource as _ExternalDataSource,
+    get_external_data_sources_using_integration as _get_external_data_sources_using_integration,
+)
 from products.warehouse_sources.backend.models.table import DataWarehouseTable as _DataWarehouseTable
 
 # Framework-free helper transforms — re-exported as the public helper surface.
@@ -131,6 +135,7 @@ def _to_source(source: _ExternalDataSource) -> contracts.ExternalDataSource:
         source_type=source.source_type,
         status=source.status,
         prefix=source.prefix,
+        label=get_external_data_source_detail_name(source),
         access_method=source.access_method,
         direct_query_enabled=source.direct_query_enabled,
         created_via=source.created_via,
@@ -307,6 +312,11 @@ def list_revenue_source_settings(
 
 def get_schema(schema_id: UUID, team_id: int) -> contracts.ExternalDataSchema:
     return _to_schema(_ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id))
+
+
+def list_sources_using_integration(team_id: int, integration_id: int) -> list[contracts.ExternalDataSource]:
+    """Return the live sources that take their credentials from this integration."""
+    return [_to_source(source) for source in _get_external_data_sources_using_integration(team_id, integration_id)]
 
 
 def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataSchema]:

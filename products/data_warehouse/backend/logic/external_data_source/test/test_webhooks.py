@@ -10,11 +10,16 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 from products.data_warehouse.backend.logic.external_data_source.webhooks import (
     create_and_register_webhook,
+    delete_webhook_and_hog_function,
     get_or_create_webhook_hog_function,
     reconcile_webhook_events,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.facade.source_management import WebhookCreationResult, WebhookSyncResult
+from products.warehouse_sources.backend.facade.source_management import (
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSyncResult,
+)
 
 pytestmark = [
     pytest.mark.django_db,
@@ -414,3 +419,37 @@ class TestReconcileWebhookEvents:
 
         assert result.success is False
         assert result.error == "add Write permission"
+
+
+class TestDeleteWebhookAndHogFunction:
+    def _setup(self, team) -> tuple[MagicMock, WebhookHogFunctionCreateResult]:
+        _create_hog_function_template()
+        webhook_source = _make_webhook_source()
+        ext_source = _create_external_data_source(team)
+        schemas = _create_schemas(team, ext_source, ["Customers"])
+        hog_fn_result = get_or_create_webhook_hog_function(team, webhook_source, "source-123", schemas)
+        return webhook_source, hog_fn_result
+
+    def test_deletes_hog_function_and_external_webhook(self):
+        _, team = _create_org_and_team()
+        webhook_source, hog_fn_result = self._setup(team)
+        webhook_source.delete_webhook.return_value = WebhookDeletionResult(success=True)
+
+        result = delete_webhook_and_hog_function(team, webhook_source, MagicMock(), "source-123")
+
+        assert result.success is True
+        assert result.external_deleted is True
+        assert result.error is None
+        assert _hog_function(hog_fn_result).deleted is True
+
+    def test_reports_missing_integration_instead_of_raising(self):
+        _, team = _create_org_and_team()
+        webhook_source, hog_fn_result = self._setup(team)
+        webhook_source.delete_webhook.side_effect = ValueError("Integration not found: 42")
+
+        result = delete_webhook_and_hog_function(team, webhook_source, MagicMock(), "source-123")
+
+        assert result.success is True
+        assert result.external_deleted is False
+        assert result.error == "Integration not found: 42"
+        assert _hog_function(hog_fn_result).deleted is True

@@ -73,6 +73,8 @@ class ExternalDataSource:
     source_type: str
     status: str | None
     prefix: str | None
+    # How the source is named to a user, e.g. "Stripe (billing)".
+    label: str
     access_method: str
     direct_query_enabled: bool
     created_via: str | None

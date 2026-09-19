@@ -208,9 +208,16 @@ def delete_webhook_and_hog_function(
 
     webhook_url = get_webhook_url(hog_function.id)
 
-    external_result: WebhookDeletionResult = source.delete_webhook(
-        config, webhook_url, team.pk, api_version=api_version
-    )
+    try:
+        external_result: WebhookDeletionResult = source.delete_webhook(
+            config, webhook_url, team.pk, api_version=api_version
+        )
+    except ValueError as e:
+        # `delete_webhook` returns its outcome, but a source that resolves credentials inline still
+        # raises `ValueError` when the config can no longer produce them, most often because the
+        # linked OAuth integration row was removed before the source. This is the backstop for those
+        # sources, because throwing here would also leave the HogFunction live.
+        external_result = WebhookDeletionResult(success=False, error=str(e))
 
     hog_function.deleted = True
     hog_function.enabled = False

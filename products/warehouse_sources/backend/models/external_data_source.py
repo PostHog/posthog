@@ -407,3 +407,39 @@ def is_managed_warehouse_connection_ready(team_id: int, connection_id: str | Non
         .first()
     )
     return source is not None and source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
+
+
+def _integration_ids_in_job_inputs(job_inputs: Any) -> set[int]:
+    """The integration row ids a stored `job_inputs` payload points at.
+
+    Sources name the field after their provider (`stripe_integration_id`,
+    `hubspot_integration_id`, ...) and some nest it under an auth-method group, so the suffix is
+    matched at any depth rather than a fixed set of keys. Values are persisted as strings.
+    """
+    if isinstance(job_inputs, dict):
+        found: set[int] = set()
+        for key, value in job_inputs.items():
+            if isinstance(key, str) and key.endswith("_integration_id"):
+                try:
+                    found.add(int(value))
+                except (TypeError, ValueError):
+                    continue
+            else:
+                found.update(_integration_ids_in_job_inputs(value))
+        return found
+    return set()
+
+
+def get_external_data_sources_using_integration(team_id: int, integration_id: int) -> list["ExternalDataSource"]:
+    """Return the live sources that take their credentials from this integration.
+
+    Used when destroying an integration, so a source is not left with credentials it can no longer
+    resolve. `job_inputs` is encrypted at rest and cannot be matched in SQL, so each of the team's
+    sources is decrypted and searched instead. A team has tens of sources, not thousands.
+    """
+    return [
+        source
+        # The default manager joins `revenue_analytics_config`, which this lookup never reads.
+        for source in ExternalDataSource.objects.select_related(None).filter(team_id=team_id).exclude(deleted=True)
+        if integration_id in _integration_ids_in_job_inputs(source.job_inputs)
+    ]

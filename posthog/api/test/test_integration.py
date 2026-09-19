@@ -66,6 +66,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models import BatchExport, BatchExportDestination
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.workflows.backend.models import HogFlow
 
 
@@ -6483,6 +6484,41 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert "Slack flow" in content
         assert "Slack notifier" in content
         assert Integration.objects.filter(id=self.integration.id).exists()
+
+    def _create_warehouse_source(self, *, integration_id: int, deleted: bool = False) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src_1",
+            connection_id="conn_1",
+            source_type="Stripe",
+            status="Completed",
+            prefix="billing",
+            deleted=deleted,
+            job_inputs={"auth_method": {"selection": "oauth", "stripe_integration_id": str(integration_id)}},
+        )
+
+    def test_destroy_blocked_when_warehouse_source_uses_integration(self, client: HttpClient):
+        self._create_warehouse_source(integration_id=self.integration.id)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Stripe (billing)" in response.content.decode()
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+    @pytest.mark.parametrize("deleted,other_integration", [(True, False), (False, True)])
+    def test_destroy_allowed_when_warehouse_source_deleted_or_unrelated(
+        self, deleted: bool, other_integration: bool, client: HttpClient
+    ):
+        self._create_warehouse_source(
+            integration_id=self.integration.id + 1 if other_integration else self.integration.id,
+            deleted=deleted,
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
 
     def test_destroy_blocked_message_includes_batch_exports(self, client: HttpClient):
         dest = BatchExportDestination.objects.create(

@@ -1811,13 +1811,23 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         if isinstance(source, WebhookSource) and instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
-                delete_webhook_and_hog_function(
+                webhook_deletion = delete_webhook_and_hog_function(
                     team=self.team,
                     source=source,
                     config=config,
                     source_id=str(instance.pk),
                     api_version=source.resolve_api_version(instance.api_version),
                 )
+                if webhook_deletion.error:
+                    # The webhook stays live on the external service and nothing else records it, so
+                    # this log is the only trace of an endpoint that now points at a deleted source.
+                    base.logger.warning(
+                        "External webhook was not removed when the source was deleted",
+                        source_id=str(instance.pk),
+                        source_type=instance.source_type,
+                        team_id=self.team_id,
+                        error=webhook_deletion.error,
+                    )
             except Exception as e:
                 base.capture_exception(e)
 

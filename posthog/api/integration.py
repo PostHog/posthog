@@ -116,6 +116,7 @@ from products.batch_exports.backend.models.batch_export import get_batch_exports
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
+from products.warehouse_sources.backend.facade.api import list_sources_using_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
@@ -1334,6 +1335,7 @@ class IntegrationViewSet(
         batch_exports_using_integration = get_batch_exports_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
+        sources_using_integration = list_sources_using_integration(team_id=instance.team_id, integration_id=instance.id)
 
         used_by = []
 
@@ -1348,6 +1350,10 @@ class IntegrationViewSet(
         if batch_exports_using_integration:
             batch_export_names = _concat_names_or_ids(batch_exports_using_integration)
             used_by.append(f"batch exports: {batch_export_names}")
+
+        if sources_using_integration:
+            source_names = ", ".join(sorted(source.label for source in sources_using_integration))
+            used_by.append(f"data warehouse sources: {source_names}")
 
         if used_by:
             raise ValidationError(
