@@ -593,6 +593,10 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     // caller gets an unfiltered list instead of an error.
     'self-driving-inbox-get': () =>
         'Tool "self-driving-inbox-get" was removed. Use "inbox-reports-list", which lists the same reports. For the old default, pass { "view": "actionable", "use_priority_preference": true, "sort": "priority", "limit": 10 }. The array filters became comma-separated strings: `priorities` is now `priority`, `source_products` is now `source_product`, and `scouts` is now `scout`. `view`, `scope`, `teammate_uuid`, `search`, and `offset` keep their names.',
+    // The `experiment-get-all` -> `experiment-list` deprecation alias was deleted in #101042.
+    // Same arguments, so the redirect only has to hand over the new name.
+    'experiment-get-all': () =>
+        'Tool "experiment-get-all" was removed. It was a deprecation alias for "experiment-list", which takes the same arguments. Call "experiment-list" instead.',
 }
 
 /**
