@@ -15,12 +15,13 @@ import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { Noun } from '~/models/groupsModel'
 import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 
 import { experimentLogic } from '../experimentLogic'
-import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
+import { getActivationConfig, getExposureEventAndProperty, isDefaultExposureConfig } from '../exposureContract'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 import { buildExposureSeries } from './exposuresTransforms'
@@ -28,6 +29,12 @@ import { VariantTag } from './VariantTag'
 
 const srmFailureTooltipText =
     "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
+
+const exposureCountTooltipText = (exposureSource: string, entity: Noun): string =>
+    `Cumulative unique ${entity.plural} exposed to the experiment. Each ${entity.singular} is counted once at first exposure, not per event. Only ${entity.plural} that ${exposureSource} are counted, so this total does not match a pageview or visitor count for the same page.`
+
+const exposureCoverageText = (exposureSource: string, entity: Noun): string =>
+    `Only ${entity.plural} that ${exposureSource} are counted. Ad blockers, strict browser privacy settings, and navigation that happens before the event is recorded can leave ${entity.plural} out, so this total is usually lower than a pageview or visitor count for the same page.`
 
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
 // from a stuck one, so we start showing elapsed time and a way to retry.
@@ -123,6 +130,27 @@ function getExposureCriteriaLabel(
     return `Custom (${displayName})`
 }
 
+/**
+ * Names what has to happen for an exposure to count, so the copy matches the criteria shown above it.
+ * An action matches several events, so there is no single event name to give.
+ */
+function getExposureSourceClause(
+    exposureCriteria: ExperimentExposureCriteria | undefined,
+    featureFlagKey: string,
+    defaultEvent: string
+): string {
+    const { event } = getExposureEventAndProperty({
+        featureFlagKey,
+        exposureCriteria,
+        resolvedExposureEvent: defaultEvent,
+    })
+    const exposureConfig = exposureCriteria?.exposure_config
+    if (!event && exposureConfig) {
+        return `matched the ${getExposureConfigDisplayName(exposureConfig)} action`
+    }
+    return `sent the ${event ?? defaultEvent} event`
+}
+
 export function Exposures(): JSX.Element {
     const {
         exposures,
@@ -132,11 +160,19 @@ export function Exposures(): JSX.Element {
         experiment,
         excludedVariants,
         resolvedExposureEvent,
+        aggregationLabel,
     } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { refreshExperimentResults } = useActions(experimentLogic)
 
     const [isCollapsed, setIsCollapsed] = useState(true)
+    const exposureSourceClause = getExposureSourceClause(
+        exposureCriteria,
+        experiment.feature_flag_key,
+        resolvedExposureEvent
+    )
+    // A group-aggregated experiment counts groups, so the copy has to name them, not users.
+    const exposureEntity = aggregationLabel(experiment.filters.aggregation_group_type_index, true)
     const exposuresElapsedSeconds = useElapsedSeconds(exposuresLoading)
     const exposuresLoadingSlowly = exposuresLoading && exposuresElapsedSeconds >= SLOW_LOAD_THRESHOLD_SECONDS
 
@@ -181,7 +217,7 @@ export function Exposures(): JSX.Element {
             <div className="flex items-center gap-3 metric-cell min-h-[33px]">
                 <span className="metric-cell-header font-bold inline-flex items-center gap-1">
                     Exposures
-                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event.">
+                    <Tooltip title={exposureCountTooltipText(exposureSourceClause, exposureEntity)}>
                         <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </span>
@@ -491,6 +527,10 @@ export function Exposures(): JSX.Element {
                                             )}
                                         </div>
                                     )}
+                                    <div className="flex items-start gap-1 text-xs text-secondary mt-2">
+                                        <IconInfo className="text-sm shrink-0 mt-0.5" />
+                                        <span>{exposureCoverageText(exposureSourceClause, exposureEntity)}</span>
+                                    </div>
                                 </div>
                             )}
                         </div>
