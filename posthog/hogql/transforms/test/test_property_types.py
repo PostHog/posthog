@@ -56,6 +56,7 @@ from posthog.models import PropertyDefinition, Team
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.models.group.util import create_group
 from posthog.models.property.util import get_property_string_expr
+from posthog.test.persons import create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -1630,3 +1631,56 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         assert isinstance(result, ast_module.Call), f"Expected Call, got {type(result).__name__}"
         assert result.name == "assumeNotNull"
+
+
+class TestUntypedPropertyNumericComparison(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("eq_int", "properties.status = 200", 1),
+            ("eq_int_reversed", "200 = properties.status", 1),
+            ("noteq_int_missing_property", "properties.nonexistent != 200", 1),
+            ("range_float", "properties.duration > 1.5", 1),
+            ("in_int_list", "properties.status in (200, 404)", 1),
+            ("eq_bool", "properties.is_active = true", 1),
+            ("eq_int_no_match", "properties.status = 404", 0),
+        ]
+    )
+    def test_untyped_event_property_compared_to_constant(self, _name: str, condition: str, expected_count: int):
+        _create_event(
+            team=self.team,
+            distinct_id="d1",
+            event="e",
+            properties={"status": 200, "duration": 2.5, "is_active": True},
+        )
+        response = execute_hogql_query(team=self.team, query=f"select count() from events where {condition}")
+        assert response.results == [(expected_count,)]
+
+    def test_in_list_keeps_string_membership(self):
+        # ClickHouse converts the IN set to the column's type, so IN already runs on a String property and
+        # keeps string semantics; only the operators that would otherwise error are coerced to numbers.
+        _create_event(team=self.team, distinct_id="d1", event="e", properties={"status": "200.0"})
+        in_list = execute_hogql_query(
+            team=self.team, query="select count() from events where properties.status in (200)"
+        )
+        equals = execute_hogql_query(team=self.team, query="select count() from events where properties.status = 200")
+        assert in_list.results == [(0,)]
+        assert equals.results == [(1,)]
+
+    def test_untyped_person_property_compared_to_int(self):
+        create_person(team=self.team, distinct_ids=["d1"], properties={"seat_count": 5})
+        _create_event(team=self.team, distinct_id="d1", event="e")
+        response = execute_hogql_query(
+            team=self.team, query="select count() from events where person.properties.seat_count = 5"
+        )
+        assert response.results == [(1,)]
+
+    def test_untyped_group_property_compared_to_int(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"emp_count": 5})
+        _create_event(team=self.team, distinct_id="d1", event="e", properties={"$group_0": "org:1"})
+        response = execute_hogql_query(
+            team=self.team, query="select count() from events where group_0.properties.emp_count = 5"
+        )
+        assert response.results == [(1,)]

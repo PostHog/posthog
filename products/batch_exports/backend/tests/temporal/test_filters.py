@@ -69,8 +69,13 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
             [
                 {"key": "$created_at", "type": "person", "operator": "between", "value": [0, 1]},
             ],
-            """and(ifNull(greaterOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), 0.0), 0), ifNull(lessOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\'), 1.0), 0))""",
-            {"hogql_val_0": "$created_at", "hogql_val_1": "$created_at"},
+            """and(ifNull(greaterOrEquals(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_1)s), 0.0), 0), ifNull(lessOrEquals(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_2)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_3)s), 1.0), 0))""",
+            {
+                "hogql_val_0": "$created_at",
+                "hogql_val_1": "Float64",
+                "hogql_val_2": "$created_at",
+                "hogql_val_3": "Float64",
+            },
         ),
         # HogQL
         (
