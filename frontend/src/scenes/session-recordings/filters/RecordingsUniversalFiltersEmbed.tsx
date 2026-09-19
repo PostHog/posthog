@@ -872,8 +872,6 @@ export const ReplayFiltersTab = ({
                 </div>
             )}
             <div className="flex flex-wrap items-center py-2 justify-between px-2 gap-y-2">
-                {/* One sentence, "Match all filters only during recording", so the pair wraps as a unit and
-                    pushes the test-users switch onto its own line when the panel is narrow. */}
                 <div className="flex flex-wrap items-center gap-y-2">
                     <AndOrFilterSelect
                         // Reflect the effective operand, not just the outer group: legacy saved filters can

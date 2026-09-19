@@ -123,8 +123,6 @@ const withEventMatchScope = (event_match_scope: 'recording' | undefined): Record
     testOptions: { waitForSelector: '[data-attr="session-recordings-event-match-scope"]' },
 })
 
-// The scope select completes the "Match all filters" sentence and only renders behind the flag. The
-// two stories cover its two values, so a change to the row's layout or to the copy shows up in visual review.
 export const EventMatchScopeWholeSession: Story = {
     parameters: withEventMatchScope(undefined),
 }

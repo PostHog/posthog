@@ -1284,25 +1284,21 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(logic.values.matchingEventsMatchType.matchType).toBe('none')
         })
 
-        it.each([
-            [undefined, false],
-            ['recording' as const, true],
-        ])(
-            'with event_match_scope %s a simple event filter matches by name, withinRecording %s',
-            (eventMatchScope, expected) => {
-                // The player matches by name over every event in the session, so under recording scope it
-                // has to know to also check the recording window.
+        it.each(['events', 'actions'] as const)(
+            'uses the effective scope for %s matching when flags change',
+            (type) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: false })
                 logic = sessionRecordingsPlaylistLogic({
-                    logicKey: `match-type-tests-scope-${eventMatchScope}`,
+                    logicKey: `match-scope-${type}`,
                     filters: {
                         ...DEFAULT_RECORDING_FILTERS,
-                        event_match_scope: eventMatchScope,
+                        event_match_scope: 'recording',
                         filter_group: {
                             type: FilterLogicalOperator.And,
                             values: [
                                 {
                                     type: FilterLogicalOperator.And,
-                                    values: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+                                    values: [{ id: type === 'events' ? '$pageview' : 1, name: '$pageview', type }],
                                 },
                             ],
                         },
@@ -1310,11 +1306,20 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
                 logic.mount()
 
+                const sessionMatch =
+                    type === 'events'
+                        ? { matchType: 'name', eventNames: ['$pageview'] }
+                        : { matchType: 'backend', filters: expect.objectContaining({ event_match_scope: undefined }) }
+                expect(logic.values.matchingEventsMatchType).toEqual(sessionMatch)
+
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: true })
                 expect(logic.values.matchingEventsMatchType).toEqual({
-                    matchType: 'name',
-                    eventNames: ['$pageview'],
-                    withinRecording: expected,
+                    matchType: 'backend',
+                    filters: expect.objectContaining({ event_match_scope: 'recording' }),
                 })
+
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: false })
+                expect(logic.values.matchingEventsMatchType).toEqual(sessionMatch)
             }
         )
     })
@@ -2561,6 +2566,21 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: flagOn,
                 }).event_match_scope
             ).toBe(expected)
+        })
+
+        it.each([true, false])('reloads a saved recording scope when the flag becomes %s', async (enabled) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: !enabled })
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: `delayed-recording-scope-${enabled}`,
+                filters: { ...DEFAULT_RECORDING_FILTERS, event_match_scope: 'recording' },
+            })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: enabled })
+            }).toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
         })
 
         it('clears a persisted recommended filter for the control variant', async () => {

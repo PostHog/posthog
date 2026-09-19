@@ -101,13 +101,3 @@ export function isSingleEmoji(s: string): boolean {
     const regex = emojiRegex()
     return regex.test(graphemes[0].segment)
 }
-
-/**
- * Kept equal to RECORDING_MATCH_MARGIN_MINUTES in the replay events subquery, so the player highlights
- * the same events the list matched on under recording scope.
- */
-export const RECORDING_MATCH_MARGIN_MS = 60 * 1000
-
-export const isWithinRecordingWindow = (timeInRecordingMs: number, recordingDurationMs: number): boolean =>
-    timeInRecordingMs >= -RECORDING_MATCH_MARGIN_MS &&
-    timeInRecordingMs <= recordingDurationMs + RECORDING_MATCH_MARGIN_MS

@@ -15,7 +15,6 @@ function ScopeOption({ title, description }: { title: string; description: strin
     )
 }
 
-/** Completes the "Match all filters" sentence: "Match all filters only during recording". */
 export function RecordingEventMatchScopeSelect({
     filters,
     setFilters,
@@ -53,7 +52,7 @@ export function RecordingEventMatchScopeSelect({
                     labelInMenu: (
                         <ScopeOption
                             title="Only during recording"
-                            description="Events count only while the recording was capturing, so the matched moment is in the video"
+                            description="Events count from one minute before the recording starts until one minute after it ends"
                         />
                     ),
                 },

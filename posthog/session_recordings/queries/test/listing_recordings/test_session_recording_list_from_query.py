@@ -2867,17 +2867,15 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
-    # the recording runs from an_hour_ago for five minutes; the event offset is relative to its start
     @parameterized.expand(
         [
-            ("session_scope_matches_before_the_video", "session", relativedelta(minutes=-10), True),
-            ("recording_scope_rejects_before_the_video", "recording", relativedelta(minutes=-10), False),
-            ("recording_scope_allows_the_margin_before_the_video", "recording", relativedelta(seconds=-30), True),
-            ("recording_scope_matches_inside_the_video", "recording", relativedelta(minutes=2), True),
-            ("recording_scope_rejects_after_the_video", "recording", relativedelta(minutes=10), False),
+            ("session_scope_matches_before_the_recording", "session", relativedelta(minutes=-10), True),
+            ("recording_scope_rejects_before_the_recording", "recording", relativedelta(minutes=-10), False),
+            ("recording_scope_allows_the_margin_before_the_recording", "recording", relativedelta(seconds=-30), True),
+            ("recording_scope_matches_inside_the_recording", "recording", relativedelta(minutes=2), True),
+            ("recording_scope_rejects_after_the_recording", "recording", relativedelta(minutes=10), False),
         ]
     )
-    @snapshot_clickhouse_queries
     def test_event_match_scope_bounds_event_filters_to_the_recording(
         self, _name: str, scope: str, event_offset: relativedelta, matches: bool
     ) -> None:
@@ -2910,8 +2908,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("session_scope_excludes_on_an_event_before_the_video", "session", False),
-            ("recording_scope_ignores_an_event_before_the_video", "recording", True),
+            ("session_scope_excludes_on_an_event_before_the_recording", "session", False),
+            ("recording_scope_ignores_an_event_before_the_recording", "recording", True),
         ]
     )
     def test_event_match_scope_applies_to_negated_events(self, _name: str, scope: str, is_listed: bool) -> None:
@@ -2942,12 +2940,40 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id] if is_listed else [],
         )
 
-    # under person-on-events a person property is answered by the events that carry it, so the
-    # recording scope applies to those events like any other
+    @parameterized.expand([(False,), (True,)])
+    def test_event_match_scope_includes_segments_across_the_date_boundary(self, negation: bool) -> None:
+        session_id = str(uuid4())
+        midnight = self.an_hour_ago.replace(hour=0, minute=0)
+        for start, end in [(-10, -1), (1, 10)]:
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="boundary-user",
+                first_timestamp=midnight + relativedelta(minutes=start),
+                last_timestamp=midnight + relativedelta(minutes=end),
+                ensure_analytics_event_in_session=False,
+            )
+        create_event(
+            team=self.team,
+            distinct_id="boundary-user",
+            timestamp=midnight + relativedelta(minutes=5),
+            event_name="purchase",
+            properties={"$session_id": session_id},
+        )
+        self._assert_query_matches_session_ids(
+            {
+                "date_from": (midnight - relativedelta(days=1)).isoformat(),
+                "date_to": (midnight - relativedelta(seconds=1)).isoformat(),
+                "event_match_scope": "recording",
+                "events": [{"id": "purchase", "type": "events", "order": 0, "negation": negation}],
+            },
+            [] if negation else [session_id],
+        )
+
     @parameterized.expand(
         [
-            ("session_scope_matches_a_person_property_before_the_video", "session", True),
-            ("recording_scope_needs_the_carrying_event_inside_the_video", "recording", False),
+            ("session_scope_matches_a_person_property_before_the_recording", "session", True),
+            ("recording_scope_needs_the_carrying_event_inside_the_recording", "recording", False),
         ]
     )
     def test_event_match_scope_applies_to_person_properties_resolved_on_events(

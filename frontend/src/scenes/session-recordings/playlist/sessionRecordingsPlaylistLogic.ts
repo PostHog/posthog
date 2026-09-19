@@ -146,8 +146,6 @@ interface NoEventsToMatch {
 interface EventNamesMatching {
     matchType: 'name'
     eventNames: string[]
-    /** Under recording scope an event only counts when it falls inside the recording's window. */
-    withinRecording?: boolean
 }
 
 interface EventUUIDsMatching {
@@ -1535,6 +1533,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         return {
             setFeatureFlags: () => {
                 if (!values.filters.recommended_only) {
+                    if (values.filters.event_match_scope === 'recording') {
+                        actions.loadSessionRecordings()
+                    }
                     return
                 }
                 if (values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test') {
@@ -2015,11 +2016,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         matchingEventsMatchType: [
-            (s) => [s.filters],
-            (filters: RecordingUniversalFilters): MatchingEventsMatchType => {
-                if (!filters) {
+            (s) => [s.filters, s.featureFlags],
+            (storedFilters: RecordingUniversalFilters, featureFlags: FeatureFlagsSet): MatchingEventsMatchType => {
+                if (!storedFilters) {
                     return { matchType: 'none' }
                 }
+                const filters = getEffectiveRecordingFilters(storedFilters, featureFlags)
 
                 const filterValues = filtersFromUniversalFilterGroups(filters)
 
@@ -2044,11 +2046,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return { matchType: 'none' }
                 }
 
+                if (filters.event_match_scope === 'recording') {
+                    return { matchType: 'backend', filters }
+                }
+
                 if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === eventFilters.length) {
                     return {
                         matchType: 'name',
                         eventNames: simpleEventsFilters,
-                        withinRecording: filters.event_match_scope === 'recording',
                     }
                 }
 

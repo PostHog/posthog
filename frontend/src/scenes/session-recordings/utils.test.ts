@@ -1,11 +1,5 @@
 import { defaultQuickEmojis } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
-import {
-    RECORDING_MATCH_MARGIN_MS,
-    filtersFromUniversalFilterGroups,
-    hasPageFilter,
-    isSingleEmoji,
-    isWithinRecordingWindow,
-} from 'scenes/session-recordings/utils'
+import { filtersFromUniversalFilterGroups, hasPageFilter, isSingleEmoji } from 'scenes/session-recordings/utils'
 
 import { FilterLogicalOperator, PropertyOperator, RecordingUniversalFilters } from '~/types'
 
@@ -53,20 +47,6 @@ describe('session recording utils', () => {
             ],
         ])('returns all leaves for the %s', (_label, filterGroup, expected) => {
             expect(filtersFromUniversalFilterGroups(withFilterGroup(filterGroup))).toEqual(expected)
-        })
-    })
-
-    describe('isWithinRecordingWindow', () => {
-        const durationMs = 5 * 60 * 1000
-        // the margin has to match the backend's, or the list and the player disagree on the same event
-        it.each([
-            ['just inside the margin before the start', -RECORDING_MATCH_MARGIN_MS, true],
-            ['past the margin before the start', -RECORDING_MATCH_MARGIN_MS - 1, false],
-            ['during the recording', durationMs / 2, true],
-            ['just inside the margin after the end', durationMs + RECORDING_MATCH_MARGIN_MS, true],
-            ['past the margin after the end', durationMs + RECORDING_MATCH_MARGIN_MS + 1, false],
-        ])('%s', (_name, timeInRecordingMs, expected) => {
-            expect(isWithinRecordingWindow(timeInRecordingMs, durationMs)).toBe(expected)
         })
     })
 

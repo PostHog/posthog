@@ -49,7 +49,6 @@ import {
     convertUniversalFiltersToRecordingsQuery,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
-import { isWithinRecordingWindow } from 'scenes/session-recordings/utils'
 
 import { LogMessage, RecordingsQuery } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -1749,19 +1748,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         errorCount += 1
                     }
 
-                    const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
-
                     if (matchingEvents?.length) {
                         isMatchingEvent = !!matchingEvents.find(
                             (x: MatchedRecordingEvent) => x.uuid === String(event.id)
                         )
                     } else if (props.matchingEventsMatchType?.matchType === 'name') {
-                        const { eventNames, withinRecording } = props.matchingEventsMatchType
-                        // The events list spans a day either side of the recording, so under recording
-                        // scope a same-name event outside the video must not read as a match.
-                        isMatchingEvent =
-                            eventNames.includes(event.event) &&
-                            (!withinRecording || isWithinRecordingWindow(timeInRecording, sessionPlayerData.durationMs))
+                        isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
                     }
 
                     const search = `${
@@ -1770,6 +1762,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         ''
                     } ${eventToDescription(event)}`.replace(/['"]+/g, '')
 
+                    const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
                     const rawWindowId = event.properties?.$window_id
                     const windowId = rawWindowId ? getOrRegisterWindowId(rawWindowId) : undefined
                     addItem({
