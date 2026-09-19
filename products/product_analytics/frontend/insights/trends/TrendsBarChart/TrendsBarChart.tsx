@@ -13,6 +13,7 @@ import {
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
+import { withHiddenAxes } from 'lib/charts/utils/hideAxes'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -210,7 +211,8 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const timeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
+    const hideAxes = context?.hideAxes
+    const baseTimeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildTrendsBarTimeSeriesConfig({
                 trendsFilter,
@@ -248,6 +250,10 @@ export function TrendsBarChart({
             legendConfig,
         ]
     )
+    const timeSeriesConfig = useChartConfig(
+        () => withHiddenAxes(baseTimeSeriesConfig, hideAxes),
+        [baseTimeSeriesConfig, hideAxes]
+    )
 
     const aggregatedYTickFormatter = useMemo(
         () => buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, isPercentStackView, baseCurrency)),
@@ -274,6 +280,8 @@ export function TrendsBarChart({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
+            hideXAxis: hideAxes,
+            hideYAxis: hideAxes,
             yTickFormatter: aggregatedYTickFormatter,
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
@@ -289,6 +297,7 @@ export function TrendsBarChart({
             bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
+        hideAxes,
         yAxisScaleType,
         aggregatedYTickFormatter,
         trendsFilter?.xAxisLabel,
