@@ -334,6 +334,89 @@ function productOfFile(file) {
     return rest === undefined ? null : product
 }
 
+// A test-only change cannot change the product behavior that other products
+// consume, with one exception: a test directory also holds the base classes and
+// the fixture data that other suites import, and those cross the product
+// boundary the same way production code does. `dependentsOf` answers who imports
+// a changed file, so a change to a shared helper takes the full fallback instead
+// of narrowing to the product that happens to own the file. It returns null when
+// the importers cannot be known, which widens the matrix the same way an
+// unreadable tach map does.
+//
+// A product test directory is also not always run by the product's own suite.
+// Some are run by a Django segment instead, so dropping Django would leave the
+// changed test running in no job at all. djangoOwnsFile keeps those out.
+//
+// Keep this narrow: production code, test commands, and fixtures outside a test
+// directory still use the full non-isolated fallback.
+function getTestOnlyProducts(changedFiles, dependentsOf) {
+    if (changedFiles.length === 0) {
+        return null
+    }
+
+    const products = new Set()
+    for (const file of changedFiles) {
+        const match = file.match(/^products\/([^/]+)\/(?:backend|stats)\/(?:[^/]+\/)*tests?(?:\/|$)/)
+        if (!match) {
+            return null
+        }
+        if (djangoOwnsFile(file)) {
+            console.error(
+                `${file} is run by the Django matrix, not by the ${match[1]} suite — testing all products + Django`
+            )
+            return null
+        }
+        const dependents = dependentsOf(file)
+        if (dependents === null) {
+            console.error(`Cannot tell which suites import ${file} — testing all products + Django`)
+            return null
+        }
+        const outside = dependents.filter((dependent) => productOfFile(dependent) !== match[1])
+        if (outside.length > 0) {
+            console.error(
+                `${file} is imported from outside ${match[1]}: ${JSON.stringify(outside.slice(0, 5))} — testing all products + Django`
+            )
+            return null
+        }
+        products.add(moduleToProduct(match[1]))
+    }
+    return [...products].sort()
+}
+
+// Whether this run may narrow to the changed products' test suites at all.
+// SELECTION_APPLIES keeps the shortcut off the merge queue and off a forced run,
+// and the DISABLE_BACKEND_TEST_SELECTION kill switch has to be read here too.
+// decideSelection returns early when runLegacy is false, before it reaches its
+// own `disabled` check, so a run this shortcut has already taken Django off
+// cannot be put back on the full matrices by the repo variable. Reading it here
+// keeps the promise the variable is documented with.
+function testOnlyNarrowingAllowed(env = process.env) {
+    return env.SELECTION_APPLIES === 'true' && env.SELECTION_DISABLED !== 'true'
+}
+
+// Rename detection stays off, the same way deletedProductPythonFiles turns it
+// off. Git reports a pure move as its new path alone, so a production module
+// moved into a test directory would read as a test-only change while the module
+// it removed is still imported from elsewhere. The old path has to stay in the
+// list for that move to take the full fallback.
+function changedFilesSinceBase(repoRoot = process.cwd()) {
+    const { TURBO_SCM_BASE: base, TURBO_SCM_HEAD: head } = process.env
+    if (!base || !head) {
+        return null
+    }
+    try {
+        return execFileSync('git', ['diff', '--name-only', '--no-renames', `${base}...${head}`], {
+            ...TURBO_EXEC_OPTS,
+            cwd: repoRoot,
+        })
+            .split('\n')
+            .filter(Boolean)
+    } catch (error) {
+        console.error(`Could not read changed files for test-only selection: ${error.message}`)
+        return null
+    }
+}
+
 // Collapse tach's file map ({ file: [files that import it] }) into
 // product -> [products it imports]. Keys and values are product directory
 // names (underscores); callers normalize to/from Turbo's dashed names. Every
@@ -431,14 +514,26 @@ function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
 // Turbo already selects.
 //
 // The run walks every Python file and takes seconds, so the result is kept per
-// process; a second caller gets the same graph, a failure included.
-const tachModuleGraphByRoot = new Map()
+// process; a second caller gets the same graph, a failure included. Both forms
+// are kept: the collapsed graph answers "which products depend on this product",
+// and the file map answers "which files import this file", which is what the
+// test-only shortcut needs. Both are cached together, so the collapse also runs
+// once per root.
+const tachMapByRoot = new Map()
+
+function loadTachMap(repoRoot) {
+    if (!tachMapByRoot.has(repoRoot)) {
+        tachMapByRoot.set(repoRoot, runTachMap(repoRoot))
+    }
+    return tachMapByRoot.get(repoRoot)
+}
 
 function loadTachModuleGraph(repoRoot = process.cwd()) {
-    if (!tachModuleGraphByRoot.has(repoRoot)) {
-        tachModuleGraphByRoot.set(repoRoot, runTachMap(repoRoot))
-    }
-    return tachModuleGraphByRoot.get(repoRoot)
+    return loadTachMap(repoRoot).graph
+}
+
+function loadTachFileMap(repoRoot = process.cwd()) {
+    return loadTachMap(repoRoot).fileMap
 }
 
 function runTachMap(repoRoot) {
@@ -447,13 +542,16 @@ function runTachMap(repoRoot) {
         raw = execFileSync('uv', ['run', '--no-project', TACH_MAP_SCRIPT], { ...TURBO_EXEC_OPTS, cwd: repoRoot })
     } catch (e) {
         console.error(`::warning::tach map failed (${e.message}) — the dependent cascade widens to every product`)
-        return null
+        return { fileMap: null, graph: null }
     }
     try {
-        return productGraphFromTachMap(JSON.parse(raw))
+        const fileMap = JSON.parse(raw)
+        // Collapsing here keeps "prints something that is not the map" a single
+        // null for both forms, rather than a parse that passes and a later throw.
+        return { fileMap, graph: productGraphFromTachMap(fileMap) }
     } catch (e) {
         console.error(`::warning::Could not parse the tach map (${e.message}) — the dependent cascade widens to every product`)
-        return null
+        return { fileMap: null, graph: null }
     }
 }
 
@@ -500,6 +598,23 @@ function tachDependentProducts(products, allProductSet) {
         return null
     }
     return tachDependents(products, tachGraph).filter((p) => allProductSet.has(p))
+}
+
+// Which files import `file`, per the tach map, or null when that cannot be known.
+// Two cases give null. Without the map there are no edges to read at all. A file
+// the head tree no longer has (the diff deleted it, or renamed it away) has no
+// edges left either, and an empty answer would read as "no suite imports this"
+// at exactly the moment a suite still does and can no longer import it.
+//
+// The map load stays lazy, so a run that never asks does not pay for the walk.
+function tachFileDependents(repoRoot = process.cwd()) {
+    return (file) => {
+        if (!fs.existsSync(path.join(repoRoot, file))) {
+            return null
+        }
+        const fileMap = loadTachFileMap(repoRoot)
+        return fileMap === null ? null : fileMap[file] || []
+    }
 }
 
 // Products a schema change reaches, [] for a purely additive change, or null when
@@ -900,6 +1015,18 @@ function getSegmentDuration(segment, durations, ranNodeIds = null) {
     return total
 }
 
+// Whether the Django matrix runs `file`, by the same prefix rules the segment
+// sizing uses. The table lists product paths as well as posthog/ and ee/, and a
+// product path in it is run by a Django segment rather than by that product's
+// own backend:test command, which targets its own test root and does not reach
+// this one. Such a file has to keep Django in the run.
+function djangoOwnsFile(file) {
+    return Object.values(DJANGO_SEGMENTS).some(
+        ({ include, exclude }) =>
+            include.some((prefix) => file.startsWith(prefix)) && !exclude.some((prefix) => file.startsWith(prefix))
+    )
+}
+
 // Fallback shard counts used when .test_durations is missing.
 const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 
@@ -1241,6 +1368,9 @@ module.exports = {
     productGraphFromTachMap,
     loadTachModuleGraph,
     tachDependents,
+    getTestOnlyProducts,
+    testOnlyNarrowingAllowed,
+    changedFilesSinceBase,
 }
 
 // --- Main ---
@@ -1303,12 +1433,23 @@ if (legacyChanged) {
     const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
     const nonIsolatedAffectedProducts = affectedProducts.filter((p) => !isolatedProducts.has(p))
+    const testOnlyProducts = testOnlyNarrowingAllowed()
+        ? getTestOnlyProducts(changedFilesSinceBase() || [], tachFileDependents())
+        : null
+    const onlyAffectedProductTestsChanged =
+        testOnlyProducts !== null &&
+        testOnlyProducts.length === affectedProducts.length &&
+        testOnlyProducts.every((product) => affectedProducts.includes(product))
 
     console.error(`Isolated products (have contract-check): ${JSON.stringify([...isolatedProducts].sort())}`)
     console.error(`Affected products: ${JSON.stringify(affectedProducts)}`)
     logAffectedReasons('backend:test', affectedTestTasks)
 
-    if (nonIsolatedAffectedProducts.length > 0) {
+    if (nonIsolatedAffectedProducts.length > 0 && onlyAffectedProductTestsChanged) {
+        console.error(`Only product test files changed: ${JSON.stringify(testOnlyProducts)} — Django can be skipped`)
+        products = affectedProducts
+        runLegacy = false
+    } else if (nonIsolatedAffectedProducts.length > 0) {
         // Non-isolated product changed — must test everything
         console.error(
             `Non-isolated products changed: ${JSON.stringify(nonIsolatedAffectedProducts)} — testing all products + Django`

@@ -11,11 +11,18 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts } = require('./turbo-discover')
+const {
+    DJANGO_SEGMENTS,
+    getIsolatedProducts,
+    getTestOnlyProducts,
+    testOnlyNarrowingAllowed,
+    changedFilesSinceBase,
+} = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
@@ -158,4 +165,127 @@ test('isolation needs both the contract-check script and narrowed contract input
     }))
 
     assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)].sort(), ['declared', 'multi-word'])
+})
+
+test('test-only product changes select only their product suites', () => {
+    const importedBy = (fileMap) => (file) => fileMap[file] || []
+    const nothingImportsIt = importedBy({})
+
+    assert.deepEqual(
+        getTestOnlyProducts(
+            [
+                'products/experiments/backend/test/test_migration_0035.py',
+                'products/experiments/stats/tests/test_statistics.py',
+            ],
+            nothingImportsIt
+        ),
+        ['experiments']
+    )
+    assert.equal(getTestOnlyProducts(['products/experiments/backend/models/experiment.py'], nothingImportsIt), null)
+    assert.equal(getTestOnlyProducts(['products/experiments/package.json'], nothingImportsIt), null)
+
+    // A base class under a test directory is the product's behavior to every
+    // suite that imports it, so narrowing to the owning product would run
+    // everything except the suite that breaks.
+    const base = 'products/experiments/backend/hogql_queries/test/experiment_query_runner/base.py'
+    assert.equal(
+        getTestOnlyProducts([base], importedBy({ [base]: ['posthog/temporal/experiments/test_cache_warming.py'] })),
+        null
+    )
+    assert.equal(
+        getTestOnlyProducts([base], importedBy({ [base]: ['products/workflows/backend/api/test/test_hog_flow.py'] })),
+        null
+    )
+    // An importer inside the owning product is the case the shortcut exists for.
+    assert.deepEqual(
+        getTestOnlyProducts([base], importedBy({ [base]: ['products/experiments/backend/test/test_mean_metric.py'] })),
+        ['experiments']
+    )
+    // No tach map, or a file the head tree no longer has: importers unknown.
+    assert.equal(getTestOnlyProducts([base], () => null), null)
+})
+
+// A product path in DJANGO_SEGMENTS is run by a Django segment rather than by
+// that product's own backend:test command, which targets a different test root.
+// Narrowing Django away would leave a change to such a test running in no job,
+// so the shortcut has to refuse it. Derived from the table rather than written
+// out, so a product root added to a segment later is covered on its own.
+test('a test root the Django matrix owns is not a test-only change', () => {
+    const djangoOwnedProductRoots = Object.values(DJANGO_SEGMENTS)
+        .flatMap((segment) => segment.include)
+        .filter((prefix) => prefix.startsWith('products/'))
+    assert.notEqual(djangoOwnedProductRoots.length, 0, 'expected the Django segments to own at least one product root')
+    for (const root of djangoOwnedProductRoots) {
+        assert.equal(getTestOnlyProducts([`${root}tests/test_emission.py`], () => []), null, root)
+    }
+})
+
+// Narrowing takes Django off the run, and decideSelection stops looking at the
+// kill switch once Django is off. So the switch has to be honored before the
+// shortcut runs, or flipping the repo variable during an incident cannot put a
+// product test-only PR back on the full matrices.
+test('the kill switch stops the test-only shortcut before it can drop Django', () => {
+    for (const [env, allowed] of [
+        [{ SELECTION_APPLIES: 'true' }, true],
+        [{ SELECTION_APPLIES: 'true', SELECTION_DISABLED: 'false' }, true],
+        [{ SELECTION_APPLIES: 'true', SELECTION_DISABLED: 'true' }, false],
+        [{ SELECTION_APPLIES: 'false', SELECTION_DISABLED: 'true' }, false],
+        [{}, false],
+    ]) {
+        assert.equal(testOnlyNarrowingAllowed(env), allowed, JSON.stringify(env))
+    }
+})
+
+// Git reports a pure move as its new path alone, which reads as a test-only
+// change while the production module the move removed is still imported from
+// elsewhere. The pure-function cases above cannot see this: the hole is in the
+// diff that feeds them, so this one runs the real diff over a real move.
+test('a production module moved into a test directory is not a test-only change', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moved-into-test-'))
+    const git = (...args) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf-8' }).trim()
+    const write = (file) => {
+        fs.mkdirSync(path.join(repoRoot, path.dirname(file)), { recursive: true })
+        fs.writeFileSync(path.join(repoRoot, file), 'X = 1\n')
+    }
+    // commit-tree rather than commit, so the commits need no identity beyond the
+    // local config and no hook can refuse them.
+    const commit = (message, parent) => {
+        const parentArgs = parent ? ['-p', parent] : []
+        return git('commit-tree', git('write-tree'), ...parentArgs, '-m', message)
+    }
+
+    git('init', '-q', '.')
+    git('config', 'user.email', 'ci@example.com')
+    git('config', 'user.name', 'ci')
+    write('products/foo/backend/models/helper.py')
+    git('add', '-A')
+    const base = commit('add the helper')
+    fs.rmSync(path.join(repoRoot, 'products/foo/backend/models/helper.py'))
+    write('products/foo/backend/tests/helper.py')
+    git('add', '-A')
+    const head = commit('move the helper under tests', base)
+
+    const scm = { base: process.env.TURBO_SCM_BASE, head: process.env.TURBO_SCM_HEAD }
+    try {
+        process.env.TURBO_SCM_BASE = base
+        process.env.TURBO_SCM_HEAD = head
+        const changed = changedFilesSinceBase(repoRoot)
+        assert.deepEqual(changed.sort(), [
+            'products/foo/backend/models/helper.py',
+            'products/foo/backend/tests/helper.py',
+        ])
+        assert.equal(
+            getTestOnlyProducts(changed, () => []),
+            null
+        )
+    } finally {
+        for (const [name, value] of [['TURBO_SCM_BASE', scm.base], ['TURBO_SCM_HEAD', scm.head]]) {
+            if (value === undefined) {
+                delete process.env[name]
+            } else {
+                process.env[name] = value
+            }
+        }
+        fs.rmSync(repoRoot, { recursive: true, force: true })
+    }
 })
