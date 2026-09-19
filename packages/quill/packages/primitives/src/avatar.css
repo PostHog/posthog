@@ -136,7 +136,10 @@
         margin-left: calc(-1 * var(--avatar-overlap));
     }
 
-    .quill-avatar-group[data-stacked] [data-slot='avatar'] {
+    /* The ring selector matches the avatar class, because a wrapper that renders
+       the avatar (a TooltipTrigger) replaces its `data-slot` with its own. A
+       `[data-slot='avatar']` selector misses every avatar inside a wrapper. */
+    .quill-avatar-group[data-stacked] .quill-avatar {
         box-shadow: 0 0 0 2px var(--quill-avatar-ring, var(--background));
     }
 
