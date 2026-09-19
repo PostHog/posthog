@@ -1,4 +1,3 @@
-use std::time::Duration;
 use std::{borrow::Cow, sync::Arc};
 
 use anyhow::Result;
@@ -7,16 +6,15 @@ use common_types::embedding::{
     EmbeddingModel, EmbeddingRequest, EmbeddingResponse, EmbeddingResult, ModelResult,
 };
 use metrics::counter;
-use rand::Rng;
 use reqwest::{Client, Method, Request, RequestBuilder};
-use tracing::{error, warn};
+use tracing::error;
 
 use crate::{
     app_context::AppContext,
     metrics_utils::{
         RequestLabels, DROPPED_REQUESTS, EMBEDDINGS_GENERATED, EMBEDDING_FAILED,
         EMBEDDING_REQUEST_TIME, EMBEDDING_TOTAL_TIME, EMBEDDING_TOTAL_TOKENS, MESSAGES_RECEIVED,
-        MESSAGE_TRUNCATED, REQUESTS_SENT, RESPONSES_RECEIVED,
+        MESSAGE_TRUNCATED,
     },
     organization::apply_ai_opt_in,
 };
@@ -25,15 +23,13 @@ static CL100K_ENCODER: std::sync::LazyLock<tiktoken_rs::CoreBPE> = std::sync::La
     tiktoken_rs::cl100k_base().expect("Failed to initialize cl100k_base encoder")
 });
 
-const MAX_RETRY_ATTEMPTS: usize = 4; // 1 initial + 3 retries
-const RETRY_BASE_SECS: u64 = 2;
-const RETRY_JITTER_RANGE: std::ops::RangeInclusive<i64> = -1000..=1000;
-
 pub mod ad_hoc;
 pub mod app_context;
 pub mod config;
 pub mod metrics_utils;
 pub mod organization;
+pub mod provider;
+mod rate_limits;
 pub mod recently_seen;
 
 pub async fn handle_batch(
@@ -102,13 +98,6 @@ pub async fn handle_single(
     Ok((model, embedding))
 }
 
-// Exponential backoff (base 2) with jitter, in milliseconds, for retry `attempt`.
-fn retry_backoff_ms(attempt: usize) -> u64 {
-    let base_ms = RETRY_BASE_SECS.pow(attempt as u32 + 1) * 1000;
-    let jitter_ms = rand::thread_rng().gen_range(RETRY_JITTER_RANGE);
-    (base_ms as i64 + jitter_ms).max(0) as u64
-}
-
 pub async fn generate_embedding(
     context: Arc<AppContext>,
     model: EmbeddingModel,
@@ -119,112 +108,17 @@ pub async fn generate_embedding(
     // Generate the text to actually send to the embedding provider
     let (text, token_count) = generate_embedding_text(content, &model, labels)?;
 
-    context.respect_rate_limits(model, token_count).await;
-
     let request_time = common_metrics::timing_guard(EMBEDDING_REQUEST_TIME, labels.render());
+    let embedding = context
+        .embeddings
+        .generate(&text, model, token_count, labels)
+        .await?;
 
-    let mut last_status = None;
-    let mut last_error_body = None;
-    let mut last_transport_error = None;
+    request_time.label("outcome", "success").fin();
+    total_time.label("outcome", "success").fin();
+    counter!(EMBEDDING_TOTAL_TOKENS, labels.render()).increment(token_count as u64);
 
-    for attempt in 0..MAX_RETRY_ATTEMPTS {
-        let api_req = construct_request(
-            &text,
-            model,
-            &context.config.openai_api_key,
-            context.client.clone(),
-        );
-
-        counter!(REQUESTS_SENT, labels.render()).increment(1);
-        let response = match context.client.execute(api_req).await {
-            Ok(response) => response,
-            Err(e) => {
-                // Transport errors (timeouts, connection resets, etc.) are transient.
-                // Retry them with backoff like a 5xx rather than aborting the whole
-                // batch, which would panic and restart the worker.
-                if attempt < MAX_RETRY_ATTEMPTS - 1 {
-                    let sleep_ms = retry_backoff_ms(attempt);
-                    warn!(
-                        "Request to embedding provider failed ({}), retrying in {}ms (attempt {}/{})",
-                        e,
-                        sleep_ms,
-                        attempt + 1,
-                        MAX_RETRY_ATTEMPTS - 1
-                    );
-                    tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
-                }
-                last_status = None;
-                last_transport_error = Some(e);
-                continue;
-            }
-        };
-
-        let status = response.status();
-        let response_labels = labels
-            .clone()
-            .and([("status_code", status.as_u16().to_string())]);
-        counter!(RESPONSES_RECEIVED, response_labels.render()).increment(1);
-
-        if status.is_success() {
-            context.update_rate_limits(model, &response).await;
-
-            let embedding = model
-                .extract_embedding_from_response_body(&response.json().await?)
-                .ok_or_else(|| anyhow::anyhow!("Failed to extract embedding"))?;
-
-            request_time.label("outcome", "success").fin();
-            total_time.label("outcome", "success").fin();
-
-            counter!(EMBEDDING_TOTAL_TOKENS, labels.render()).increment(token_count as u64);
-
-            return Ok((embedding, token_count));
-        }
-
-        last_status = Some(status);
-        last_error_body = response.text().await.ok();
-
-        // Only retry on 5xx - for stuff like 429's, we want to crash and restart as a backoff
-        if !status.is_server_error() {
-            break;
-        }
-
-        if attempt < MAX_RETRY_ATTEMPTS - 1 {
-            let sleep_ms = retry_backoff_ms(attempt);
-            warn!(
-                "Got {} from embedding provider, retrying in {}ms (attempt {}/{})",
-                status,
-                sleep_ms,
-                attempt + 1,
-                MAX_RETRY_ATTEMPTS - 1
-            );
-            tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
-        }
-    }
-
-    // All attempts exhausted or non-retryable error
-    match last_status {
-        Some(status) => {
-            error!(
-                "Failed to generate embeddings, got {} from {}",
-                status,
-                model.provider()
-            );
-            if let Some(error_message) = last_error_body {
-                error!("Error message from {}: {}", model.provider(), error_message);
-            }
-        }
-        None => {
-            error!(
-                "Failed to generate embeddings, no response from {}: {}",
-                model.provider(),
-                last_transport_error
-                    .map(|e| e.to_string())
-                    .unwrap_or_else(|| "unknown error".to_string())
-            );
-        }
-    }
-
-    Err(anyhow::anyhow!("Failed to generate embeddings"))
+    Ok((embedding, token_count))
 }
 
 // This is here, rather than on the embedding model, to avoid taking a dep on tiktoken in common/types. We

@@ -1,4 +1,8 @@
-use std::{future::ready, sync::Arc, time::Instant};
+use std::{
+    future::ready,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     extract::{Json, State},
@@ -184,12 +188,27 @@ async fn main() {
             };
         }
 
-        let responses = match handle_batch(to_process, &offsets, context.clone()).await {
-            Ok(embeddings) => embeddings,
-            Err(failure) => {
+        let result = {
+            let batch = tokio::time::timeout(
+                Duration::from_secs(240),
+                handle_batch(to_process, &offsets, context.clone()),
+            );
+            tokio::pin!(batch);
+            let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
+            loop {
+                tokio::select! {
+                    result = &mut batch => break result,
+                    _ = heartbeat.tick() => context.worker_liveness.report_healthy().await,
+                }
+            }
+        };
+        let responses = match result {
+            Ok(Ok(embeddings)) => embeddings,
+            Ok(Err(failure)) => {
                 error!("Error handling batch: {failure:?}");
                 panic!("Unhandled error: {failure:?}");
             }
+            Err(failure) => panic!("Embedding batch exceeded its processing deadline: {failure}"),
         };
 
         let txn = match transactional_producer.begin() {
