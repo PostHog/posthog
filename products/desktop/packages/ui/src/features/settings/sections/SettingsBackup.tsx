@@ -47,8 +47,6 @@ function importedSettingKeys(
 }
 
 function instructionsPreview(text: string): string {
-  if (text.length === 0)
-    return "The backup holds no custom instructions, so yours will be cleared.";
   return text.length > CUSTOM_INSTRUCTIONS_PREVIEW_LENGTH
     ? `${text.slice(0, CUSTOM_INSTRUCTIONS_PREVIEW_LENGTH)}…`
     : text;

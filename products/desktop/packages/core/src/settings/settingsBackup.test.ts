@@ -192,6 +192,25 @@ describe("SettingsBackupService", () => {
     });
   });
 
+  it("keeps the instructions on this machine when the backup carries none", async () => {
+    const target = setup({
+      settings: { theme: "light", customInstructions: "Use short sentences." },
+      sounds: [],
+    });
+    const review = target.service.inspect(
+      JSON.stringify(
+        backup({ settings: { theme: "dark", customInstructions: "" } }),
+      ),
+      "2.0.0",
+    );
+
+    expect(review.settings.customInstructions).toBeUndefined();
+    await target.service.importBackup(review, "all");
+    expect(target.read().settings.customInstructions).toBe(
+      "Use short sentences.",
+    );
+  });
+
   it.each<[string, string, boolean]>([
     ["path traversal", "../convai/knowledge-base/text", false],
     ["extra path segment", "voice/other", false],

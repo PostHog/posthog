@@ -186,8 +186,14 @@ export class SettingsBackupService {
       const schema =
         portableSettingsSchema.shape[key as keyof PortableSettings];
       const parsed = schema.safeParse(value);
-      if (parsed.success) settings[key] = parsed.data;
-      else warnings.push({ key, reason: "changed" });
+      if (!parsed.success) {
+        warnings.push({ key, reason: "changed" });
+        continue;
+      }
+      // A backup that carries no instructions must not clear the text the
+      // user wrote on this machine.
+      if (key === "customInstructions" && parsed.data === "") continue;
+      settings[key] = parsed.data;
     }
     const sounds: CustomSound[] = [];
     const ids = new Set<string>();

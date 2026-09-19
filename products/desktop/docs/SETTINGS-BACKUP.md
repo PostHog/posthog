@@ -8,6 +8,7 @@ Choose **Settings and sounds** or **Sounds only**, then select **Export backup**
 Copy the file to the other machine and use **Import backup** in the same section.
 Review the export version, the names of the settings the import writes, warnings, and sound previews, then select **Import settings and sounds** or **Import sounds**.
 When the backup carries custom instructions, the review shows the text that will replace yours, because the agent reads those instructions in every task.
+A backup with empty or missing custom instructions leaves the instructions on this machine unchanged.
 Canceling the file picker or the review leaves your settings unchanged.
 
 Custom sounds are embedded in the file, including their names and audio, so you do not need to copy the original recordings separately.
