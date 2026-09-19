@@ -1073,6 +1073,17 @@ class TestExperimentService(APIBaseTest):
         assert "conversion_window_unit" in message
         assert "metrics_secondary" in message
 
+    def test_validate_conversion_window_units_rejects_a_second_copy_of_one_stored_metric(self) -> None:
+        # One stored metric excuses one incoming metric. The second copy is a new metric, and
+        # _assign_uuids_to_metrics would give it a fresh uuid and store the unit-less window.
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_conversion_window_units(
+                [deepcopy(stored), deepcopy(stored)], [stored], section="metrics"
+            )
+        assert "index 1" in str(ctx.exception)
+
     def test_create_experiment_rejects_conversion_window_without_unit(self) -> None:
         self._create_flag(key="window-unit-create")
         with self.assertRaises(ValidationError) as ctx:
@@ -1137,6 +1148,24 @@ class TestExperimentService(APIBaseTest):
 
         assert [metric["uuid"] for metric in updated.metrics or []] == [self._STORED_UNITLESS_UUID]
         assert updated.metrics_secondary == []
+
+    def test_update_experiment_rejects_the_same_stored_metric_copied_into_both_sections(self) -> None:
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Stored unit-less window",
+            feature_flag=self._create_flag(key="window-unit-both-sections"),
+            metrics=[stored],
+            primary_metrics_ordered_uuids=[self._STORED_UNITLESS_UUID],
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_experiment(
+                experiment,
+                {"metrics": [deepcopy(stored)], "metrics_secondary": [deepcopy(stored)]},
+                allow_unknown_events=True,
+            )
+        assert "conversion_window_unit" in str(ctx.exception)
 
     def test_update_experiment_rejects_uuid_borrowed_from_a_section_it_does_not_rewrite(self) -> None:
         # The secondary list keeps its stored value, so the primary metric is a copy, not the

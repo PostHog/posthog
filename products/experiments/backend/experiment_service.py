@@ -3,7 +3,7 @@
 import json
 import time
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, MutableSequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -892,7 +892,7 @@ class ExperimentService:
     def validate_conversion_window_units(
         cls,
         metrics: list | None,
-        stored_metrics: Sequence[Any],
+        unmatched_stored_metrics: MutableSequence[Any],
         *,
         section: str,
     ) -> None:
@@ -901,8 +901,11 @@ class ExperimentService:
         Deliberately not part of `validate_experiment_metrics`: that one also runs over stored
         metrics (the serializer field validators on every write, and the copy path), and stored
         metrics predate this rule, so a check there would make those experiments uneditable.
+
+        Consumes the stored metrics it matches, so calling it for both sections with one list
+        holds each stored metric to the one incoming metric it excuses.
         """
-        index = first_unitless_conversion_window(metrics, stored_metrics)
+        index = first_unitless_conversion_window(metrics, unmatched_stored_metrics)
         if index is not None:
             raise ValidationError(f"Invalid metric at index {index} in {section}: {UNITLESS_CONVERSION_WINDOW_ERROR}")
 
@@ -3613,6 +3616,7 @@ class ExperimentService:
         # Conversion windows follow the same rule, matched per metric by the uuid as sent, and
         # before _assign_uuids_to_metrics replaces it. Only sections this update rewrites count as
         # stored: a uuid reused from a section it leaves alone is a copy, and is regenerated too.
+        # One list spans both calls, so a stored metric sent to both sections excuses only one.
         stored_metrics_for_match = [
             metric
             for field in ("metrics", "metrics_secondary")

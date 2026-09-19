@@ -1,6 +1,6 @@
 """Conversion window rules shared by the experiment and the saved metric write paths."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableSequence, Sequence
 from typing import Any
 
 from posthog.schema import FunnelConversionWindowTimeUnit
@@ -34,18 +34,31 @@ def _is_same_stored_metric(metric: Mapping[str, Any], stored: Any) -> bool:
 
 def first_unitless_conversion_window(
     metrics: Sequence[Any] | None,
-    stored_metrics: Sequence[Any],
+    unmatched_stored_metrics: MutableSequence[Any],
 ) -> int | None:
     """Index of the first metric that sets a conversion window without a unit, or None.
 
-    A metric already present in `stored_metrics` with the same unit-less window is skipped.
-    Metric lists are whole-array fields, so an update that changes one metric resends them all,
-    and experiments written before this rule hold unit-less windows that must stay editable.
+    A metric already present in `unmatched_stored_metrics` with the same unit-less window is
+    skipped. Metric lists are whole-array fields, so an update that changes one metric resends
+    them all, and experiments written before this rule hold unit-less windows that must stay
+    editable.
+
+    Each match is consumed, so one stored metric excuses one incoming metric and a second copy of
+    it is read as the new metric it becomes. Pass one list across both metric sections to count a
+    match in either.
     """
     for index, metric in enumerate(metrics or []):
         if not _has_unitless_conversion_window(metric):
             continue
-        if any(_is_same_stored_metric(metric, stored) for stored in stored_metrics):
-            continue
-        return index
+        matched = next(
+            (
+                position
+                for position, stored in enumerate(unmatched_stored_metrics)
+                if _is_same_stored_metric(metric, stored)
+            ),
+            None,
+        )
+        if matched is None:
+            return index
+        del unmatched_stored_metrics[matched]
     return None
