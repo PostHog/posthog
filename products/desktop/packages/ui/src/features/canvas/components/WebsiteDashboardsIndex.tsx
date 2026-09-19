@@ -113,7 +113,7 @@ export function WebsiteDashboardsIndex({
 
   return (
     <div className="scroll-mask-4 h-full overflow-auto bg-gray-1">
-      <div className="p-5">
+      <div className="px-6 py-5">
         <div className="mb-3 flex items-center justify-between">
           <Text size="xs" variant="muted">
             {countLabel}

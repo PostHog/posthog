@@ -1,3 +1,4 @@
+import { Text } from "@posthog/quill";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { SpaceMembersSettings } from "@posthog/ui/features/canvas/components/SpaceMembersSettings";
 import { SpaceRepositories } from "@posthog/ui/features/canvas/components/SpaceRepositories";
@@ -58,16 +59,27 @@ export function SpaceSettings({ channelId }: { channelId: string }) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <PageHeader>
-        <PageHeaderHeading>
-          {!workLayout && <PageHeaderTitle>Settings</PageHeaderTitle>}
-          <PageHeaderDescription>
+      {workLayout ? (
+        // One quiet line at the tabs' own inset, rather than a page header with
+        // an empty title row where the tab strip already named the page.
+        <div className="flex h-11 shrink-0 items-center border-border border-b px-6">
+          <Text size="xs" variant="muted">
             Repositories and who can see this space. Changes save as you make
             them.
-          </PageHeaderDescription>
-        </PageHeaderHeading>
-      </PageHeader>
-      <div className="flex max-w-[800px] flex-col gap-7 px-6 py-5">
+          </Text>
+        </div>
+      ) : (
+        <PageHeader>
+          <PageHeaderHeading>
+            <PageHeaderTitle>Settings</PageHeaderTitle>
+            <PageHeaderDescription>
+              Repositories and who can see this space. Changes save as you make
+              them.
+            </PageHeaderDescription>
+          </PageHeaderHeading>
+        </PageHeader>
+      )}
+      <div className="flex max-w-[800px] flex-col gap-7 px-6 pt-6 pb-5">
         <SettingsSection
           label="Repositories"
           description="Sessions in this space start with these repositories checked out."

@@ -1282,7 +1282,7 @@ const FeedLogRow = memo(function FeedLogRow({
         ref={ref}
         role="button"
         tabIndex={0}
-        className="group mx-auto flex h-8 w-full max-w-[660px] cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-hover"
+        className="group relative flex h-8 w-full max-w-[900px] cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-hover"
         onClick={(event) => {
           if (
             event.target instanceof Element &&
@@ -1320,10 +1320,12 @@ const FeedLogRow = memo(function FeedLogRow({
             <UserAvatar user={starter} size="xs" />
           </span>
         )}
-        <span className="w-8 shrink-0 text-right text-muted-foreground text-xs tabular-nums">
+        {/* The menu rides over the row's end rather than holding a lane open
+            across every row that is not under the pointer. */}
+        <span className="w-8 shrink-0 text-right text-muted-foreground text-xs tabular-nums transition-opacity group-hover:opacity-0">
           {formatRelativeTimeShort(task.updated_at)}
         </span>
-        <span className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <span className="absolute right-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <TaskRowDropdownMenu menu={menu} />
         </span>
       </div>
@@ -1474,7 +1476,7 @@ function DaySeparator({
 }) {
   if (compact) {
     return (
-      <div className="mx-auto w-full max-w-[660px] px-2 pt-3 pb-0.5 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
+      <div className="w-full max-w-[900px] px-2 pt-3 pb-0.5 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
         {label}
       </div>
     );
@@ -1618,15 +1620,21 @@ export function ChannelFeedView({
     prevPendingRef.current = latestPendingId;
   }, [latestPendingId]);
 
+  // Compact is the Work layout's Activity tab: its content starts at the tab
+  // strip's own inset rather than centring in the pane, so moving between tabs
+  // never shifts the left edge.
+  const columnClass = compact
+    ? "w-full max-w-[900px]"
+    : "mx-auto w-full max-w-[660px]";
   const composerBlock = composer && (
-    <div className="mx-auto mb-2 w-full max-w-[660px]">{composer}</div>
+    <div className={cn("mb-2", columnClass)}>{composer}</div>
   );
 
   // One row: the kind tabs, and — on the Reports kind only — the same compact
   // funnel the sidebar uses. Reports deliberately get no extra filter chrome
   // beyond that, so the row reads the same weight whichever kind is active.
   const kindFilterBlock = reports !== undefined && showKindFilter && (
-    <div className="mx-auto flex w-full max-w-[660px] items-center gap-1 pt-1">
+    <div className={cn("flex items-center gap-1 pt-1", columnClass)}>
       <Tabs
         value={activeKindFilter}
         onValueChange={(value: string) =>
@@ -1690,7 +1698,12 @@ export function ChannelFeedView({
     return (
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy="true">
         <output className="sr-only">Loading tasks</output>
-        <div className="mx-auto w-full px-4 pt-4 pb-10">
+        <div
+          className={cn(
+            "w-full",
+            compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+          )}
+        >
           {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
           {composerBlock}
           <FeedSkeleton />
@@ -1702,7 +1715,12 @@ export function ChannelFeedView({
   if (entries.length === 0 && pending.length === 0 && !intro) {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full px-4 pt-4 pb-10">
+        <div
+          className={cn(
+            "w-full",
+            compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+          )}
+        >
           {composerBlock}
           {/* The filter stays visible while it's what emptied the list, so the
               user can switch back out of an empty kind. A selected kind shows
@@ -1774,7 +1792,12 @@ export function ChannelFeedView({
 
   return (
     <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full px-4 pt-4 pb-10">
+      <div
+        className={cn(
+          "w-full",
+          compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+        )}
+      >
         {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
         {composerBlock}
         {kindFilterBlock}

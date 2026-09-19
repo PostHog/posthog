@@ -3,6 +3,9 @@ import {
   Button,
   cn,
   Skeleton,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -19,8 +22,8 @@ import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkCha
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { track } from "@posthog/ui/shell/analytics";
-import { Link, useRouterState } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { type ReactNode, useMemo } from "react";
 
 export type SpaceTab =
   | "context"
@@ -71,10 +74,16 @@ function SpaceStar({ channel }: { channel: Channel }) {
 }
 
 /**
+ * The inset every space tab's content starts at, so moving between tabs never
+ * shifts the left edge under the reader.
+ */
+export const SPACE_TAB_INSET = "px-6";
+
+/**
  * The fixed part of every space page under the Work layout: the space's name
- * and star, then the tab strip. Identical on all five tabs, so only the
- * underline and the body change as you move between them. The chrome bar's
- * breadcrumb is cleared: the active tab is the page's name.
+ * in the app's own chrome bar — the same bar every other screen titles itself
+ * in — and the tab strip under it. Identical on all five tabs, so only the
+ * underline and the body change as you move between them.
  */
 export function SpaceTabbedPage({
   channelId,
@@ -85,61 +94,64 @@ export function SpaceTabbedPage({
   tab: SpaceTab;
   children: ReactNode;
 }) {
+  const navigate = useNavigate();
   const { channels, isLoading } = useChannels();
   const channel = channels.find((c) => c.id === channelId);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  useSetHeaderContent(null);
   useMarkChannelSeen(channelId);
   const tabs = loopsEnabled ? TABS : TABS.filter((t) => t.key !== "loops");
   const base = `/spaces/${channelId}`;
 
-  return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <div className="shrink-0 border-border border-b px-5 pt-3">
+  // The space's name goes where every other screen puts its title, rather than
+  // into a header of this page's own invention.
+  useSetHeaderContent(
+    useMemo(
+      () => (
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="shrink-0 text-muted-foreground">
             {channelGlyph(channel?.name, {
-              size: 16,
+              size: 14,
               space: true,
               personal: channel?.channelType === "personal",
               private: channel?.channelType === "private",
             })}
           </span>
           {channel ? (
-            <span className="min-w-0 truncate font-semibold text-[15px]">
+            <span className="min-w-0 truncate font-medium text-[13px]">
               {channel.name}
             </span>
           ) : isLoading ? (
-            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3.5 w-40" />
           ) : (
-            <span className="font-semibold text-[15px]">Space</span>
+            <span className="font-medium text-[13px]">Space</span>
           )}
           {channel && channel.channelType !== "personal" && (
             <SpaceStar channel={channel} />
           )}
         </div>
-        <nav className="mt-1 flex items-center gap-4" aria-label="Space pages">
-          {tabs.map((entry) => {
-            const href = `${base}${entry.segment}`;
-            const active =
-              entry.key === tab ||
-              (entry.key === "context" && pathname === `${base}/context`);
-            return (
-              <Link
-                key={entry.key}
-                to={href}
-                data-selected={active || undefined}
-                className={cn(
-                  "-mb-px border-transparent border-b-2 px-0.5 pt-1 pb-2 text-[13px] text-muted-foreground no-underline transition-colors hover:text-foreground",
-                  active && "border-foreground font-medium text-foreground",
-                )}
-              >
+      ),
+      [channel, isLoading],
+    ),
+  );
+
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <div className={cn("shrink-0 border-border border-b", SPACE_TAB_INSET)}>
+        <Tabs
+          value={tab}
+          onValueChange={(value: string) => {
+            const next = tabs.find((entry) => entry.key === value);
+            if (next) void navigate({ to: `${base}${next.segment}` });
+          }}
+        >
+          <TabsList variant="line" aria-label="Space pages">
+            {tabs.map((entry) => (
+              <TabsTrigger key={entry.key} value={entry.key}>
                 {entry.label}
-              </Link>
-            );
-          })}
-        </nav>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
       <div className="min-h-0 min-w-0 flex-1">{children}</div>
     </div>

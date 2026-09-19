@@ -1,10 +1,8 @@
 import {
   CaretDownIcon,
   CaretRightIcon,
-  MagnifyingGlassIcon,
+  DotsThreeIcon,
   PlusIcon,
-  StarIcon,
-  XIcon,
 } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import {
@@ -12,9 +10,10 @@ import {
   AutocompleteList,
   Button,
   cn,
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   MenuLabel,
   Skeleton,
   Tooltip,
@@ -30,7 +29,6 @@ import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/Side
 import type { TaskRowMenuProps } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { WorkItemRow } from "@posthog/ui/features/canvas/components/work/WorkItemRow";
 import { WorkRowSurface } from "@posthog/ui/features/canvas/components/work/WorkRowSurface";
-import { useChannelStarMutations } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
   type Channel,
   useChannels,
@@ -48,11 +46,12 @@ import {
   navigateToChannel,
   navigateToChannelDashboard,
   navigateToChannelTask,
+  navigateToSpaces,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useRouterState } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 const RECENT_COLLAPSED_COUNT = 5;
 
@@ -174,110 +173,6 @@ function SpaceRow({
 }
 
 /**
- * Adding a space to the list, in place: a search over the spaces you have not
- * starred, where a click stars one and it takes its seat above. Only creating
- * a space needs a form, so only that opens a dialog.
- */
-function AddSpacePanel({
-  candidates,
-  onStar,
-  onCreate,
-  onClose,
-}: {
-  candidates: Channel[];
-  onStar: (channel: Channel) => void;
-  onCreate: () => void;
-  onClose: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-  const needle = query.trim().toLowerCase();
-  const shown = needle
-    ? candidates.filter((c) => c.name.toLowerCase().includes(needle))
-    : candidates;
-
-  return (
-    <div className="my-1 flex flex-col overflow-hidden rounded-md border border-border bg-background">
-      <div className="p-1.5">
-        <InputGroup className="h-7">
-          <InputGroupAddon>
-            <MagnifyingGlassIcon size={13} aria-hidden />
-          </InputGroupAddon>
-          <InputGroupInput
-            ref={inputRef}
-            value={query}
-            placeholder="Add a space…"
-            aria-label="Search spaces to add"
-            className="text-[12px]"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              // The column's own list is listening for these; this input is a
-              // surface of its own and keeps them.
-              event.stopPropagation();
-              if (event.key === "Escape") {
-                event.preventDefault();
-                onClose();
-              }
-            }}
-          />
-          <InputGroupAddon align="inline-end">
-            <button
-              type="button"
-              aria-label="Close"
-              className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
-              onClick={onClose}
-            >
-              <XIcon size={12} />
-            </button>
-          </InputGroupAddon>
-        </InputGroup>
-      </div>
-      <div className="flex max-h-56 flex-col gap-px overflow-y-auto px-1.5 pb-1">
-        {shown.length === 0 ? (
-          <p className="px-2 py-2 text-[12px] text-muted-foreground">
-            {needle ? "No space by that name." : "Every space is already here."}
-          </p>
-        ) : (
-          shown.map((channel) => (
-            <button
-              key={channel.id}
-              type="button"
-              className="group/add flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left font-medium text-[12px] text-muted-foreground leading-snug transition-colors hover:bg-fill-hover hover:text-foreground"
-              onClick={() => onStar(channel)}
-            >
-              <span className="flex size-3.5 shrink-0 items-center justify-center">
-                {channelGlyph(channel.name, {
-                  size: 13,
-                  space: false,
-                  private: channel.channelType === "private",
-                })}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{channel.name}</span>
-              <StarIcon
-                size={12}
-                className="shrink-0 opacity-0 transition-opacity group-hover/add:opacity-100"
-                aria-hidden
-              />
-            </button>
-          ))
-        )}
-      </div>
-      <button
-        type="button"
-        className="flex items-center gap-1.5 border-border border-t px-3 py-2 text-left font-medium text-[12px] text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
-        onClick={onCreate}
-      >
-        <PlusIcon size={13} aria-hidden />
-        Create a new space…
-      </button>
-    </div>
-  );
-}
-
-/**
  * The Work column: what you touched recently, then the spaces you starred, in
  * a column that never changes shape. Entering a space or a session does not
  * swap it for another pane; the active row just moves.
@@ -293,13 +188,11 @@ export function WorkColumn() {
   const [recentOpen, setRecentOpen] = useState(true);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [spacesExpanded, setSpacesExpanded] = useState(true);
-  const [adding, setAdding] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [_scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
 
   const { items, isLoading } = useRecentWorkItems();
   const { channels } = useChannels();
-  const { star } = useChannelStarMutations();
   const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
   const isChannelUnread = useIsChannelUnread();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -332,10 +225,6 @@ export function WorkColumn() {
       ? starred.filter((c) => c.name.toLowerCase().includes(needle))
       : starred;
   }, [channels, needle]);
-  const candidateSpaces = useMemo(
-    () => channels.filter((c) => c.channelType !== "personal" && !c.starred),
-    [channels],
-  );
 
   const { togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
@@ -387,17 +276,6 @@ export function WorkColumn() {
     }),
     [archiveTask, channelByKey, setCanvasPinned, togglePin],
   );
-
-  const starSpace = (channel: Channel) => {
-    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-      action_type: "star",
-      surface: "sidebar",
-      channel_id: channel.id,
-    });
-    star(channel.id).catch(() => {
-      toast.error("Couldn't add the space");
-    });
-  };
 
   // A search is the user asking for everything that matches, so it opens the
   // list rather than making them expand it first.
@@ -508,52 +386,61 @@ export function WorkColumn() {
               expanded={spacesExpanded}
               onToggle={() => setSpacesExpanded((value) => !value)}
               trailing={
-                <IconAction
-                  label={adding ? "Done adding" : "Add a space"}
-                  active={adding}
-                  onClick={() => {
-                    setSpacesExpanded(true);
-                    setAdding((value) => !value);
-                  }}
-                >
-                  <PlusIcon size={14} />
-                </IconAction>
+                <div className="flex items-center">
+                  <IconAction
+                    label="New space…"
+                    onClick={() => setCreateOpen(true)}
+                  >
+                    <PlusIcon size={14} />
+                  </IconAction>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          variant="default"
+                          size="icon-sm"
+                          aria-label="Space options"
+                          className="text-muted-foreground"
+                        >
+                          <DotsThreeIcon size={16} weight="bold" />
+                        </Button>
+                      }
+                    />
+                    {/* Only what the + does not already do. */}
+                    <DropdownMenuContent
+                      align="end"
+                      side="bottom"
+                      className="w-fit"
+                    >
+                      <DropdownMenuItem onClick={navigateToSpaces}>
+                        Browse spaces…
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               }
             />
             {spacesExpanded && (
-              <>
-                {adding && (
-                  <AddSpacePanel
-                    candidates={candidateSpaces}
-                    onStar={starSpace}
-                    onCreate={() => {
-                      setAdding(false);
-                      setCreateOpen(true);
-                    }}
-                    onClose={() => setAdding(false)}
+              <div className="flex flex-col gap-px">
+                {starredSpaces.map((channel) => (
+                  <SpaceRow
+                    key={channel.id}
+                    channel={channel}
+                    isActive={channel.id === activeChannelId}
+                    unread={isChannelUnread(channel.id)}
                   />
+                ))}
+                {starredSpaces.length <= 1 && needle === "" && (
+                  <button
+                    type="button"
+                    className="mt-1 flex items-center gap-1.5 rounded-md border border-border border-dashed px-2 py-1.5 text-left font-medium text-[12px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
+                    onClick={navigateToSpaces}
+                  >
+                    <PlusIcon size={13} aria-hidden />
+                    Add the spaces you work in
+                  </button>
                 )}
-                <div className="flex flex-col gap-px">
-                  {starredSpaces.map((channel) => (
-                    <SpaceRow
-                      key={channel.id}
-                      channel={channel}
-                      isActive={channel.id === activeChannelId}
-                      unread={isChannelUnread(channel.id)}
-                    />
-                  ))}
-                  {starredSpaces.length <= 1 && !adding && needle === "" && (
-                    <button
-                      type="button"
-                      className="mt-1 flex items-center gap-1.5 rounded-md border border-border border-dashed px-2 py-1.5 text-left font-medium text-[12px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
-                      onClick={() => setAdding(true)}
-                    >
-                      <PlusIcon size={13} aria-hidden />
-                      Add the spaces you work in
-                    </button>
-                  )}
-                </div>
-              </>
+              </div>
             )}
           </div>
         </AutocompleteList>

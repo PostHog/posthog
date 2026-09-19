@@ -1173,7 +1173,9 @@ export type ChannelsSurface =
   | "thread_panel"
   | "activity_panel"
   | "activity"
-  | "canvases_pane";
+  | "canvases_pane"
+  /** The `/spaces` page, where a space is found and starred into Work. */
+  | "spaces_index";
 
 type ChannelActionType =
   | "enter_space"
