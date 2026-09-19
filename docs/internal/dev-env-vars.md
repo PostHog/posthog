@@ -6,7 +6,7 @@ This is the layering, highest precedence first.
 ## The layers
 
 1. **Your shell** — anything you `export` yourself wins over everything below.
-2. **flox `[vars]`** (`.flox/env/manifest.toml`) — injected on every `flox activate`, which `direnv` runs automatically via `.envrc` whenever you `cd` into the repo. This is where `DEBUG=1`, `CLICKHOUSE_DATABASE`, and other always-on dev knobs live. These are **not** in any `.env` file, which is why grepping `.env*` for them comes up empty.
+2. **flox `[vars]`** (`.flox/env/manifest.toml`) — injected on every `flox activate`, including the auto-activation that runs when you `cd` into the repo. This is where `DEBUG=1`, `CLICKHOUSE_DATABASE`, and other always-on dev knobs live. These are **not** in any `.env` file, which is why grepping `.env*` for them comes up empty.
 3. **`.env.local`** — your personal, gitignored overrides and secrets (`op://` refs auto-resolve via 1Password). Sourced by `bin/start`.
 4. **`.env.development`** — committed dev-mode runtime knobs.
 5. **`.env.services`** — committed service connection defaults, shared with containers.

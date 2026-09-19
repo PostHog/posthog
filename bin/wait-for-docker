@@ -36,7 +36,7 @@ DAEMON_DOWN_POLL_SECONDS=2
 
 # Pin the project so polls target the same stack the up command created under
 # (see generator.py). Without -p, compose derives it from COMPOSE_PROJECT_NAME
-# or the worktree folder name, which drifts from "posthog" when direnv is off.
+# or the worktree folder name, which drifts from "posthog" outside the flox environment.
 PROJECT="${COMPOSE_PROJECT_NAME:-posthog}"
 
 only_listed=0

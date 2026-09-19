@@ -43,7 +43,7 @@ export OBJECT_STORAGE_REGION="${OBJECT_STORAGE_REGION:-us-east-1}"
 export OBJECT_STORAGE_ENDPOINT="${OBJECT_STORAGE_ENDPOINT:-http://localhost:19000}"
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-object_storage_root_user}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-object_storage_root_password}"
-# .envrc sets RUST_LOG to suppress flox noise (e.g. "flox=error,..."). Once RUST_LOG
+# The flox environment sets RUST_LOG to suppress flox noise (e.g. "flox=error,..."). Once RUST_LOG
 # has any value, EnvFilter's default directive no longer applies — so the binary's
 # logs would be silenced. Append our directive so warm_flags_cache=info always
 # wins, while preserving any flox suppression the user wants.

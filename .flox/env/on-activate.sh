@@ -224,23 +224,13 @@ export GOMODCACHE="$GOPATH/pkg/mod"
 # can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
 export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
 
-# In `flox activate -- <cmd>` mode, Flox does not source [profile], so the uv venv
-# is not on PATH. Add it here so non-interactive commands can find hogli and
-# Python tooling.
-if [[ "$_interactive" != true ]] && [[ ":$PATH:" != *":$UV_PROJECT_ENVIRONMENT/bin:"* ]]; then
+# Enter the uv venv here, not by sourcing bin/activate from [profile]. Flox
+# restores what this hook exports when the environment deactivates, and
+# `flox activate -- <cmd>` skips [profile] entirely.
+export VIRTUAL_ENV="$UV_PROJECT_ENVIRONMENT"
+export VIRTUAL_ENV_PROMPT="posthog"
+if [[ ":$PATH:" != *":$UV_PROJECT_ENVIRONMENT/bin:"* ]]; then
   export PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
-fi
-# ── Direnv first-time setup (interactive only) ─────────────────────
-if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
-  read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r
-  echo
-  if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then
-    "$FLOX_ENV_CACHE/../env/direnv-setup.sh"
-  else
-    echo -e "${C_DIM}Skipped. Run '.flox/env/direnv-setup.sh' later if you change your mind.${C_RESET}"
-  fi
-  touch "$FLOX_ENV_CACHE/.hush-direnv"
-  echo
 fi
 
 # ── Xcode license check (macOS only) ─────────────────────────────────
