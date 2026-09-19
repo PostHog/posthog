@@ -71,7 +71,7 @@ export const AudioMuteReplayerPlugin = (isMuted: boolean): ReplayPlugin => {
         },
 
         handler: (e: eventWithTime, _isSync: boolean, { replayer }: { replayer: Replayer }) => {
-            if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.Mutation) {
+            if (e.type === EventType.IncrementalSnapshot && e.data?.source === IncrementalSource.Mutation) {
                 if (Array.isArray(e.data.adds)) {
                     e.data.adds.forEach((addedNode: any) => {
                         if (addedNode.node && addedNode.node.type === 1) {
