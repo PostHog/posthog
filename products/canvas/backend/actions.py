@@ -88,11 +88,6 @@ class TaskCreateAndRunPayloadSerializer(TaskCreatePayloadSerializer):
         required=False, max_length=32, help_text="Reasoning effort supported by the selected model. Requires model."
     )
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if "reasoning_effort" in attrs and "model" not in attrs:
-            raise serializers.ValidationError({"reasoning_effort": "Select a model before setting reasoning effort."})
-        return attrs
-
 
 def _create_annotation(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
     from products.annotations.backend.facade import api as annotations_facade  # noqa: PLC0415 — load on execute
@@ -210,9 +205,8 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
                 "`{task_id, run_id, status}`. "
                 "Creates a task in the canvas's space as the viewer and queues its cloud run. "
                 "Inherits the space's repositories and the viewer's default run settings. "
-                "Optional model and reasoning_effort apply to this task only, without changing those defaults. "
-                "Use model identifiers and supported efforts from the task model catalogue. "
-                "The model selects its runtime adapter. reasoning_effort requires model. "
+                "Optional model and reasoning_effort (from the task model catalogue) override those defaults for "
+                "this task only; reasoning_effort requires model. "
                 "The standard cloud access and usage limits apply. This action uses paid compute. "
                 "Use a 'Start cloud task' button and disable it while the request is pending. "
                 "Generate a UUID for idempotency_key once per intended task and reuse it on retries; "

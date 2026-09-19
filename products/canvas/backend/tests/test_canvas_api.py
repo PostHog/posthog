@@ -2178,14 +2178,34 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_repository", [], {}),
-            ("space_repositories", ["example/app", "example/api"], {}),
-            ("selected_model", [], {"model": "claude-opus-4-8", "reasoning_effort": "high"}),
-            ("selected_model_default_effort", [], {"model": "claude-opus-4-8"}),
+            (
+                "without_repository",
+                [],
+                {},
+                {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"},
+            ),
+            (
+                "space_repositories",
+                ["example/app", "example/api"],
+                {},
+                {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"},
+            ),
+            (
+                "selected_model",
+                [],
+                {"model": "claude-opus-4-8", "reasoning_effort": "high"},
+                {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": "high"},
+            ),
+            (
+                "selected_model_default_effort",
+                [],
+                {"model": "claude-opus-4-8"},
+                {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": None},
+            ),
         ]
     )
     def test_cloud_task_uses_space_and_viewer_defaults_once(
-        self, _name: str, repositories: list[str], selection: dict[str, str]
+        self, _name: str, repositories: list[str], selection: dict[str, str], expected_state: dict[str, str | None]
     ) -> None:
         canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
         integration = Integration.objects.create(team=self.team, kind="github", config={})
@@ -2243,9 +2263,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert task.repositories == repositories
         assert task.github_integration_id == integration.id
         assert run.environment == TaskRun.Environment.CLOUD
-        assert run.state["model"] == selection.get("model", "gpt-5.5")
-        assert run.state["runtime_adapter"] == ("claude" if selection else "codex")
-        assert run.state.get("reasoning_effort") == (selection.get("reasoning_effort") if selection else "medium")
+        assert {key: run.state.get(key) for key in expected_state} == expected_state
         assert task.runs.count() == 1
         dispatch.assert_called_once()
 

@@ -11,12 +11,9 @@ but does not change the space's repository settings. The viewer must have access
 and must submit the form before a run starts. Omitting both fields opens the usual empty task form.
 Do not use `tasks.create_and_run` for a repository override: that action inherits the space settings.
 
-`tasks.create_and_run` accepts optional `model` and `reasoning_effort` fields for one Cloud task.
-Use the identifiers and supported efforts from the task model catalogue.
-The selected model determines the runtime adapter; reasoning effort requires an explicit model.
-Omit both fields to retain the viewer's defaults. These fields do not change saved run preferences.
-Retries with the same `idempotency_key` return the existing task, even if the requested settings change.
-Use a new request key to start another task.
+`tasks.create_and_run` accepts optional `model` and `reasoning_effort` fields (from the task model catalogue)
+that apply to that one task and do not change saved run preferences. `reasoning_effort` requires `model`.
+A retry with the same `idempotency_key` returns the existing task even if these fields change.
 
 `ph.openExternal(url)` accepts HTTPS GitHub PR links as well as PostHog HTTPS URLs. GitHub links
 must use `github.com`, with no credentials, custom port, or query string. PR overview, files,
