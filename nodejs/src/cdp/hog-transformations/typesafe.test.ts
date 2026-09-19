@@ -189,6 +189,8 @@ describe('TypeSafe transformation', () => {
             expect(result).toMatchObject({ finished: true, execResult: invocation.state.globals.event })
             expect(result.error).not.toBeUndefined()
             expect(result.error).not.toContain('fake-demo-key')
+            // Monitoring drops result.error, so the reason only reaches the user as a log.
+            expect(result.logs).toEqual([expect.objectContaining({ level: 'error', message: result.error })])
         }
         await expectCallMetrics('failure', 3)
         expect(captureError).toHaveBeenCalledTimes(3)
@@ -213,6 +215,12 @@ describe('TypeSafe transformation', () => {
             expect(await executeTypesafeTransformation(invocation)).toMatchObject({
                 execResult: invocation.state.globals.event,
                 error: expect.stringContaining('Invalid TypeSafe settings'),
+                logs: [
+                    expect.objectContaining({
+                        level: 'error',
+                        message: expect.stringContaining('Invalid TypeSafe settings'),
+                    }),
+                ],
             })
             expect(request).not.toHaveBeenCalled()
             await expectNoCallTelemetry()

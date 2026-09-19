@@ -58,12 +58,22 @@ export async function executeTypesafeTransformation(
 ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
     const event = invocation.state.globals.event
     const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { execResult: event })
-    const log = (level: 'info' | 'warn', message: string): void => {
+    const log = (level: 'info' | 'warn' | 'error', message: string): void => {
         result.logs.push({ level, message, timestamp: DateTime.now() })
+    }
+    // Monitoring persists logs and a pass/fail count, but not result.error, so a failure needs a
+    // log for the user to see the reason. Keep the first failure, because the HTTP branch sets the
+    // error and then reads the body, which can throw and reach the catch with a vaguer message.
+    const fail = (message: string): void => {
+        if (result.error) {
+            return
+        }
+        result.error = message
+        log('error', message)
     }
     const parsed = configSchema.safeParse(invocation.state.globals.inputs)
     if (!parsed.success) {
-        result.error = 'Invalid TypeSafe settings. Check the required inputs.'
+        fail('Invalid TypeSafe settings. Check the required inputs.')
         return result
     }
     const config = parsed.data
@@ -109,7 +119,7 @@ export async function executeTypesafeTransformation(
         httpStatus = response.status
         if (response.status < 200 || response.status >= 300) {
             failureKind = 'http'
-            result.error = `TypeSafe request failed with status ${response.status}. Event unchanged.`
+            fail(`TypeSafe request failed with status ${response.status}. Event unchanged.`)
             await response.dump()
             return result
         }
@@ -127,7 +137,7 @@ export async function executeTypesafeTransformation(
             answer.confidence < 0 ||
             answer.confidence > 1
         ) {
-            result.error = 'TypeSafe returned an invalid answer. Event unchanged.'
+            fail('TypeSafe returned an invalid answer. Event unchanged.')
             return result
         }
         if (answer.confidence < config.minimum_confidence) {
@@ -137,10 +147,11 @@ export async function executeTypesafeTransformation(
         result.execResult = { ...event, properties: { ...properties, [config.property]: answer.choice } }
         log('info', 'TypeSafe added the category to the event.')
     } catch {
-        result.error ??=
+        fail(
             failureKind === 'invalid_response'
                 ? 'TypeSafe returned an invalid answer. Event unchanged.'
                 : 'TypeSafe request failed. Event unchanged. Check the API key and connection.'
+        )
     } finally {
         if (requestStarted !== undefined) {
             const durationMs = performance.now() - requestStarted
