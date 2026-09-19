@@ -312,26 +312,85 @@ def _fanout_resource(
     return resources[endpoint].add_map(_rename_parent_key)
 
 
-def validate_credentials(api_token: str) -> tuple[bool, int | None]:
-    """Confirm the API token is valid with Cloudflare's token verify endpoint.
+def _transient_status(status: int | None) -> bool:
+    """Cloudflare was unreachable or busy rather than refusing the token."""
+    return status is None or status == 429 or status >= 500
 
-    Returns ``(is_valid, status_code)``. ``status_code`` is ``None`` when Cloudflare was
-    unreachable so the caller can tell a rejected token apart from a transient failure and
-    avoid telling the user their token is invalid when it may be fine.
+
+def _cloudflare_error(response: Response) -> str | None:
+    """Cloudflare's own reason for refusing a request, from the `errors` array it returns.
+
+    Without this the caller can only say "rejected", which is the same sentence for a revoked
+    token, an IP-filtered one, and a token this endpoint structurally cannot verify.
     """
     try:
-        response = make_tracked_session(redact_values=(api_token,)).get(
-            f"{CLOUDFLARE_BASE_URL}/user/tokens/verify",
+        errors = response.json().get("errors") or []
+    except Exception:
+        return None
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        message = str(error.get("message") or "").strip()
+        code = error.get("code")
+        if message and code:
+            return f"{message} (code {code})"
+        if message:
+            return message
+    return None
+
+
+def _get(api_token: str, path: str, **params: Any) -> Optional[Response]:
+    try:
+        return make_tracked_session(redact_values=(api_token,)).get(
+            f"{CLOUDFLARE_BASE_URL}{path}",
             headers={"Authorization": f"Bearer {api_token}"},
+            params=params or None,
             timeout=10,
         )
     except Exception:
-        return False, None
+        return None
+
+
+def _succeeded(response: Response) -> bool:
     try:
-        is_valid = response.status_code == 200 and bool(response.json().get("success"))
+        return response.status_code == 200 and bool(response.json().get("success"))
     except Exception:
-        is_valid = False
-    return is_valid, response.status_code
+        return False
+
+
+def validate_credentials(api_token: str) -> tuple[bool, int | None, str | None]:
+    """Confirm the API token can reach the data the connector syncs.
+
+    Returns ``(is_valid, status_code, reason)``. ``status_code`` is ``None`` when Cloudflare was
+    unreachable so the caller can tell a rejected token apart from a transient failure and
+    avoid telling the user their token is invalid when it may be fine. ``reason`` carries
+    Cloudflare's own error text for a definitive rejection.
+
+    ``/user/tokens/verify`` only verifies *user* tokens. An account-owned token — the kind
+    Cloudflare recommends for durable service integrations, created under Manage Account >
+    Account API Tokens — is verified at ``/accounts/{account_id}/tokens/verify`` instead, so it
+    is refused here however broad its permissions are, and we hold no account id to check it
+    against. Fall back to the two top-level lists the sync fans out from: a token that can read
+    either one can run this source, which is the question validation is actually asking.
+    """
+    verify = _get(api_token, "/user/tokens/verify")
+    if verify is not None and _succeeded(verify):
+        return True, verify.status_code, None
+
+    status = verify.status_code if verify is not None else None
+    if _transient_status(status):
+        return False, status, None
+
+    for path in _PARENT_PATHS.values():
+        probe = _get(api_token, path, per_page=1)
+        if probe is None:
+            # The verify call reached Cloudflare, so a failure here is this request's alone.
+            continue
+        if _succeeded(probe):
+            return True, probe.status_code, None
+
+    assert verify is not None  # a None verify is transient, handled above
+    return False, status, _cloudflare_error(verify)
 
 
 def cloudflare_source(

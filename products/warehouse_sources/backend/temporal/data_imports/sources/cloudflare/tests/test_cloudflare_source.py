@@ -63,12 +63,15 @@ class TestCloudflareSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_substring",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "was rejected"),
-            ((False, 403), False, "was rejected"),
-            ((False, None), False, "Couldn't reach Cloudflare"),
-            ((False, 500), False, "Couldn't reach Cloudflare"),
-            ((False, 429), False, "Couldn't reach Cloudflare"),
+            ((True, 200, None), True, None),
+            ((False, 401, None), False, "Cloudflare rejected your API token."),
+            ((False, 403, None), False, "Cloudflare rejected your API token."),
+            # Cloudflare's own reason is what tells a revoked token from one this endpoint
+            # structurally cannot verify, so it has to reach the person reading the wizard.
+            ((False, 400, "Invalid API Token (code 1000)"), False, "Invalid API Token (code 1000)"),
+            ((False, None, None), False, "Couldn't reach Cloudflare"),
+            ((False, 500, None), False, "Couldn't reach Cloudflare"),
+            ((False, 429, None), False, "Couldn't reach Cloudflare"),
         ],
     )
     @mock.patch(
