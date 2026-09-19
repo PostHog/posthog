@@ -147,6 +147,112 @@ The result feeds the tick loop above. Evaluation still runs the probe/delivery s
 TTL claims are not implemented here.
 Discovery has a five-second start-to-close timeout, a ten-second schedule-to-close timeout, and at most three attempts.
 
+## Batch keys
+
+Discovery returns batch keys, not configuration ids. A key is `(source, team_id, slot)`, where `slot` is
+`next_check_at` floored to the minute. A key costs a fixed amount and does not grow with a team's alert
+count, so the manifest bound is about how many chunks a tick starts rather than how many alerts it found.
+
+The key names the chunk by what it holds, so the evaluation workflow id is
+`alerts-eval-{source}-{team_id}-{slot}` and stays the same when a later tick rediscovers the same work.
+A slow evaluation therefore blocks its own re-dispatch without a claim on the configuration rows.
+
+Discovery orders by `next_check_at` ascending. A key the manifest bound leaves out grows more overdue
+and wins a later tick; any stable ordering that is not by due time starves the same keys every tick.
+
+Each dispatcher takes up to `MAX_EVALUATIONS_PER_DISPATCH` keys and hands the rest back as a later page.
+The evaluation re-reads its own configurations from the key, which it has to do anyway to get thresholds
+and filters, so it sees a fresher set than discovery did.
+
+Flooring to the minute loses nothing that load spreading provides: `compute_shard_offset_seconds` returns
+whole multiples of the 60-second schedule interval, so spreading moves an alert between minutes rather
+than within one.
+
+## Source evaluation bindings
+
+`products/alerts/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
+A source in that map gets its own workflow started by name, carrying one batch key and the tick cutoff.
+A source absent from it keeps the noop `alerts-product-evaluate` path, which receives no key.
+The alerts product imports nothing from a source: the binding holds a name, and `test_every_source_evaluation_binding_names_a_registered_workflow` fails if that name is not registered on the evaluation queue.
+
+`logs` is bound to `logs-alert-evaluate`, which is the first real source evaluation.
+
+## Logs source evaluation
+
+`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification.
+The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
+
+It writes its own state and never the logs product's rows.
+The production `logs-alerting-task-queue` fleet evaluates these same alerts every minute against `LogsAlertConfiguration`,
+so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would transition an alert twice and notify a person twice for one breach.
+State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`, which the logs fleet never reads.
+Delivery stops at `alerts-product-deliver-preview`, which records what would have been sent and contacts no destination.
+
+The lifecycle decision comes from `products/alerts/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
+which is the shared machine the logs product's own state machine is a thin adapter over.
+Going to the shared machine directly keeps the platform's lifecycle out of a source product's import path.
+
+It evaluates against the tick cutoff rather than the clock, so a retried attempt selects the same alerts,
+resolves the same windows and derives the same evaluation keys as the attempt it replaced.
+The due predicate is applied a second time here, because discovery ran earlier in the tick and a configuration
+can have been disabled, snoozed or broken since.
+
+### Evaluating and writing are separate activities
+
+`evaluate_logs_alerts_activity` reads and decides; it writes nothing.
+The workflow then calls `alerts_product_record_outcomes`, the platform's own activity, which persists the batch.
+Order matters more than the split does: Temporal holds the deliveries the batch decided on before any write
+can advance a schedule past them, so an attempt lost between the two costs its queries and nothing else.
+A source starts the write by name rather than importing it, so the products stay apart.
+
+The write is safe to run twice. An attempt that commits leaves every configuration due after the cutoff,
+and a replay skips those rows rather than advancing them again and skipping a cycle.
+It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
+
+`MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
+Recording an outcome whose preview the batch cannot carry would leave an alert firing with nothing announcing it,
+and a firing alert does not fire again. Dropping the pair leaves it due, the way a truncated cohort already behaves.
+`alerts_platform_deliveries_deferred_total` counts them.
+
+Cohorting, the batched ClickHouse query, projection routing, the byte ceiling and ingestion-freshness gating
+all come from the existing logs code, so a preview says what production would have sent.
+
+Delivery previews carry a list of group transitions with one entry and an empty grouping key.
+Logs does not group yet; the list is the shape that lets fan-out change the evaluation and nothing downstream.
+
+### Metrics
+
+The path emits through Temporal's own meter, so every series carries the worker, queue and activity attributes
+the runtime attaches. `products/alerts/backend/temporal/metrics.py` holds them and a source reaches them through
+`facade/platform_metrics.py`.
+
+| Metric                                                    | What it answers                                             |
+| --------------------------------------------------------- | ----------------------------------------------------------- |
+| `alerts_platform_checks_total{source,outcome}`            | How many checks the platform decided, and what they decided |
+| `alerts_platform_state_transitions_total{source,from,to}` | Which transitions it reached                                |
+| `alerts_platform_deliveries_previewed_total{source}`      | How many deliveries it recorded instead of sending          |
+| `alerts_platform_deliveries_deferred_total{source}`       | How many the payload bound left for a later tick            |
+| `alerts_platform_outcomes_recorded_total`                 | How many decisions reached the tables                       |
+| `alerts_platform_batch_duration_ms{source}`               | What one batch key costs                                    |
+| `alerts_platform_scheduler_lag_ms{source}`                | How far past its due time a check was evaluated             |
+
+Histogram buckets are registered in `posthog/temporal/common/worker.py`; a histogram missing from
+`ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS` gets Prometheus defaults instead.
+Every call site goes through `safe_record`, so a metric failure cannot fail a check.
+
+### Seeding the shared tables
+
+`PlatformAlertConfiguration` starts empty, so discovery finds nothing and no evaluation runs until configurations are copied in.
+Run the copy once per environment from any pod that carries the application image and a database connection:
+
+```bash
+python manage.py backfill_platform_alert_configurations
+```
+
+Pass `--team-id` to copy one team's configurations only.
+It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
+A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
+
 ## Postgres connectivity probe
 
 Each evaluation activity issues one explicit `SELECT 1` and checks for `(1,)` through Django's `default` main writer connection.
