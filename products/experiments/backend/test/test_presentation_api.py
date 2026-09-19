@@ -61,6 +61,9 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
+# Stands in for an action id the parameterized cases cannot know until the row exists.
+ACTION_PK = "<action>"
+
 
 def _make(cls, **attrs):
     """Build an auth instance without running __init__, setting only the attributes the test needs."""
@@ -677,6 +680,83 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ).data
 
         self.assertEqual(serialized["resolved_exposure_event"], expected_event)
+
+    @parameterized.expand(
+        [
+            ("no_criteria", None, "$experiment_exposure"),
+            (
+                "default_config",
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$feature_flag_called",
+                        "properties": [],
+                    }
+                },
+                "$experiment_exposure",
+            ),
+            (
+                "custom_event",
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "listing_view",
+                        "properties": [],
+                    }
+                },
+                "listing_view",
+            ),
+            ("action_config", {"exposure_config": {"kind": "ActionsNode", "id": ACTION_PK}}, None),
+            (
+                "blank_event",
+                {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "", "properties": []}},
+                None,
+            ),
+            (
+                "activation_event",
+                {
+                    "activation_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "listing_view",
+                        "properties": [],
+                    }
+                },
+                None,
+            ),
+            ("activation_action", {"activation_config": {"kind": "ActionsNode", "id": ACTION_PK}}, None),
+        ]
+    )
+    def test_detail_reports_effective_exposure_event(
+        self, _name: str, exposure_criteria: Any, expected_event: str | None
+    ) -> None:
+        # resolved_exposure_event only describes the default path, so a client that reads it alone
+        # names the default event for an experiment whose results come from somewhere else.
+        if exposure_criteria:
+            action = Action.objects.create(team=self.team, name="Viewed listing", created_by=self.user)
+            exposure_criteria = {
+                key: {**config, "id": action.pk} if config.get("id") == ACTION_PK else config
+                for key, config in exposure_criteria.items()
+            }
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name=f"effective-exposure-{_name}",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, key=f"effective-exposure-{_name}", created_by=self.user
+            ),
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=7),
+            exposure_criteria=exposure_criteria,
+        )
+
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["resolved_exposure_event"], "$experiment_exposure")
+        self.assertEqual(response.json()["effective_exposure_event"], expected_event)
 
     def test_retrieving_experiment_refreshes_action_names(self) -> None:
         # Action-name refresh lives on the detail response — the list endpoint no longer
