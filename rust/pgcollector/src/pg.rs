@@ -90,15 +90,27 @@ pub async fn connect(
     // different server connections, so pid / setting must agree across two round trips.
     // (Can pass by luck on an idle pooler; deploy with `pgbouncer: false` regardless.)
     let pid1: i32 = client
-        .query_one("SELECT pg_backend_pid()", &[])
+        .query_one(
+            &crate::tags::tagged("pooler_probe", "SELECT pg_backend_pid()"),
+            &[],
+        )
         .await?
         .get(0);
     let t: String = client
-        .query_one("SELECT current_setting('statement_timeout')", &[])
+        .query_one(
+            &crate::tags::tagged(
+                "pooler_probe",
+                "SELECT current_setting('statement_timeout')",
+            ),
+            &[],
+        )
         .await?
         .get(0);
     let pid2: i32 = client
-        .query_one("SELECT pg_backend_pid()", &[])
+        .query_one(
+            &crate::tags::tagged("pooler_probe", "SELECT pg_backend_pid()"),
+            &[],
+        )
         .await?
         .get(0);
     if pid1 != pid2 || t != format!("{ms}ms") && t != format!("{}s", ms / 1000) {
@@ -129,7 +141,13 @@ pub async fn quiet_session(client: &Client) {
 /// PG_VERSION_NUM, e.g. 160003.
 pub async fn server_version(client: &Client) -> Result<u32> {
     let row = client
-        .query_one("SELECT current_setting('server_version_num')::int", &[])
+        .query_one(
+            &crate::tags::tagged(
+                "server_version",
+                "SELECT current_setting('server_version_num')::int",
+            ),
+            &[],
+        )
         .await?;
     Ok(row.get::<_, i32>(0) as u32)
 }
@@ -138,8 +156,11 @@ pub async fn server_version(client: &Client) -> Result<u32> {
 pub async fn discover_databases(client: &Client) -> Result<Vec<String>> {
     let rows = client
         .query(
-            "SELECT datname FROM pg_database \
+            &crate::tags::tagged(
+                "discover_databases",
+                "SELECT datname FROM pg_database \
              WHERE datallowconn AND NOT datistemplate AND datname NOT IN ('rdsadmin') ORDER BY 1",
+            ),
             &[],
         )
         .await?;
@@ -153,19 +174,34 @@ pub async fn capabilities(client: &Client) -> Result<crate::collector::Capabilit
     // so check pg_proc first rather than guarding the call with WHERE.
     let has_fn = client
         .query_opt(
-            "SELECT 1 FROM pg_proc WHERE proname = 'aurora_version'",
+            &crate::tags::tagged(
+                "capabilities",
+                "SELECT 1 FROM pg_proc WHERE proname = 'aurora_version'",
+            ),
             &[],
         )
         .await?
         .is_some();
     if has_fn {
-        if let Ok(r) = client.query_one("SELECT aurora_version()::text", &[]).await {
+        if let Ok(r) = client
+            .query_one(
+                &crate::tags::tagged("capabilities", "SELECT aurora_version()::text"),
+                &[],
+            )
+            .await
+        {
             caps.aurora = true;
             caps.aurora_version = Some(r.get::<_, String>(0));
         }
     }
     for r in client
-        .query("SELECT extname, extversion FROM pg_extension", &[])
+        .query(
+            &crate::tags::tagged(
+                "capabilities",
+                "SELECT extname, extversion FROM pg_extension",
+            ),
+            &[],
+        )
         .await?
     {
         caps.extensions

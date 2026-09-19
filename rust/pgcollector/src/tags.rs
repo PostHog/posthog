@@ -289,6 +289,25 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Prefix a statement the agent itself runs with its own tag comment, so the read is
+/// attributable on the monitored cluster instead of being bare SQL.
+///
+/// A quote or `*/` in the operation would end the comment early, so anything outside
+/// the identifier set becomes `_`; an overlay collector can be named anything.
+pub fn tagged(operation: &str, sql: &str) -> String {
+    let clean: String = operation
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("/* service='pgcollector', operation='{clean}' */ {sql}")
+}
+
 pub fn to_value(tags: &Tags) -> Value {
     if tags.is_empty() {
         Value::Null
