@@ -985,13 +985,10 @@ class ModalSandbox(AgentServerLaunchMixin):
                 secret = modal.Secret.from_dict(env_dict)
                 secrets.append(secret)
 
-            sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
-
             region = _get_modal_region()
 
             create_kwargs: dict[str, object] = {
                 "app": app,
-                "name": sandbox_name,
                 "timeout": config.ttl_seconds,
                 **_resource_create_kwargs(config),
                 "region": region,
@@ -1126,7 +1123,15 @@ class ModalSandbox(AgentServerLaunchMixin):
         """
         for index, candidate in enumerate(candidates):
             config.dev_stack_present = candidate.has_dev_stack
-            attempt_kwargs = {**create_kwargs, "image": candidate.image, **_resource_create_kwargs(config)}
+            # A fresh name per attempt: Modal keeps a name registered when the create that
+            # took it then fails, so reusing it fails every later downgrade with
+            # AlreadyExistsError and the fallback chain can never recover.
+            attempt_kwargs = {
+                **create_kwargs,
+                "name": f"{config.name}-{uuid.uuid4().hex[:6]}",
+                "image": candidate.image,
+                **_resource_create_kwargs(config),
+            }
             try:
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
