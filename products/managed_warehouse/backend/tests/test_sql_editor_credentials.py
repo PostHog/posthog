@@ -610,6 +610,36 @@ def test_dynamic_connection_carries_required_sslmode() -> None:
     assert connection.sslmode == "require"
 
 
+@override_settings(
+    MANAGED_WAREHOUSE_LOCAL_DEV_ENABLED=True,
+    MANAGED_WAREHOUSE_LOCAL_DUCKGRES_HOST="127.0.0.1",
+    MANAGED_WAREHOUSE_LOCAL_DUCKGRES_PORT=15432,
+)
+def test_dynamic_source_uses_local_duckgres_without_minting() -> None:
+    source_auth = ManagedWarehouseSourceAuth(
+        prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+        system_managed=True,
+        credential_kind=MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND,
+        lifecycle_generation=1,
+    )
+    credential_cache = Mock()
+    connection = resolve_managed_warehouse_postgres_connection(
+        source_auth=source_auth,
+        organization_id="org-1",
+        team_id=1,
+        principal=SQL_EDITOR_PRINCIPAL,
+        credential_cache=credential_cache,
+    )
+
+    assert connection is not None
+    assert connection.host == "127.0.0.1"
+    assert connection.port == 15432
+    assert connection.username == "posthog"
+    assert connection.password == "posthog"
+    assert connection.sslmode == "require"
+    credential_cache.get.assert_not_called()
+
+
 def test_dynamic_source_without_a_lifecycle_generation_fails_closed() -> None:
     source_auth = ManagedWarehouseSourceAuth(
         prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,

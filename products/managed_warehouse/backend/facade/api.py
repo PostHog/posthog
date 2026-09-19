@@ -54,6 +54,7 @@ __all__ = [
     "has_provisioned_warehouse",
     "is_data_modeling_shadow_ready",
     "is_dev_mode",
+    "is_local_dev_enabled",
     "organization_is_pending_deletion",
     "persist_duckgres_server_for_org",
     "reconcile_stored_bucket_config",
@@ -95,6 +96,10 @@ def _to_stored_server_config(server: DuckgresServer) -> DuckgresStoredServerConf
 def is_dev_mode() -> bool:
     """Whether Duckgres runs in the env-var-configured local mode."""
     return common.is_dev_mode()
+
+
+def is_local_dev_enabled() -> bool:
+    return common.is_local_dev_enabled()
 
 
 def default_bucket_region() -> str:
