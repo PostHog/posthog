@@ -32786,6 +32786,45 @@ export namespace Schemas {
     }
 
     /**
+     * * `depends_on` - Depends on
+     * * `part_of` - Part of
+     * * `follow_up_of` - Follow-up of
+     * * `duplicate_of` - Duplicate of
+     * * `recurrence_of` - Recurrence of
+     */
+    export type ReportLinkKindEnum = typeof ReportLinkKindEnum[keyof typeof ReportLinkKindEnum];
+
+
+    export const ReportLinkKindEnum = {
+      DependsOn: 'depends_on',
+      PartOf: 'part_of',
+      FollowUpOf: 'follow_up_of',
+      DuplicateOf: 'duplicate_of',
+      RecurrenceOf: 'recurrence_of',
+    } as const;
+
+    /**
+     * One typed, directed link to write on the report being edited.
+     */
+    export interface ReportLinkWrite {
+      /** How the edited report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
+       *
+       * * `depends_on` - Depends on
+       * * `part_of` - Part of
+       * * `follow_up_of` - Follow-up of
+       * * `duplicate_of` - Duplicate of
+       * * `recurrence_of` - Recurrence of */
+      kind: ReportLinkKindEnum;
+      /** Id of the report to link to. Must be another report in this project. */
+      report_id: string;
+      /**
+         * Optional one-line note on why the reports are linked this way.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -32846,6 +32885,11 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       suggested_prompts?: string[] | null;
+      /**
+         * Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so the order is recorded rather than left to a reader of the diffs. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
+         * @maxItems 10
+         */
+      links?: ReportLinkWrite[];
       /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
       supersedes_implementation?: boolean;
     }
@@ -32859,6 +32903,8 @@ export namespace Schemas {
       note_appended: boolean;
       /** How many observations this edit added to the report's evidence rail; 0 if none. */
       evidence_appended: number;
+      /** How many typed report-to-report links this edit wrote; 0 if none. */
+      links_appended: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -61800,6 +61846,7 @@ export namespace Schemas {
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
      * * `related_to` - Related To
+     * * `report_link` - Report Link
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
@@ -61830,6 +61877,7 @@ export namespace Schemas {
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
+      ReportLink: 'report_link',
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
