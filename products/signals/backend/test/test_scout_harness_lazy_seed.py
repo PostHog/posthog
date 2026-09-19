@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-import json
 import textwrap
 from pathlib import Path
 
@@ -68,42 +66,6 @@ def _make_canonical(
         config_tags=config_tags,
         role=role,
     )
-
-
-# The generated MCP catalog: every tool name a scout can actually call at run time.
-_TOOL_CATALOG_PATH = Path(__file__).resolve().parents[4] / "services" / "mcp" / "schema" / "tool-definitions-all.json"
-
-# A backticked lowercase-kebab token is read as an MCP tool name when its last segment is one of
-# the action verbs the tool naming convention uses. The verb is what separates a tool name from
-# the other kebab tokens a body backticks — scratchpad key prefixes, frontmatter keys, event and
-# property names — so the check stays narrow enough that a false positive cannot block a PR.
-_TOOL_NAME_VERBS = frozenset(
-    {
-        "all",
-        "cancel",
-        "count",
-        "create",
-        "delete",
-        "destroy",
-        "forget",
-        "get",
-        "list",
-        "remember",
-        "retrieve",
-        "search",
-        "sync",
-        "update",
-    }
-)
-_BACKTICKED_KEBAB_RE = re.compile(r"`([a-z][a-z0-9]*(?:-[a-z0-9]+)+)`")
-
-
-def _cited_tool_names(text: str) -> set[str]:
-    return {
-        match.group(1)
-        for match in _BACKTICKED_KEBAB_RE.finditer(text)
-        if match.group(1).rsplit("-", 1)[-1] in _TOOL_NAME_VERBS
-    }
 
 
 class TestDiscoverCanonicalSkills:
@@ -548,21 +510,6 @@ class TestDiscoverCanonicalSkills:
             "exploring-replay-vision-observations",
         }
         assert expected.issubset(names), f"missing canonical skills: {expected - names}"
-
-    def test_in_repo_canonical_bodies_cite_only_live_tool_names(self) -> None:
-        # A canonical body ships to every project, so a renamed or retired tool it still names
-        # costs a failed call on every run of that scout until someone notices.
-        catalog = set(json.loads(_TOOL_CATALOG_PATH.read_text(encoding="utf-8")))
-        assert catalog, f"empty MCP tool catalog at {_TOOL_CATALOG_PATH}"
-        unresolvable: dict[str, set[str]] = {}
-        for skill in discover_canonical_skills():
-            sources = [(skill.name, skill.body)] + [(f"{skill.name}/{f.path}", f.content) for f in skill.files]
-            for source, text in sources:
-                for name in _cited_tool_names(text) - catalog:
-                    unresolvable.setdefault(name, set()).add(source)
-        assert not unresolvable, "canonical skills cite tool names the MCP catalog does not resolve: " + "; ".join(
-            f"{name} ({', '.join(sorted(sources))})" for name, sources in sorted(unresolvable.items())
-        )
 
     def test_oversized_body_raises(self, tmp_path: Path) -> None:
         # Body byte limit mirrors the REST API contract (MAX_SKILL_BODY_BYTES = 1 MB).

@@ -179,7 +179,7 @@ Direct calls (read-only):
 - `execute-sql` against `revenue_analytics.all.revenue_analytics_<charge|customer|mrr|revenue_item|subscription>` — managed views are the source of truth. Per-source views also exist: `<source>.<prefix>.revenue_analytics_<view_type>` (data warehouse) and `revenue_analytics.events.<event_name>.revenue_analytics_<view_type>` (events).
 - `execute-sql` against `system.insights` / `system.dashboards` — find revenue insights and dashboards that depend on a failing source (blast radius).
 - `dashboards-get-all` / `dashboard-get` — the built-in revenue dashboard and any custom revenue dashboards.
-- `health-issues-list` — platform-detected issues; pass `kind="external_data_failure"` for warehouse source failures, since revenue is one of the highest-priority downstream consumers.
+- `health-issues-list` — platform-detected issues on warehouse sources, where revenue is one of the highest-priority downstream consumers. Pass `kind="external_data_failure"`, `status="active"` and `dismissed=false` on every call: the endpoint excludes nothing by default, so without all three you rank resolved rows and ones a human already waved off. It serves 50 rows by default (250 max) ordered severity-first, so read `count` and page with `offset` when it exceeds the rows you hold.
 
 Harness-level:
 

@@ -73,9 +73,9 @@ Direct calls:
 
 - `read-data-schema events` — surface event names + 24h volumes.
 - `execute-sql` against `system.insights` — find insights mentioning the event name in `name`, `description`, or `query` JSON. Pattern: `query::text ILIKE '%{event_name}%'`.
-- `execute-sql` against `events` — date the event with `min(timestamp)` and `max(timestamp)` over a wide window, so you can tell a settled event from one that fired twice last month.
+- `execute-sql` against `events` — count the event's active days over a wide window (`count(DISTINCT toDate(timestamp))` alongside `min(timestamp)`), so you can tell steady activity from two isolated bursts weeks apart. A wide first-to-last range on a handful of active days is a new or sporadic event, not a settled one.
 
-Strong signal: event > 1000/day, no insight, firing steadily for weeks. Weak signal: event < 100/day, sporadic.
+Strong signal: event > 1000/day, no insight, active on most days across the window. Weak signal: event < 100/day, active on few days, sporadic.
 
 Volume ranking has a blind spot: a recently-born event with broad reach but low per-user frequency may never rank into the count-ranked `top_events`, and a 7-day query window clamps `min(timestamp)` so it cannot tell new events from old ones. Probe emergence directly with a wide window — events table, last 60 days, `event NOT LIKE '$%'`, grouped by event, keeping only groups where `min(timestamp) >= now() - 14d` (genuinely new) and distinct users in the last 7 days clear a reach floor (~500+), ordered by that reach. Each hit is a candidate the top-events lens structurally cannot see; run it through the same coverage check and disqualifiers as any other candidate.
 
