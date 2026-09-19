@@ -26,5 +26,11 @@
         "sessionKey": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=",
         "nonce": "eeEJEciFIDqBWFNk",
         "sealedKey": "vxp6SKFXDX5P4p/OXPmke/ahZKBw1+rUcA5OsFanqN665rxNb8kUZPLXQoafeWnv"
+    },
+    "frame": {
+        "codec": "brotli",
+        "kind": "rrweb",
+        "data": "c3ludGhldGljIGZyYW1lZCBpbnRlcm9wZXJhYmlsaXR5IHBheWxvYWQ=",
+        "frame": "TUxFMwCpeyJjb250ZXh0Ijp7ImNvZGVjIjoiYnJvdGxpIiwia2luZCI6InJyd2ViIiwib3JnYW5pemF0aW9uSWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDciLCJzZXNzaW9uSWQiOiIwMTk5NDU2OS00MzgwLTcwMDAtODAwMC0wMDAwMDAwMDAwMDciLCJ0ZWFtSWQiOjd9LCJ2IjozfQUFBQUFBQUFBQUFBf3ZhyiVKgaOWyiI0AQ5WSqiZp4PV06evRFOF7DuKZjNQ/BoN8BHXpREVlmkFKaIv6rb0vZgYOUPU25t"
     }
 }

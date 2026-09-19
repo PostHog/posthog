@@ -46,11 +46,20 @@ A team has one image key per session start month.
 KMS wraps each key it holds with an encryption context that binds the team, the session or month, and the purpose.
 A sealed session key authenticates the same context.
 A team can change organization while a session is open, so the organization is not part of that context; keys wrapped before this change carry the organization they were wrapped under on their row, and the mirror unwraps them under it.
-Payload encryption uses XSalsa20-Poly1305.
+The replay lane that serves playback encrypts a block with XSalsa20-Poly1305, which is a different format: nothing this lane writes uses it.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
 The envelope seals the raw payload with AES-256-GCM.
-Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
-The envelope is JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64).
+Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace.
+An envelope takes one of two shapes, and where it is stored decides which.
+An object body is a binary frame: the ASCII magic `MLE3`, the length of the additional authenticated data as a 16-bit big-endian integer, those bytes themselves, the 12-byte nonce, then the sealed bytes followed by the 16-byte tag.
+The frame carries those bytes verbatim, so a reader passes them to AES-GCM as they are rather than rebuilding the canonical JSON and risking a re-serialization mismatch.
+A reader must still decode that context and check it equals the object it asked for, because one team month key seals every image object in a flush and the context is the only thing that tells them apart: a reader that skips the check authenticates a shard where it expected an index, or one image's location where it expected another's.
+A reader must also bound the frame before it slices, because the magic and the length sit outside the authenticated data.
+A parquet column holds a value and not an object body, so `metadata` and `replay-index` stay JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64). A reader there knows the shape from the column and inspects no magic bytes.
+The `frame` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one frame with a brotli body, so a reader in another language can check its own bytes.
+The framed context names a `codec`, which tells a reader how to expand the plaintext.
+An `rrweb` block uses `brotli` at quality 9. Each lane declares its own codec, so this lane never produces snappy. It reads a block rarely and keeps it for months, so it stores fewer bytes instead.
+An image object uses `none`, because an image already arrives compressed.
 A sealed session key row carries `sealed_key` and `key_nonce`, and carries no `wrapped_key`.
 HKDF-SHA256 makes its 32-byte wrapping key from the stored team image key, with an empty salt and the info string `ml-session-key-wrap`.
 AES-256-GCM then seals the session key under that wrapping key.
