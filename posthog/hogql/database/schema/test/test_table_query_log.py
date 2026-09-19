@@ -49,3 +49,8 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             external_tables=None,
         )
         assert response.results is not None
+
+    def test_status_filter_accepts_a_value_outside_the_enum(self):
+        response = execute_hogql_query("select status from query_log where status != 'Complete'", self.team)
+
+        assert response.results is not None

@@ -50,6 +50,11 @@ class TestWrapClickhouseQueryError:
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+            (
+                691,
+                "UNKNOWN_ELEMENT_OF_ENUM",
+                "A value in your query isn't allowed for the column you compared it against. Check that column's valid values and try again.",
+            ),
         ]
     )
     def test_fixed_message_codes_hide_raw_clickhouse_text(self, code: int, name: str, message: str) -> None:
@@ -73,7 +78,6 @@ class TestWrapClickhouseQueryError:
             (72, "CANNOT_PARSE_NUMBER"),
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),
-            (691, "UNKNOWN_ELEMENT_OF_ENUM"),
         ]
     )
     def test_codes_stay_internal(self, code: int, name: str) -> None:
