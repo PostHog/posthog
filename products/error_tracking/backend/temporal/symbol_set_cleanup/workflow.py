@@ -46,7 +46,8 @@ def _bucketed_activity_inputs(inputs: SymbolSetCleanupInputs, bucket_offset: int
     if inputs.dry_run or inputs.total_per_run <= 0:
         return [inputs]
 
-    parallelism = max(1, min(inputs.parallelism, inputs.total_per_run))
+    # A worker without a bucket still takes a share of total_per_run, so never start more than the slice holds.
+    parallelism = max(1, min(inputs.parallelism, inputs.total_per_run, inputs.sweep_size()))
     per_activity_limit, remainder = divmod(inputs.total_per_run, parallelism)
     return [
         SymbolSetCleanupInputs(
@@ -59,9 +60,16 @@ def _bucketed_activity_inputs(inputs: SymbolSetCleanupInputs, bucket_offset: int
             bucket_worker_index=index,
             bucket_worker_count=parallelism,
             bucket_offset=bucket_offset,
+            buckets_per_run=inputs.buckets_per_run,
         )
         for index in range(parallelism)
     ]
+
+
+def _bucket_offset(inputs: SymbolSetCleanupInputs) -> int:
+    # The offset follows the clock, not the last run's progress, so a skipped run leaves its slice to the next cycle.
+    rotation_index = int(workflow.now().timestamp() / BUCKET_ROTATION_INTERVAL.total_seconds())
+    return (rotation_index * inputs.sweep_size()) % SYMBOL_SET_CLEANUP_BUCKET_COUNT
 
 
 def _combine_results(results: list[SymbolSetCleanupResult]) -> SymbolSetCleanupResult:
@@ -98,11 +106,7 @@ class ErrorTrackingSymbolSetCleanupWorkflow(PostHogWorkflow):
             )
 
         if workflow.patched(BUCKETED_CLEANUP_PATCH_ID):
-            bucket_offset = (
-                int(workflow.now().timestamp() / BUCKET_ROTATION_INTERVAL.total_seconds())
-                % SYMBOL_SET_CLEANUP_BUCKET_COUNT
-            )
-            activity_inputs = _bucketed_activity_inputs(inputs, bucket_offset)
+            activity_inputs = _bucketed_activity_inputs(inputs, _bucket_offset(inputs))
         else:
             activity_inputs = _legacy_activity_inputs(inputs)
 

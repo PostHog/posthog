@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
@@ -12,6 +12,7 @@ from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
 
+from parameterized import parameterized
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -29,7 +30,11 @@ from products.error_tracking.backend.temporal.symbol_set_cleanup.types import (
     SymbolSetCleanupInputs,
     SymbolSetCleanupResult,
 )
-from products.error_tracking.backend.temporal.symbol_set_cleanup.workflow import ErrorTrackingSymbolSetCleanupWorkflow
+from products.error_tracking.backend.temporal.symbol_set_cleanup.workflow import (
+    BUCKET_ROTATION_INTERVAL,
+    ErrorTrackingSymbolSetCleanupWorkflow,
+    _bucket_offset,
+)
 
 
 class TestDeleteSymbolSetContentsWithPacing:
@@ -45,21 +50,50 @@ class TestDeleteSymbolSetContentsWithPacing:
         sleep.assert_called_once_with(0.1)
 
 
-class TestSymbolSetCleanupBuckets:
-    def test_workers_cover_every_bucket_once(self) -> None:
-        assigned_buckets = [
-            bucket
-            for worker_index in range(4)
-            for bucket in _assigned_buckets(
-                SymbolSetCleanupInputs(
-                    bucket_worker_index=worker_index,
-                    bucket_worker_count=4,
-                    bucket_offset=73,
-                )
+def _buckets_swept_by_workers(*, bucket_offset: int, buckets_per_run: int, worker_count: int = 4) -> list[int]:
+    return [
+        bucket
+        for worker_index in range(worker_count)
+        for bucket in _assigned_buckets(
+            SymbolSetCleanupInputs(
+                bucket_worker_index=worker_index,
+                bucket_worker_count=worker_count,
+                bucket_offset=bucket_offset,
+                buckets_per_run=buckets_per_run,
             )
-        ]
+        )
+    ]
 
-        assert sorted(assigned_buckets) == list(range(SYMBOL_SET_CLEANUP_BUCKET_COUNT))
+
+class TestSymbolSetCleanupBuckets:
+    @parameterized.expand(
+        [
+            (32, list(range(73, 105))),
+            (SYMBOL_SET_CLEANUP_BUCKET_COUNT, list(range(SYMBOL_SET_CLEANUP_BUCKET_COUNT))),
+        ]
+    )
+    def test_workers_split_the_swept_slice_between_them(
+        self, buckets_per_run: int, expected_buckets: list[int]
+    ) -> None:
+        assigned_buckets = _buckets_swept_by_workers(bucket_offset=73, buckets_per_run=buckets_per_run)
+
+        assert sorted(assigned_buckets) == expected_buckets
+
+    def test_consecutive_runs_cover_every_bucket(self) -> None:
+        inputs = SymbolSetCleanupInputs()
+        first_run_at = datetime(2026, 1, 31, tzinfo=UTC)
+
+        with patch("products.error_tracking.backend.temporal.symbol_set_cleanup.workflow.workflow.now") as workflow_now:
+            swept = []
+            for run_index in range(SYMBOL_SET_CLEANUP_BUCKET_COUNT // inputs.sweep_size()):
+                workflow_now.return_value = first_run_at + BUCKET_ROTATION_INTERVAL * run_index
+                swept.extend(
+                    _buckets_swept_by_workers(
+                        bucket_offset=_bucket_offset(inputs), buckets_per_run=inputs.buckets_per_run
+                    )
+                )
+
+        assert sorted(swept) == list(range(SYMBOL_SET_CLEANUP_BUCKET_COUNT))
 
 
 class TestSymbolSetCleanupActivity(BaseTest):
@@ -123,7 +157,9 @@ class TestSymbolSetCleanupActivity(BaseTest):
             ) as delete_contents,
             patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.close_old_connections"),
         ):
-            result = cleanup_symbol_sets_activity(SymbolSetCleanupInputs(batch_size=10, total_per_run=10))
+            result = cleanup_symbol_sets_activity(
+                SymbolSetCleanupInputs(batch_size=10, total_per_run=10, buckets_per_run=SYMBOL_SET_CLEANUP_BUCKET_COUNT)
+            )
 
         assert result == SymbolSetCleanupResult(objects_processed=2, objects_deleted=2, objects_failed=0)
         assert set(ErrorTrackingSymbolSet.objects.values_list("ref", flat=True)) == {"recent-used", "recent-unused"}
@@ -140,7 +176,9 @@ class TestSymbolSetCleanupActivity(BaseTest):
         self._create_symbol_set("old-unused", created_at_days_ago=45, last_used_days_ago=None)
 
         with patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.close_old_connections"):
-            result = cleanup_symbol_sets_activity(SymbolSetCleanupInputs(delete_unused=False))
+            result = cleanup_symbol_sets_activity(
+                SymbolSetCleanupInputs(delete_unused=False, buckets_per_run=SYMBOL_SET_CLEANUP_BUCKET_COUNT)
+            )
 
         assert result == SymbolSetCleanupResult(objects_processed=1, objects_deleted=1, objects_failed=0)
         assert list(ErrorTrackingSymbolSet.objects.values_list("ref", flat=True)) == ["old-unused"]
@@ -157,7 +195,9 @@ class TestSymbolSetCleanupActivity(BaseTest):
             ),
             patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.close_old_connections"),
         ):
-            result = cleanup_symbol_sets_activity(SymbolSetCleanupInputs(batch_size=10, total_per_run=10))
+            result = cleanup_symbol_sets_activity(
+                SymbolSetCleanupInputs(batch_size=10, total_per_run=10, buckets_per_run=SYMBOL_SET_CLEANUP_BUCKET_COUNT)
+            )
 
         assert result == SymbolSetCleanupResult(
             objects_processed=1,
@@ -200,7 +240,9 @@ class TestSymbolSetCleanupActivity(BaseTest):
         )
 
         with patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.close_old_connections"):
-            result = cleanup_symbol_sets_activity(SymbolSetCleanupInputs(total_per_run=2, batch_size=1))
+            result = cleanup_symbol_sets_activity(
+                SymbolSetCleanupInputs(total_per_run=2, batch_size=1, buckets_per_run=SYMBOL_SET_CLEANUP_BUCKET_COUNT)
+            )
 
         assert result == SymbolSetCleanupResult(objects_processed=2, objects_deleted=2, objects_failed=0)
         assert ErrorTrackingSymbolSet.objects.count() == 1
@@ -332,6 +374,7 @@ class TestSymbolSetCleanupWorkflow:
             bucket_worker_index=0,
             bucket_worker_count=1,
             bucket_offset=0,
+            buckets_per_run=32,
         )
 
     @pytest.mark.asyncio
@@ -356,6 +399,23 @@ class TestSymbolSetCleanupWorkflow:
             for activity_input in activity_inputs
         ) == [(0, 3), (1, 3), (2, 3)]
         assert len({activity_input.bucket_offset for activity_input in activity_inputs}) == 1
+        assert all(activity_input.buckets_per_run == inputs.buckets_per_run for activity_input in activity_inputs)
+
+    @pytest.mark.asyncio
+    async def test_workflow_starts_no_more_workers_than_the_swept_slice_holds(self) -> None:
+        inputs = SymbolSetCleanupInputs(total_per_run=100, parallelism=4, buckets_per_run=1)
+
+        result, activity_inputs = await _run_workflow_with_mock_activity(
+            inputs,
+            lambda activity_input: SymbolSetCleanupResult(
+                objects_processed=activity_input.total_per_run,
+                objects_deleted=activity_input.total_per_run,
+                objects_failed=0,
+            ),
+        )
+
+        assert [activity_input.total_per_run for activity_input in activity_inputs] == [100]
+        assert result == SymbolSetCleanupResult(objects_processed=100, objects_deleted=100, objects_failed=0)
 
     @pytest.mark.asyncio
     async def test_workflow_runs_dry_run_once(self) -> None:
