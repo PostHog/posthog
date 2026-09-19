@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled, IconWrench } from '@posthog/icons'
+import { IconChevronRight, IconCode, IconEye, IconMarkdown, IconMarkdownFilled, IconWrench } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -920,6 +920,11 @@ export const LLMMessageDisplay = React.memo(
             )
         }
 
+        const hasRenderableContent = Array.isArray(content) ? content.length > 0 : !!content
+        const hasAdditionalKwargs = Object.keys(additionalKwargsEntries).length > 0
+        // Without this check an empty message still looks clickable and swallows the click.
+        const isExpandable = !!onToggle && (hasRenderableContent || hasAdditionalKwargs)
+
         return (
             <div
                 className={clsx(
@@ -935,31 +940,31 @@ export const LLMMessageDisplay = React.memo(
                 )}
             >
                 {!minimal && (
-                    <div
-                        className={clsx(
-                            'flex items-center gap-1 w-full px-2 h-6 text-xs font-medium select-none',
-                            onToggle && 'cursor-pointer'
-                        )}
-                        onClick={(e) => {
-                            const clickedButton = (e.target as Element).closest('button')
-                            if (!clickedButton) {
-                                onToggle?.()
-                            }
-                        }}
-                    >
+                    <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium select-none">
                         <span className="grow flex items-center gap-1.5">
-                            {role}
+                            {isExpandable ? (
+                                <button
+                                    type="button"
+                                    className="flex items-center gap-1 -ml-1 px-1 rounded cursor-pointer hover:bg-fill-highlight-50"
+                                    onClick={onToggle}
+                                    aria-expanded={show}
+                                    data-attr="llm-message-role-toggle"
+                                >
+                                    <IconChevronRight
+                                        className={clsx(
+                                            'size-3 text-secondary transition-transform',
+                                            show && 'rotate-90'
+                                        )}
+                                    />
+                                    {role}
+                                </button>
+                            ) : (
+                                role
+                            )}
                             {messageSentiment && <MessageSentimentBar sentiment={messageSentiment} />}
                         </span>
-                        {(content || Object.keys(additionalKwargsEntries).length > 0) && (
+                        {(hasRenderableContent || hasAdditionalKwargs) && (
                             <>
-                                <LemonButton
-                                    size="small"
-                                    noPadding
-                                    icon={show ? <IconEyeHidden /> : <IconEye />}
-                                    tooltip="Toggle message content"
-                                    onClick={onToggle}
-                                />
                                 {isMarkdownCandidate && (
                                     <LemonButton
                                         size="small"
@@ -995,7 +1000,7 @@ export const LLMMessageDisplay = React.memo(
                         )}
                     </div>
                 )}
-                {show && !!content && (
+                {show && hasRenderableContent && (
                     <div className={!minimal ? 'p-2 border-t' : 'p-1'}>
                         {minimal ? (
                             <LemonMarkdown className="whitespace-pre-wrap">
@@ -1006,7 +1011,7 @@ export const LLMMessageDisplay = React.memo(
                         )}
                     </div>
                 )}
-                {show && (!minimal || !content) && Object.keys(additionalKwargsEntries).length > 0 && (
+                {show && (!minimal || !content) && hasAdditionalKwargs && (
                     <div className={clsx(!minimal ? 'p-2 text-xs border-t' : 'p-1 text-xs')}>
                         <HighlightedJSONViewer
                             src={additionalKwargsEntries}

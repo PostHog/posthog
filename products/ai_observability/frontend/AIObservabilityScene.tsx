@@ -318,6 +318,7 @@ function AIObservabilityGenerations(): JSX.Element {
                     person: aiObservabilityColumnRenderers.person,
                     'properties.$ai_tools_called': aiObservabilityColumnRenderers['properties.$ai_tools_called'],
                     "f'{properties.$ai_model}' -- Model": {
+                        ...aiObservabilityColumnRenderers["f'{properties.$ai_model}' -- Model"],
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
                     },
                     "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency": {

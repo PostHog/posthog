@@ -1,14 +1,39 @@
+import { cleanup, fireEvent, render } from '@testing-library/react'
+
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { QueryContextColumnComponent } from '~/queries/types'
+import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     FilterIdentifier,
     PersonData,
+    aiObservabilityColumnRenderers,
     createPersonFilter,
     getEventData,
     getFilterIdentifier,
     getTracesUrlWithPersonFilter,
 } from './aiObservabilityColumnRenderers'
+import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+
+jest.mock('lib/api')
+
+const MODEL_COLUMN = "f'{properties.$ai_model}' -- Model"
+
+function renderModelCell(value: unknown): HTMLElement {
+    const Column = aiObservabilityColumnRenderers[MODEL_COLUMN].render as QueryContextColumnComponent
+    const { container } = render(
+        <Column
+            record={[value]}
+            columnName={MODEL_COLUMN}
+            value={value}
+            query={{} as DataTableNode}
+            recordIndex={0}
+            rowCount={1}
+        />
+    )
+    return container
+}
 
 describe('aiObservabilityColumnRenderers', () => {
     describe('getEventData', () => {
@@ -195,6 +220,44 @@ describe('aiObservabilityColumnRenderers', () => {
 
             expect(url).toContain('date_from=2024-01-01')
             expect(url).not.toContain('date_to')
+        })
+    })
+    describe('Model column', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('filters the table by the model that was clicked', () => {
+            const logic = aiObservabilitySharedLogic()
+            logic.mount()
+
+            const container = renderModelCell('gpt-4o')
+            const button = container.querySelector('[data-attr="generation-model-filter"]')
+            expect(button).not.toBeNull()
+
+            fireEvent.click(button!)
+
+            expect(logic.values.propertyFilters).toEqual([
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$ai_model',
+                    operator: PropertyOperator.Exact,
+                    value: 'gpt-4o',
+                },
+            ])
+        })
+
+        it.each([
+            ['a missing model', null],
+            ['a non-string model', { oops: true }],
+        ])('renders %s as plain text', (_description, value) => {
+            const container = renderModelCell(value)
+
+            expect(container.querySelector('[data-attr="generation-model-filter"]')).toBeNull()
         })
     })
 })

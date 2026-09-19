@@ -157,6 +157,22 @@ export const Tools: Story = {
     },
 }
 
+export const NothingToExpand: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                { role: 'user', content: 'Call the tool' },
+                { role: 'tool', content: '' },
+            ],
+            $ai_output: {
+                choices: [{ role: 'assistant', content: 'Done.' }],
+            },
+            $ai_model: 'gpt-9',
+            $ai_http_status: 200,
+        },
+    },
+}
+
 export const Error: Story = {
     args: {
         eventProperties: {
