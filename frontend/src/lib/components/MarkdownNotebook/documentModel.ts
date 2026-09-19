@@ -381,6 +381,90 @@ export function textBlocksShareContinuationStyle(left: NotebookTextBlockNode, ri
     return left.type !== 'heading' || (left.level ?? 1) === (right.level ?? 1)
 }
 
+export type TextBlockSplit = {
+    replacementNodes: NotebookBlockNode[]
+    restoreSelection: RestoreSelectionRequest
+}
+
+// Enter reaches a text block from the block handler, from the canvas handler, and from native
+// `insertParagraph`, so all three ask this one function what the split looks like.
+export function getTextBlockSplit({
+    node,
+    selectionStart,
+    selectionEnd,
+    isTitleBlock,
+}: {
+    node: NotebookTextBlockNode
+    selectionStart: number
+    selectionEnd: number
+    isTitleBlock: boolean
+}): TextBlockSplit {
+    const [before, selectionAndAfter] = splitInlineNodesAt(node.children, selectionStart)
+    const [, after] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+    const textLength = getInlineText(node.children).length
+
+    if (isTitleBlock) {
+        const nextParagraph = makeEmptyParagraph(`after-title-${node.id}`)
+        nextParagraph.children = after
+        return {
+            replacementNodes: [{ ...node, type: 'heading', level: 1, children: before }, nextParagraph],
+            restoreSelection: { nodeId: nextParagraph.id, start: 0, end: 0 },
+        }
+    }
+
+    // An empty heading has no text to keep, so the line itself becomes standard text.
+    if (node.type === 'heading' && textLength === 0) {
+        const paragraph: NotebookTextBlockNode = {
+            ...node,
+            // A quoted heading downgrades to quote text, staying in the quote
+            type: node.blockquote ? 'blockquote' : 'paragraph',
+            level: undefined,
+            blockquote: undefined,
+        }
+        return {
+            replacementNodes: [paragraph],
+            restoreSelection: { nodeId: paragraph.id, start: 0, end: 0 },
+        }
+    }
+
+    if ((node.type === 'heading' || node.type === 'blockquote') && selectionStart === 0) {
+        const previousParagraph = makeEmptyParagraph(`before-${node.id}`)
+        return {
+            replacementNodes: [previousParagraph, { ...node, children: after }],
+            restoreSelection: { nodeId: previousParagraph.id, start: 0, end: 0 },
+        }
+    }
+
+    // A heading stops at its end: the next line is standard text, so a heading and the text below
+    // it take one Enter.
+    if (node.type === 'heading' && selectionEnd >= textLength) {
+        const nextParagraph = makeEmptyParagraph(`after-${node.id}`)
+        if (node.blockquote) {
+            nextParagraph.type = 'blockquote'
+        }
+        return {
+            replacementNodes: [{ ...node, children: before }, nextParagraph],
+            restoreSelection: { nodeId: nextParagraph.id, start: 0, end: 0 },
+        }
+    }
+
+    // Splitting inside a heading or a quote leaves two blocks of that same style.
+    if (node.type === 'heading' || node.type === 'blockquote') {
+        const nextNode = { ...node, id: makeEmptyParagraph(`after-${node.id}`).id, children: after }
+        return {
+            replacementNodes: [{ ...node, children: before }, nextNode],
+            restoreSelection: { nodeId: nextNode.id, start: 0, end: 0 },
+        }
+    }
+
+    const nextParagraph = makeEmptyParagraph(`after-${node.id}`)
+    nextParagraph.children = after
+    return {
+        replacementNodes: [{ ...node, children: before }, nextParagraph],
+        restoreSelection: { nodeId: nextParagraph.id, start: 0, end: 0 },
+    }
+}
+
 export function isInlineInsertMenuRow(node: NotebookBlockNode | undefined, insertMenuNodeId?: string): boolean {
     if (!node || !isTextBlockNode(node)) {
         return false
