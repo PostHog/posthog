@@ -1,4 +1,6 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { LemonBanner, LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
@@ -103,6 +105,7 @@ function ExplainedSignalList({ signals }: { signals: Record<string, unknown> }):
 
 const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']> = {
     captured: 'success',
+    not_stored: 'warning',
     ad_blocked: 'warning',
     disabled: 'warning',
     trigger_pending: 'info',
@@ -112,7 +115,22 @@ const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']>
     unknown: 'info',
 }
 
-function DiagnosisContent({ diagnosis }: { diagnosis: ReplayCaptureDiagnosis }): JSX.Element {
+function DiagnosisContent({
+    diagnosis,
+    recordingExists,
+}: {
+    diagnosis: ReplayCaptureDiagnosis
+    recordingExists?: boolean | null
+}): JSX.Element {
+    // No event records which verdict the panel reaches, so we cannot tell how often it answers the
+    // question versus sending people to the docs.
+    useEffect(() => {
+        posthog.capture('replay capture diagnosis shown', {
+            verdict: diagnosis.verdict,
+            recording_exists: recordingExists ?? null,
+        })
+    }, [diagnosis.verdict, recordingExists])
+
     return (
         <LemonBanner type={BANNER_TYPE_BY_VERDICT[diagnosis.verdict]} className="text-left">
             <div className="deprecated-space-y-2">
@@ -167,11 +185,11 @@ export function ReplayCaptureDiagnosticsPanel(props: ReplayCaptureDiagnosticsPan
 }
 
 function SessionIdDiagnosticsPanel({ sessionId }: { sessionId: string }): JSX.Element | null {
-    const { sessionEventProperties, sessionEventPropertiesLoading } = useValues(
+    const { captureDiagnostics, captureDiagnosticsLoading } = useValues(
         replayCaptureDiagnosticsPanelLogic({ sessionId })
     )
 
-    if (sessionEventPropertiesLoading) {
+    if (captureDiagnosticsLoading) {
         return (
             <div className="flex justify-center items-center p-4">
                 <Spinner />
@@ -180,9 +198,15 @@ function SessionIdDiagnosticsPanel({ sessionId }: { sessionId: string }): JSX.El
         )
     }
 
-    if (!sessionEventProperties) {
+    const recordingExists = captureDiagnostics?.recordingExists ?? null
+    if (!captureDiagnostics?.properties && recordingExists !== true) {
         return null
     }
 
-    return <DiagnosisContent diagnosis={diagnoseReplayCapture(sessionEventProperties)} />
+    return (
+        <DiagnosisContent
+            diagnosis={diagnoseReplayCapture(captureDiagnostics?.properties, { sessionId, recordingExists })}
+            recordingExists={recordingExists}
+        />
+    )
 }

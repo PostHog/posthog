@@ -894,20 +894,36 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "other_viewers": 0,
         }
 
-    def test_capture_diagnostics_degrades_gracefully_on_clickhouse_error(self):
+    @parameterized.expand(
+        [
+            (
+                "properties_lookup_fails",
+                "posthog.session_recordings.session_recording_api.get_latest_session_event_properties",
+                {"properties": None, "recording_exists": True},
+            ),
+            (
+                "existence_check_fails",
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+                {"properties": None, "recording_exists": None},
+            ),
+        ]
+    )
+    def test_capture_diagnostics_degrades_gracefully_on_clickhouse_error(self, _name, target, expected):
         session_recording_id = "session_1"
-        produce_replay_summary(session_id=session_recording_id, team_id=self.team.pk, distinct_id="d1")
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            distinct_id="d1",
+            ensure_analytics_event_in_session=False,
+        )
 
-        with patch(
-            "posthog.session_recordings.session_recording_api.get_latest_session_event_properties",
-            side_effect=Exception("Connection refused"),
-        ):
+        with patch(target, side_effect=Exception("Connection refused")):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/capture_diagnostics"
             )
 
         assert response.status_code == 200
-        assert response.json() == {"properties": None}
+        assert response.json() == expected
 
     def test_get_single_session_recording_viewed_stats_can_404(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/12345/viewed")

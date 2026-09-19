@@ -4526,7 +4526,7 @@ const api = {
         },
         async getCaptureDiagnostics(
             recordingId: SessionRecordingType['id']
-        ): Promise<{ properties: Record<string, any> | null }> {
+        ): Promise<{ properties: Record<string, any> | null; recording_exists: boolean | null }> {
             return await new ApiRequest().recording(recordingId).withAction('capture_diagnostics').get()
         },
         async get(
