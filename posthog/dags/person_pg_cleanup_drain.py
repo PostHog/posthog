@@ -827,6 +827,16 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
             name=f"{prefix}persons_deleted", help_text="Persons the run hard-deleted", value=totals.persons_deleted
         ),
         PublishedGauge(
+            name=f"{prefix}persons_skipped_live",
+            help_text="Queued persons that are live in Postgres, so the drain left them alone",
+            value=totals.persons_skipped_live,
+        ),
+        PublishedGauge(
+            name=f"{prefix}persons_not_found",
+            help_text="Queued persons with no Postgres row, so the queue row was already stale",
+            value=totals.persons_not_found,
+        ),
+        PublishedGauge(
             name=f"{prefix}persons_blocked",
             help_text="Tombstoned persons personhog reported as still owning a live distinct id",
             value=totals.persons_blocked,
