@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -14,7 +15,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.cod
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import CODACY_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import (
+    CODACY_ENDPOINTS,
+    ENDPOINTS,
+    METRICS_LOOKBACK_DAYS,
+    METRICS_PERIOD,
+)
 
 BASE = "https://api.codacy.com/api/v3"
 REPOS_URL = f"{BASE}/organizations/gh/acme/repositories?limit=100"
@@ -29,7 +35,7 @@ def _response_with_status(status_code: int) -> requests.Response:
 def _collect(monkeypatch: Any, endpoint: str, pages: dict[str, Any]) -> list[dict]:
     """Run get_rows against URL-keyed fixtures; a request for an unexpected URL fails loudly."""
 
-    def fake_fetch(session: Any, method: str, url: str, headers: dict[str, str], logger: Any) -> dict:
+    def fake_fetch(session: Any, method: str, url: str, headers: dict[str, str], logger: Any, body: Any = None) -> dict:
         result = pages[url]
         if isinstance(result, Exception):
             raise result
@@ -68,7 +74,7 @@ class TestPagination:
 
     def test_page_cap_truncates_fan_out_pagination(self, monkeypatch: Any) -> None:
         files_endpoint = CODACY_ENDPOINTS["files"]
-        monkeypatch.setattr(files_endpoint, "max_pages_per_repository", 2)
+        monkeypatch.setattr(files_endpoint, "max_pages_per_parent", 2)
 
         files_base = f"{BASE}/organizations/gh/acme/repositories/repo-a/files"
         # Every page advertises another cursor; without the cap this would page forever.
@@ -80,7 +86,9 @@ class TestPagination:
         }
         logger = MagicMock()
 
-        def fake_fetch(session: Any, method: str, url: str, headers: dict[str, str], logger_: Any) -> dict:
+        def fake_fetch(
+            session: Any, method: str, url: str, headers: dict[str, str], logger_: Any, body: Any = None
+        ) -> dict:
             return pages[url]
 
         monkeypatch.setattr(codacy, "_fetch_page", fake_fetch)
@@ -273,6 +281,14 @@ class TestFetchPage:
         assert session.post.call_args.kwargs["json"] == {}
         session.get.assert_not_called()
 
+    def test_post_body_is_forwarded(self) -> None:
+        # The metrics time series rejects an empty body; it carries the required date range.
+        session = MagicMock()
+        session.post.return_value = self._json_response(200, {"data": []})
+        body = {"from": "2026-01-01", "to": "2026-12-31"}
+        _fetch_page(session, "POST", f"{BASE}/organizations/gh/acme/metrics/x/timerange", {}, MagicMock(), body)
+        assert session.post.call_args.kwargs["json"] == body
+
 
 class TestValidateCredentials:
     @parameterized.expand([("valid_token", 200, True), ("invalid_token", 401, False), ("forbidden", 403, False)])
@@ -302,7 +318,7 @@ class TestSourceResponse:
         # A fan-out child keyed without the repository would multi-match on merge once two
         # repositories share an id (e.g. the same file path), degrading every subsequent sync.
         for endpoint, config in CODACY_ENDPOINTS.items():
-            if config.fan_out_per_repository:
+            if config.fan_out in ("repository", "commit"):
                 assert config.primary_keys[0] == "repository", endpoint
 
     def test_commits_partition_on_stable_commit_timestamp(self) -> None:
@@ -311,3 +327,220 @@ class TestSourceResponse:
         )
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["commitTimestamp"]
+
+
+class TestToolFanOut:
+    def test_patterns_are_stamped_with_their_tool_uuid(self, monkeypatch: Any) -> None:
+        # Codacy documents pattern ids as unique per tool only, so without the tool uuid the
+        # ["toolUuid", "id"] key collapses and two tools sharing an id multi-match on merge.
+        pages = {
+            f"{BASE}/tools?limit=100": {
+                "data": [{"uuid": "uuid-1", "name": "ESLint"}, {"uuid": "uuid-2", "name": "PMD"}],
+                "pagination": {},
+            },
+            f"{BASE}/tools/uuid-1/patterns?limit=100": {
+                "data": [{"id": "unused", "category": "ErrorProne"}],
+                "pagination": {},
+            },
+            f"{BASE}/tools/uuid-2/patterns?limit=100": {
+                "data": [{"id": "unused", "category": "CodeStyle"}],
+                "pagination": {},
+            },
+        }
+        rows = _collect(monkeypatch, "tool_patterns", pages)
+        assert rows == [
+            {"toolUuid": "uuid-1", "id": "unused", "category": "ErrorProne"},
+            {"toolUuid": "uuid-2", "id": "unused", "category": "CodeStyle"},
+        ]
+
+    def test_tools_without_a_uuid_are_not_fanned_out(self, monkeypatch: Any) -> None:
+        # A uuid-less entry would format into /tools/None/patterns and 404 the whole sweep.
+        pages = {
+            f"{BASE}/tools?limit=100": {"data": [{"name": "Broken"}], "pagination": {}},
+        }
+        assert _collect(monkeypatch, "tool_patterns", pages) == []
+
+
+class TestCommitFanOut:
+    def _commit_pages(self, shas: list[str]) -> dict[str, Any]:
+        return {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            f"{BASE}/analysis/organizations/gh/acme/repositories/repo-a/commits?limit=100": {
+                "data": [{"commit": {"sha": sha}} for sha in shas],
+                "pagination": {},
+            },
+        }
+
+    def _delta_url(self, sha: str) -> str:
+        return f"{BASE}/analysis/organizations/gh/acme/repositories/repo-a/commits/{sha}/deltaIssues?limit=100"
+
+    def test_lifts_commit_issue_and_stamps_repository_and_commit(self, monkeypatch: Any) -> None:
+        pages = self._commit_pages(["sha1"])
+        pages[self._delta_url("sha1")] = {
+            "data": [{"commitIssue": {"resultDataId": 7, "message": "unused import"}, "deltaType": "Added"}],
+            "pagination": {},
+        }
+        rows = _collect(monkeypatch, "commit_delta_issues", pages)
+        # resultDataId is only stable within a repository, and the same issue can be added by one
+        # commit and fixed by another, so both parents have to reach the row as columns.
+        assert rows == [
+            {
+                "repository": "repo-a",
+                "commitSha": "sha1",
+                "resultDataId": 7,
+                "message": "unused import",
+                "deltaType": "Added",
+            }
+        ]
+
+    def test_commit_cap_bounds_the_per_commit_request_fan_out(self, monkeypatch: Any) -> None:
+        # deltaIssues costs one request per commit, so an uncapped walk over a busy repository
+        # would never finish inside Codacy's rate limit.
+        endpoint = CODACY_ENDPOINTS["commit_delta_issues"]
+        monkeypatch.setattr(endpoint, "max_commits_per_repository", 2)
+
+        pages = self._commit_pages(["sha1", "sha2", "sha3"])
+        for sha in ("sha1", "sha2", "sha3"):
+            pages[self._delta_url(sha)] = {"data": [{"commitIssue": {"resultDataId": 1}}], "pagination": {}}
+
+        logger = MagicMock()
+
+        def fake_fetch(session: Any, method: str, url: str, headers: dict[str, str], logger_: Any, body: Any = None):
+            return pages[url]
+
+        monkeypatch.setattr(codacy, "_fetch_page", fake_fetch)
+        rows: list[dict] = []
+        for batch in get_rows(
+            api_token="token", provider="gh", organization="acme", endpoint="commit_delta_issues", logger=logger
+        ):
+            rows.extend(batch)
+
+        assert [row["commitSha"] for row in rows] == ["sha1", "sha2"]
+        logger.warning.assert_called_once()
+
+    def test_commit_removed_mid_sync_is_skipped_without_losing_the_repository(self, monkeypatch: Any) -> None:
+        pages = self._commit_pages(["sha1", "gone", "sha2"])
+        pages[self._delta_url("sha1")] = {"data": [{"commitIssue": {"resultDataId": 1}}], "pagination": {}}
+        pages[self._delta_url("gone")] = requests.HTTPError(response=_response_with_status(404))
+        pages[self._delta_url("sha2")] = {"data": [{"commitIssue": {"resultDataId": 2}}], "pagination": {}}
+
+        rows = _collect(monkeypatch, "commit_delta_issues", pages)
+        assert [row["commitSha"] for row in rows] == ["sha1", "sha2"]
+
+
+class TestMetricsFanOut:
+    READY_URL = f"{BASE}/organizations/gh/acme/metrics/ready"
+
+    def _timerange_url(self, metric: str) -> str:
+        return f"{BASE}/organizations/gh/acme/metrics/{metric}/timerange?limit=100"
+
+    def _run(self, monkeypatch: Any, pages: dict[str, Any]) -> tuple[list[dict], list[dict]]:
+        bodies: list[dict] = []
+
+        def fake_fetch(session: Any, method: str, url: str, headers: dict[str, str], logger_: Any, body: Any = None):
+            if body is not None:
+                bodies.append(body)
+            result = pages[url]
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        monkeypatch.setattr(codacy, "_fetch_page", fake_fetch)
+        rows: list[dict] = []
+        for batch in get_rows(
+            api_token="token", provider="gh", organization="acme", endpoint="metrics_timerange", logger=MagicMock()
+        ):
+            rows.extend(batch)
+        return rows, bodies
+
+    def test_flattens_group_and_stamps_metric_name(self, monkeypatch: Any) -> None:
+        pages = {
+            self.READY_URL: {"data": {"readyMetrics": ["openissues"]}},
+            self._timerange_url("openissues"): {
+                "data": [
+                    {
+                        "date": "2026-09-01",
+                        "group": {"organization": "acme", "repository": "repo-a", "dimensions": ["Security"]},
+                        "value": 12.0,
+                        "latestValue": 11.0,
+                    }
+                ]
+            },
+        }
+        rows, _ = self._run(monkeypatch, pages)
+        assert rows == [
+            {
+                "metricName": "openissues",
+                "organization": "acme",
+                "repository": "repo-a",
+                "dimensions": ["Security"],
+                "date": "2026-09-01",
+                "value": 12.0,
+                "latestValue": 11.0,
+            }
+        ]
+
+    def test_ungrouped_value_keys_on_an_empty_repository(self, monkeypatch: Any) -> None:
+        # repository is part of the primary key; a null there never matches on merge, so the
+        # row would be re-inserted on every sync.
+        pages = {
+            self.READY_URL: {"data": {"readyMetrics": ["openissues"]}},
+            self._timerange_url("openissues"): {"data": [{"date": "2026-09-01", "value": 3.0}]},
+        }
+        rows, _ = self._run(monkeypatch, pages)
+        assert rows[0]["repository"] == ""
+
+    def test_request_body_carries_the_required_range_and_grouping(self, monkeypatch: Any) -> None:
+        # The endpoint rejects a body without from/to/groupBy, and the same window has to be
+        # reused for every metric so one table holds a consistent range.
+        pages = {
+            self.READY_URL: {"data": {"readyMetrics": ["openissues", "newissues"]}},
+            self._timerange_url("openissues"): {"data": []},
+            self._timerange_url("newissues"): {"data": []},
+        }
+        _, bodies = self._run(monkeypatch, pages)
+        assert len(bodies) == 2
+        assert bodies[0] == bodies[1]
+        today = datetime.now(UTC).date()
+        assert bodies[0] == {
+            "filter": {"entityFilter": {}},
+            "groupBy": {"groupBy": ["repository"]},
+            "from": (today - timedelta(days=METRICS_LOOKBACK_DAYS)).isoformat(),
+            "to": today.isoformat(),
+            "period": METRICS_PERIOD,
+        }
+
+    @parameterized.expand([("not_entitled", 403), ("not_found", 404)])
+    def test_organization_without_metrics_syncs_empty(self, _name: str, status_code: int) -> None:
+        # Metrics are opt-in on Codacy; the table has to come back empty rather than failing
+        # the schema for every account that hasn't enabled them.
+        def fake_fetch(session: Any, method: str, url: str, headers: dict[str, str], logger_: Any, body: Any = None):
+            raise requests.HTTPError(response=_response_with_status(status_code))
+
+        with patch.object(codacy, "_fetch_page", fake_fetch):
+            rows = list(
+                get_rows(
+                    api_token="token",
+                    provider="gh",
+                    organization="acme",
+                    endpoint="metrics_timerange",
+                    logger=MagicMock(),
+                )
+            )
+        assert rows == []
+
+    def test_unexpected_error_on_ready_metrics_propagates(self) -> None:
+        def fake_fetch(session: Any, method: str, url: str, headers: dict[str, str], logger_: Any, body: Any = None):
+            raise requests.HTTPError(response=_response_with_status(400))
+
+        with patch.object(codacy, "_fetch_page", fake_fetch):
+            with pytest.raises(requests.HTTPError):
+                list(
+                    get_rows(
+                        api_token="token",
+                        provider="gh",
+                        organization="acme",
+                        endpoint="metrics_timerange",
+                        logger=MagicMock(),
+                    )
+                )
