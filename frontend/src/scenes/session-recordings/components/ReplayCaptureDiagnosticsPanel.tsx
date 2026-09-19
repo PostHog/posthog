@@ -65,6 +65,18 @@ const explainValue = (key: string, value: unknown): string | null => {
             return value === false ? 'The recorder is not attached, so no snapshots are being captured.' : null
         case '$sdk_debug_replay_trigger_groups_count':
             return 'The number of V2 trigger groups configured for this project.'
+        case '$sdk_debug_replay_stale_config':
+            return value === true
+                ? 'The SDK could not refresh its recording settings, so it recorded under the last settings it had.'
+                : null
+        case '$sdk_debug_replay_remote_trigger_matching_config':
+            return value === 'v2_trigger_groups'
+                ? 'The SDK gated recording on trigger groups, so only a session matching a group is recorded.'
+                : null
+        case '$sdk_debug_replay_matched_recording_trigger_groups':
+            return Array.isArray(value) && value.length === 0
+                ? 'No trigger group matched this session, so recording never started.'
+                : null
         case '$replay_override_sampling':
         case '$replay_override_linked_flag':
         case '$replay_override_url_trigger':
@@ -106,6 +118,7 @@ const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']>
     ad_blocked: 'warning',
     disabled: 'warning',
     trigger_pending: 'info',
+    trigger_gated: 'info',
     sampled_out: 'info',
     buffering_empty: 'info',
     recorder_error: 'warning',

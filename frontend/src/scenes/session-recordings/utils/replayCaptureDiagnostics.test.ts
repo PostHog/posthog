@@ -221,6 +221,44 @@ describe('diagnoseReplayCapture', () => {
             expected: 'buffering_empty',
         },
         {
+            name: 'trigger groups configured and none matched → trigger_gated',
+            properties: {
+                $recording_status: 'buffering',
+                $sdk_debug_replay_remote_trigger_matching_config: 'v2_trigger_groups',
+                $sdk_debug_replay_trigger_groups_count: 2,
+                $sdk_debug_replay_matched_recording_trigger_groups: [],
+            },
+            expected: 'trigger_gated',
+        },
+        {
+            name: 'trigger groups configured with no matched-groups property → trigger_gated',
+            properties: {
+                $sdk_debug_replay_remote_trigger_matching_config: 'v2_trigger_groups',
+                $sdk_debug_replay_trigger_groups_count: 1,
+            },
+            expected: 'trigger_gated',
+        },
+        {
+            name: 'a matched trigger group is not reported as gated',
+            properties: {
+                $recording_status: 'active',
+                $sdk_debug_replay_remote_trigger_matching_config: 'v2_trigger_groups',
+                $sdk_debug_replay_trigger_groups_count: 2,
+                $sdk_debug_replay_matched_recording_trigger_groups: [{ id: 'g1', matched: true }],
+                $sdk_debug_replay_flushed_size: 1024,
+            },
+            expected: 'captured',
+        },
+        {
+            name: 'legacy trigger match type is not treated as trigger groups',
+            properties: {
+                $recording_status: 'buffering',
+                $sdk_debug_replay_remote_trigger_matching_config: 'all',
+                $sdk_debug_replay_url_trigger_status: 'trigger_pending',
+            },
+            expected: 'trigger_pending',
+        },
+        {
             name: 'empty string flushed size is not coerced to a number',
             properties: {
                 $recording_status: 'active',
@@ -281,6 +319,16 @@ describe('diagnoseReplayCapture', () => {
         })
         expect(result.verdict).toBe('recorder_error')
         expect(result.reasons.some((r) => r.includes('boom'))).toBe(true)
+    })
+
+    it('trigger_gated names how many trigger groups the SDK was given', () => {
+        const result = diagnoseReplayCapture({
+            $sdk_debug_replay_remote_trigger_matching_config: 'v2_trigger_groups',
+            $sdk_debug_replay_trigger_groups_count: 3,
+            $sdk_debug_replay_matched_recording_trigger_groups: [],
+        })
+        expect(result.verdict).toBe('trigger_gated')
+        expect(result.reasons[0]).toContain('3 trigger group')
     })
 
     it('preserves newly added replay debug keys in rawSignals', () => {
