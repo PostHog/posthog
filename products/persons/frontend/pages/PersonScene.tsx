@@ -253,7 +253,24 @@ export function PersonScene(): JSX.Element | null {
         )
     }
     if (!person) {
-        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
+        return personLoading ? (
+            <SpinnerOverlay sceneLevel />
+        ) : (
+            <NotFound
+                object="person"
+                caption={
+                    <>
+                        No person profile matches this ID. Events captured without person profiles don't create one, and
+                        a profile can also be deleted. You can still look at the events for this ID.
+                        <br />
+                        <Link to="https://posthog.com/docs/data/persons#capturing-person-profiles">
+                            Read about capturing person profiles.
+                        </Link>
+                    </>
+                }
+                meta={{ urlId }}
+            />
+        )
     }
 
     return (
