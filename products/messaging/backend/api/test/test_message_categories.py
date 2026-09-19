@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -29,6 +30,28 @@ class TestMessageCategoryAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
         self.assertEqual(response_data["results"][0]["name"], "Team 1 Category")
+
+    def test_list_messaging_categories_pages_without_gaps_or_repeats(self):
+        categories = [
+            MessageCategory.objects.create(team=self.team, name=f"Category {index}", key=f"cat_{index}")
+            for index in range(6)
+        ]
+        # An import gives many categories the same creation time. Without an order,
+        # Postgres can then return those rows differently for each page request.
+        MessageCategory.objects.filter(team=self.team).update(created_at=timezone.now())
+
+        paged_keys = []
+        for offset in range(0, len(categories), 2):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/messaging_categories/?limit=2&offset={offset}"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged_keys.extend(result["key"] for result in response.json()["results"])
+
+        expected_keys = [
+            category.key for category in sorted(categories, key=lambda category: category.id, reverse=True)
+        ]
+        self.assertEqual(paged_keys, expected_keys)
 
     def test_get_message_category(self):
         """
