@@ -245,7 +245,7 @@ class Producer:
 
             self.logger.info("Finished stream", key=key)
 
-        stream_func = make_retryable_with_exponential_backoff(stream_from_s3_file, max_attempts=5, max_retry_delay=1)
+        stream_func = make_retryable_with_exponential_backoff(stream_from_s3_file, max_attempts=10, max_retry_delay=60)
 
         # Bound how many files we read at once (so S3 connections and in-flight memory stay bounded as
         # the file count grows with export size).
