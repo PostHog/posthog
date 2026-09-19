@@ -21,7 +21,7 @@ from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQu
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.property_access import restricted_property_names
+from posthog.taxonomy.property_access import excluded_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
@@ -118,8 +118,8 @@ class TaxonomyAgentToolkit:
         self._user = user
         self._event_source = event_source
 
-    def _restricted_property_names(self, property_type: PropertyDefinition.Type) -> set[str]:
-        return restricted_property_names(self._team, self._user, property_type)
+    def _excluded_property_names(self, property_type: PropertyDefinition.Type) -> set[str]:
+        return excluded_property_names(self._team, self._user, property_type)
 
     @cached_property
     def _groups(self) -> list[dict]:
@@ -226,12 +226,12 @@ class TaxonomyAgentToolkit:
 
         truncated = False
         if entity == "person":
-            restricted = self._restricted_property_names(PropertyDefinition.Type.PERSON)
+            excluded = self._excluded_property_names(PropertyDefinition.Type.PERSON)
             stored_props, truncated = self._stored_property_page(
-                PropertyDefinition.Type.PERSON, restricted, max_properties
+                PropertyDefinition.Type.PERSON, excluded, max_properties
             )
             stored_props += list_virtual_properties(
-                "person_properties", exclude={name for name, _ in stored_props} | restricted
+                "person_properties", exclude={name for name, _ in stored_props} | excluded
             )
             stored_descriptions = self._get_stored_property_descriptions(
                 PropertyDefinition.Type.PERSON, [name for name, _ in stored_props]
@@ -245,11 +245,11 @@ class TaxonomyAgentToolkit:
             group_type_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
-            restricted = self._restricted_property_names(PropertyDefinition.Type.GROUP)
+            excluded = self._excluded_property_names(PropertyDefinition.Type.GROUP)
             stored_props, truncated = self._stored_property_page(
-                PropertyDefinition.Type.GROUP, restricted, max_properties, group_type_index=group_type_index
+                PropertyDefinition.Type.GROUP, excluded, max_properties, group_type_index=group_type_index
             )
-            stored_props += list_virtual_properties("groups", exclude={name for name, _ in stored_props} | restricted)
+            stored_props += list_virtual_properties("groups", exclude={name for name, _ in stored_props} | excluded)
             stored_descriptions = self._get_stored_property_descriptions(
                 PropertyDefinition.Type.GROUP,
                 [name for name, _ in stored_props],
@@ -271,7 +271,7 @@ class TaxonomyAgentToolkit:
     def _stored_property_page(
         self,
         property_type: PropertyDefinition.Type,
-        restricted: set[str],
+        excluded: set[str],
         max_properties: int,
         group_type_index: int | None = None,
     ) -> tuple[list[tuple[str, str | None]], bool]:
@@ -281,12 +281,17 @@ class TaxonomyAgentToolkit:
         Reads one row past the page to detect the overflow. A COUNT would answer the same
         question by walking the team's whole definition range, which is the cost the page
         limit is here to avoid.
+
+        Excluded names are dropped before the page is cut, so a hidden or restricted
+        definition neither takes a slot from a visible one nor counts towards the overflow.
         """
         qs = PropertyDefinition.objects.filter(team=self._team, type=property_type)
         if group_type_index is not None:
             qs = qs.filter(group_type_index=group_type_index)
+        if excluded:
+            qs = qs.exclude(name__in=excluded)
         rows = list(qs.values_list("name", "property_type")[: max_properties + 1])
-        return [row for row in rows[:max_properties] if row[0] not in restricted], len(rows) > max_properties
+        return rows[:max_properties], len(rows) > max_properties
 
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
@@ -354,13 +359,13 @@ class TaxonomyAgentToolkit:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
         # Intersect properties with their types.
-        restricted = self._restricted_property_names(PropertyDefinition.Type.EVENT)
+        excluded = self._excluded_property_names(PropertyDefinition.Type.EVENT)
         property_to_type = {
             name: property_type
             for name, property_type in self._fetch_event_property_types(
                 [item.property for item in response.results]
             ).items()
-            if name not in restricted
+            if name not in excluded
         }
         props: list[tuple[str, str | None]] = [
             (item.property, property_to_type.get(item.property))
@@ -369,7 +374,7 @@ class TaxonomyAgentToolkit:
             if item.property in property_to_type
         ]
         # Virtual properties are computed at query time, so they never appear in stored event data.
-        props += list_virtual_properties("event_properties", exclude=property_to_type.keys() | restricted)
+        props += list_virtual_properties("event_properties", exclude=property_to_type.keys() | excluded)
 
         if not props:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
@@ -421,8 +426,8 @@ class TaxonomyAgentToolkit:
         )
 
     def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
-        # Restricted properties are indistinguishable from non-existent ones, so we don't leak their values.
-        if property_name in self._restricted_property_names(PropertyDefinition.Type.EVENT):
+        # Restricted and hidden properties are indistinguishable from non-existent ones, so we do not leak their values.
+        if property_name in self._excluded_property_names(PropertyDefinition.Type.EVENT):
             return f"The property {property_name} does not exist in the taxonomy."
         virtual_definition = get_virtual_property_definition("event_properties", property_name)
         property_definition: PropertyDefinitionOrVirtual
@@ -484,9 +489,9 @@ class TaxonomyAgentToolkit:
         if entity == "session":
             return self._retrieve_session_properties(property_name)
 
-        # Restricted properties are indistinguishable from non-existent ones, so we don't leak their values.
-        restricted_type = PropertyDefinition.Type.PERSON if entity == "person" else PropertyDefinition.Type.GROUP
-        if property_name in self._restricted_property_names(restricted_type):
+        # Restricted and hidden properties are indistinguishable from non-existent ones, so we do not leak their values.
+        excluded_type = PropertyDefinition.Type.PERSON if entity == "person" else PropertyDefinition.Type.GROUP
+        if property_name in self._excluded_property_names(excluded_type):
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
 
         if entity == "person":
