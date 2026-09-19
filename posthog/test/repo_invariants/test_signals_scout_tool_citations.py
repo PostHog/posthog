@@ -32,6 +32,8 @@ import re
 import json
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "signals_scout_tool_citations_baseline.txt"
 CATALOG_PATH = REPO_ROOT / "services" / "mcp" / "schema" / "tool-definitions-all.json"
@@ -54,11 +56,13 @@ TOOL_NAME_VERBS = frozenset(
         "update",
     }
 )
-# The token ends at the closing backtick or at whitespace, so a citation that carries inline
-# arguments in the same code span — `some-tool {"a": 1}` — still yields the tool name.
-CITATION_RE = re.compile(r"`([a-z][a-z0-9]*(?:-[a-z0-9]+)+)(?=[`\s])")
-# A bare token alone on its own line, which is how a fenced example names the tool it calls.
-INVOCATION_RE = re.compile(r"^[ \t]*([a-z][a-z0-9]*(?:-[a-z0-9]+)+)[ \t]*$", re.MULTILINE)
+# The token ends at the closing backtick, at whitespace, or at an opening parenthesis, so a
+# citation that carries arguments in the same code span — `some-tool {"a": 1}`, `some-tool(a)`
+# — still yields the tool name.
+CITATION_RE = re.compile(r"`([a-z][a-z0-9]*(?:-[a-z0-9]+)+)(?=[`\s(])")
+# A token alone on its own line, with or without an argument list, which is how a fenced
+# example names the tool it calls.
+INVOCATION_RE = re.compile(r"^[ \t]*([a-z][a-z0-9]*(?:-[a-z0-9]+)+)(?:\(.*\))?[ \t]*$", re.MULTILINE)
 
 
 def has_tool_shape(name: str) -> bool:
@@ -101,6 +105,32 @@ def read_baseline() -> set[str]:
 
 def write_baseline(names: set[str]) -> None:
     BASELINE_PATH.write_text("\n".join(sorted(names)) + "\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("call `some-tool` next", {"some-tool"}),
+        ('call `some-tool {"a": 1}` next', {"some-tool"}),
+        ("call `some-tool(a)` next", {"some-tool"}),
+        ("call `some-tool` and `other-tool`", {"some-tool", "other-tool"}),
+        ("no_kebab_here and `single`", set()),
+    ],
+)
+def test_citation_pattern_reads_each_backticked_form(text: str, expected: set[str]) -> None:
+    assert {match.group(1) for match in CITATION_RE.finditer(text)} == expected
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("```json\nsome-tool\n{}\n```", {"some-tool"}),
+        ("```\n  some-tool(a, b)\n```", {"some-tool"}),
+        ("a line with some-tool in prose", set()),
+    ],
+)
+def test_invocation_pattern_reads_a_tool_named_on_its_own_line(text: str, expected: set[str]) -> None:
+    assert {match.group(1) for match in INVOCATION_RE.finditer(text)} == expected
 
 
 def test_tool_shaped_citations_resolve_against_the_catalog() -> None:
