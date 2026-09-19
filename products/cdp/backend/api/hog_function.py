@@ -456,10 +456,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         }
 
     def _validate_template_is_creatable(self, template: HogFunctionTemplate) -> None:
-        flag_key = FLAG_GATED_TEMPLATE_IDS.get(template.template_id)
-        if flag_key and not gated_template_enabled(flag_key, self.context["get_team"]()):
-            raise serializers.ValidationError({"template_id": "This template is not available for this project."})
-
         # Hidden templates are internal building blocks (e.g. the native email destination) that the
         # workflow editor renders but that are never offered as standalone destinations. Block creating a
         # function from one via this API/MCP entirely — they are not a supported destination type.
@@ -577,6 +573,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 )
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
+
+            flag_key = FLAG_GATED_TEMPLATE_IDS.get(template.template_id)
+            if instance is None and flag_key and not gated_template_enabled(flag_key, team):
+                raise serializers.ValidationError({"template_id": "This template is not available for this project."})
 
         if is_create:
             # Set defaults for new functions

@@ -188,7 +188,7 @@ describe('TypeSafe transformation', () => {
         }
         await expectCallMetrics('failure', 3)
         expect(captureError).toHaveBeenCalledTimes(3)
-        expect(captureError.mock.calls.map(([, hint]) => hint?.tags.failure_kind)).toEqual([
+        expect(captureError.mock.calls.map(([, hint]) => hint?.tags?.failure_kind)).toEqual([
             'request',
             'http',
             'invalid_response',

@@ -365,8 +365,19 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "template_id"
         assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
 
-    @parameterized.expand([("enabled", True), ("disabled", False), ("missing", None)])
-    def test_create_from_flag_gated_template(self, _name: str, flag_enabled: bool | None) -> None:
+    @parameterized.expand(
+        [
+            ("create_enabled", "create", True),
+            ("create_disabled", "create", False),
+            ("create_missing", "create", None),
+            ("new_invocation_enabled", "new", True),
+            ("new_invocation_disabled", "new", False),
+            ("new_invocation_missing", "new", None),
+            ("existing_invocation_enabled", "existing", True),
+            ("existing_invocation_disabled", "existing", False),
+        ]
+    )
+    def test_flag_gated_template_access(self, _name: str, operation: str, flag_enabled: bool | None) -> None:
         HogFunctionTemplate.objects.create(
             template_id="native-typesafe",
             sha="1.0.0",
@@ -380,15 +391,37 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             category=["Custom"],
             free=True,
         )
-        with patch("posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled", return_value=flag_enabled):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={"type": "transformation", "template_id": "native-typesafe", "inputs": {}},
+        configuration = {
+            "type": "transformation",
+            "template_id": "native-typesafe",
+            "inputs": {},
+            "hog": "return event",
+        }
+        function_id = "new"
+        if operation == "existing":
+            function = HogFunction.objects.create(team=self.team, name="TypeSafe", inputs_schema=[], **configuration)
+            function_id = str(function.id)
+
+        allowed = bool(flag_enabled) or operation == "existing"
+        with (
+            patch("posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled", return_value=flag_enabled),
+            patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as invoke,
+        ):
+            invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            if operation == "create":
+                response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=configuration)
+            else:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/{function_id}/invocations/",
+                    data={"configuration": configuration},
+                )
+                assert invoke.call_count == int(allowed)
+        expected_status = status.HTTP_201_CREATED if operation == "create" else status.HTTP_200_OK
+        assert response.status_code == (expected_status if allowed else status.HTTP_400_BAD_REQUEST), response.json()
+        if operation == "create":
+            assert HogFunction.objects.filter(team=self.team, template_id="native-typesafe").exists() is bool(
+                flag_enabled
             )
-        assert response.status_code == (status.HTTP_201_CREATED if flag_enabled else status.HTTP_400_BAD_REQUEST), (
-            response.json()
-        )
-        assert HogFunction.objects.filter(team=self.team, template_id="native-typesafe").exists() is bool(flag_enabled)
 
     def test_create_from_deprecated_template_is_allowed(self):
         # Deprecated templates are hidden from the listing but stay resolvable by id, so the API must
