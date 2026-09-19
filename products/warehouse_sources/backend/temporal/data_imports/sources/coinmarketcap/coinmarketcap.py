@@ -1,10 +1,11 @@
 import datetime
-import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import (
     COINMARKETCAP_BATCH_ENDPOINTS,
@@ -36,12 +37,14 @@ API_KEY_HEADER = "X-CMC_PRO_API_KEY"
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@frozen
 class CoinMarketCapResumeConfig:
     # Next `start` for the offset-paginated list endpoints.
     start: int = 1
-    # Next id batch for the endpoints addressed by an explicit id list.
-    batch_index: int = 0
+    # Highest coin id already yielded by an endpoint addressed by an explicit id list. The
+    # boundary is an id rather than a batch position because the coin universe changes between
+    # attempts: a coin that leaves it would shift later ids into a skipped prefix.
+    last_coin_id: int = 0
 
 
 class CoinMarketCapPaginator(OffsetPaginator):
@@ -110,8 +113,9 @@ def _coin_ids_from_map(session: requests.Session) -> list[int]:
     start = 1
     while True:
         page = _get(session, "/v1/cryptocurrency/map", {"start": start, "limit": PAGE_SIZE, "sort": "id"})
-        rows = [row for row in (page.get("data") or []) if isinstance(row, dict) and row.get("id") is not None]
-        ids.extend(int(row["id"]) for row in rows)
+        rows = page.get("data") or []
+        ids.extend(int(row["id"]) for row in rows if isinstance(row, dict) and row.get("id") is not None)
+        # Counted before filtering: an unusable row on a full page must not end the walk.
         if len(rows) < PAGE_SIZE:
             return ids
         start += PAGE_SIZE
@@ -195,17 +199,14 @@ def get_batch_rows(
         if config.universe == "map"
         else _top_coin_ids_by_market_cap(session, HISTORICAL_COIN_LIMIT)
     )
-    batches = [coin_ids[index : index + config.batch_size] for index in range(0, len(coin_ids), config.batch_size)]
-
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    resume_index = resume_config.batch_index if resume_config is not None else 0
-    if resume_index:
-        logger.debug(f"CoinMarketCap: resuming {endpoint} from batch_index={resume_index}")
+    last_coin_id = resume_config.last_coin_id if resume_config is not None else 0
+    if last_coin_id:
+        logger.debug(f"CoinMarketCap: resuming {endpoint} after coin id {last_coin_id}")
+        coin_ids = [coin_id for coin_id in coin_ids if coin_id > last_coin_id]
 
-    for index, batch in enumerate(batches):
-        if index < resume_index:
-            continue
-
+    for index in range(0, len(coin_ids), config.batch_size):
+        batch = coin_ids[index : index + config.batch_size]
         body = _get(session, config.path, {**params, "id": ",".join(str(coin_id) for coin_id in batch)})
         rows = _rows_from(config.row_shape, body.get("data"))
         if rows:
@@ -213,7 +214,7 @@ def get_batch_rows(
 
         # Saved after the batch is yielded, so a crash re-yields it rather than skipping it;
         # the merge de-duplicates on the endpoint's primary key.
-        resumable_source_manager.save_state(CoinMarketCapResumeConfig(batch_index=index + 1))
+        resumable_source_manager.save_state(CoinMarketCapResumeConfig(last_coin_id=batch[-1]))
 
 
 def _batch_source(

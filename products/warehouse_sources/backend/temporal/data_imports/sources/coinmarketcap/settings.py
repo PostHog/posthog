@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # CoinMarketCap caps `limit` at 5000 records per page across its list endpoints.
@@ -101,7 +103,7 @@ RowShape = Literal["object_map", "per_coin_quotes", "quote_list"]
 CoinUniverse = Literal["map", "top_by_market_cap"]
 
 
-@dataclass
+@frozen
 class CoinMarketCapBatchEndpointConfig:
     """An endpoint the source iterates itself instead of driving the offset paginator.
 

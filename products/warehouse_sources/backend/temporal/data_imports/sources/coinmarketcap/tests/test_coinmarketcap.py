@@ -447,16 +447,20 @@ class TestGetBatchRows:
 
         # Checkpointed after each batch is yielded, so a crash re-yields rather than skips.
         assert [call.args[0] for call in manager.save_state.call_args_list] == [
-            CoinMarketCapResumeConfig(batch_index=1),
-            CoinMarketCapResumeConfig(batch_index=2),
+            CoinMarketCapResumeConfig(last_coin_id=METADATA_BATCH_SIZE),
+            CoinMarketCapResumeConfig(last_coin_id=METADATA_BATCH_SIZE + 2),
         ]
 
     def test_info_walks_every_map_page(self) -> None:
+        # The first page is full but carries one unusable row. The walk has to count the raw page,
+        # or a single bad row ends it early and the table syncs an incomplete coin set.
+        first_page = [{"id": i} for i in range(1, PAGE_SIZE)]
+        first_page.append({"no_id": True})
         manager = self._manager()
         _, session = self._run(
             "cryptocurrency_info",
             [
-                _make_batch_response({"data": [{"id": i} for i in range(1, PAGE_SIZE + 1)]}),
+                _make_batch_response({"data": first_page}),
                 _make_batch_response({"data": [{"id": PAGE_SIZE + 1}]}),
                 *[_make_batch_response({"data": {}}) for _ in range(21)],
             ],
@@ -466,9 +470,9 @@ class TestGetBatchRows:
         map_calls = [params for url, params in session.calls if url.endswith("/v1/cryptocurrency/map")]
         assert [params["start"] for params in map_calls] == [1, 1 + PAGE_SIZE]
 
-    def test_resume_skips_the_batches_already_yielded(self) -> None:
+    def test_resume_skips_the_coins_already_yielded(self) -> None:
         map_page = {"data": [{"id": coin_id} for coin_id in range(1, METADATA_BATCH_SIZE + 3)]}
-        manager = self._manager(CoinMarketCapResumeConfig(batch_index=1))
+        manager = self._manager(CoinMarketCapResumeConfig(last_coin_id=METADATA_BATCH_SIZE))
         _, session = self._run(
             "cryptocurrency_info",
             [_make_batch_response(map_page), _make_batch_response({"data": {"251": {"id": 251}}})],
@@ -478,6 +482,24 @@ class TestGetBatchRows:
         info_calls = [params for url, params in session.calls if url.endswith("/v2/cryptocurrency/info")]
         assert len(info_calls) == 1
         assert info_calls[0]["id"] == f"{METADATA_BATCH_SIZE + 1},{METADATA_BATCH_SIZE + 2}"
+
+    def test_resume_holds_its_place_when_a_coin_leaves_the_universe(self) -> None:
+        # Id 5 is gone since the attempt that checkpointed. A position-based cursor would slide the
+        # whole tail forward by one and skip a coin that was never yielded.
+        remaining = [coin_id for coin_id in range(1, HISTORICAL_BATCH_SIZE + 2) if coin_id != 5]
+        manager = self._manager(CoinMarketCapResumeConfig(last_coin_id=HISTORICAL_BATCH_SIZE))
+        _, session = self._run(
+            "quotes_historical",
+            [
+                _make_batch_response({"data": [{"id": coin_id} for coin_id in remaining]}),
+                _make_batch_response({"data": {}}),
+            ],
+            manager,
+        )
+
+        batch_calls = [params for url, params in session.calls if url.endswith("/v3/cryptocurrency/quotes/historical")]
+        assert len(batch_calls) == 1
+        assert batch_calls[0]["id"] == str(HISTORICAL_BATCH_SIZE + 1)
 
     @pytest.mark.parametrize("endpoint", ["quotes_historical", "ohlcv_historical"])
     def test_historical_endpoints_rank_the_coin_universe_by_market_cap(self, endpoint: str) -> None:
