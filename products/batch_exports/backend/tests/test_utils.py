@@ -18,7 +18,7 @@ async def test_make_retryable_with_exponential_backoff_called_max_attempts():
         raise ValueError("I failed")
 
     with pytest.raises(ValueError):
-        await make_retryable_with_exponential_backoff(raise_value_error, max_retry_delay=1, max_delay_jitter=0)()
+        await make_retryable_with_exponential_backoff(raise_value_error, max_retry_delay=0, max_delay_jitter=0)()
 
     assert counter == 5
 
@@ -34,7 +34,7 @@ async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_ti
 
     with pytest.raises(TimeoutError):
         await make_retryable_with_exponential_backoff(
-            raise_value_error, max_retry_delay=1, timeout=1, max_delay_jitter=0
+            raise_value_error, max_retry_delay=0, timeout=0.01, max_delay_jitter=0
         )()
 
     assert counter == 5
@@ -55,7 +55,7 @@ async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_fu
 
     with pytest.raises(ValueError):
         await make_retryable_with_exponential_backoff(
-            raise_value_error, is_exception_retryable=is_exception_retryable, max_retry_delay=1, max_delay_jitter=0
+            raise_value_error, is_exception_retryable=is_exception_retryable, max_retry_delay=0, max_delay_jitter=0
         )()
 
     assert counter == 5
