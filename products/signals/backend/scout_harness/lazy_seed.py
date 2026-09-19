@@ -37,7 +37,7 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 # fleet is. Same divergence-aware sync; one caveat: removing a name from this tuple strands its
 # existing per-team rows (prune only reaps `signals-scout-*` rows), so retiring a companion
 # means cleaning up its rows out-of-band.
-_COMPANION_SKILL_DIRS = ("authoring-scouts",)
+_COMPANION_SKILL_DIRS = ("authoring-scouts", "inbox-exploration")
 
 # Companions that another product ships and maintains, seeded on the same terms as the ones above.
 # A scout is exactly the agent the companion rule is written for: it reads skills through
@@ -47,8 +47,16 @@ _COMPANION_SKILL_DIRS = ("authoring-scouts",)
 # copy at creation, so an edit to the source never reaches a scout already in rotation.
 # Cross-product by file path, not by import: the harness reads the markdown and never imports the
 # owning product. The stranding caveat above applies here too.
+#
+# A companion that links to a skill nobody seeds leaves the same skill unreachable: the store
+# answers `skill-not-found`, and the agent reads that as "this skill does not exist". So the set
+# here is closed over the `[[links]]` in the companion bodies, and a test holds that closure.
 _PRODUCTS_DIR = Path(__file__).resolve().parents[3]
-_EXTERNAL_COMPANION_SKILL_DIRS = (_PRODUCTS_DIR / "replay_vision" / "skills" / "exploring-replay-vision-observations",)
+_EXTERNAL_COMPANION_SKILL_DIRS = (
+    _PRODUCTS_DIR / "replay_vision" / "skills" / "exploring-replay-vision-observations",
+    _PRODUCTS_DIR / "replay_vision" / "skills" / "creating-replay-vision-scanners",
+    _PRODUCTS_DIR / "replay" / "skills" / "investigating-replay",
+)
 
 # Mirrors the regex in `products/posthog_ai/scripts/build_skills.py` so frontmatter parsing
 # stays consistent across the two consumers. Keep these in sync if the skill spec evolves.
