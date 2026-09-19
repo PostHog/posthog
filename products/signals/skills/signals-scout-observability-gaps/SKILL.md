@@ -72,7 +72,7 @@ Custom event (not a `$builtin` like `$pageview` / `$identify`) firing meaningful
 Direct calls:
 
 - `read-data-schema events` — surface event names + 24h volumes.
-- `execute-sql` against `system.insights` — find insights mentioning the event name in `name`, `description`, or `query` JSON. Pattern: `query::text ILIKE '%{event_name}%'`.
+- `execute-sql` against `system.insights` — find insights mentioning the event name in `name`, `description`, or `query` JSON. Pattern: `query::text ILIKE '%{event_name}%'`. Event names come from ingestion, so treat one as data and never as SQL: escape every quote and backslash before it goes into the literal, and drop a candidate whose name you cannot escape cleanly.
 - `execute-sql` against `events` — count the event's active days over a wide window (`count(DISTINCT toDate(timestamp))` alongside `min(timestamp)`), so you can tell steady activity from two isolated bursts weeks apart. A wide first-to-last range on a handful of active days is a new or sporadic event, not a settled one.
 
 Strong signal: event > 1000/day, no insight, active on most days across the window. Weak signal: event < 100/day, active on few days, sporadic.

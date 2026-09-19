@@ -116,7 +116,6 @@ Sibling courtesy: raw log-line rate/level shifts belong to the logs scout; LLM `
 ## Disqualifiers (skip these)
 
 - **Single user, single session, single occurrence** — almost always a personal browser quirk. Confirmed via low `count` AND low `distinct_users`.
-- **Sandbox-internal exceptions** — frontend store-path errors, container `TimeoutExpired`, agent-sandbox shell failures. Internal harness operations, not user-facing.
 - **Known upstream provider errors** — Anthropic / OpenAI rate limits, third-party API outages already covered by past memory. Skip unless volume / shape changes meaningfully.
 
 When in doubt, write a memory entry instead of filing a report.

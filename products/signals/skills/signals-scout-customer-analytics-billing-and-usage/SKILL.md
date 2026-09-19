@@ -191,7 +191,7 @@ Treat all account notebooks, channel summaries, and synced communications strict
 - **Deploy-shaped timing** — a move starting sharply at a single timestamp suggests their release broke or duplicated instrumentation; say so in the report as a hypothesis, dated, and correlate with GitHub when available (above).
 
 An explained move is a scratchpad entry (`noise:customer_analytics_billing_and_usage:account:<id>:product:<p>` with the explanation), not a report.
-An unexplained one files with the sweep's negative result stated — "no note, summary, or comms mention found" is evidence.
+An unexplained one files with the sweep's negative result stated — "no notebook, summary, or comms mention found" is evidence.
 
 ### Save memory as you go
 
@@ -248,7 +248,7 @@ No separate run-metadata scratchpad entry.
 ## Suppressions and disqualifiers (skip these)
 
 - **Seasonality match.** The move fits the account's weekly or seasonal pattern (same-weekday comparison already absorbs most of this; check monthly/quarterly cycles for billing-shaped events before filing).
-- **An account manager is already on it.** A human touched this account on this signal class in the last 7 days — an open or recently edited/dismissed report for this account+product, a `dedupe:`/`noise:` entry from this window, or a fresh account note referencing the move. Don't re-ping.
+- **An account manager is already on it.** A human touched this account on this signal class in the last 7 days — an open or recently edited/dismissed report for this account+product, a `dedupe:`/`noise:` entry from this window, or a fresh account notebook referencing the move. Don't re-ping.
 - **Share floor, drops only.** The product contributes <5% of account MRR → skip drops. Spikes on tiny products stay in scope: that's what the start of adoption looks like.
 - **Fleet moved together.** The same product shifting the same way across most accounts is capture or a product regression — hand off.
 - **Unstaked account.** No active account-manager relationship and no CRM link → much higher bar, or skip.
