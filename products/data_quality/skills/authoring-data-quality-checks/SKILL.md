@@ -49,6 +49,83 @@ harmless: it doubles the noise for whoever reads the results. If an existing che
 close but wrong, edit the existing check. Updates preserve its identity and history; the subject
 stays fixed by the URL. An edit that duplicates another check's assertion is rejected.
 
+## Resolve the subject
+
+Create and run calls need the subject's UUID. The two queries above return names and columns, not
+IDs. Resolve the ID by exact name, and exclude deleted rows. A substring match can select a
+neighboring subject. A soft-deleted row keeps its original name, so a replacement can share that
+name. Read the deleted flag through `coalesce`: it is null on rows that predate the column's
+default, and the product counts a null row as live.
+
+One name can reach either kind, so read which kind it is before you resolve an ID:
+
+```sql
+SELECT table_type FROM system.information_schema.tables WHERE table_name = 'orders'
+```
+
+`view` sends you to the saved-query lookup, `data_warehouse` to the table lookup. A live table wins
+a name a view also holds, so this query decides, not the order you look things up in.
+
+A materialized view's backing table is absent from this catalog, and the view answers to the name
+instead. A table row you find under a name this query calls a `view` is therefore that backing
+table. A check on it is accepted, and then it stays silent: materialization selects checks by
+`saved_query_id`, and the only table-side trigger runs after a source sync, which a backing table
+never gets.
+
+- **Saved query (view).** The `id` is the `saved_query_id`.
+
+  ```sql
+  SELECT id
+  FROM system.data_modeling_views
+  WHERE name = 'orders' AND coalesce(deleted, 0) = 0
+  ```
+
+- **Warehouse table.** The subject name is the warehouse table's own name: an imported source prefixes it (e.g. `stripe_charge`), while a
+  self-managed table keeps the name it was created with. The `id` is the `table_id`. Live tables can
+  share one name, so take the newest. That is the row a query by that name reaches.
+
+  ```sql
+  SELECT id, external_data_source_id
+  FROM system.data_warehouse_tables
+  WHERE name = 'stripe_charge' AND coalesce(deleted, 0) = 0
+  ORDER BY created_at DESC
+  LIMIT 1
+  ```
+
+  This table is the storage roster, not the supported-subject catalog. When the row carries an
+  `external_data_source_id`, read that source before you use the table ID.
+
+  ```sql
+  SELECT access_method, coalesce(deleted, 0) AS deleted
+  FROM system.data_warehouse_sources
+  WHERE id = '<source id>'
+  ```
+
+  A deleted source takes its tables out of reach, and the create is rejected. A direct connection is
+  queried through the source, not by table name, so a check on its table is accepted and then errors
+  on every run. Neither is a check subject.
+
+  Do not resolve a table ID from `posthog:external-data-schemas-list`. A self-managed table has no
+  schema row there. A schema row's own `id` is the sync configuration, not the table; the table ID is
+  nested under `table.id`.
+
+- **Catalog metric.** The metric check routes are REST only, and the `id` is the `metric_id` in the
+  path. This view lists live metrics only. A live name is unique in a project, so an exact-name
+  match returns at most one row. A metric takes checks only when its definition is a `HogQLQuery`,
+  so the second predicate doubles as the eligibility test.
+
+  ```sql
+  SELECT id
+  FROM system.information_schema.metrics
+  WHERE name = 'weekly_active_accounts' AND definition_kind = 'HogQLQuery'
+  ```
+
+`posthog:data-quality-check-types` is different: it takes a `saved_query_id`, but never the
+subject's. Its catalog is static, so pass any view's `id`; the returned schemas apply to tables too.
+A project with no view has nothing to pass, so that reader can skip the call: the same per-type
+config is in the `data-quality-check-create-on-table` tool description and under "Choosing checks"
+below.
+
 ## Choosing checks
 
 Aim for a handful that would actually catch a real regression, not blanket coverage. A model with
@@ -69,6 +146,7 @@ Reach for these first, in roughly this order:
   (`select 1 from orders where total != subtotal + tax`). Every row it returns counts as a failure.
 
 Call `posthog:data-quality-check-types` for each type's exact config schema rather than guessing.
+Skip it when the project has no view to pass, and read the config above instead.
 
 Checks live on the subject they audit: create them with `data-quality-check-create-on-view`
 (`saved_query_id` path parameter) or `data-quality-check-create-on-table` (`table_id`).
