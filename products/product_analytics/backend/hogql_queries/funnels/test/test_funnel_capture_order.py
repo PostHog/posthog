@@ -128,9 +128,7 @@ class TestFunnelCaptureOrderPartialCoverage(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # The stored timestamp happens to order these three correctly.
             ("stored_order", False, 1),
-            # Correcting only a and c moves c ahead of b, which loses the user at step three.
             ("capture_order", True, 0),
         ]
     )
@@ -138,17 +136,15 @@ class TestFunnelCaptureOrderPartialCoverage(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, use_capture_order: bool, expected_step_three: int
     ) -> None:
         _create_person(distinct_ids=["u1"], team_id=self.team.pk)
-        # a: captured first, delivered fast. Its 1s latency becomes the device's anchor.
+        # a's 1s latency is the smallest the device was seen with, so it sets the anchor
+        # that pulls c back to 12:00:05, ahead of the uncorrected b at 12:00:06.
         self._event("a", captured_offset=0, stored_offset=1, with_capture=True)
-        # b: captured second, moderate latency, and no capture instant to correct it with.
         self._event("b", captured_offset=2, stored_offset=6, with_capture=False)
-        # c: captured third, very slow, corrected back to 12:00:05 by the anchor.
         self._event("c", captured_offset=4, stored_offset=20, with_capture=True)
         flush_persons_and_events()
 
         results = self._run(use_capture_order)
 
-        # The real order is a, b, c, so a correct funnel counts the user through all three.
         assert results[0]["count"] == 1
         assert results[1]["count"] == 1
         assert results[2]["count"] == expected_step_three
