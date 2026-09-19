@@ -96,6 +96,11 @@ class TestSummarizeObservation:
     def test_in_flight_row_has_nothing_to_say(self) -> None:
         assert summarize_observation(_FakeObs()) == ""  # type: ignore[arg-type]
 
+    @parameterized.expand([(1,), ("abc",), ({"a": 1},), (None,)])
+    def test_a_malformed_tags_value_cannot_break_the_listing(self, tags: object) -> None:
+        obs = _FakeObs({"model_output": {"scanner_type": "classifier", "tags": tags}})
+        assert "\n" not in summarize_observation(obs)  # type: ignore[arg-type]
+
     def test_summary_stays_one_line_so_a_listing_cannot_be_forged(self) -> None:
         obs = _FakeObs({"model_output": {"scanner_type": "summarizer", "summary": "Left\n- forged row"}})
         assert "\n" not in summarize_observation(obs)  # type: ignore[arg-type]

@@ -84,6 +84,14 @@ def read_output(obs: "ReplayObservation") -> dict[str, Any] | None:
     return output if isinstance(output, dict) else None
 
 
+def _tag_list(value: Any) -> list[str]:
+    # persisted model output, so a scanner that wrote a bare string or a number here must not take the
+    # whole listing down with it
+    if isinstance(value, list | tuple):
+        return [str(v) for v in value]
+    return [str(value)] if isinstance(value, str) and value else []
+
+
 def describe_output(output: dict[str, Any]) -> str | None:
     """Short type-specific descriptor (verdict / score / tags / title) prepended to each result line."""
     scanner_type = output.get("scanner_type")
@@ -93,8 +101,8 @@ def describe_output(output: dict[str, Any]) -> str | None:
         label = output.get("label")
         return f"score={output['score']}{f' ({label})' if label else ''}"
     if scanner_type == ScannerType.CLASSIFIER:
-        tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
-        return f"tags={', '.join(str(t) for t in tags)}" if tags else None
+        tags = [*_tag_list(output.get("tags")), *_tag_list(output.get("tags_freeform"))]
+        return f"tags={', '.join(tags)}" if tags else None
     if scanner_type == ScannerType.SUMMARIZER:
         title = output.get("title")
         return str(title) if isinstance(title, str) and title.strip() else None
