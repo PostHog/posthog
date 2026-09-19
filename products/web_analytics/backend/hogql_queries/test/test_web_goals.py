@@ -10,6 +10,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     CompareFilter,
     DateRange,
@@ -30,6 +32,7 @@ from posthog.test.persons import add_cohort_members
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_goals_actions import select_goal_actions
 
 
 @snapshot_clickhouse_queries
@@ -527,3 +530,37 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results is not None
         assert pretty_print_in_tests(str(results.results), self.team.pk) == self.snapshot
+
+
+class TestSelectGoalActions(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("unparseable hogql filter", [{"key": "1 person_id", "type": "hogql"}]),
+            (
+                "behavioral filter",
+                [
+                    {
+                        "type": "behavioral",
+                        "key": "signed_up",
+                        "value": "performed_event",
+                        "event_type": "events",
+                        "time_value": 30,
+                        "time_interval": "day",
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_action_whose_filter_does_not_compile_is_skipped(self, _name, properties):
+        Action.objects.create(
+            team=self.team,
+            name="Works",
+            steps_json=[{"event": "$pageview"}],
+        )
+        Action.objects.create(
+            team=self.team,
+            name="Does not compile",
+            steps_json=[{"event": "$pageview", "properties": properties}],
+        )
+
+        assert [action.name for action, _ in select_goal_actions(self.team)] == ["Works"]
