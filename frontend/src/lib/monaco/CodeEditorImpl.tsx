@@ -22,6 +22,7 @@ import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
+import { limitFindSearchString } from 'lib/monaco/limitFindSearchString'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { inStorybookTestRunner } from 'lib/utils/dom'
@@ -485,6 +486,7 @@ export function CodeEditor({
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
         remeasureFontsWhenReady(monaco)
         monacoDisposables.current.push(trackFindWidgetVisibility(editor))
+        monacoDisposables.current.push(limitFindSearchString(editor))
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'
@@ -621,6 +623,8 @@ export function CodeEditor({
             trackEditorModels(modifiedEditor, monaco)
             monacoDisposables.current.push(trackFindWidgetVisibility(modifiedEditor))
             monacoDisposables.current.push(trackFindWidgetVisibility(diff.getOriginalEditor()))
+            monacoDisposables.current.push(limitFindSearchString(modifiedEditor))
+            monacoDisposables.current.push(limitFindSearchString(diff.getOriginalEditor()))
             const original = diff.getOriginalEditor().getModel()
             if (original) {
                 editorModelsRef.current.add(original)

@@ -50,7 +50,16 @@ function patchAddOverlay(cmAdapter: any): () => void {
             return
         }
 
-        const allMatches = model.findMatches(source, false, isRegex, matchCase, null, false) as any[]
+        // A pattern the browser refuses to compile throws out of findMatches, because V8
+        // compiles a regex on first use rather than on construction. Highlighting nothing beats
+        // an unhandled SyntaxError.
+        let allMatches: any[]
+        try {
+            allMatches = model.findMatches(source, false, isRegex, matchCase, null, false) as any[]
+        } catch {
+            this.removeOverlay()
+            return
+        }
         if (!allMatches?.length) {
             this.removeOverlay()
             return
@@ -60,6 +69,40 @@ function patchAddOverlay(cmAdapter: any): () => void {
 
     return () => {
         cmAdapter.addOverlay = original
+    }
+}
+
+// Mirrors what monaco-vim's own search cursor does when the query has no matches.
+const NO_MATCHES_CURSOR = {
+    getMatches: () => [],
+    findNext: () => false,
+    findPrevious: () => false,
+    jumpTo: () => false,
+    find: () => false,
+    from: () => null,
+    to: () => null,
+    replace: () => {},
+}
+
+// The overlay patch above is not enough on its own: monaco-vim asks for a search cursor
+// synchronously, which calls findMatches 50 ms before the overlay does, so `/` search reaches
+// the uncompilable pattern first. Searching nothing beats an unhandled SyntaxError.
+function patchGetSearchCursor(cmAdapter: any): () => void {
+    const original = cmAdapter.getSearchCursor.bind(cmAdapter)
+
+    cmAdapter.getSearchCursor = function (query: any, pos: any): any {
+        try {
+            return original(query, pos)
+        } catch (error) {
+            if (!(error instanceof SyntaxError)) {
+                throw error
+            }
+            return NO_MATCHES_CURSOR
+        }
+    }
+
+    return () => {
+        cmAdapter.getSearchCursor = original
     }
 }
 
@@ -248,6 +291,7 @@ export function setupVimMode(
     const cmAdapter = vimMode as any
 
     const restoreAddOverlay = patchAddOverlay(cmAdapter)
+    const restoreGetSearchCursor = patchGetSearchCursor(cmAdapter)
     const restoreCloseInput = patchCloseInput(cmAdapter.statusBar)
     const restoreArrowKeys = patchStatusBarArrowKeys(statusBarEl)
     const restoreSetSec = patchSubstituteHighlight(cmAdapter, cmAdapter.statusBar)
@@ -269,6 +313,7 @@ export function setupVimMode(
             restoreSetSec()
             restoreArrowKeys()
             restoreCloseInput()
+            restoreGetSearchCursor()
             restoreAddOverlay()
             vimMode.dispose()
         },
