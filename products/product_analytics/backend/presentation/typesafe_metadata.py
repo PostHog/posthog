@@ -178,6 +178,61 @@ _START_RANGES: dict[str, str] = {
 }
 
 
+_PROPERTY_LABELS: dict[str, str] = {
+    "$current_url": "current URL",
+    "$pathname": "path",
+    "$referrer": "referrer",
+    "$referring_domain": "referring domain",
+    "$browser": "browser",
+    "$os": "OS",
+    "$device_type": "device type",
+    "$geoip_country_name": "country",
+    "$geoip_country_code": "country",
+    "$geoip_city_name": "city",
+    "$lib": "SDK",
+    "$session_duration": "session duration",
+}
+
+# How a single series reads in a title when its math is more than a plain count. The math is the
+# point of such an insight, so it belongs in the base label that breakdowns and ranges attach to.
+_MATH_TITLE_PHRASES: dict[str, str] = {
+    "dau": "Unique users with {label}",
+    "weekly_active": "Weekly active users with {label}",
+    "monthly_active": "Monthly active users with {label}",
+    "unique_session": "Sessions with {label}",
+    "first_time_for_user": "First-ever {label} per user",
+    "first_time_for_user_with_filters": "First-ever {label} per user",
+    "avg_count_per_actor": "Average {label} per user",
+    "median_count_per_actor": "Median {label} per user",
+    "min_count_per_actor": "Minimum {label} per user",
+    "max_count_per_actor": "Maximum {label} per user",
+}
+
+
+def humanize_property(key: str) -> str:
+    if key in _PROPERTY_LABELS:
+        return _PROPERTY_LABELS[key]
+    words = re.sub(r"[_\-]+", " ", key.lstrip("$")).strip()
+    return re.sub(r"\b(url|id|utm|os|ip)\b", lambda m: m.group(0).upper(), words) or key
+
+
+def _math_title_base(item: object, label: str) -> str | None:
+    """A title base that carries the math, or None when the math is a plain count."""
+    math = getattr(item, "math", None)
+    if not math or str(math) == "total":
+        return None
+    phrase = _MATH_TITLE_PHRASES.get(str(math))
+    if phrase:
+        return phrase.format(label=label)
+    math_label = _MATH_LABELS.get(str(math))
+    math_property = getattr(item, "math_property", None)
+    if math_label and math_property:
+        return f"{sentence_case(math_label)} {humanize_property(str(math_property))} for {label}"
+    if math_label:
+        return f"{sentence_case(math_label)} for {label}"
+    return None
+
+
 def humanize_event(name: str) -> str:
     if name in _EVENT_LABELS:
         return _EVENT_LABELS[name]
@@ -361,9 +416,9 @@ def _breakdown_label(source: object) -> str | None:
     if breakdown_filter is None:
         return None
     if breakdown_filter.breakdowns:
-        return join_words([str(b.property) for b in breakdown_filter.breakdowns])
+        return join_words([humanize_property(str(b.property)) for b in breakdown_filter.breakdowns])
     if breakdown_filter.breakdown:
-        return str(breakdown_filter.breakdown)
+        return humanize_property(str(breakdown_filter.breakdown))
     return None
 
 
@@ -387,7 +442,6 @@ def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
     source = query.source
     kind = source.kind
     series = _series_labels(source)
-    maths = [_series_math(item) for item in getattr(source, "series", None) or []]
     breakdown = _breakdown_label(source)
     date_range = getattr(source, "dateRange", None)
     range_text = humanize_date_range(getattr(date_range, "date_from", None)) if date_range else None
@@ -438,23 +492,26 @@ def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
             "Where users go next",
         ]
     if series:
-        notable_math = join_words([math for math in maths if math])
         formula_titles = [
             title
             for formula, custom_name in _formulas(source)
             for title in _read_formula(source, formula, custom_name, range_text).titles
         ]
+        items = list(getattr(source, "series", None) or [])
+        math_base = _math_title_base(items[0], series[0]) if len(items) == 1 else None
+        base = math_base or sentence_case(joined)
         return [
             *formula_titles,
-            sentence_case(joined),
-            f"{sentence_case(joined)} by {breakdown}" if breakdown else None,
+            base,
+            f"{base} by {breakdown}" if breakdown else None,
             f"{_INTERVAL_ADJECTIVES[str(interval)]} {joined}"
-            if interval and str(interval) in _INTERVAL_ADJECTIVES
+            if interval and str(interval) in _INTERVAL_ADJECTIVES and not math_base
             else None,
-            f"{sentence_case(joined)} over {range_text}" if range_text else None,
-            f"{sentence_case(notable_math)} for {joined}" if notable_math and len(series) == 1 else None,
-            f"{sentence_case(joined)} over time",
-            f"{sentence_case(joined)} by {breakdown} over {range_text}" if breakdown and range_text else None,
+            f"{base} over {range_text}" if range_text else None,
+            f"{base} over time" if not math_base else None,
+            f"{base} by {breakdown} over {range_text}" if breakdown and range_text else None,
+            f"{sentence_case(joined)} by {breakdown}" if math_base and breakdown else None,
+            sentence_case(joined) if math_base else None,
         ]
     return [sentence_case(kind.replace("Query", "")) + " insight"]
 
@@ -515,8 +572,11 @@ def _viz_description_candidates(query: InsightVizNode) -> list[str | None]:
             for formula, custom_name in _formulas(source)
             for description in _read_formula(source, formula, custom_name, range_text).descriptions
         ]
+        items = list(getattr(source, "series", None) or [])
+        math_base = _math_title_base(items[0], series[0]) if len(items) == 1 else None
         return [
             *formula_descriptions,
+            f"Shows {math_base[0].lower() + math_base[1:]}{adverb}{over_range}{by_breakdown}." if math_base else None,
             f"Shows {joined}{adverb}{over_range}{by_breakdown}.",
             f"Tracks how {joined} changes over time{f' for each {breakdown}' if breakdown else ''}.",
             f"Counts {notable_math} for {joined}{by_breakdown}." if notable_math and len(series) == 1 else None,
@@ -745,7 +805,9 @@ def suggest_title(context: SubjectContext) -> TextSuggestion:
             "A good title is short and specific: a teammate scanning a list should know what it shows "
             "without opening it. When the summary has a formula, only the formula's result is plotted, so "
             "the title must name that result (a rate, a ratio, an amount per user) and must not list the "
-            "series it is built from. Prefer the specific metric or step names over a generic theme when the "
+            "series it is built from. When a series counts something other than plain events (unique users, "
+            "first-ever occurrences, an average per user), the title must say so, because a plain event name "
+            "describes a different chart. Prefer the specific metric or step names over a generic theme when the "
             "query supports them, and prefer a theme overview only when the tiles clearly share one theme."
         ),
     )
