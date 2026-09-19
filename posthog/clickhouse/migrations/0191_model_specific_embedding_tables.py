@@ -41,10 +41,10 @@ for model_tables in EMBEDDING_TABLES_1:
 # Add vector indexes to sharded tables (must be done after table creation)
 # We create both L2 and cosine distance indexes to support either distance function
 for model_tables in EMBEDDING_TABLES_1:
-    for index_sql in model_tables.add_vector_index_sql():
+    for index_query in model_tables.add_vector_index_queries():
         operations.append(
             run_sql_with_exceptions(
-                index_sql,
+                index_query,
                 node_roles=[NodeRole.DATA],
                 sharded=True,
                 is_alter_on_replicated_table=True,
