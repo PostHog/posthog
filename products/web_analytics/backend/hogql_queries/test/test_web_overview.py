@@ -872,6 +872,18 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
         )
 
     @time_machine.travel("2023-12-15T12:00:00Z", tick=False)
+    def test_all_time_preaggregated_range_includes_the_first_hour(self):
+        s1 = str(uuid7("2023-11-01"))
+        self._create_events([("p1", [("2023-11-01T12:34:56", s1)])])
+        query = WebOverviewQuery(dateRange=DateRange(date_from="all"), properties=[])
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+
+        period_filters = WebOverviewPreAggregatedQueryBuilder(runner).get_date_ranges()
+
+        lower_bound = period_filters.current_period.exprs[0].right.value
+        assert lower_bound == datetime(2023, 11, 1, 12, tzinfo=UTC)
+
+    @time_machine.travel("2023-12-15T12:00:00Z", tick=False)
     def test_cannot_use_preaggregated_tables_with_unsupported_properties(self):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
