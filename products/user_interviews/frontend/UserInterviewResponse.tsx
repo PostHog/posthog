@@ -9,6 +9,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -37,7 +38,10 @@ export const scene: SceneExport<UserInterviewResponseProps> = {
 
 export function UserInterviewResponse({ topicId, responseId }: UserInterviewResponseProps): JSX.Element {
     const isEnabled = useFeatureFlag('USER_INTERVIEWS')
-    const identifier = decodeURIComponent(responseId)
+    // The router already ran `decodeURI`, so an identifier with a stray `%` (e.g. `50%off`) arrives
+    // here as `50%off` and makes `decodeURIComponent` throw before the flag gate below. Fall back to
+    // the raw value, the same way `PersonScene` handles distinct ids.
+    const identifier = tryDecodeURIComponent(responseId)
     const { linkForIdentifier, linksLoading, linksLoadFailed } = useValues(userInterviewLogic({ id: topicId }))
     const interviewUrl = linkForIdentifier(identifier)
     const [loading, setLoading] = useState(true)
