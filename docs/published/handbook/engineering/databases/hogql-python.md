@@ -47,6 +47,12 @@ Few things to note:
 - Placeholders like `{where}` are just nodes of type `ast.Placeholder(field='where')`. You can leave them in, and call `stmt = replace_placeholders(stmt, { where: parse_expr('1') })` later.
 - We wrote one AST node ourselves: `ast.Constant(value=num_last_days)`. We did it to sanitize the value by make sure it's treated as a constant. We might simplify constants further (e.g. `parse_const` or just `{days: 2}`), but we're not there yet.
 
+Placeholder expansion allows at most 1,000 placeholders and shares a five-second deadline across the query.
+All placeholders also share a 64 MiB budget in Hog VM memory units, charged using each expression's peak stack usage, including temporary values.
+This accounting is not a limit on Python process memory.
+The `range()` builtin checks its result size against the remaining VM allowance before allocating the list.
+Queries that exceed these limits fail during expansion; reduce the number or size of the placeholder expressions to stay within them.
+
 ## AST nodes
 
 If you want more control, you can build the AST nodes directly. The same query above can be written as:
