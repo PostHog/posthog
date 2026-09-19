@@ -2,6 +2,7 @@ import type { TaskRunCommandResponseApi } from 'products/tasks/frontend/generate
 
 const STARTUP_WAIT_MS = 10_000
 const REQUEST_TIMEOUT_MS = 5_000
+const RESOLUTION_WAIT_MS = 10_000
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -14,7 +15,7 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     })
 }
 
-async function waitForReadiness(ms: number, signal: AbortSignal): Promise<void> {
+async function waitForRetry(ms: number, signal: AbortSignal): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
         await abortable(new Promise<void>((resolve) => (timer = setTimeout(resolve, ms))), signal)
@@ -26,6 +27,10 @@ async function waitForReadiness(ms: number, signal: AbortSignal): Promise<void> 
 export function isPermissionTargetEnded(error: unknown): boolean {
     const rejection = error as { status?: number; code?: string }
     return rejection?.status === 409 && rejection.code === 'permission_target_ended'
+}
+
+export function waitForPermissionResolution(signal: AbortSignal): Promise<void> {
+    return waitForRetry(RESOLUTION_WAIT_MS, signal).catch(() => undefined)
 }
 
 export async function deliverPermissionResponse(
@@ -69,7 +74,7 @@ export async function deliverPermissionResponse(
             clearTimeout(timer)
             signal.removeEventListener('abort', abort)
         }
-        await waitForReadiness(
+        await waitForRetry(
             Math.min(250 * 2 ** Math.min(attempt++, 2), Math.max(0, deadline - performance.now())),
             signal
         )
