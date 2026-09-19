@@ -60,9 +60,42 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'Cannot use a pool after calling end on the pool', // Shutdown ended the pool while work was still in flight
 ]
 
-export function isTransientPgError(err: unknown): boolean {
+/** The entry of POSTGRES_UNAVAILABLE_ERROR_MESSAGES an error matches, if any. */
+function transientPgErrorMarker(err: unknown): string | undefined {
     const message = (err as Error | undefined)?.message
-    return !!message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((m) => message.includes(m))
+    return message ? POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((m) => message.includes(m)) : undefined
+}
+
+export function isTransientPgError(err: unknown): boolean {
+    return transientPgErrorMarker(err) !== undefined
+}
+
+/**
+ * A grouping key for an error raised by a Postgres call, or undefined to group
+ * the error by its stack as usual.
+ *
+ * node-postgres throws from its own protocol code, so a deadlock, a constraint
+ * violation and a value overflow all carry the same frames. Error tracking
+ * reads them as one issue, which then reports whichever failure came first.
+ * The SQLSTATE code tells them apart, and the constraint name tells apart the
+ * violations of different constraints. A transient failure keys on the message
+ * it matched instead, because the pooler reports pool saturation, a dead
+ * backend connection and its own shutdown under one SQLSTATE. An error our own
+ * code raised keeps its stack, which already says where it came from.
+ */
+export function postgresErrorFingerprint(scope: string, error: unknown): string | undefined {
+    const cause = error instanceof DependencyUnavailableError ? error.error : error
+    const marker = transientPgErrorMarker(cause)
+    if (marker) {
+        return `${scope}:${marker}`
+    }
+    const { code, constraint } = (cause ?? {}) as { code?: unknown; constraint?: unknown }
+    if (typeof code === 'string' && code.length > 0) {
+        return typeof constraint === 'string' && constraint.length > 0
+            ? `${scope}:${code}:${constraint}`
+            : `${scope}:${code}`
+    }
+    return undefined
 }
 
 export enum PostgresUse {
@@ -291,7 +324,7 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
 
 /** Throws retriable DependencyUnavailableError for transient PG/PgBouncer errors, does nothing otherwise. */
 export function handlePostgresError(error: Error, databaseUse: PostgresUse): void {
-    const matchedMessage = POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((msg) => error.message?.includes(msg))
+    const matchedMessage = transientPgErrorMarker(error)
     if (!matchedMessage) {
         return
     }

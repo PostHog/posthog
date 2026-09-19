@@ -1,7 +1,7 @@
 import { DependencyUnavailableError } from './error'
-import { PostgresUse, handlePostgresError, isTransientPgError } from './postgres'
+import { PostgresUse, handlePostgresError, isTransientPgError, postgresErrorFingerprint } from './postgres'
 
-describe('transient postgres error classification', () => {
+describe('postgres error classification', () => {
     test.each([
         ['connect ECONNREFUSED 10.0.0.1:6543', true],
         ['connect EHOSTUNREACH 10.0.0.1:6543', true],
@@ -28,5 +28,40 @@ describe('transient postgres error classification', () => {
         expect(() =>
             handlePostgresError(new Error('duplicate key value violates unique constraint'), PostgresUse.PERSONS_WRITE)
         ).not.toThrow(DependencyUnavailableError)
+    })
+
+    describe('postgresErrorFingerprint', () => {
+        const pgError = (code: string, message: string, constraint?: string): Error =>
+            Object.assign(new Error(message), { code, constraint })
+
+        it('gives every class of database failure a key of its own', () => {
+            // One error tracking issue absorbed all of these, because the
+            // driver throws them all from the same frames.
+            const keys = [
+                pgError('40P01', 'deadlock detected'),
+                pgError('23503', 'insert violates foreign key', 'posthog_person_team_id_fkey'),
+                pgError('23503', 'insert violates foreign key', 'posthog_persondistinctid_person_id_fkey'),
+                pgError('22001', 'value too long for type character varying(400)'),
+                // The pooler stamps both of these with SQLSTATE 08P01, so only
+                // the message separates pool saturation from a dead backend.
+                pgError('08P01', 'query_wait_timeout'),
+                pgError('08P01', 'server conn crashed?'),
+                new Error('server closed the connection unexpectedly'),
+            ].map((error) => postgresErrorFingerprint('scope', error))
+
+            expect(new Set(keys).size).toBe(keys.length)
+        })
+
+        it('reads the code through the wrapper a transient failure is rethrown in', () => {
+            const cause = pgError('40P01', 'deadlock detected')
+
+            expect(
+                postgresErrorFingerprint('scope', new DependencyUnavailableError('boom', 'Postgres', cause))
+            ).toEqual(postgresErrorFingerprint('scope', cause))
+        })
+
+        it('leaves an error of our own to its stack', () => {
+            expect(postgresErrorFingerprint('scope', new TypeError('cannot read x of undefined'))).toBeUndefined()
+        })
     })
 })
