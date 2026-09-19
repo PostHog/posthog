@@ -51,11 +51,10 @@ function createDependencies() {
     },
     mcpProxy: {
       start: vi.fn().mockResolvedValue(undefined),
-      register: vi
-        .fn()
-        .mockImplementation(
-          (id: string) => `http://127.0.0.1:9998/${encodeURIComponent(id)}`,
-        ),
+      register: vi.fn().mockImplementation((id: string) => ({
+        url: `http://127.0.0.1:9998/${encodeURIComponent(id)}`,
+        token: `proxy-token-${id}`,
+      })),
     },
     loggerFactory: {
       scope: () => ({
@@ -115,6 +114,7 @@ describe("AgentAuthAdapter", () => {
     expect(deps.mcpProxy.register).toHaveBeenCalledWith(
       "posthog",
       "https://mcp.posthog.com/mcp",
+      { identity: "https://app.posthog.com#1" },
     );
     expect(servers).toEqual(
       expect.arrayContaining([
@@ -122,10 +122,18 @@ describe("AgentAuthAdapter", () => {
           name: "posthog",
           type: "http",
           url: "http://127.0.0.1:9998/posthog",
-          headers: expect.not.arrayContaining([
-            expect.objectContaining({ name: "Authorization" }),
+          headers: expect.arrayContaining([
+            expect.objectContaining({
+              name: "x-posthog-mcp-proxy-token",
+              value: "proxy-token-posthog",
+            }),
           ]),
         }),
+      ]),
+    );
+    expect(servers.find((s) => s.name === "posthog")?.headers).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ name: "Authorization" }),
       ]),
     );
   });
@@ -215,14 +223,22 @@ describe("AgentAuthAdapter", () => {
       "installation-inst-2",
       "https://proxy.posthog.com/inst-2/",
       // An auth failure here is about the vendor's credential, not the user's PostHog token.
-      { credentialOwner: "installation" },
+      {
+        credentialOwner: "installation",
+        identity: "https://app.posthog.com#1",
+      },
     );
     expect(servers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           name: "secure-server",
           url: "http://127.0.0.1:9998/installation-inst-2",
-          headers: [],
+          headers: expect.arrayContaining([
+            expect.objectContaining({
+              name: "x-posthog-mcp-proxy-token",
+              value: "proxy-token-installation-inst-2",
+            }),
+          ]),
         }),
       ]),
     );
