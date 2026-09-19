@@ -587,21 +587,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             # This way we at least ensure the date range is the probably expected 7 or 30 days.
             date_from_with_lookback = "{date_to} - {inclusive_lookback}"
 
+        date_placeholders = {
+            **self.query_date_range.to_placeholders(),
+            **self._interval_placeholders(),
+            "timestamp": self._timestamp_expr,
+        }
         date_filters = [
-            parse_expr(
-                f"timestamp >= {date_from_with_lookback}",
-                placeholders={
-                    **self.query_date_range.to_placeholders(),
-                    **self._interval_placeholders(),
-                },
-            ),
-            parse_expr(
-                "timestamp <= {date_to}",
-                placeholders={
-                    **self.query_date_range.to_placeholders(),
-                    **self._interval_placeholders(),
-                },
-            ),
+            parse_expr(f"{{timestamp}} >= {date_from_with_lookback}", placeholders=date_placeholders),
+            parse_expr("{timestamp} <= {date_to}", placeholders=date_placeholders),
         ]
 
         where_clause_combined = ast.And(exprs=[events_where_clause, *date_filters])
@@ -611,7 +604,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 alias="day_start",
                 expr=ast.Call(
                     name=self._interval_function_name,
-                    args=[ast.Field(chain=["timestamp"])],
+                    args=[self._timestamp_expr],
                 ),
             )
 
