@@ -283,8 +283,6 @@ class TestRunOrchestration:
 
 
 class TestResolveTargets:
-    """Mapping changed rows to the intents to produce, per match mode."""
-
     def _distinct_id_source(self):
         return PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "tier"})
 

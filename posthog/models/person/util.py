@@ -416,23 +416,34 @@ def get_persons_mapped_by_distinct_id(
     )
 
 
-# Case-insensitive batch email lookup over the HogQL persons table. Identified persons sort first so
-# that when several persons share an email, the one carrying resolvable distinct_ids wins;
-# created_at/id break ties for a fully deterministic pick. Mirrors conversations' person_lookup.
-# The explicit LIMIT matters: HogQL caps a limitless top-level query at DEFAULT_RETURNED_ROWS (100),
-# which would silently drop most matches on a large sync. The caller batches the email list so no one
-# query approaches even the clamped ceiling (MAX_SELECT_RETURNED_ROWS).
+# Case-insensitive batch email lookup over the HogQL persons table, aggregated to exactly one row
+# per email so shared emails can never push the result set past HogQL's row cap and silently drop
+# other emails' matches. Each row carries a small ranked candidate list — identified persons first,
+# then created_at/id for a fully deterministic order — because the best-ranked person can be dropped
+# at resolution time (a person stays live after all its distinct ids are split away), and the caller
+# then falls back to the next candidate instead of misreporting the email as matching nobody.
+# The explicit LIMIT matters: HogQL caps a limitless top-level query at DEFAULT_RETURNED_ROWS (100).
 _PERSON_EMAIL_LOOKUP_QUERY = """
-SELECT id, properties.email
+SELECT
+    lower(properties.email) AS email,
+    arraySlice(
+        arrayMap(x -> x.2, arraySort(x -> x.1, groupArray((tuple(1 - toInt8(is_identified), created_at, toString(id)), toString(id))))),
+        1,
+        {max_candidates}
+    ) AS candidates
 FROM persons
 WHERE lower(properties.email) IN {emails}
-ORDER BY is_identified DESC, created_at ASC, id ASC
+GROUP BY email
 LIMIT {limit}
 """
 
-# Emails per lookup query. Keeps the IN-list parameter and the returned rows well under HogQL's
-# limits even when several persons share an email (each shared email costs an extra result row).
+# Emails per lookup query. The query returns one row per email, so a chunk's result set is bounded
+# by the chunk size itself, far under the LIMIT.
 _EMAIL_LOOKUP_CHUNK_SIZE = 1_000
+
+# Ranked persons kept per email. Only a person whose distinct ids were all split away forces a
+# fallback, so a short list covers it while bounding the per-email aggregation state.
+_EMAIL_CANDIDATE_LIMIT = 3
 
 # Matched persons per personhog resolution call. get_persons_by_uuids returns whole Person models
 # (properties included) and accumulates every match into one list, so resolving the entire matched set
@@ -447,9 +458,10 @@ def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[st
     matching by email.
 
     Case-insensitive. When several persons share an email, the identified, oldest person wins, so the
-    match is deterministic. An email with no matching person — or whose person has no resolvable
-    distinct_id — is absent. Reads the email via the HogQL ``persons`` table and resolves the person
-    through personhog (``get_persons_by_uuids``).
+    match is deterministic; when that person has no resolvable distinct_id, the next-ranked person is
+    tried (up to ``_EMAIL_CANDIDATE_LIMIT``). An email with no matching person — or none of whose
+    candidates has a distinct_id — is absent. Reads the email via the HogQL ``persons`` table and
+    resolves each person through personhog (``get_persons_by_uuids``).
     """
     from posthog.hogql import ast  # noqa: PLC0415 — keeps the heavy HogQL stack off the import path
     from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS  # noqa: PLC0415
@@ -462,8 +474,7 @@ def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[st
         return {}
 
     team = Team.objects.get(id=team_id)
-    # First uuid per email wins (results are ordered so the best-matching person comes first).
-    uuid_by_email: dict[str, str] = {}
+    candidates_by_email: dict[str, list[str]] = {}
     for start in range(0, len(lowered), _EMAIL_LOOKUP_CHUNK_SIZE):
         chunk = lowered[start : start + _EMAIL_LOOKUP_CHUNK_SIZE]
         response = execute_hogql_query(
@@ -471,33 +482,46 @@ def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[st
             placeholders={
                 "emails": ast.Constant(value=chunk),
                 "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+                "max_candidates": ast.Constant(value=_EMAIL_CANDIDATE_LIMIT),
             },
             team=team,
             query_type="warehouse_person_property_email_lookup",
         )
-        for person_uuid, prop_email in response.results or []:
-            if prop_email:
-                uuid_by_email.setdefault(prop_email.lower(), str(person_uuid))
-    if not uuid_by_email:
+        for prop_email, candidate_uuids in response.results or []:
+            if prop_email and candidate_uuids:
+                candidates_by_email.setdefault(prop_email.lower(), [str(u) for u in candidate_uuids])
+    if not candidates_by_email:
         return {}
 
-    # Resolve in chunks so only one chunk's person models are alive at a time (see
-    # _PERSON_RESOLVE_CHUNK_SIZE). Only one distinct id per person is used as the $set target, so
-    # distinct_id_limit=1 bounds the fetch, since the default is unbounded and pulls every distinct id
-    # for merge-heavy persons behind a shared email.
+    # Resolve rank by rank: only the emails whose better-ranked candidates all failed to resolve pay
+    # for another round, so the common case is a single pass. Resolution is chunked so only one
+    # chunk's person models are alive at a time (see _PERSON_RESOLVE_CHUNK_SIZE), and only one
+    # distinct id per person is used as the $set target, so distinct_id_limit=1 bounds the fetch —
+    # the default is unbounded and pulls every distinct id for merge-heavy persons behind a shared
+    # email.
     distinct_id_by_uuid: dict[str, str] = {}
-    unique_uuids = list(set(uuid_by_email.values()))
-    for start in range(0, len(unique_uuids), _PERSON_RESOLVE_CHUNK_SIZE):
-        chunk = unique_uuids[start : start + _PERSON_RESOLVE_CHUNK_SIZE]
-        for person in get_persons_by_uuids(team_id, chunk, distinct_id_limit=1):
-            if person.distinct_ids:
-                distinct_id_by_uuid[str(person.uuid)] = person.distinct_ids[0]
-
-    return {
-        email: distinct_id_by_uuid[person_uuid]
-        for email, person_uuid in uuid_by_email.items()
-        if person_uuid in distinct_id_by_uuid
-    }
+    attempted: set[str] = set()
+    matched: dict[str, str] = {}
+    for rank in range(_EMAIL_CANDIDATE_LIMIT):
+        pending = [
+            email
+            for email, candidates in candidates_by_email.items()
+            if email not in matched and len(candidates) > rank
+        ]
+        if not pending:
+            break
+        to_fetch = list({candidates_by_email[email][rank] for email in pending} - attempted)
+        attempted.update(to_fetch)
+        for start in range(0, len(to_fetch), _PERSON_RESOLVE_CHUNK_SIZE):
+            chunk = to_fetch[start : start + _PERSON_RESOLVE_CHUNK_SIZE]
+            for person in get_persons_by_uuids(team_id, chunk, distinct_id_limit=1):
+                if person.distinct_ids:
+                    distinct_id_by_uuid[str(person.uuid)] = person.distinct_ids[0]
+        for email in pending:
+            distinct_id = distinct_id_by_uuid.get(candidates_by_email[email][rank])
+            if distinct_id is not None:
+                matched[email] = distinct_id
+    return matched
 
 
 def get_distinct_ids_for_persons(
