@@ -10,14 +10,18 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { shouldQueryBeAsync } from '~/queries/utils'
 
 export function Reload(): JSX.Element {
-    const { responseLoading, query } = useValues(dataNodeLogic)
+    const { response, responseLoading, query } = useValues(dataNodeLogic)
     const { loadData, cancelQuery } = useActions(dataNodeLogic)
+
+    // Cancelling the first load leaves an empty state, so the cancel is only offered once there are
+    // results to return to.
+    const canCancel = responseLoading && !!response
 
     return (
         <LemonButton
             type="secondary"
             onClick={() => {
-                if (responseLoading) {
+                if (canCancel) {
                     cancelQuery()
                 } else {
                     loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
@@ -25,9 +29,10 @@ export function Reload(): JSX.Element {
             }}
             // Setting the loading icon manually to capture clicks while spinning.
             icon={responseLoading ? <Spinner textColored /> : <IconRefresh />}
+            disabledReason={responseLoading && !canCancel ? 'Loading' : undefined}
             size="small"
         >
-            {responseLoading ? 'Cancel' : 'Reload'}
+            {canCancel ? 'Cancel' : 'Reload'}
         </LemonButton>
     )
 }

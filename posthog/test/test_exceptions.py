@@ -10,7 +10,7 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 
-from posthog.exceptions import exception_handler
+from posthog.exceptions import ClickHouseAtCapacity, DatabaseSchemaUnavailable, QueryRanConcurrently, exception_handler
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -70,3 +70,19 @@ class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
             response["WWW-Authenticate"]
             == 'Bearer resource_metadata="https://us.posthog.com/.well-known/oauth-protected-resource"'
         )
+
+
+class TestServiceUnavailableCodes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("capacity", ClickHouseAtCapacity(), "clickhouse_at_capacity"),
+            ("single_flight_follower", QueryRanConcurrently(), "query_ran_concurrently"),
+            ("schema", DatabaseSchemaUnavailable(), "database_schema_unavailable"),
+        ]
+    )
+    def test_each_503_carries_its_own_code(self, _name: str, exception: APIException, expected_code: str) -> None:
+        request = RequestFactory().get("/api/environments/1/query/")
+        response = exception_handler(exception, {"request": request})
+        assert response is not None
+        assert response.status_code == 503
+        assert response.data["code"] == expected_code
