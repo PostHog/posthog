@@ -128,12 +128,14 @@ class _InvestigationRunner:
         self._handlers = handlers
         self._config = config
         self._heartbeat = heartbeat
-        self.messages: list[Any] = []
-        self.tool_calls_used = 0
+        # Per-run state lives on run(), the only place this class is driven from, so there is
+        # one place to reset it rather than two copies that can drift out of sync.
+        self.messages: list[Any]
+        self.tool_calls_used: int
         # Every set of submit_investigation_report args seen, valid or not, oldest first.
         # When every parse path fails, salvage tries these newest-to-oldest so a corrective
         # retry that came back worse cannot clobber an earlier salvageable attempt.
-        self.report_args_history: list[dict[str, Any]] = []
+        self.report_args_history: list[dict[str, Any]]
 
     def _tick_heartbeat(self) -> None:
         if self._heartbeat is not None:
