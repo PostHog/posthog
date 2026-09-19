@@ -3,8 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { getPostHogClient } from '@/lib/posthog'
-import { buildMCPAnalyticsGroups, buildMCPContextProperties } from '@/lib/posthog/analytics'
-import type { AnalyticsEvent } from '@/lib/posthog/analytics'
+import { AnalyticsEvent, buildMCPAnalyticsGroups, buildMCPContextProperties } from '@/lib/posthog/analytics'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -72,15 +71,18 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
         trackEvent: (event: AnalyticsEvent, properties: Record<string, unknown> = {}) => {
             const capture = (async (): Promise<void> => {
                 try {
-                    const [distinctId, analyticsContext, apiKey] = await Promise.all([
-                        stateManager.getDistinctId().catch(() => undefined),
+                    const [user, analyticsContext, apiKey] = await Promise.all([
+                        stateManager.getUser().catch(() => undefined),
                         stateManager.getAnalyticsContext().catch(() => undefined),
                         stateManager.getApiKey().catch(() => undefined),
                     ])
+                    if (event === AnalyticsEvent.MCP_TOOL_CALL && (!user || user.is_impersonated)) {
+                        return
+                    }
                     const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
 
                     getPostHogClient().capture({
-                        distinctId: distinctId ?? fallbackDistinctId,
+                        distinctId: user?.distinct_id ?? fallbackDistinctId,
                         event,
                         ...(Object.keys(groups).length > 0 ? { groups } : {}),
                         properties: {

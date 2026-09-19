@@ -89,6 +89,7 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
         const state: any = {
             reqCtx: {
                 cache: { get: async () => undefined, set: async () => undefined },
+                isImpersonated: async () => false,
                 safelyGetAnalyticsContext: async () => undefined,
                 trackEvent: () => {},
                 trackContextSwitchEvent: () => {},
