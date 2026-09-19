@@ -5,11 +5,45 @@ from posthog.hogql.transforms.trino.any_join import TrinoAnyJoinLowerer
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
+from posthog.dataclasses import frozen
+
+_SUPPORTED_ASOF_JOIN_TYPES = {"ASOF INNER JOIN", "LEFT ASOF JOIN", "ASOF LEFT JOIN"}
+_ASCENDING_OPS = {ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq}
+_NEAREST_OPS = _ASCENDING_OPS | {ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq}
+
+
+@frozen
+class _AsofJoin:
+    left: ast.JoinExpr
+    right: ast.JoinExpr
+    constraint: ast.Expr
+    left_alias: str
+    right_alias: str
+    left_columns: list[str]
+    right_columns: list[str]
+    left_type: ast.TableOrSelectType
+    right_type: ast.TableOrSelectType
+
+
+@frozen
+class _NearestMatch:
+    expr: ast.Expr
+    direction: Literal["ASC", "DESC"]
+
+
+@frozen
+class _LoweredAsof:
+    prefix: str
+    matched: ast.SelectQuery
+    by_left: dict[str, str]
+    by_right: dict[str, str]
+
 
 class TrinoAsOfJoinLowerer(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False)
         self.index = 0
+        self.bindings = TrinoAnyJoinLowerer()
 
     def _columns(self, join: ast.JoinExpr) -> list[str]:
         if join.column_aliases:
@@ -34,17 +68,12 @@ class TrinoAsOfJoinLowerer(CloningVisitor):
             return join.table.chain[-1]
         raise TrinoLoweringError("TRINO_ASOF_ALIAS_REQUIRED", "ASOF without an input alias", join)
 
-    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
-        lowered = super().visit_select_query(node)
-        left = lowered.select_from
+    def _asof_join(self, query: ast.SelectQuery) -> _AsofJoin | None:
+        left = query.select_from
         right = left.next_join if left is not None else None
         if right is None or "ASOF" not in (right.join_type or "").split():
-            return lowered
-        if right.next_join is not None or right.join_type not in {
-            "ASOF INNER JOIN",
-            "LEFT ASOF JOIN",
-            "ASOF LEFT JOIN",
-        }:
+            return None
+        if right.next_join is not None or right.join_type not in _SUPPORTED_ASOF_JOIN_TYPES:
             raise TrinoLoweringError(
                 "TRINO_ASOF_JOIN_SHAPE_UNSUPPORTED", "ASOF outside a two-table INNER or LEFT join", right
             )
@@ -56,63 +85,79 @@ class TrinoAsOfJoinLowerer(CloningVisitor):
         left_type, right_type = left.type, right.type
         if left_type is None or right_type is None:
             raise TrinoLoweringError("TRINO_ASOF_COMPLETE_TABLE_REQUIRED", "ASOF without input types", right)
-        bindings = TrinoAnyJoinLowerer()
-        predicate = right.constraint.expr
-        terms = predicate.exprs if isinstance(predicate, ast.And) else [predicate]
+        return _AsofJoin(
+            left=left,
+            right=right,
+            constraint=right.constraint.expr,
+            left_alias=left_alias,
+            right_alias=right_alias,
+            left_columns=left_columns,
+            right_columns=right_columns,
+            left_type=left_type,
+            right_type=right_type,
+        )
+
+    def _nearest_match(self, term: ast.CompareOperation, join: _AsofJoin) -> _NearestMatch:
+        if term.op not in _NEAREST_OPS:
+            raise TrinoLoweringError("TRINO_ASOF_CONSTRAINT_UNSUPPORTED", "ASOF without exactly one inequality", term)
+        right_on_right = self.bindings._right_field_name(term.right, join.right_alias, join.right_type) is not None
+        right_on_left = self.bindings._right_field_name(term.left, join.right_alias, join.right_type) is not None
+        if right_on_left == right_on_right:
+            raise TrinoLoweringError(
+                "TRINO_ASOF_CONSTRAINT_UNSUPPORTED", "ASOF inequality without one right field", term
+            )
+        nearest = term.right if right_on_right else term.left
+        left_time = term.left if right_on_right else term.right
+        if self.bindings._right_field_name(left_time, join.left_alias, join.left_type) is None:
+            raise TrinoLoweringError(
+                "TRINO_ASOF_CONSTRAINT_UNSUPPORTED", "ASOF inequality without one left field", term
+            )
+        ascending = term.op in _ASCENDING_OPS
+        return _NearestMatch(expr=nearest, direction="ASC" if ascending == right_on_right else "DESC")
+
+    def _analyze_constraint(self, join: _AsofJoin) -> _NearestMatch:
+        terms = join.constraint.exprs if isinstance(join.constraint, ast.And) else [join.constraint]
         equality_terms: list[ast.Expr] = []
-        nearest: ast.Expr | None = None
-        direction: Literal["ASC", "DESC"] = "DESC"
+        nearest: _NearestMatch | None = None
         for term in terms:
             if not isinstance(term, ast.CompareOperation):
                 raise TrinoLoweringError("TRINO_ASOF_CONSTRAINT_UNSUPPORTED", "ASOF with a non-comparison term", term)
             if term.op == ast.CompareOperationOp.Eq:
                 equality_terms.append(term)
                 continue
-            if nearest is not None or term.op not in {
-                ast.CompareOperationOp.Lt,
-                ast.CompareOperationOp.LtEq,
-                ast.CompareOperationOp.Gt,
-                ast.CompareOperationOp.GtEq,
-            }:
+            if nearest is not None:
                 raise TrinoLoweringError(
                     "TRINO_ASOF_CONSTRAINT_UNSUPPORTED", "ASOF without exactly one inequality", term
                 )
-            right_on_right = bindings._right_field_name(term.right, right_alias, right_type) is not None
-            right_on_left = bindings._right_field_name(term.left, right_alias, right_type) is not None
-            if right_on_left == right_on_right:
-                raise TrinoLoweringError(
-                    "TRINO_ASOF_CONSTRAINT_UNSUPPORTED", "ASOF inequality without one right field", term
-                )
-            nearest = term.right if right_on_right else term.left
-            left_time = term.left if right_on_right else term.right
-            if bindings._right_field_name(left_time, left_alias, left_type) is None:
-                raise TrinoLoweringError(
-                    "TRINO_ASOF_CONSTRAINT_UNSUPPORTED", "ASOF inequality without one left field", term
-                )
-            ascending = term.op in {ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq}
-            direction = "ASC" if ascending == right_on_right else "DESC"
+            nearest = self._nearest_match(term, join)
         if nearest is None or not equality_terms:
             raise TrinoLoweringError(
-                "TRINO_ASOF_CONSTRAINT_UNSUPPORTED", "ASOF needs equality keys and one inequality", right
+                "TRINO_ASOF_CONSTRAINT_UNSUPPORTED", "ASOF needs equality keys and one inequality", join.right
             )
-        bindings._right_key_expressions(ast.And(exprs=equality_terms), right_alias, right_type)
+        self.bindings._right_key_expressions(ast.And(exprs=equality_terms), join.right_alias, join.right_type)
+        return nearest
+
+    def _lower_join(self, join: _AsofJoin, nearest: _NearestMatch) -> _LoweredAsof:
         prefix = f"__hogql_asof_{self.index}"
         self.index += 1
-        while prefix in {left_alias, right_alias}:
+        while prefix in {join.left_alias, join.right_alias}:
             prefix += "_"
         row_name = f"{prefix}_left_row"
-        while row_name in left_columns:
+        while row_name in join.left_columns:
             row_name += "_"
         rank_name = f"{prefix}_rank"
         mappings = [
             (alias, name, f"{side}_{index}")
-            for side, alias, columns in [("left", left_alias, left_columns), ("right", right_alias, right_columns)]
+            for side, alias, columns in [
+                ("left", join.left_alias, join.left_columns),
+                ("right", join.right_alias, join.right_columns),
+            ]
             for index, name in enumerate(columns)
         ]
-        source = clone_expr(left, clear_types=False)
+        source = clone_expr(join.left, clear_types=False)
         source.next_join = None
         numbered = ast.SelectQuery(
-            select=[ast.Field(chain=[left_alias, name]) for name in left_columns]
+            select=[ast.Field(chain=[join.left_alias, name]) for name in join.left_columns]
             + [
                 ast.Alias(
                     alias=row_name, expr=ast.WindowFunction(name="row_number", exprs=[], over_expr=ast.WindowExpr())
@@ -120,7 +165,7 @@ class TrinoAsOfJoinLowerer(CloningVisitor):
             ],
             select_from=source,
         )
-        right.join_type = "LEFT JOIN" if "LEFT" in (right.join_type or "").split() else "INNER JOIN"
+        join.right.join_type = "LEFT JOIN" if "LEFT" in (join.right.join_type or "").split() else "INNER JOIN"
         projections: list[ast.Expr] = [
             ast.Alias(alias=output, expr=ast.Field(chain=[alias, name])) for alias, name, output in mappings
         ]
@@ -131,15 +176,15 @@ class TrinoAsOfJoinLowerer(CloningVisitor):
                     name="row_number",
                     exprs=[],
                     over_expr=ast.WindowExpr(
-                        partition_by=[ast.Field(chain=[left_alias, row_name])],
-                        order_by=[ast.OrderExpr(expr=nearest, order=direction)],
+                        partition_by=[ast.Field(chain=[join.left_alias, row_name])],
+                        order_by=[ast.OrderExpr(expr=nearest.expr, order=nearest.direction)],
                     ),
                 ),
             )
         )
         ranked = ast.SelectQuery(
             select=projections,
-            select_from=ast.JoinExpr(table=numbered, alias=left_alias, next_join=right),
+            select_from=ast.JoinExpr(table=numbered, alias=join.left_alias, next_join=join.right),
         )
         matched = ast.SelectQuery(
             select=[ast.Field(chain=[prefix, output]) for _, _, output in mappings],
@@ -148,22 +193,29 @@ class TrinoAsOfJoinLowerer(CloningVisitor):
                 left=ast.Field(chain=[prefix, rank_name]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=1)
             ),
         )
-        by_left = {name: output for alias, name, output in mappings if alias == left_alias}
-        by_right = {name: output for alias, name, output in mappings if alias == right_alias}
+        return _LoweredAsof(
+            prefix=prefix,
+            matched=matched,
+            by_left={name: output for alias, name, output in mappings if alias == join.left_alias},
+            by_right={name: output for alias, name, output in mappings if alias == join.right_alias},
+        )
+
+    def _rewrite_outputs(self, query: ast.SelectQuery, join: _AsofJoin, lowered: _LoweredAsof) -> None:
+        bindings = self.bindings
 
         class OutputRewriter(CloningVisitor):
-            def visit_select_query(self, query: ast.SelectQuery) -> ast.SelectQuery:
+            def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
                 raise TrinoLoweringError(
-                    "TRINO_ASOF_SUBQUERY_UNSUPPORTED", "ASOF with a subquery outside its inputs", query
+                    "TRINO_ASOF_SUBQUERY_UNSUPPORTED", "ASOF with a subquery outside its inputs", node
                 )
 
             def visit_field(self, field: ast.Field) -> ast.Field:
-                name = bindings._right_field_name(field, left_alias, left_type)
-                if name is not None and name in by_left:
-                    return ast.Field(chain=[prefix, by_left[name]])
-                name = bindings._right_field_name(field, right_alias, right_type)
-                if name is not None and name in by_right:
-                    return ast.Field(chain=[prefix, by_right[name]])
+                name = bindings._right_field_name(field, join.left_alias, join.left_type)
+                if name is not None and name in lowered.by_left:
+                    return ast.Field(chain=[lowered.prefix, lowered.by_left[name]])
+                name = bindings._right_field_name(field, join.right_alias, join.right_type)
+                if name is not None and name in lowered.by_right:
+                    return ast.Field(chain=[lowered.prefix, lowered.by_right[name]])
                 if isinstance(field.type, ast.FieldAliasType) and len(field.chain) == 1:
                     return field
                 raise TrinoLoweringError(
@@ -171,20 +223,26 @@ class TrinoAsOfJoinLowerer(CloningVisitor):
                 )
 
         rewriter = OutputRewriter(clear_types=False)
-        lowered.select = [rewriter.visit(expr) for expr in lowered.select]
+        query.select = [rewriter.visit(expr) for expr in query.select]
         for clause in ["where", "prewhere", "having", "qualify", "limit_by"]:
-            expression = getattr(lowered, clause)
+            expression = getattr(query, clause)
             if expression is not None:
-                setattr(lowered, clause, rewriter.visit(expression))
-        lowered.group_by = [rewriter.visit(expr) for expr in lowered.group_by] if lowered.group_by is not None else None
-        lowered.order_by = [rewriter.visit(expr) for expr in lowered.order_by] if lowered.order_by is not None else None
-        lowered.array_join_list = (
-            [rewriter.visit(expr) for expr in lowered.array_join_list] if lowered.array_join_list else None
+                setattr(query, clause, rewriter.visit(expression))
+        query.group_by = [rewriter.visit(expr) for expr in query.group_by] if query.group_by is not None else None
+        query.order_by = [rewriter.visit(expr) for expr in query.order_by] if query.order_by is not None else None
+        query.array_join_list = (
+            [rewriter.visit(expr) for expr in query.array_join_list] if query.array_join_list else None
         )
-        lowered.window_exprs = (
-            {name: rewriter.visit(expr) for name, expr in lowered.window_exprs.items()}
-            if lowered.window_exprs
-            else None
+        query.window_exprs = (
+            {name: rewriter.visit(expr) for name, expr in query.window_exprs.items()} if query.window_exprs else None
         )
-        lowered.select_from = ast.JoinExpr(table=matched, alias=prefix)
-        return lowered
+        query.select_from = ast.JoinExpr(table=lowered.matched, alias=lowered.prefix)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        query = super().visit_select_query(node)
+        join = self._asof_join(query)
+        if join is None:
+            return query
+        nearest = self._analyze_constraint(join)
+        self._rewrite_outputs(query, join, self._lower_join(join, nearest))
+        return query
