@@ -3,8 +3,10 @@ import json
 import uuid
 import asyncio
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Literal, Optional, cast
 
 from django.conf import settings
@@ -38,7 +40,7 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
-from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped, summarize_drop_error
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
     SIGNAL_DOCUMENT_PRODUCT,
@@ -1031,6 +1033,59 @@ BATCH_SIZE = 5
 BATCH_DEBOUNCE_SECONDS = 5
 TYPE_EXAMPLES_CACHE_TTL = timedelta(minutes=5)
 
+# Gate so workflows replaying history recorded before prep failures were retryable keep the
+# old drop-and-raise commands (Temporal nondeterminism).
+_PATCH_PREP_RETRY = "grouping-prep-retry-v1"
+
+PREP_RETRY_BASE_BACKOFF = timedelta(seconds=30)
+PREP_RETRY_MAX_BACKOFF = timedelta(minutes=5)
+# The backoff sequence over this many attempts spans a bit more than two hours, so a batch
+# survives a dependency outage of that length. The sequence counts the sleeps only. A round
+# that hangs until its activity timeouts expire adds that time on top, so this constant does
+# not bound the total wait. A batch that still fails is treated as poison and dropped,
+# because it holds the head of the team's queue while it retries.
+MAX_PREP_ATTEMPTS = 30
+
+
+class SignalBatchPrepError(Exception):
+    """The prep phase failed before any signal was emitted, so the batch is intact and retryable."""
+
+    def __init__(self, cause: BaseException) -> None:
+        super().__init__(str(cause))
+        self.cause_error = cause
+
+
+def prep_retry_backoff(attempt: int) -> timedelta:
+    """Backoff before retrying a failed prep phase. `attempt` counts consecutive failures, from 1."""
+    seconds = PREP_RETRY_BASE_BACKOFF.total_seconds() * 2 ** (attempt - 1)
+    return timedelta(seconds=min(seconds, PREP_RETRY_MAX_BACKOFF.total_seconds()))
+
+
+async def retry_or_drop_prep_batch(
+    batch: list[EmitSignalInputs],
+    error: BaseException,
+    attempt: int,
+    requeue: Callable[[], None],
+    **log_context: object,
+) -> int:
+    """Queue a batch again after a retryable prep failure, or give up on it.
+
+    Returns the attempt count to carry forward: `attempt` while the batch is still retried, and
+    0 once the batch is abandoned. An abandoned batch is reported as dropped here, which is the
+    only place a prep failure counts as a loss.
+    """
+    if attempt >= MAX_PREP_ATTEMPTS:
+        logger.exception("Giving up on signal batch after repeated preparation failures", **log_context)
+        await asyncio.gather(*(capture_signal_dropped(signal, error, stage="grouping_prep") for signal in batch))
+        return 0
+
+    logger.warning("Deferring signal batch after a retryable preparation failure", attempt=attempt, **log_context)
+    error_type, _ = summarize_drop_error(error)
+    metrics.increment_prep_deferred(reason=error_type, count=len(batch))
+    requeue()
+    await workflow.sleep(prep_retry_backoff(attempt))
+    return attempt
+
 
 @dataclass
 class _ProcessedBatchSignal:
@@ -1218,14 +1273,19 @@ async def _process_signal_batch(
         )
         report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
     except Exception as e:
-        # Nothing has been emitted yet, so the whole batch is explainable as dropped.
-        # The outer workflow handler can't emit these: it also catches post-emission
-        # failures (the CH wait in step 7), where signals were successfully assigned.
+        # Nothing has been emitted yet, so the whole batch is intact.
+        # The outer workflow handler can't tell this apart on its own: it also catches
+        # post-emission failures (the CH wait in step 7), where signals were assigned.
         logger.exception(
             "Failed to prepare signal batch",
             team_id=team_id,
             batch_size=len(batch),
         )
+        if workflow.patched(_PATCH_PREP_RETRY):
+            # The caller can queue the whole batch again, so drop telemetry belongs to it: it
+            # knows whether the batch is retried or abandoned. A drop reported here counts one
+            # transient dependency failure once per retry, and none of those signals are lost.
+            raise SignalBatchPrepError(e) from e
         await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
         raise
 
@@ -1468,6 +1528,7 @@ class TeamSignalGroupingWorkflow:
     def __init__(self) -> None:
         self._signal_buffer: list[EmitSignalInputs] = []
         self._signals_processed: int = 0
+        self._prep_attempt: int = 0
         self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
         self._type_examples_fetched_at: Optional[datetime] = None
         meter = workflow.metric_meter()
@@ -1487,6 +1548,10 @@ class TeamSignalGroupingWorkflow:
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
         return f"team-signal-grouping-{team_id}"
+
+    def _requeue_batch(self, batch: list[EmitSignalInputs]) -> None:
+        self._signal_buffer[:0] = batch
+        self._buffer_size_gauge.set(len(self._signal_buffer))
 
     @temporalio.workflow.signal
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
@@ -1538,8 +1603,24 @@ class TeamSignalGroupingWorkflow:
                 self._cached_type_examples = type_examples
                 self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
                 self._signals_dropped_counter.add(dropped)
+                self._prep_attempt = 0
+            except SignalBatchPrepError as e:
+                self._prep_attempt = await retry_or_drop_prep_batch(
+                    batch,
+                    e.cause_error,
+                    self._prep_attempt + 1,
+                    partial(self._requeue_batch, batch),
+                    team_id=input.team_id,
+                    batch_size=len(batch),
+                )
+                if self._prep_attempt > 0:
+                    continue
+                self._signals_dropped_counter.add(len(batch))
             except Exception:
                 # Parallel phase failed — all signals in batch dropped
+                # The count tracks consecutive preparation failures only, so a failure after
+                # preparation resets it rather than shortening the next batch's retries.
+                self._prep_attempt = 0
                 self._signals_dropped_counter.add(len(batch))
                 logger.exception(
                     "Failed to process signal batch",

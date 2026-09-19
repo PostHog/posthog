@@ -161,13 +161,19 @@ class BufferSignalsInput:
     pending_signals: list["EmitSignalInputs"] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True)
 class TeamSignalGroupingV2Input:
     """Inputs for the v2 grouping workflow."""
 
     team_id: int
     pending_batch_keys: list[str] = field(default_factory=list)
     paused_until: Optional[datetime] = None
+    # Keys held back by a preparation failure. They stay apart from pending_batch_keys so a
+    # later key cannot join a batch that already carries attempts against it.
+    retry_batch_keys: list[str] = field(default_factory=list)
+    # Consecutive preparation failures for those keys, carried over because the workflow
+    # continues as new after every processing round. Without it the backoff would never grow.
+    prep_attempt: int = 0
 
 
 @dataclass
