@@ -82,6 +82,23 @@ export const Archived: Story = {
   },
 };
 
+/**
+ * Selection mode: the gutter checkbox is pinned open on every card, and a selected card carries
+ * the accent border.
+ */
+export const Selected: Story = {
+  args: {
+    isSelected: true,
+    selectionMode: true,
+    onToggleSelected: () => {},
+  },
+};
+
+/** The checkbox a card offers before anything is selected; it only shows on hover or focus. */
+export const Selectable: Story = {
+  args: { onToggleSelected: () => {} },
+};
+
 /** Resolved report: terminal, reference-only, no actions rail at all. */
 export const Resolved: Story = {
   args: {

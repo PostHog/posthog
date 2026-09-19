@@ -95,7 +95,7 @@ export const NarrowWrappingTitle: Story = {
 };
 
 export const Selected: Story = {
-  args: { isSelected: true },
+  args: { isSelected: true, selectionMode: true, onToggleSelected: () => {} },
 };
 
 export const DismissPending: Story = {
