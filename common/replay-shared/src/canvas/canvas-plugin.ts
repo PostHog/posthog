@@ -17,6 +17,10 @@ type CanvasEventWithTime = eventWithTime & {
     data: canvasMutationData
 }
 
+function isCanvasNode(node: { nodeType: number; nodeName: string } | null | undefined): node is HTMLCanvasElement {
+    return !!node && node.nodeType === 1 && node.nodeName === 'CANVAS'
+}
+
 function isCanvasMutation(e: eventWithTime): e is CanvasEventWithTime {
     return e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.CanvasMutation
 }
@@ -193,7 +197,13 @@ export const CanvasReplayerPlugin = (
         void preload(e)
 
         const data = e.data as canvasMutationData
-        const source = replayer.getMirror().getNode(data.id) as HTMLCanvasElement
+        const mirrorNode = replayer.getMirror().getNode(data.id)
+        // The mirror can hold a non-canvas node for this id. WebKit throws when we write the
+        // snapshot size onto such a node, because properties like SVG `width` are read-only.
+        if (mirrorNode && !isCanvasNode(mirrorNode)) {
+            return
+        }
+        const source = mirrorNode
         const target = canvases.get(data.id) || (source && cloneCanvas(data.id, source))
 
         if (!target) {
@@ -362,8 +372,8 @@ export const CanvasReplayerPlugin = (
                 return
             }
 
-            if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
-                const canvasElement = node as HTMLCanvasElement
+            if (isCanvasNode(node)) {
+                const canvasElement = node
                 // The <img> takes the recorded canvas's place, so it is built in that canvas's own
                 // document. A blob: URL is fetched under the Content-Security-Policy of the document
                 // that owns the element, and the element owns that policy from the moment `src` is
