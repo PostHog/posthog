@@ -1,5 +1,6 @@
 // Postgres
 import { DateTime } from 'luxon'
+import { hostname } from 'os'
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
@@ -7,7 +8,18 @@ import { withSpan } from '~/common/tracing/tracing-utils'
 import { logger } from '../logger'
 import { createPostgresPool } from '../utils'
 import { DependencyUnavailableError } from './error'
-import { postgresErrorCounter } from './metrics'
+import {
+    postgresClientErrorCounter,
+    postgresClientRemovedInUseCounter,
+    postgresErrorCounter,
+    postgresLongOpenTransactionCounter,
+    postgresOpenAtShutdownCounter,
+    postgresOpenTransactionsGauge,
+    postgresPoolAcquireDurationHistogram,
+    postgresPoolClientEventsCounter,
+    postgresTransactionCounter,
+    postgresTransactionDurationHistogram,
+} from './metrics'
 import { timeoutGuard } from './utils'
 
 /** Config that PostgresRouter needs to create its connection pools. */
@@ -77,11 +89,54 @@ export enum PostgresUse {
 export class TransactionClient {
     readonly target: PostgresUse
     readonly client: PoolClient
+    /** Statement currently in flight, so a connection lost mid-transaction can be attributed to it. */
+    inFlightTag: string = 'none'
+    /** Last statement that finished, which names where a stalled transaction stopped progressing. */
+    lastCompletedTag: string = 'none'
 
     constructor(target: PostgresUse, client: PoolClient) {
         this.target = target
         this.client = client
     }
+}
+
+type OpenTransaction = { pool: string; tag: string; client: TransactionClient }
+
+/** Process-wide, so shutdown can name the transactions that never finished. */
+const openTransactions = new Set<OpenTransaction>()
+
+function openTransactionFor(client: PoolClient): OpenTransaction | undefined {
+    for (const open of openTransactions) {
+        if (open.client.client === client) {
+            return open
+        }
+    }
+    return undefined
+}
+
+/** Pool client churn is invisible from inside the app without these. */
+export function instrumentPool(pool: Pool, poolLabel: string): Pool {
+    pool.on('connect', () => postgresPoolClientEventsCounter.inc({ pool: poolLabel, event: 'connect' }))
+    pool.on('acquire', () => postgresPoolClientEventsCounter.inc({ pool: poolLabel, event: 'acquire' }))
+    pool.on('remove', (client: PoolClient) => {
+        postgresPoolClientEventsCounter.inc({ pool: poolLabel, event: 'remove' })
+        // A transaction deregisters before releasing, so anything still here was torn down under.
+        const open = openTransactionFor(client)
+        if (open) {
+            postgresClientRemovedInUseCounter.inc({
+                pool: poolLabel,
+                tag: open.tag,
+                in_flight: open.client.inFlightTag,
+            })
+            logger.warn('🔌', 'Postgres pool removed a client mid-transaction', {
+                pool: poolLabel,
+                tag: open.tag,
+                inFlight: open.client.inFlightTag,
+                lastCompleted: open.client.lastCompletedTag,
+            })
+        }
+    })
+    return pool
 }
 
 export class PostgresRouter {
@@ -90,12 +145,13 @@ export class PostgresRouter {
     constructor(serverConfig: PostgresRouterConfig, appName?: string) {
         installPostgresTypeParsers()
 
-        const app_name = appName ?? 'unknown'
+        // Postgres truncates application_name at 63 bytes. The mode stays the prefix so existing
+        // filters still match, and the hostname names the pod holding a stuck session.
+        const app_name = `${appName ?? 'unknown'}/${hostname()}`.slice(0, 63)
         logger.info('🤔', `Connecting to common Postgresql...`)
-        const commonClient = createPostgresPool(
-            serverConfig.DATABASE_URL,
-            serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-            app_name
+        const commonClient = instrumentPool(
+            createPostgresPool(serverConfig.DATABASE_URL, serverConfig.POSTGRES_CONNECTION_POOL_SIZE, app_name),
+            'COMMON_WRITE'
         )
         logger.info('👍', `Common Postgresql ready`)
         // We fill the pools maps with the default client by default as a safe fallback for hobby,
@@ -112,10 +168,13 @@ export class PostgresRouter {
             logger.info('🤔', `Connecting to read-only common Postgresql...`)
             this.pools.set(
                 PostgresUse.COMMON_READ,
-                createPostgresPool(
-                    serverConfig.DATABASE_READONLY_URL,
-                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                instrumentPool(
+                    createPostgresPool(
+                        serverConfig.DATABASE_READONLY_URL,
+                        serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                        app_name
+                    ),
+                    'COMMON_READ'
                 )
             )
             logger.info('👍', `Read-only common Postgresql ready`)
@@ -124,10 +183,13 @@ export class PostgresRouter {
             logger.info('🤔', `Connecting to plugin-storage Postgresql...`)
             this.pools.set(
                 PostgresUse.PLUGIN_STORAGE_RW,
-                createPostgresPool(
-                    serverConfig.PLUGIN_STORAGE_DATABASE_URL,
-                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                instrumentPool(
+                    createPostgresPool(
+                        serverConfig.PLUGIN_STORAGE_DATABASE_URL,
+                        serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                        app_name
+                    ),
+                    'PLUGIN_STORAGE_RW'
                 )
             )
             logger.info('👍', `Plugin-storage Postgresql ready`)
@@ -136,10 +198,13 @@ export class PostgresRouter {
             logger.info('🤔', `Connecting to persons Postgresql...`)
             this.pools.set(
                 PostgresUse.PERSONS_WRITE,
-                createPostgresPool(
-                    serverConfig.PERSONS_DATABASE_URL,
-                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                instrumentPool(
+                    createPostgresPool(
+                        serverConfig.PERSONS_DATABASE_URL,
+                        serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                        app_name
+                    ),
+                    'PERSONS_WRITE'
                 )
             )
             logger.info('👍', `Persons Postgresql ready`)
@@ -149,10 +214,13 @@ export class PostgresRouter {
             logger.info('🤔', `Connecting to behavioral cohorts Postgresql...`)
             this.pools.set(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
-                createPostgresPool(
-                    serverConfig.BEHAVIORAL_COHORTS_DATABASE_URL,
-                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                instrumentPool(
+                    createPostgresPool(
+                        serverConfig.BEHAVIORAL_COHORTS_DATABASE_URL,
+                        serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                        app_name
+                    ),
+                    'BEHAVIORAL_COHORTS_RW'
                 )
             )
             logger.info('👍', `Behavioral cohorts Postgresql ready`)
@@ -162,10 +230,13 @@ export class PostgresRouter {
             logger.info('🤔', `Connecting to persons read-only Postgresql...`)
             this.pools.set(
                 PostgresUse.PERSONS_READ,
-                createPostgresPool(
-                    serverConfig.PERSONS_READONLY_DATABASE_URL,
-                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                instrumentPool(
+                    createPostgresPool(
+                        serverConfig.PERSONS_READONLY_DATABASE_URL,
+                        serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                        app_name
+                    ),
+                    'PERSONS_READ'
                 )
             )
             logger.info('👍', `Persons read-only Postgresql ready`)
@@ -184,7 +255,20 @@ export class PostgresRouter {
     ): Promise<QueryResult<R>> {
         if (target instanceof TransactionClient) {
             const wrappedTag = `${PostgresUse[target.target]}:Tx<${tag}>`
-            return postgresQuery(target.client, queryString, values, wrappedTag, queryFailureLogLevel, target.target)
+            target.inFlightTag = tag
+            try {
+                return await postgresQuery(
+                    target.client,
+                    queryString,
+                    values,
+                    wrappedTag,
+                    queryFailureLogLevel,
+                    target.target
+                )
+            } finally {
+                target.lastCompletedTag = tag
+                target.inFlightTag = 'none'
+            }
         } else {
             const wrappedTag = `${PostgresUse[target]}<${tag}>`
             return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag, queryFailureLogLevel, target)
@@ -198,23 +282,99 @@ export class PostgresRouter {
     ): Promise<ReturnType> {
         const wrappedTag = `${PostgresUse[usage]}:Tx<${tag}>`
 
+        const poolLabel = PostgresUse[usage]
+
         return withSpan('postgres', 'query.postgres_transaction', { tag: wrappedTag }, async () => {
-            const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
-            const client = await this.pools.get(usage)!.connect()
+            // An exhausted pool waits here forever, so the acquire gets its own guard.
+            const acquireGuard = timeoutGuard(
+                `Postgres transaction still waiting for a pooled client!`,
+                () => ({ tag: wrappedTag }),
+                undefined,
+                true,
+                () => postgresLongOpenTransactionCounter.inc({ pool: poolLabel, tag, in_flight: 'acquiring' })
+            )
+            const acquireStart = performance.now()
+            let client: PoolClient
+            try {
+                client = await this.pools.get(usage)!.connect()
+            } finally {
+                clearTimeout(acquireGuard)
+            }
+            postgresPoolAcquireDurationHistogram.observe({ pool: poolLabel }, (performance.now() - acquireStart) / 1000)
+
+            const transactionClient = new TransactionClient(usage, client)
+            const timeout = timeoutGuard(
+                `Postgres slow transaction warning after 30 sec!`,
+                () => ({
+                    tag: wrappedTag,
+                    inFlight: transactionClient.inFlightTag,
+                    lastCompleted: transactionClient.lastCompletedTag,
+                }),
+                undefined,
+                true,
+                () =>
+                    postgresLongOpenTransactionCounter.inc({
+                        pool: poolLabel,
+                        tag,
+                        in_flight: transactionClient.inFlightTag,
+                    })
+            )
+            const openEntry: OpenTransaction = { pool: poolLabel, tag, client: transactionClient }
+            openTransactions.add(openEntry)
+            postgresOpenTransactionsGauge.inc({ pool: poolLabel, tag })
+            let clientError: Error | undefined
+            // pg drops the pool's idle error listener while a client is checked out, so without
+            // this an unhandled 'error' is thrown synchronously and takes the process down before
+            // the rejection pg queues for the in-flight query can reach the catch below.
+            const onClientError = (error: Error): void => {
+                clientError = error
+                postgresClientErrorCounter.inc({ pool: poolLabel, in_flight: transactionClient.inFlightTag })
+                logger.warn('🔌', 'Postgres client error during transaction', {
+                    tag: wrappedTag,
+                    inFlight: transactionClient.inFlightTag,
+                    lastCompleted: transactionClient.lastCompletedTag,
+                    // An Error's own fields are non-enumerable, so it logs as {} unserialised.
+                    error: String(error),
+                    stack: error.stack,
+                })
+            }
+            client.on('error', onClientError)
+
+            const started = performance.now()
+            let outcome = 'commit'
             try {
                 await client.query('BEGIN')
-                const response = await transaction(new TransactionClient(usage, client))
+                const response = await transaction(transactionClient)
                 await client.query('COMMIT')
                 return response
             } catch (e) {
-                await client.query('ROLLBACK')
+                outcome = 'rollback'
+                try {
+                    await client.query('ROLLBACK')
+                } catch (rollbackError) {
+                    // A lost connection cannot roll back, and the server discards the transaction
+                    // when it drops. Swallow it so the original error is the one thrown.
+                    outcome = 'rollback_failed'
+                    logger.warn('🔌', 'Postgres ROLLBACK failed', {
+                        tag: wrappedTag,
+                        error: String(rollbackError),
+                    })
+                }
 
-                // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
                 handlePostgresError(e, usage)
 
                 throw e
             } finally {
-                client.release()
+                client.removeListener('error', onClientError)
+                openTransactions.delete(openEntry)
+                postgresOpenTransactionsGauge.dec({ pool: poolLabel, tag })
+                postgresTransactionCounter.inc({ pool: poolLabel, tag, outcome })
+                postgresTransactionDurationHistogram.observe(
+                    { pool: poolLabel, tag, outcome },
+                    (performance.now() - started) / 1000
+                )
+                // Passing the error destroys the client rather than returning a poisoned one.
+                client.release(clientError)
                 clearTimeout(timeout)
             }
         })
@@ -225,6 +385,17 @@ export class PostgresRouter {
     }
 
     async end(): Promise<void> {
+        // Ending a pool under an open transaction abandons it, so name them before closing.
+        for (const open of openTransactions) {
+            postgresOpenAtShutdownCounter.inc({ pool: open.pool, tag: open.tag })
+            logger.warn('🔌', 'Postgres transaction still open at shutdown', {
+                pool: open.pool,
+                tag: open.tag,
+                inFlight: open.client.inFlightTag,
+                lastCompleted: open.client.lastCompletedTag,
+            })
+        }
+
         // Close all the connection pools
         const uniquePools: Set<Pool> = new Set(this.pools.values())
         for (const pool of uniquePools) {

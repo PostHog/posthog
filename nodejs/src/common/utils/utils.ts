@@ -427,7 +427,8 @@ export function createPostgresPool(
 ): Pool {
     const pgPool = new Pool({
         connectionString,
-        idleTimeoutMillis: 500,
+        // 500ms rebuilt connections about as fast as it handed them out.
+        idleTimeoutMillis: 10_000,
         application_name: applicationName,
         max: poolSize,
     })
