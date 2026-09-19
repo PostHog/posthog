@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.sync import database_sync_to_async
 
@@ -1195,6 +1195,54 @@ def test_register_worker_memory_stays_above_the_oom_floor() -> None:
     )
 
 
+def test_landing_copy_denial_stops_the_run_and_names_both_copy_prefixes(monkeypatch):
+    source_uri = "s3://source/team/customers__query_1234567890_abcdef12"
+    landing_uri = "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/1234567890_abcdef12"
+
+    class DeniedS3:
+        def find(self, prefix: str, detail: bool = False):
+            files = {f"{prefix}/a.parquet": {"Size": 100, "type": "file"}}
+            return files if detail else list(files)
+
+        def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
+            raise PermissionError(
+                "An error occurred (AccessDenied) when calling the PutObject operation: User: "
+                "arn:aws:sts::000000000000:assumed-role/example-role/example-session is not authorized"
+            )
+
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: DeniedS3())
+
+    with pytest.raises(ApplicationError) as failure:
+        registration_module._copy_prepared_parquet_files(source_uri, landing_uri)
+
+    assert failure.value.non_retryable is True
+    assert source_uri in failure.value.message
+    assert landing_uri in failure.value.message
+    assert "arn:aws" not in failure.value.message
+    assert isinstance(failure.value.__cause__, PermissionError)
+
+
+@pytest.mark.asyncio
+async def test_workflow_records_a_classified_activity_failure_on_the_source_job(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    failed_at = started_at + dt.timedelta(minutes=3)
+    denial = _activity_failure(ApplicationError("Access denied writing prepared Parquet files", non_retryable=True))
+    execute_activity = AsyncMock(side_effect=[True, None, _activity_inputs().metadata, denial, None, None])
+    _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "uuid4", MagicMock(return_value=uuid.UUID(int=11)))
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, failed_at, failed_at]),
+    )
+
+    with pytest.raises(ActivityError):
+        await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    assert _recorded_source_job_errors(execute_activity) == [None, "Access denied writing prepared Parquet files"]
+
+
 def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
     return DuckLakeRegisterDataImportsActivityInputs(
         team_id=1,
@@ -1217,6 +1265,28 @@ def _workflow_inputs() -> DuckLakeRegisterDataImportsInputs:
         schema_id=uuid.UUID("019ef5df-e4c7-0000-b543-8ef7f13b5f15"),
         prepared_queryable_folder="customers__query",
     )
+
+
+def _activity_failure(cause: BaseException) -> ActivityError:
+    error = ActivityError(
+        "Activity task failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="copy_and_register_ducklake_data_imports_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = cause
+    return error
+
+
+def _recorded_source_job_errors(execute_activity: AsyncMock) -> list[str | None]:
+    return [
+        call.args[1].latest_error
+        for call in execute_activity.await_args_list
+        if call.args[0] is registration_module.record_managed_warehouse_source_job_activity
+    ]
 
 
 def _recorded_source_job_statuses(execute_activity: AsyncMock) -> list[ManagedWarehouseSourceJobStatus]:
