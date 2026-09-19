@@ -21,6 +21,8 @@ interface ChunkLoadErrorBoundaryProps {
     children: ReactNode
     reload?: () => void
     fallback?: (error: unknown) => ReactNode
+    /** Called for a chunk-load failure the boundary handles, which the outer reporter never sees. */
+    onChunkLoadError?: (error: unknown) => void
 }
 
 export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProps, State> {
@@ -34,6 +36,7 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         if (!isChunkLoadError(error)) {
             return
         }
+        this.props.onChunkLoadError?.(error)
         let lastReload = 0
         try {
             lastReload = Number(window.localStorage.getItem(RELOAD_GUARD_KEY) ?? 0)

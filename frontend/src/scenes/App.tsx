@@ -202,8 +202,7 @@ function AppScene(): JSX.Element | null {
 
     const wrappedSceneElement = (
         <ErrorBoundary key={`error-${activeSceneId}`} exceptionProps={{ feature: activeSceneId }}>
-            {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
-            <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
+            {sceneContent}
         </ErrorBoundary>
     )
 
