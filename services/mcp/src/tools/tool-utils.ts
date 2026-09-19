@@ -1,3 +1,4 @@
+import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY, type Context } from '@/tools/types'
 
 /**
@@ -76,6 +77,46 @@ export function withInformationalResponse<T>(result: T, tag: string, purpose?: s
     })
 
     return wrappedResult as WithInformationalResponse<T>
+}
+
+const TEXT_PROJECTION_NOTE =
+    'Each row above is narrowed to the fields worth scanning. Read one row in full with the matching retrieve tool, or re-run this call with JSON output to get every field of every row.'
+
+/**
+ * Attach a compact text projection of a list result, leaving the structured payload whole.
+ *
+ * A row can be far wider than what a reader needs to choose between rows — a frozen scanner config and
+ * segmented model reasoning against an id, a status and a sentence. The response builder prefers
+ * `__formatted_results_override` over serializing the payload, so naming the fields worth reading is what
+ * keeps a wide list answerable. It also decides which channel the rows travel in: with no projection the
+ * builder moves the payload into `structuredContent` alone and leaves the text channel a pointer, which a
+ * host that reads only text turns into an answer with no rows in it.
+ *
+ * The projection is non-enumerable and computed on demand, so the object every other consumer sees — the
+ * UI app, a JSON caller — is the untouched result.
+ */
+export function withTextProjection<T>(result: T, fields: string[]): T {
+    if (result === null || typeof result !== 'object') {
+        return result
+    }
+    const source = result as Record<string, unknown>
+    const rows = source.results
+    if (!Array.isArray(rows)) {
+        return result
+    }
+    const wrappedResult = { ...source }
+    let formattedResult: string | undefined
+    Object.defineProperty(wrappedResult, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {
+        enumerable: false,
+        get: () => {
+            if (formattedResult === undefined) {
+                const projection = { ...source, results: rows.map((item) => pickResponseFields(item, fields)) }
+                formattedResult = `${formatResponse(projection)}\n\n${TEXT_PROJECTION_NOTE}`
+            }
+            return formattedResult
+        },
+    })
+    return wrappedResult as T
 }
 
 /**

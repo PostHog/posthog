@@ -107,17 +107,29 @@ tools:
             This is the "what has Replay Vision found about this session?" lookup — pair it with the session-recording
             MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query
             parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced
-            it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal
-            non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one
-            specific scanner over time instead, use `vision-scanners-observations-list`.
+            it, the observation `status` (pending/running/succeeded/failed/ineligible), and `summary_line` — one
+            line saying what the scanner found, or why it found nothing on a terminal non-success status. The
+            rows come back narrowed to the id, session, status and that line; read a row in full with
+            `vision-observations-retrieve`, which carries the whole `scanner_result` and `error_reason`. To list
+            observations for one specific scanner over time instead, use `vision-scanners-observations-list`.
         agent_note: >
-            Each observation's `_posthogUrl` opens the recording it analysed.
+            Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding
+            turns on, call `vision-observations-retrieve` for that row: its
             `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
-            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
-            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
+            `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>`
+            (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them.
         ui_app: vision-observation-list
         url_prefix: /replay
+        response:
+            text_include:
+                - id
+                - session_id
+                - status
+                - summary_line
+                - created_at
+                - scanner_id
+                - _posthogUrl
     vision-observations-retrieve:
         operation: vision_observations_retrieve
         enabled: true
@@ -477,15 +489,18 @@ tools:
             List the observations recorded by a single scanner. Each observation is one scan of one session and includes
             its `status` (pending/running/succeeded/failed/ineligible), `error_reason` (set on terminal non-success
             statuses, e.g. `too_short`/`no_recording` for ineligible or `provider_rejected`/`validation_failed` for
-            failed — useful for triaging why a scan produced no result), `triggered_by` (`schedule` or `on_demand`),
-            `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that
-            scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
-            found over time; to see every scanner's observations for one session, use `vision-observations-list`.
+            failed), the `session_id` of the recording it analysed, and `summary_line` — one line saying what the
+            scanner found, or why it found nothing, which is where the reason for a non-success status arrives.
+            The rows come back narrowed to the id, session, status and that line; read a row in full with
+            `vision-observations-retrieve`, which carries the whole `scanner_result` and `error_reason`. Use this
+            to inspect what a scanner has found over time; to see every scanner's observations for one session,
+            use `vision-observations-list`.
         agent_note: >
-            Each observation's `_posthogUrl` opens the recording it analysed.
+            Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding
+            turns on, call `vision-observations-retrieve` for that row: its
             `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
-            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
-            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
+            `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>`
+            (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the
             person's verdict on whether the scanner was right, and it is what
             `vision-scanners-prompt-suggestions-generate` learns the config from, so ask them for it and record what
@@ -493,6 +508,15 @@ tools:
             is team-wide, and a scanner's output can repeat text from the recording it analysed.
         ui_app: vision-observation-list
         url_prefix: /replay
+        response:
+            text_include:
+                - id
+                - session_id
+                - status
+                - summary_line
+                - created_at
+                - scanner_id
+                - _posthogUrl
     vision-scanners-observations-retry-create:
         operation: vision_scanners_observations_retry_create
         enabled: false
