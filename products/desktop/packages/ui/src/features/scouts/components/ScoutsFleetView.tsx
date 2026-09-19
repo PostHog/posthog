@@ -38,6 +38,7 @@ import {
 } from "../hooks/useScoutSuggestions";
 import { useTrackFleetViewed } from "../hooks/useTrackFleetViewed";
 import { ScoutAttentionStrip } from "./ScoutAttentionStrip";
+import { ScoutAttentionSummary } from "./ScoutAttentionSummary";
 import { ScoutSuggestions } from "./ScoutSuggestions";
 import { ScoutsEmptyState } from "./ScoutsEmptyState";
 import { ScoutTable } from "./ScoutTable";
@@ -99,6 +100,12 @@ export function ScoutsFleetView({
   const attention = useMemo(
     () => listScoutsNeedingAttention(allConfigs, rollups, now),
     [allConfigs, rollups, now],
+  );
+  // The header count has always covered the agents the system stopped or is
+  // about to stop; failing agents get their card in the strip below.
+  const pauseAttention = useMemo(
+    () => attention.filter((item) => item.kind !== "failing"),
+    [attention],
   );
   const originCounts = useMemo(() => {
     const counts: Record<OriginFilter, number> = {
@@ -275,21 +282,8 @@ export function ScoutsFleetView({
           </>
         )}
         <span className="flex-1" />
-        {/* One span, so a wrap never leaves its separator hanging on a line. */}
-        {summary.systemPausedCount > 0 || summary.pausingSoonCount > 0 ? (
-          <span className="text-(--amber-11)">
-            {[
-              summary.systemPausedCount > 0
-                ? `${summary.systemPausedCount} auto-paused`
-                : null,
-              summary.pausingSoonCount > 0
-                ? `${summary.pausingSoonCount} pausing soon`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-        ) : null}
+        {/* One element, so a wrap never leaves its separator hanging on a line. */}
+        <ScoutAttentionSummary items={pauseAttention} />
       </p>
 
       {suggestionCards}
