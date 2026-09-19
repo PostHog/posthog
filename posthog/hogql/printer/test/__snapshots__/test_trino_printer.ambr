@@ -307,6 +307,7 @@
       '_domainType',
       'embedText',
       'explainCSPReport',
+      'getAgentSource',
       'getBotName',
       'getBotOperator',
       'getBotType',

@@ -55,6 +55,7 @@
   - $virt_traffic_category (string)
   - $virt_bot_name (string)
   - $virt_bot_operator (string)
+  - $virt_agent_source (string)
   '''
 # ---
 # name: test_get_system_prompt
@@ -74,7 +75,7 @@
   
   And lastly these are some HogQL specific functions:
   ```
-  ['matchesAction', 'sparkline', 'recordingButton', 'explainCSPReport', 'sortablesemver', 'embedText', 'lookupDomainType', 'lookupPaidSourceType', 'lookupPaidMediumType', 'lookupOrganicSourceType', 'lookupOrganicMediumType', 'convertCurrency', 'getSurveyResponse', 'uniqueSurveySubmissionsFilter', 'getTrafficType', 'getTrafficCategory', 'isLikelyBot', 'getBotType', 'getBotName', 'getBotOperator']
+  ['matchesAction', 'sparkline', 'recordingButton', 'explainCSPReport', 'sortablesemver', 'embedText', 'lookupDomainType', 'lookupPaidSourceType', 'lookupPaidMediumType', 'lookupOrganicSourceType', 'lookupOrganicMediumType', 'convertCurrency', 'getSurveyResponse', 'uniqueSurveySubmissionsFilter', 'getTrafficType', 'getTrafficCategory', 'isLikelyBot', 'getBotType', 'getBotName', 'getBotOperator', 'getAgentSource']
   ```
   
   You fix HogQL errors that may come from either HogQL resolver errors or clickhouse execution errors. You don't help with other knowledge.
@@ -180,6 +181,7 @@
   - $virt_traffic_category (string)
   - $virt_bot_name (string)
   - $virt_bot_operator (string)
+  - $virt_agent_source (string)
   
   Below is the current HogQL query and the error message
   

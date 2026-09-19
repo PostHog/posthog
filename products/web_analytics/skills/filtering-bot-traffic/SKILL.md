@@ -49,6 +49,7 @@ so you don't pass anything in. Available wherever you pick an event property.
 | `$virt_traffic_category` | finer category, e.g. `ai_crawler`, `ai_search`, `ai_assistant`, `search_crawler`, `seo_crawler`, `social_crawler`, `monitoring`, `http_client`, `headless_browser`, `no_user_agent`, `regular` |
 | `$virt_bot_name`         | display name, e.g. `Googlebot`, `GPTBot`, `ClaudeBot`                                                                                                                                          |
 | `$virt_bot_operator`     | company behind the bot, e.g. `Google`, `OpenAI`, `Anthropic`                                                                                                                                   |
+| `$virt_agent_source`     | stable slug for the agent, e.g. `claude-browser`, `chatgpt-user`, `gptbot`; `headless-browser` / `generic-bot` for non-AI automation; empty for humans                                         |
 
 ### HogQL functions (raw SQL)
 
@@ -65,6 +66,7 @@ this mirrors the expression the virtual properties use internally.
 | `getBotType(ua)`         | same subcategory but empty string for humans — handy for filtering           |
 | `getBotName(ua)`         | bot name; empty for humans                                                   |
 | `getBotOperator(ua)`     | operator/company; empty for humans                                           |
+| `getAgentSource(ua)`     | stable agent slug (`claude-browser`, `gptbot`, …); empty for humans          |
 
 ## Traffic types — what to keep vs drop
 

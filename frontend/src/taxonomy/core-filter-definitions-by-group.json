@@ -3500,6 +3500,19 @@
             ],
             "label": "Viewport width"
         },
+        "$virt_agent_source": {
+            "description": "Stable identifier of the AI agent or bot that generated the event, detected from the user agent or from operator-published bot IP ranges. Empty for regular traffic.",
+            "examples": [
+                "claude-browser",
+                "chatgpt-user",
+                "gptbot",
+                "headless-browser",
+                "generic-bot"
+            ],
+            "label": "Agent source",
+            "type": "String",
+            "virtual": true
+        },
         "$virt_bot_name": {
             "description": "Name of the detected bot or crawler.",
             "examples": [

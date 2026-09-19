@@ -127,6 +127,12 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
     ),
+    "getAgentSource": HogQLFunctionMeta(
+        "getAgentSource",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
     # Deprecated __preview_* aliases — kept so ad-hoc queries written against the preview names keep working.
     "__preview_getTrafficType": HogQLFunctionMeta(
         "__preview_getTrafficType", 1, 1, signatures=[((StringType(),), StringType())]

@@ -63,3 +63,11 @@ def create_bot_operator_field(name: str, properties_path: Optional[list[str]] = 
         expr=ast.Call(name="getBotOperator", args=_classification_args(properties_path)),
         isolate_scope=True,
     )
+
+
+def create_agent_source_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
+    return ExpressionField(
+        name=name,
+        expr=ast.Call(name="getAgentSource", args=_classification_args(properties_path)),
+        isolate_scope=True,
+    )

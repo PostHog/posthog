@@ -219,6 +219,7 @@ class EventsTable(Table):
             "$virt_traffic_category",
             "$virt_bot_name",
             "$virt_bot_operator",
+            "$virt_agent_source",
         ]
 
 
