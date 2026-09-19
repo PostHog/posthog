@@ -86,13 +86,19 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
     listeners(({ actions, values }) => ({
         // Every keystroke would otherwise prune the graph and start a fresh ELK layout.
         setSearchTerm: async ({ searchTerm }, breakpoint) => {
+            // `resetFilters` clears the term without dispatching `setSearchTerm`, so a breakpoint
+            // never cancels this callback. Both waits below re-read the term, or a reset would
+            // reinstate the cleared search and report it as one the user ran.
             await breakpoint(250)
+            if (values.searchTerm !== searchTerm) {
+                return
+            }
             actions.setDebouncedSearchTerm(searchTerm)
 
             // Let typing settle further, so one search reports once rather than once per pause.
             await breakpoint(750)
             const term = searchTerm.trim()
-            if (!term) {
+            if (!term || values.searchTerm !== searchTerm) {
                 return
             }
             posthog.capture('lineage searched', {
@@ -156,16 +162,17 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 visibleNodes.length !== nodes.length,
         ],
 
-        // Null when no plain term is typed, so the scene can tell "nothing searched yet" from
-        // "nothing matched" — the two look identical while a plain term prunes nothing.
+        // Null when no plain term is typed and while the graph loads: the node list starts empty,
+        // so a term typed before it resolves would count zero and read as "nothing matched".
         searchMatchCount: [
-            (s) => [s.parsedSearch, s.highlightedNodeIds, s.visibleNodes],
+            (s) => [s.parsedSearch, s.highlightedNodeIds, s.visibleNodes, s.nodesLoading],
             (
                 parsedSearch: ParsedLineageSearch,
                 highlightedNodeIds: Set<string>,
-                visibleNodes: DataModelingNode[]
+                visibleNodes: DataModelingNode[],
+                nodesLoading: boolean
             ): number | null =>
-                parsedSearch.mode === 'search' && parsedSearch.term
+                !nodesLoading && parsedSearch.mode === 'search' && parsedSearch.term
                     ? visibleNodes.filter((node) => highlightedNodeIds.has(node.id)).length
                     : null,
         ],
