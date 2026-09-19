@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import AbstractAsyncContextManager, nullcontext
 from datetime import timedelta
 
 import temporalio.workflow
@@ -9,6 +10,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
+        MAX_CONCURRENT_METRICS_PER_RUN,
         MAX_METRIC_ATTEMPTS,
         METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
         RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS,
@@ -16,6 +18,8 @@ with temporalio.workflow.unsafe.imports_passed_through():
         RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
         RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
         ExperimentMetricsRecalculationWorkflowInputs,
+        ExperimentMetricToRecalculate,
+        MetricRecalculationResult,
         RecalculationProgressUpdate,
     )
     from products.experiments.backend.temporal.recalculation_activities import (
@@ -31,12 +35,12 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
     """Recalculate all metrics for an experiment on demand.
 
     Each run discovers all metrics, marks the job in_progress (which also pins the single data-window end),
-    schedules one calc activity per metric all at once, and finalizes the job status. The workflow imposes no
-    concurrency of its own, pacing is owned by the layers that actually constrain it: worker activity slots
-    (MAX_CONCURRENT_ACTIVITIES, autoscaled on task queue backlog) bound compute, and the per-org ClickHouse
-    app-query limiter bounds query fan-out. Scheduling every metric up front also keeps the task queue backlog
-    honest for the autoscaler. Per-metric progress counters and errors are folded into the calc activity
-    itself, so the workflow only writes progress at start and finish.
+    dispatches the calc activities with at most MAX_CONCURRENT_METRICS_PER_RUN in flight, and finalizes the
+    job status. The cap is the only bound on query fan-out: worker activity slots (MAX_CONCURRENT_ACTIVITIES,
+    autoscaled on task queue backlog) bound compute across runs, but the per-org ClickHouse app-query limiter
+    does not apply inside Temporal. Temporal still owns retries, so a metric that is backing off holds its
+    slot. Per-metric progress counters and errors are folded into the calc activity itself, so the workflow
+    only writes progress at start and finish.
     """
 
     @staticmethod
@@ -133,9 +137,18 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             maximum_interval=timedelta(seconds=RECALCULATION_RETRY_MAX_INTERVAL_SECONDS),
             maximum_attempts=MAX_METRIC_ATTEMPTS,
         )
-        results = await asyncio.gather(
-            *[
-                temporalio.workflow.execute_activity(
+        # The cap changes when each activity is scheduled, so an execution that recorded the old
+        # all-at-once history keeps replaying against it. asyncio.Semaphore is itself replay-safe:
+        # acquisition is FIFO over coroutines the workflow created, so slots are granted in the same order.
+        fan_out: AbstractAsyncContextManager = (
+            asyncio.Semaphore(MAX_CONCURRENT_METRICS_PER_RUN)
+            if temporalio.workflow.patched("recalc-bounded-fan-out-2026-09")
+            else nullcontext()
+        )
+
+        async def calculate(metric: ExperimentMetricToRecalculate) -> MetricRecalculationResult:
+            async with fan_out:
+                return await temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
                     args=[
                         metric.experiment_id,
@@ -150,10 +163,8 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     # fairness support.
                     priority=Priority(fairness_key=inputs.fairness_key),
                 )
-                for metric in metrics
-            ],
-            return_exceptions=True,
-        )
+
+        results = await asyncio.gather(*[calculate(metric) for metric in metrics], return_exceptions=True)
 
         succeeded = sum(1 for result in results if not isinstance(result, BaseException) and result.success)
         failed = len(results) - succeeded
