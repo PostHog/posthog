@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
@@ -6,6 +8,31 @@ use tracing::info;
 use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
+
+/// The unit that settles accepted offsets against the ledger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum CompletionGranularity {
+    /// A poll completes as a whole, oldest first.
+    #[default]
+    Poll,
+    /// Each send's groups complete on their own, in any order, and the ledger
+    /// frontier gates each partition's commit.
+    Group,
+}
+
+impl FromStr for CompletionGranularity {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "poll" => Ok(Self::Poll),
+            "group" => Ok(Self::Group),
+            other => Err(format!(
+                "unknown consumer completion granularity '{other}' (expected 'poll' or 'group')"
+            )),
+        }
+    }
+}
 
 /// Configuration for the ingestion consumer.
 ///
@@ -163,10 +190,16 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
-    /// Maximum Kafka batches to process concurrently. Matches the Node.js
-    /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
+    /// Maximum admitted Kafka polls; slots retire oldest first when a whole
+    /// poll is covered. Does not bound accepted offsets pending async commit.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
+
+    #[envconfig(from = "CONSUMER_COMPLETION_GRANULARITY", default = "poll")]
+    pub consumer_completion_granularity: CompletionGranularity,
+
+    #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
+    pub consumer_commit_interval_ms: u64,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
@@ -186,7 +219,7 @@ pub struct Config {
     pub debug_api_secret: String,
 
     // ---- Ordering sentinels ----
-    /// Kill switch for the ordering sentinels (per-partition commit
+    /// Kill switch for the ordering sentinels (poll-only partition-span
     /// contiguity/monotonicity checks and per-key send-order checks). They are
     /// pure observers with per-batch lock/state overhead bounded by in-flight
     /// work; disable only if that overhead is ever implicated. The commit-result
@@ -462,5 +495,24 @@ impl Config {
         builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CompletionGranularity;
+    use std::str::FromStr;
+
+    #[test]
+    fn completion_granularity_parses_known_values() {
+        assert_eq!(
+            CompletionGranularity::from_str(" POLL "),
+            Ok(CompletionGranularity::Poll)
+        );
+        assert_eq!(
+            CompletionGranularity::from_str("group"),
+            Ok(CompletionGranularity::Group)
+        );
+        assert!(CompletionGranularity::from_str("batch").is_err());
     }
 }

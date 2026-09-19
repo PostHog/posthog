@@ -53,7 +53,7 @@
       td.mono, th.mono { font-family: var(--mono); }
       td .bar { height: 6px; border-radius: 3px; background: var(--accent); min-width: 2px; }
       .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-      .pill.healthy, .pill.committed { background: rgba(63,185,80,0.16); color: var(--good); }
+      .pill.healthy, .pill.completed { background: rgba(63,185,80,0.16); color: var(--good); }
       .pill.degraded, .pill.retrying, .pill.stashed { background: rgba(210,153,34,0.16); color: var(--warn); }
       .pill.unhealthy, .pill.stalled, .pill.failed { background: rgba(248,81,73,0.16); color: var(--error); }
       .pill.draining, .pill.inflight { background: rgba(139,147,161,0.18); color: var(--muted); }
@@ -130,7 +130,7 @@
       .tl .item.error::before { background: var(--error); }
       .tl .item .t { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-right: 8px; }
 
-      /* commits */
+      /* commit submissions */
       .banner { margin: 12px 14px 0; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
       .banner.ok { background: rgba(63,185,80,0.12); color: var(--good); }
       .banner.bad { background: rgba(248,81,73,0.14); color: var(--error); font-weight: 600; }
@@ -177,7 +177,7 @@
         <div class="tabs">
           <div class="tab active" data-tab="feed">Live feed</div>
           <div class="tab" data-tab="batches">Batches <span class="badge" id="badge-batches"></span></div>
-          <div class="tab" data-tab="commits">Commits <span class="badge" id="badge-commits"></span></div>
+          <div class="tab" data-tab="commits">Commit submissions <span class="badge" id="badge-commits"></span></div>
         </div>
 
         <div id="tab-feed">
@@ -203,8 +203,9 @@
         </div>
 
         <div id="tab-commits" style="display:none;">
+          <div class="empty">Async commit submissions accepted by the Kafka client, not broker confirmations. Offsets are Kafka next-to-read positions and may span multiple polls.</div>
           <div id="commit-banner"></div>
-          <div id="commits"><div class="empty">Waiting for commits…</div></div>
+          <div id="commits"><div class="empty">Waiting for commit submissions…</div></div>
         </div>
       </section>
     </div>
@@ -224,7 +225,7 @@
       let batches = {};
       let batchOrder = [];
       let commits = [];
-      let partitionHigh = {}; // "topic/partition" -> highest committed offset
+      let partitionHigh = {}; // "topic/partition" -> highest submitted next-to-read offset
       let oooCount = 0;
       let renderPending = false;
 
@@ -350,7 +351,7 @@
         if (!b) {
           b = { id, ts: null, messages: 0, distinct_ids: 0, partitions: [],
                 assigned: [], flushed: [], deferred: [], retries: [], exhausted: [], splits: [],
-                committed: null, events: [] };
+                completed: null, events: [] };
           batches[id] = b;
           batchOrder.push(id);
           while (batchOrder.length > MAX_BATCHES) delete batches[batchOrder.shift()];
@@ -374,30 +375,31 @@
             case "SendRetry": b.retries.push({ worker: ev.worker, attempt: ev.attempt, reason: ev.reason, ts: ev.ts_ms }); break;
             case "SendSplit": b.splits.push({ worker: ev.worker, reason: ev.reason, chunks: ev.chunks, messages: ev.messages, ts: ev.ts_ms }); break;
             case "SendExhausted": b.exhausted.push({ worker: ev.worker, error: ev.error, ts: ev.ts_ms }); break;
-            case "BatchCommitted":
-              b.committed = { accepted: ev.accepted, duration_ms: ev.duration_ms, partitions: ev.partitions, ts: ev.ts_ms };
-              recordCommit(ev); break;
+            case "PollCompleted":
+              b.completed = { accepted: ev.accepted, duration_ms: ev.duration_ms, partitions: ev.partitions, ts: ev.ts_ms };
+              break;
           }
         }
+        if (ev.type === "CommitSubmitted") recordCommit(ev);
         if (ev.type === "ConsumerStarted") { batches = {}; batchOrder = []; commits = []; partitionHigh = {}; oooCount = 0; }
       }
 
       function recordCommit(ev) {
-        const rows = ev.partitions.map((p) => {
+        const rows = ev.offsets.map((p) => {
           const key = p.topic + "/" + p.partition;
           const prev = partitionHigh[key];
-          const outOfOrder = prev !== undefined && p.offset <= prev;
+          const outOfOrder = prev !== undefined && p.offset < prev;
           if (prev === undefined || p.offset > prev) partitionHigh[key] = p.offset;
           return { topic: p.topic, partition: p.partition, offset: p.offset, prev, outOfOrder };
         });
         const bad = rows.some((r) => r.outOfOrder);
         if (bad) oooCount++;
-        commits.unshift({ ts: ev.ts_ms, batch_id: ev.batch_id, accepted: ev.accepted, duration_ms: ev.duration_ms, rows, outOfOrder: bad });
+        commits.unshift({ ts: ev.ts_ms, rows, outOfOrder: bad });
         while (commits.length > MAX_COMMITS) commits.pop();
       }
 
       function batchStatus(b) {
-        if (b.committed) return "committed";
+        if (b.completed) return "completed";
         if (b.exhausted.length) return "stalled";
         if (b.deferred.length) return "stashed";
         if (b.retries.length) return "retrying";
@@ -405,7 +407,7 @@
       }
 
       // A batch whose lifecycle involved a retry or stash — the interesting ones,
-      // even if they ultimately committed cleanly.
+      // even if they ultimately completed cleanly.
       function hadIssue(b) {
         return b.retries.length || b.deferred.length || b.exhausted.length;
       }
@@ -428,7 +430,8 @@
             const routes = ev.sub_batches.map((s) => `${shortWorker(s.worker)}:${s.messages}`).join("  ");
             return ["warn", `↻ flushed deferred — batch <code>${shortId(ev.batch_id)}</code> → ${routes}`];
           }
-          case "BatchCommitted": return ["good", `✓ committed batch <code>${shortId(ev.batch_id)}</code> — ${ev.accepted} msgs in ${ev.duration_ms}ms`];
+          case "PollCompleted": return ["good", `✓ completed poll <code>${shortId(ev.batch_id)}</code> — ${ev.accepted} msgs in ${ev.duration_ms}ms (not a Kafka commit)`];
+          case "CommitSubmitted": return ["", `async commit submitted — next-to-read offsets ${ev.offsets.map((p) => `${escapeXml(p.topic)}/${p.partition}@${p.offset}`).join(" ")} (not broker-confirmed)`];
           case "BatchFailed": return ["error", `✗ batch failed — ${ev.error}`];
           case "SendRetry": return ["warn", `↻ retry #${ev.attempt} [${ev.reason}] — ${shortWorker(ev.worker)}, batch <code>${shortId(ev.batch_id)}</code>`];
           case "SendSplit": return ["warn", `✂ split [${ev.reason}] — ${ev.messages} msgs → ${ev.chunks} chunk(s), ${shortWorker(ev.worker)}, batch <code>${shortId(ev.batch_id)}</code>`];
@@ -563,7 +566,7 @@
             <span><i style="background:#4f7cff"></i>routed</span>
             <span><i style="background:#d29922"></i>deferred / flushed</span>
             <span><i style="background:#f85149"></i>send failed</span>
-            <span><i style="background:#3fb950"></i>acked / committed</span>
+            <span><i style="background:#3fb950"></i>acked / completed</span>
           </div>
           ${flow.html}
           <h2 style="border:none;padding:0 0 8px;">Lifecycle</h2>
@@ -575,7 +578,7 @@
       }
 
       // Build the node/edge model for a batch's flow graph. Nodes sit in four
-      // lanes (Kafka → assign → workers → commit); the stash lane hangs below and
+      // lanes (Kafka → assign → workers → completion); the stash lane hangs below and
       // the defer/flush edges connect it explicitly to assign and the workers.
       function buildFlow(b, workers) {
         const idx = {};
@@ -598,7 +601,7 @@
         const assignNode = `<div class="node" id="n-assign"><div class="title">Assign</div><div class="big">${b.distinct_ids}</div><div class="sub">distinct_ids</div></div>`;
 
         const workerNodes = workers.map((w, i) => {
-          const cls = w.exhausted ? "stalled" : b.committed ? "acked" : "";
+          const cls = w.exhausted ? "stalled" : b.completed ? "acked" : "";
           // Headline = messages this worker was initially assigned (bounded by the
           // batch), or, for a worker that only received re-routed work, the flushed
           // count. Re-routes are shown as a count, not summed into the headline —
@@ -609,7 +612,7 @@
           if (w.splits) badges.push(`<span class="badge-min warn">✂×${w.splits}</span>`);
           if (w.flushCount) badges.push(`<span class="badge-min warn">re-routed ×${w.flushCount}</span>`);
           if (w.exhausted) badges.push(`<span class="badge-min error">exhausted</span>`);
-          if (!w.exhausted && b.committed) badges.push(`<span class="badge-min">✓ acked</span>`);
+          if (!w.exhausted && b.completed) badges.push(`<span class="badge-min">✓ acked</span>`);
           return `<div class="node worker ${cls}" id="n-w-${i}"><div class="title">${shortWorker(w.worker)}</div><div class="big">${primary}</div><div class="sub">${badges.join(" ") || "sent"}</div></div>`;
         }).join("") || '<div class="node" id="n-w-none"><div class="sub">not yet assigned</div></div>';
 
@@ -621,9 +624,9 @@
           ? `<div class="node stash" id="n-stash"><div class="title">Stash / defer</div><div class="big">${totalDeferred}</div><div class="sub">${reasons}</div><div class="sub">⏸ ${fmtTime(firstDefer)}</div><div class="sub">${stashTiming}</div></div>`
           : "";
 
-        const sinkNode = b.committed
-          ? `<div class="node sink-ok" id="n-sink"><div class="title">Committed</div><div class="big">${b.committed.accepted}</div><div class="sub">${b.committed.duration_ms}ms · ${b.committed.partitions.map((p) => `${p.partition}@${p.offset}`).join(" ")}</div></div>`
-          : `<div class="node sink-pending" id="n-sink"><div class="title">In-flight</div><div class="sub">not committed</div></div>`;
+        const sinkNode = b.completed
+          ? `<div class="node sink-ok" id="n-sink"><div class="title">Poll completed</div><div class="big">${b.completed.accepted} msgs</div><div class="sub">${b.completed.duration_ms}ms · poll max offsets ${b.completed.partitions.map((p) => `${p.partition}@${p.offset}`).join(" ")}</div><div class="sub">Not a Kafka commit</div></div>`
+          : `<div class="node sink-pending" id="n-sink"><div class="title">In-flight</div><div class="sub">not completed</div></div>`;
 
         const html = `<div class="flow" id="flow">
           <div class="flow-main">
@@ -654,7 +657,7 @@
           Object.entries(flushedBy).forEach(([worker, f]) => { const i = idx[worker]; if (i != null) edges.push({ from: "n-stash", to: `n-w-${i}`, label: `flushed ${f.messages} · +${fmtDur(f.ts - firstDefer)}`, color: C.warn }); });
         }
 
-        if (b.committed) {
+        if (b.completed) {
           if (workers.length) workers.forEach((w, i) => { if (!w.exhausted) edges.push({ from: `n-w-${i}`, to: "n-sink", label: "acked", color: C.good }); });
           else edges.push({ from: "n-assign", to: "n-sink", label: "", color: C.good });
         }
@@ -718,31 +721,29 @@
       function renderCommits() {
         const banner = $("commit-banner");
         banner.innerHTML = oooCount
-          ? `<div class="banner bad">⚠ ${oooCount} out-of-order commit(s) detected — offsets went backwards for a partition</div>`
-          : commits.length ? `<div class="banner ok">✓ all ${commits.length} commits are in order (offsets monotonic per partition)</div>` : "";
+          ? `<div class="banner bad">⚠ ${oooCount} out-of-order submission(s) detected — submitted offsets went backwards for a partition</div>`
+          : commits.length ? `<div class="banner ok">✓ all ${commits.length} retained submissions are in order (submitted offsets nondecreasing per partition)</div>` : "";
 
         const el = $("commits");
-        if (!commits.length) { el.innerHTML = '<div class="empty">Waiting for commits…</div>'; return; }
+        if (!commits.length) { el.innerHTML = '<div class="empty">Waiting for commit submissions…</div>'; return; }
         const rows = commits.map((c) => {
           const chips = c.rows
             .slice()
             .sort((a, b) => a.partition - b.partition)
             .map((r) =>
-              `<span class="offchip ${r.outOfOrder ? "bad" : ""}" title="${r.topic}">
-                 <span class="pl">P${r.partition}</span>
+              `<span class="offchip ${r.outOfOrder ? "bad" : ""}">
+                 <span class="pl">${escapeXml(r.topic)}/P${r.partition}</span>
                  <span class="ov">${r.offset}</span>
                  ${r.outOfOrder ? `<span class="was">↓ was ${r.prev}</span>` : ""}
                </span>`
             ).join("");
           return `<tr class="${c.outOfOrder ? "ooo" : ""}">
             <td class="mono">${fmtTime(c.ts)}</td>
-            <td class="mono">${shortId(c.batch_id)}</td>
-            <td class="mono">${c.accepted}</td>
             <td><div class="offchips">${chips}</div></td>
             <td>${c.outOfOrder ? '<span class="pill failed">out of order</span>' : ""}</td>
           </tr>`;
         }).join("");
-        setHTML(el, `<table><thead><tr><th>Time</th><th>Batch</th><th>Msgs</th><th>Committed offset per partition</th><th></th></tr></thead><tbody>${rows}</tbody></table>`, "prepend");
+        setHTML(el, `<table><thead><tr><th>Submitted at</th><th>Submitted next-to-read offset per partition</th><th></th></tr></thead><tbody>${rows}</tbody></table>`, "prepend");
       }
 
       // ---------- tabs ----------
