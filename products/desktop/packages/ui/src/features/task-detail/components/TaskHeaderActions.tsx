@@ -15,7 +15,6 @@ import {
   useWorkspaceLoaded,
 } from "@posthog/ui/features/workspace/useWorkspace";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
-import { TaskAnalysisButton } from "./TaskAnalysisButton";
 import { TaskOverflowMenu } from "./TaskOverflowMenu";
 
 function TaskDiffStatsBadge({ task }: { task: Task }) {
@@ -50,9 +49,6 @@ export function TaskHeaderActions({ task }: { task: Task }) {
     <div className="flex h-full max-w-[50%] shrink-0 items-center justify-end gap-1 overflow-hidden px-1">
       <div className="no-drag flex">
         <AutoresearchHeaderButton taskId={task.id} />
-      </div>
-      <div className="no-drag flex">
-        <TaskAnalysisButton task={task} />
       </div>
       {workspace && (workspace.branchName || workspace.baseBranch) && (
         <div className="no-drag flex h-full min-w-0 items-center">
