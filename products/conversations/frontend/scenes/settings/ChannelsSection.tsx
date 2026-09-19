@@ -26,7 +26,6 @@ export function ChannelsSection(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { hashParams, searchParams } = useValues(router)
     const teamsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]
-    const githubEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]
 
     const widgetEnabled = !!currentTeam?.conversations_settings?.widget_enabled
     const activeTab = (hashParams.channel as ChannelTabKey | undefined) ?? DEFAULT_CHANNEL_TAB
@@ -87,7 +86,7 @@ export function ChannelsSection(): JSX.Element {
                     ),
                     content: <TeamsSection />,
                 },
-                githubEnabled && {
+                {
                     key: 'github' as const,
                     label: (
                         <span className="flex items-center gap-1.5">
