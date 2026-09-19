@@ -7,10 +7,12 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.utils import timezone
 
+import redis.exceptions
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationInvite
-from posthog.models.organization import BillingPeriod, OrganizationMembership
+from posthog.models.organization import BillingPeriod, OrganizationMembership, get_organization_session_age
 from posthog.models.user import User
 from posthog.organization_caching import (
     get_cached_organization,
@@ -252,6 +254,24 @@ class TestOrganization(BaseTest):
         self.organization.session_cookie_age = 7200
         self.organization.save()
         self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 7200)
+
+    @parameterized.expand(
+        [
+            ("connection_interrupted", ConnectionInterrupted(connection=None)),
+            ("redis_error", redis.exceptions.RedisError("redis is down")),
+            ("timeout", TimeoutError("timed out")),
+        ]
+    )
+    def test_session_age_cache_failure_does_not_break_save(self, _name, error):
+        self.organization.session_cookie_age = 3600
+        with patch.object(cache, "set", side_effect=error):
+            self.organization.save()
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.session_cookie_age, 3600)
+
+    def test_get_organization_session_age_returns_none_when_cache_fails(self):
+        with patch.object(cache, "get", side_effect=ConnectionInterrupted(connection=None)):
+            self.assertIsNone(get_organization_session_age(self.organization.id))
 
     def test_access_cache_reuses_organization_and_membership_details(self):
         with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
