@@ -481,9 +481,10 @@ export const CodeEnumApi = {
  * * `dataset_items` - dataset_items
  * * `dataset_item_versions` - dataset_item_versions
  */
-export type ResourceEnumApi = (typeof ResourceEnumApi)[keyof typeof ResourceEnumApi]
+export type DatasetConflictResponseResourceEnumApi =
+    (typeof DatasetConflictResponseResourceEnumApi)[keyof typeof DatasetConflictResponseResourceEnumApi]
 
-export const ResourceEnumApi = {
+export const DatasetConflictResponseResourceEnumApi = {
     Datasets: 'datasets',
     DatasetItems: 'dataset_items',
     DatasetItemVersions: 'dataset_item_versions',
@@ -517,7 +518,7 @@ export interface DatasetConflictResponseApi {
      * * `datasets` - datasets
      * * `dataset_items` - dataset_items
      * * `dataset_item_versions` - dataset_item_versions */
-    resource?: ResourceEnumApi
+    resource?: DatasetConflictResponseResourceEnumApi
     /** Number of resources that already exist. */
     current_count?: number
     /** Maximum number of resources allowed. */

@@ -126,6 +126,13 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "vision_alert": "replay_scanner",
 }
 
+# Every scope a rule write accepts: the project, the resource types with resource-level rules,
+# the resource types that inherit from one of them and take object rules only, and properties.
+# The schema names it RuleResourceEnum through ENUM_NAME_OVERRIDES in posthog/settings/web.py.
+RULE_RESOURCE_CHOICES: list[str] = sorted(
+    {"project", "property_definition", *ACCESS_CONTROL_RESOURCES, *RESOURCE_INHERITANCE_MAP}
+)
+
 # Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
 # parent's, this checks the child's own access first and falls back to the parent.
 # For example:
