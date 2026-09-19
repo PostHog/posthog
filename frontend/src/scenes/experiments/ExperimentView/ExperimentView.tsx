@@ -11,6 +11,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
+import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
 import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -36,7 +37,6 @@ import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Hypothesis } from './Hypothesis'
-import { Info } from './Info'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
@@ -167,7 +167,7 @@ export function ExperimentView(): JSX.Element {
                             context="experiment"
                         />
                     )}
-                    <Info />
+                    <ExperimentMetaBar />
                     <ExperimentHeader />
                     <LemonTabs
                         // Fall back to the default tab if the active one is conditionally hidden
