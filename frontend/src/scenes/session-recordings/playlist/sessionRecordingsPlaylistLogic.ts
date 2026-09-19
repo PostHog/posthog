@@ -2369,13 +2369,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     urlToAction(({ actions, values, props }) => {
-        const urlToAction = (_: any, params: ReplayURLSearchParamTypes): void => {
+        const urlToAction = (
+            _: any,
+            params: ReplayURLSearchParamTypes,
+            __: Record<string, any>,
+            payload: { initial?: boolean },
+            previousLocation: { searchParams: Record<string, any> }
+        ): void => {
             if (!props.updateSearchParams) {
                 return
             }
 
+            // Only a URL that names a different recording than it named before asks to change
+            // recordings. Other logics rewrite this URL for their own parameter and carry the
+            // recording id along untouched. The filters panel does that from inside the selection
+            // listener, before the selection reaches the URL, so reading its write as a request
+            // would answer it with the recording the viewer just left.
             const nulledSessionRecordingId = params.sessionRecordingId ?? null
-            if (nulledSessionRecordingId !== values.selectedRecordingId) {
+            const urlNamesAnotherRecording =
+                payload.initial ||
+                nulledSessionRecordingId !== (previousLocation.searchParams.sessionRecordingId ?? null)
+            if (urlNamesAnotherRecording && nulledSessionRecordingId !== values.selectedRecordingId) {
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
             }
 
