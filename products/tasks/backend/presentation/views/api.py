@@ -3500,7 +3500,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run resumed in cloud"),
             400: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Run already active or workflow failed"
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "Run is already active, is not a cloud run, belongs to a previous task owner, "
+                    "has an unsupported origin, or needs GitHub authorization"
+                ),
             ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -3515,7 +3519,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         },
         summary="Resume task run in cloud",
-        description="Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.",
+        description="Queue a restart of an existing task run in a cloud sandbox. The dispatcher terminates any existing workflow and starts a new one.",
     )
     @action(
         detail=True,
@@ -3581,12 +3585,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if outcome == "workflow_failed":
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Failed to start cloud workflow"}).data,
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
         return Response(TaskRunDetailSerializer(run).data)
 
     @staticmethod
