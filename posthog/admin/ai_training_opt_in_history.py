@@ -109,9 +109,8 @@ def _opt_in_activity(organization: Organization):
         organization_id=organization.id,
         scope="Organization",
         item_id=str(organization.id),
-        # This filter uses whole-column containment, not `detail__changes__contains`. Both match the
-        # same rows, because jsonb containment is recursive. Only this form uses the GIN index on
-        # detail. A filter on `detail -> 'changes'` scans the organization's whole activity history.
+        # The three columns above narrow this to one organization's own settings history, which is
+        # small, so the containment below is only ever a recheck over those rows.
         detail__contains={"changes": [{"field": AI_TRAINING_OPT_IN_FIELD}]},
     )
 
