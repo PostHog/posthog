@@ -73,7 +73,7 @@ export const loginTelemetryLogic = kea<loginTelemetryLogicType>([
         const error = loginLogic.findMounted()?.values.generalError
         if (error && error.code !== 'passkey_error' && error !== reportedError) {
             reportedError = error
-            captureFailure(stepForCode(error.code), error.code, values.preflight)
+            captureFailure(stepForCode(error.code), error.code, values.preflight, error.detail)
         }
     }),
     listeners(({ values }) => ({
@@ -89,7 +89,7 @@ export const loginTelemetryLogic = kea<loginTelemetryLogicType>([
                 return
             }
             reportedError = payload
-            captureFailure(stepForCode(payload.code), payload.code, values.preflight)
+            captureFailure(stepForCode(payload.code), payload.code, values.preflight, payload.detail)
         },
         // kea-forms carries the rejected response here, so the real reason survives. The manual-error
         // action cannot serve instead: it holds the message rather than the code, and it fires again
@@ -114,10 +114,18 @@ function stepForCode(code: string): LoginFailureStep {
     return code === 'passkey_error' ? 'passkey' : 'login'
 }
 
-function captureFailure(step: LoginFailureStep, code: string, preflight: PreflightStatus | null): void {
+function captureFailure(
+    step: LoginFailureStep,
+    code: string,
+    preflight: PreflightStatus | null,
+    detail?: string
+): void {
     posthog.capture('login failed', {
         step,
         error_code: code || 'unknown',
+        // Several distinct causes share one code, so the detail is what splits the bucket. Omitted
+        // when there is none, which keeps "no detail" apart from an empty one.
+        error_detail: detail || undefined,
         region: preflight?.region,
         ...precheckProperties(),
     })
