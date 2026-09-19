@@ -557,9 +557,13 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
     "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
     "'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), "
-    "or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, "
-    "analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed'. Use 'wrong_repo' when the agent "
-    "picked the wrong repository for this report, ideally with corrected_repository naming the right one. "
+    "or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing "
+    "resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three "
+    "codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked "
+    "to this one, whichever state carried the code. The dismissal codes (report_unclear, analysis_wrong, "
+    "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use "
+    "'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
+    "corrected_repository naming the right one. "
     "Use 'other' together with a dismissal_note for anything that doesn't fit a code."
 )
 
@@ -579,15 +583,17 @@ class SignalReportBulkStateOutcome(models.TextChoices):
 
 
 # Statuses a report may have held before being archived and still resolve straight out of the
-# archive. Mirrors the model's direct resolve edge (pending_input | ready -> resolved) plus RESOLVED
-# itself, which makes archive-then-resolve idempotent. FAILED is deliberately absent: the model
-# refuses FAILED -> RESOLVED directly, and suppression must not launder a failed report into looking
-# successfully resolved.
+# archive. Mirrors the model's direct resolve edge (pending_input | ready | failed -> resolved) plus
+# RESOLVED itself, which makes archive-then-resolve idempotent. FAILED is included because the model
+# resolves it directly, so the archive grants it nothing it could not do on its own — and a report
+# that failed in processing can only be reached through the archive, because a dismissal is the only
+# verdict the inbox offered it.
 _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     {
         SignalReport.Status.READY,
         SignalReport.Status.PENDING_INPUT,
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.FAILED,
     }
 )
 

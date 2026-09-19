@@ -13,7 +13,8 @@ from asgiref.sync import sync_to_async
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.artefact_schemas import RelatedTo
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import Dismissal, RelatedTo
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import SelfDrivingQuotaGate
@@ -419,6 +420,145 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
     refreshed_resolved = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
     assert refreshed_resolved.status == SignalReport.Status.RESOLVED
     assert refreshed_resolved.signal_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Recurrence after a dismissal that claimed the issue was fixed
+# ---------------------------------------------------------------------------
+
+
+async def _dismiss(report: SignalReport, reason: str) -> None:
+    await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+        team_id=report.team_id,
+        report_id=str(report.id),
+        content=Dismissal(reason=reason),
+        attribution=ArtefactAttribution.system(),
+    )
+
+
+async def _suppressed_report(team, reason: str) -> SignalReport:
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=team,
+        status=SignalReport.Status.SUPPRESSED,
+        total_weight=1.5,
+        signal_count=2,
+        title="original title",
+        summary="original summary",
+    )
+    await _dismiss(report, reason)
+    return report
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("reason", "forks"),
+    [
+        ("already_fixed", True),
+        ("fixed_outside_posthog", True),
+        ("pr_merged", True),
+        ("wontfix_intentional", False),
+        ("wontfix_irrelevant", False),
+        ("analysis_wrong", False),
+        ("report_unclear", False),
+        ("other", False),
+    ],
+)
+async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason, forks):
+    # A dismissal that claims the issue is fixed is contradicted by a new signal, so the signal
+    # starts a fresh report, exactly as a resolved report does. Every other reason states a
+    # preference about the report, so a sink stays the right answer.
+    parent = await _suppressed_report(ateam, reason)
+    input_ = _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    refreshed_parent = await database_sync_to_async(SignalReport.objects.get)(id=parent.id)
+    assert refreshed_parent.status == SignalReport.Status.SUPPRESSED
+    if not forks:
+        assert result.report_id == str(parent.id)
+        assert result.promoted is False
+        assert refreshed_parent.signal_count == 3
+        return
+
+    assert result.report_id != str(parent.id)
+    fork = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
+    assert fork.status == SignalReport.Status.CANDIDATE  # weight at threshold promotes it
+    assert fork.signal_count == 1
+    assert (fork.title, fork.summary) == ("original title", "original summary")
+    # The parent keeps its verdict and counts nothing: the recurrence lives on the fork.
+    assert refreshed_parent.signal_count == 2
+    link = await database_sync_to_async(
+        lambda: SignalReportArtefact.objects.get(report=fork, type=SignalReportArtefact.ArtefactType.RELATED_TO)
+    )()
+    assert RelatedTo.model_validate_json(link.content) == RelatedTo(report_id=str(parent.id))
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam):
+    # Dismissals stack, so an "already fixed" a reviewer has since overruled with a won't-fix must
+    # stop forking reports.
+    parent = await _suppressed_report(ateam, "already_fixed")
+    await _dismiss(parent, "wontfix_intentional")
+
+    result = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
+    )
+
+    assert result.report_id == str(parent.id)
+    assert result.promoted is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_second_recurrence_signal_joins_the_open_fork(ateam):
+    # A parent that absorbed hundreds of signals must produce one live recurrence report, not one
+    # per signal: the second signal accumulates on the first signal's fork.
+    parent = await _suppressed_report(ateam, "already_fixed")
+
+    first = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD * 0.5)
+    )
+    second = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD * 0.5)
+    )
+
+    assert second.report_id == first.report_id
+    fork = await database_sync_to_async(SignalReport.objects.get)(id=first.report_id)
+    assert fork.signal_count == 2
+    assert fork.total_weight == pytest.approx(WEIGHT_THRESHOLD)
+    # The second signal carried the fork over the weight threshold, so it promoted on its own.
+    assert second.promoted is True
+    assert fork.status == SignalReport.Status.CANDIDATE
+    forks = await database_sync_to_async(
+        lambda: SignalReport.objects.filter(team=ateam).exclude(id=parent.id).count()
+    )()
+    assert forks == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_recurrence_forks_again_once_the_previous_fork_is_resolved(ateam):
+    # A fork that was itself resolved has made its own claim that the issue is gone, so the next
+    # signal must not be absorbed into it either.
+    parent = await _suppressed_report(ateam, "already_fixed")
+    first = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
+    )
+
+    def _resolve() -> None:
+        fork = SignalReport.objects.get(id=first.report_id)
+        fork.status = SignalReport.Status.RESOLVED
+        fork.save(update_fields=["status"])
+
+    await database_sync_to_async(_resolve)()
+
+    second = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
+    )
+
+    assert second.report_id not in (str(parent.id), first.report_id)
 
 
 # ---------------------------------------------------------------------------

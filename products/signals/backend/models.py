@@ -546,9 +546,12 @@ class SignalReport(UUIDModel):
             case (S.RESOLVED, S.READY):
                 pass
 
-            # Only ready reports can resolve
+            # Only researched reports can resolve
             # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook)
-            case (S.PENDING_INPUT | S.READY, S.RESOLVED):
+            # FAILED resolves too: a run that died in processing still describes real work, and
+            # whoever fixed it needs a way to say so. Without this edge the only exit is a
+            # dismissal, which used to make the report a sink for every later recurrence.
+            case (S.PENDING_INPUT | S.READY | S.FAILED, S.RESOLVED):
                 # Just pass through to status setting
                 pass
 
