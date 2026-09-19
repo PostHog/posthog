@@ -1,4 +1,7 @@
-import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
+import type {
+  ConversationItem,
+  TurnContext,
+} from "@posthog/ui/features/sessions/components/buildConversationItems";
 import type { ToolGroupItem } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
 import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
 
@@ -92,6 +95,7 @@ export interface FlatThreadRow {
   turnTraceId?: string | null;
   /** Set alongside {@link turnTimestamp}: the agent response as plain text, for its copy button. */
   turnCopyText?: string;
+  turnToolCalls?: TurnContext["toolCalls"];
 }
 
 /**
@@ -118,6 +122,15 @@ export function completedTurnTraceId(turn: AgentTurn): string | null {
   return last?.turnContext.turnComplete
     ? (last.turnContext.traceId ?? null)
     : null;
+}
+
+export function completedTurnToolCalls(
+  turn: AgentTurn,
+): TurnContext["toolCalls"] | undefined {
+  const last = lastSessionUpdate(turn);
+  return last?.turnContext.turnComplete
+    ? last.turnContext.toolCalls
+    : undefined;
 }
 
 /** Viewport distance from the top of the loaded window that triggers an older-history page load. */
@@ -179,6 +192,8 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
           ? undefined
           : (buildTurnCopyText(row.items) ?? undefined);
       const traceId = timestamp == null ? null : completedTurnTraceId(row);
+      const toolCalls =
+        timestamp == null ? undefined : completedTurnToolCalls(row);
       for (let i = 0; i < row.items.length; i++) {
         const item = row.items[i];
         const isTrailing = i === row.items.length - 1;
@@ -191,6 +206,7 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
           turnId: isTrailing ? row.id : undefined,
           turnTraceId: isTrailing ? traceId : undefined,
           turnCopyText: isTrailing ? copyText : undefined,
+          turnToolCalls: isTrailing ? toolCalls : undefined,
         });
       }
       continue;
