@@ -14,6 +14,8 @@ from posthog.models import (
     OrganizationDomain,
     OrganizationMembership,
 )
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 from ee.models.scim_request_log import SCIMRequestLog
@@ -487,6 +489,22 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["request_path"], "/scim/v2/config/Users")
+
+    def test_admin_can_list_scim_logs_with_personal_api_key(self):
+        self._make_admin()
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped", user=self.user, secure_value=hash_key_value(value), scopes=["organization:read"]
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/identity_provider_configs/{config.id}/scim/logs",
+            headers={"Authorization": f"Bearer {value}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
     def test_member_cannot_list_scim_logs_for_config(self):
         config = IdentityProviderConfig.objects.create(organization=self.organization)

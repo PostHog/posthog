@@ -398,6 +398,8 @@ class SCIMTokenResponseSerializer(serializers.Serializer):
 @extend_schema(extensions={"x-product": "core"})
 class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
+    # Custom actions get no scope by default, so a scoped token is refused before the action runs.
+    scope_object_read_actions = ["list", "retrieve", "scim_logs"]
     serializer_class = IdentityProviderConfigSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     queryset = IdentityProviderConfig.objects.order_by("created_at")
