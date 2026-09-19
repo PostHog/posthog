@@ -451,7 +451,7 @@ def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
             if interval and str(interval) in _INTERVAL_ADJECTIVES
             else None,
             f"{sentence_case(joined)} over {range_text}" if range_text else None,
-            f"{sentence_case(notable_math)} for {joined}" if notable_math else None,
+            f"{sentence_case(notable_math)} for {joined}" if notable_math and len(series) == 1 else None,
             f"{sentence_case(joined)} over time",
             f"{sentence_case(joined)} by {breakdown} over {range_text}" if breakdown and range_text else None,
         ]
@@ -518,7 +518,7 @@ def _viz_description_candidates(query: InsightVizNode) -> list[str | None]:
             *formula_descriptions,
             f"Shows {joined}{adverb}{over_range}{by_breakdown}.",
             f"Tracks how {joined} changes over time{f' for each {breakdown}' if breakdown else ''}.",
-            f"Counts {notable_math} for {joined}{by_breakdown}." if notable_math else None,
+            f"Counts {notable_math} for {joined}{by_breakdown}." if notable_math and len(series) == 1 else None,
             f"Compares {joined} across {breakdown}." if breakdown and len(series) == 1 else None,
         ]
     return [f"A {kind.replace('Query', '').lower()} insight."]
