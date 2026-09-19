@@ -23,6 +23,12 @@ class HogQLPrinter(BasePrinter):
         # the target dialect ever runs.
         return
 
+    def _assert_recursive_cte_supported(self) -> None:
+        # WITH RECURSIVE is valid HogQL (the grammar and resolver support it), so the round-trip
+        # prints it back and leaves the decision to the target dialect. Rejecting here fires while
+        # `query.py` renders `self.hogql` for the response, hiding the target dialect's own message.
+        return
+
     def _assert_set_operator_supported(self, set_operator: str) -> None:
         # BY NAME is valid HogQL (the SQL dialects lower or reject it), so the round-trip
         # prints it back verbatim. Keep the base allowlist and INTERSECT ALL/EXCEPT ALL gates.
