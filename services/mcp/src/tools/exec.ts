@@ -793,6 +793,152 @@ function variantsOf(node: Record<string, unknown>): Record<string, unknown>[] {
 }
 
 /**
+ * The JSON Schema node a parameter path points at, walked one `properties` step
+ * per segment. Composition keywords are not descended, so a path that reaches
+ * into a union branch resolves to nothing rather than to the wrong branch.
+ */
+function schemaNodeAt(schema: ZodObjectAny, path: ReadonlyArray<PropertyKey>): Record<string, unknown> | undefined {
+    let node: unknown = inputJsonSchema(schema)
+    for (const segment of path) {
+        const properties = isRecord(node) ? node['properties'] : undefined
+        node = isRecord(properties) ? properties[String(segment)] : undefined
+    }
+    return isRecord(node) ? node : undefined
+}
+
+function valueAt(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
+    let node = input
+    for (const segment of path) {
+        if (!isRecord(node)) {
+            return undefined
+        }
+        node = node[String(segment)]
+    }
+    return node
+}
+
+/** The literal values a branch pins its discriminator to, from `const` or `enum`. */
+function pinnedSchemaValues(field: unknown): string[] {
+    if (!isRecord(field)) {
+        return []
+    }
+    const values = field['const'] !== undefined ? [field['const']] : Array.isArray(field['enum']) ? field['enum'] : []
+    return values.filter((value): value is string => typeof value === 'string')
+}
+
+function branchProperties(variant: Record<string, unknown>): Record<string, unknown> | undefined {
+    const properties = variant['properties']
+    return isRecord(properties) ? properties : undefined
+}
+
+/** Each branch of a discriminated union, keyed by the value that selects it. */
+function discriminatedBranches(
+    node: Record<string, unknown>,
+    discriminator: string
+): Map<string, Record<string, unknown>> {
+    const branches = new Map<string, Record<string, unknown>>()
+    for (const variant of variantsOf(node)) {
+        for (const value of pinnedSchemaValues(branchProperties(variant)?.[discriminator])) {
+            branches.set(value, variant)
+        }
+    }
+    return branches
+}
+
+/** The key every branch of a union pins to a literal: the selector the caller sets. */
+function schemaDiscriminatorKey(node: Record<string, unknown>): string | undefined {
+    const variants = variantsOf(node)
+    if (variants.length < 2) {
+        return undefined
+    }
+    // A key pinned by every variant is pinned by the first, so the first names the candidates.
+    return Object.keys(branchProperties(variants[0]!) ?? {}).find((name) =>
+        variants.every((variant) => pinnedSchemaValues(branchProperties(variant)?.[name]).length > 0)
+    )
+}
+
+/**
+ * The values a discriminated union's selector accepts, read off the schema.
+ *
+ * Zod reports a selector it does not recognize as a bare `Invalid input` with no
+ * branch errors attached, so `describeUnionIssue` has nothing to descend into and
+ * the caller is told its `kind` is wrong without ever being told which kinds
+ * exist. It then guesses again. The accepted values come from the tool's own
+ * schema, so naming them carries no caller input.
+ */
+function discriminatorOptions(
+    path: ReadonlyArray<PropertyKey>,
+    schema: ZodObjectAny | undefined
+): string[] | undefined {
+    if (!schema || path.length === 0) {
+        return undefined
+    }
+    const node = schemaNodeAt(schema, path.slice(0, -1))
+    if (!node) {
+        return undefined
+    }
+    const values = [...discriminatedBranches(node, String(path[path.length - 1])).keys()]
+    return values.length > 0 ? values : undefined
+}
+
+/** One rendering of an accepted-value list, so every rejection caps and reads the same. */
+function renderAcceptedValues(name: string, options: readonly string[]): string {
+    const shown = options.slice(0, MAX_UNION_VALUES_NAMED).join(', ')
+    const rest = options.length > MAX_UNION_VALUES_NAMED ? `, ... (${options.length} accepted values)` : ''
+    return `parameter "${name}" must be one of: ${shown}${rest}`
+}
+
+/**
+ * The fields the parameter that rejected a stray key does accept.
+ *
+ * `unexpected property: search` names what the tool refused but never what it
+ * takes instead, so the caller has to fetch the schema before it can retry — and
+ * the reports behind this asked for one valid shape at the point of rejection.
+ * For a union parameter the caller's own selector picks the branch described,
+ * because each branch takes different fields.
+ *
+ * Field names and schema-declared selector values only, never caller input.
+ */
+function acceptedFieldShape(
+    path: ReadonlyArray<PropertyKey>,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): string {
+    if (!schema || path.length === 0) {
+        return ''
+    }
+    const node = schemaNodeAt(schema, path)
+    if (!node) {
+        return ''
+    }
+    const name = path.map(String).join('.')
+    const properties = node['properties']
+    if (isRecord(properties)) {
+        return `; "${name}" accepts ${renderFieldShape(Object.keys(properties))}`
+    }
+    const discriminator = schemaDiscriminatorKey(node)
+    if (discriminator === undefined) {
+        return ''
+    }
+    // This reads the raw arguments, while the path describes the structure a preprocess
+    // produced, so a caller that sent the selector at the root has it nowhere on the path. Only
+    // a caller that sent no object there at all is read from the root, so a same-named key
+    // beside a properly nested parameter never picks a branch.
+    const nested = valueAt(input, path)
+    const selected = isRecord(nested)
+        ? nested[discriminator]
+        : path.length === 1
+          ? valueAt(input, [discriminator])
+          : undefined
+    const branch = typeof selected === 'string' ? discriminatedBranches(node, discriminator).get(selected) : undefined
+    const fields = branch && branchProperties(branch)
+    if (!fields) {
+        return ''
+    }
+    return `; "${name}" with "${discriminator}": "${selected as string}" accepts ${renderFieldShape(Object.keys(fields))}`
+}
+
+/**
  * Renders the shape the tool would have accepted, by nesting the caller's own
  * keys under the wrapper they omitted: `{"query": {"dateRange": ..., "limit": ...}}`.
  *
@@ -1033,17 +1179,16 @@ function unionValueOptions(branches: readonly (readonly z.core.$ZodIssue[])[]): 
 function describeUnionIssue(
     branches: readonly (readonly z.core.$ZodIssue[])[],
     path: ReadonlyArray<PropertyKey>,
+    schema: ZodObjectAny | undefined,
     depth = 0
 ): string | undefined {
     if (depth >= MAX_UNION_DEPTH) {
         return undefined
     }
     const name = path.map(String).join('.')
-    const options = unionValueOptions(branches)
+    const options = unionValueOptions(branches) ?? discriminatorOptions(path, schema)
     if (options) {
-        const shown = options.slice(0, MAX_UNION_VALUES_NAMED).join(', ')
-        const rest = options.length > MAX_UNION_VALUES_NAMED ? `, ... (${options.length} accepted values)` : ''
-        return `parameter "${name}" must be one of: ${shown}${rest}`
+        return renderAcceptedValues(name, options)
     }
     const branch = bestUnionBranch(branches)
     if (!branch) {
@@ -1052,7 +1197,7 @@ function describeUnionIssue(
     const parts = branch.slice(0, MAX_UNION_ISSUES_NAMED).map((issue) => {
         const nestedPath = [...path, ...issue.path]
         if (issue.code === 'invalid_union') {
-            const nested = describeUnionIssue(issue.errors, nestedPath, depth + 1)
+            const nested = describeUnionIssue(issue.errors, nestedPath, schema, depth + 1)
             if (nested) {
                 return nested
             }
@@ -1127,13 +1272,14 @@ export function formatInputValidationError(
             return `parameter "${path}" must be of type ${issue.expected}`
         }
         if (issue.code === 'invalid_union') {
-            const expanded = describeUnionIssue(issue.errors, issue.path)
+            const expanded = describeUnionIssue(issue.errors, issue.path, schema)
             if (expanded) {
                 return expanded
             }
         }
         if (issue.code === 'unrecognized_keys') {
-            return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}`
+            const label = issue.keys.length > 1 ? 'properties' : 'property'
+            return `unexpected ${label}: ${issue.keys.join(', ')}${acceptedFieldShape(issue.path, input, schema)}`
         }
         // A too-long string names the limit and the input's actual length so the
         // agent knows how much to trim (zod's default names only the limit).

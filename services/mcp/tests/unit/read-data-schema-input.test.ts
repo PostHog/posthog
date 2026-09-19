@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { toMcpInputSchema } from '@/hono/tool-catalog'
 import { ReadDataSchemaSchema } from '@/schema/tool-inputs'
+import { formatInputValidationError } from '@/tools/exec'
 
 describe('read-data-schema input', () => {
     it.each([
@@ -93,6 +94,26 @@ describe('read-data-schema input', () => {
             { query: { kind: 'event_properties', event_name: 'purchase', limit: 50 } },
             { query: { kind: 'event_properties', event_name: 'purchase' } },
         ],
+        [
+            'the camel-cased eventNames alias',
+            { query: { kind: 'event_properties', eventNames: ['purchase'] } },
+            { query: { kind: 'event_properties', event_name: 'purchase' } },
+        ],
+        [
+            'one event named on the events read',
+            { query: { kind: 'events', event_name: 'purchase' } },
+            { query: { kind: 'event_properties', event_name: 'purchase' } },
+        ],
+        [
+            'one entity named on the events read',
+            { query: { kind: 'events', entity: 'person' } },
+            { query: { kind: 'entity_properties', entity: 'person' } },
+        ],
+        [
+            'a one-property list',
+            { query: { kind: 'event_property_values', event_name: 'purchase', property_names: ['plan'] } },
+            { query: { kind: 'event_property_values', event_name: 'purchase', property_name: 'plan' } },
+        ],
     ])('accepts %s', (_name, input, expected) => {
         expect(ReadDataSchemaSchema.parse(input)).toEqual(expected)
     })
@@ -106,13 +127,41 @@ describe('read-data-schema input', () => {
         expect(parsed).toEqual({ query: { kind: 'event_properties', event_name: 'purchase' } })
     })
 
+    // Every rejection here is a shape callers keep sending, so the message has to name the read
+    // they can send instead. Told only that a key was refused, a caller guesses again.
     it.each([
-        ['a search term the events read cannot honor', { kind: 'events', search: 'purchase' }],
-        ['a kind this tool does not have and no field to fall back on', { kind: 'actions' }],
-        ['a subject this tool does not read', { table: 'stripe_invoices' }],
-        ['a multi-event list no single read can answer', { kind: 'event_properties', event_names: ['a', 'b'] }],
-    ])('still rejects %s', (_name, input) => {
-        expect(ReadDataSchemaSchema.safeParse(input).success).toBe(false)
+        [
+            'a search term the events read cannot honor',
+            { kind: 'events', search: 'purchase' },
+            'unexpected property: search; "query" with "kind": "events" accepts {"kind": ..., "limit": ..., "offset": ...}',
+        ],
+        [
+            'a kind this tool does not have and no field to fall back on',
+            { kind: 'actions' },
+            'parameter "query.kind" must be one of: events, event_properties, entity_properties',
+        ],
+        [
+            'a subject this tool does not read',
+            { table: 'stripe_invoices' },
+            'parameter "query.kind" must be one of: events, event_properties, entity_properties',
+        ],
+        [
+            'a multi-event list no single read can answer',
+            { kind: 'event_properties', event_names: ['a', 'b'] },
+            'parameter "query.event_name": this read takes one event per call, so send a separate call for each event',
+        ],
+        [
+            'a multi-property list no single read can answer',
+            { kind: 'event_property_values', event_name: 'purchase', property_names: ['plan', 'tier'] },
+            'parameter "query.property_name": this read takes one property per call, so send a separate call for each property',
+        ],
+    ])('still rejects %s, and names what to send instead', (_name, input, guidance) => {
+        const result = ReadDataSchemaSchema.safeParse(input, { reportInput: true })
+        expect(result.success).toBe(false)
+
+        expect(formatInputValidationError('read-data-schema', result.error!, input, ReadDataSchemaSchema)).toContain(
+            guidance
+        )
     })
 
     it('advertises the wrapped query as the only input shape', () => {
