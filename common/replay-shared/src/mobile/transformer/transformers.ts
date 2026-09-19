@@ -242,14 +242,20 @@ function makeTextElement(
     }
 }
 
+const WEB_VIEW_LABEL = 'Web view content is not recorded'
+
 function makeWebViewElement(
     wireframe: wireframe,
     children: serializedNodeWithId[],
     context: ConversionContext
 ): ConversionResult<serializedNodeWithId> | null {
     const labelledWireframe: wireframePlaceholder = { ...wireframe } as wireframePlaceholder
-    if ('url' in wireframe) {
-        labelledWireframe.label = wireframe.url
+    const url = 'url' in wireframe ? wireframe.url : undefined
+    labelledWireframe.label = url ? `${WEB_VIEW_LABEL}: ${url}` : WEB_VIEW_LABEL
+    labelledWireframe.style = {
+        // the placeholder hatching is dark, so the default foreground color is hard to read on it
+        color: BACKGROUND,
+        ...wireframe.style,
     }
 
     return makePlaceholderElement(labelledWireframe, children, context)

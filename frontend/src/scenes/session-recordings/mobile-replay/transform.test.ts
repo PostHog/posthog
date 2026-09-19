@@ -778,6 +778,28 @@ describe('replay/transform', () => {
                 ).toMatchSnapshot()
             })
 
+            test.each([
+                ['no url', undefined, 'Web view content is not recorded'],
+                ['a url', 'https://example.com', 'Web view content is not recorded: https://example.com'],
+            ])('web_view placeholder explains the empty box when the wireframe has %s', (_label, url, expected) => {
+                const result = transformEventToWeb({
+                    type: 2,
+                    data: {
+                        wireframes: [
+                            {
+                                id: 12365,
+                                width: 100,
+                                height: 30,
+                                type: 'web_view',
+                                ...(url ? { url } : {}),
+                            },
+                        ],
+                    },
+                    timestamp: 1,
+                })
+                expect(JSON.stringify(result)).toContain(expected)
+            })
+
             test('web_view with URL', () => {
                 expect(
                     transformEventToWeb({
