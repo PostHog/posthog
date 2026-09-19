@@ -184,7 +184,9 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
         invite_message: zod
             .string()
             .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
+            .describe(
+                'Optional one-time note included in the invitation email sent to the recipients this request adds. The subscription does not store it, so reads never return it.'
+            ),
         send_test_now: zod
             .boolean()
             .optional()
@@ -420,7 +422,9 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
         invite_message: zod
             .string()
             .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
+            .describe(
+                'Optional one-time note included in the invitation email sent to the recipients this request adds. The subscription does not store it, so reads never return it.'
+            ),
         send_test_now: zod
             .boolean()
             .optional()
@@ -661,7 +665,9 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
         invite_message: zod
             .string()
             .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
+            .describe(
+                'Optional one-time note included in the invitation email sent to the recipients this request adds. The subscription does not store it, so reads never return it.'
+            ),
         send_test_now: zod
             .boolean()
             .optional()
