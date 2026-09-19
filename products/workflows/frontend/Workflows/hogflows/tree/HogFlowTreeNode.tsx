@@ -1,21 +1,25 @@
 import { useActions } from 'kea'
 import { useEffect, useRef, useState } from 'react'
-import type { DragEvent } from 'react'
+import type { CSSProperties, DragEvent } from 'react'
 
-import { IconArrowRight, IconChevronDown } from '@posthog/icons'
+import { IconArrowRight, IconChevronDown, IconEllipsis } from '@posthog/icons'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Badge, Button, Item, ItemContent, ItemTitle, Text, cn } from 'lib/ui/quill'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { cn } from 'lib/utils/css-classes'
 
 import { getHogFlowBranchColor, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { HogFlowTreeBranchIndicator } from './HogFlowTreeBranchIndicator'
+import type { HogFlowEdge } from '../types'
 import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeStep } from './HogFlowTreeStep'
 import type { WorkflowTreeNode } from './workflowTree'
+import { getWorkflowTreeBranchSummary } from './workflowTreePresentation'
 
 const BRANCH_LIMIT = 6
+
 export function HogFlowTreeNode({
     activeDropzones,
     draggedActionId,
@@ -23,8 +27,9 @@ export function HogFlowTreeNode({
     node,
     onDragEnd,
     onDragStart,
-    branchColor,
     showIncomingConnector = true,
+    onFocusBranch,
+    onSelectContinuation,
 }: {
     activeDropzones: boolean
     draggedActionId: string | null
@@ -32,8 +37,9 @@ export function HogFlowTreeNode({
     node: WorkflowTreeNode
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string, dragPreviewElement: HTMLDivElement | null) => void
-    branchColor?: string
     showIncomingConnector?: boolean
+    onFocusBranch?: (edge: HogFlowEdge) => void
+    onSelectContinuation?: (actionId: string) => void
 }): JSX.Element {
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
@@ -41,17 +47,33 @@ export function HogFlowTreeNode({
     const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(new Set())
     const [showAllBranches, setShowAllBranches] = useState(false)
     const nodeRef = useRef<HTMLDivElement>(null)
-    const visibleBranches = showAllBranches ? node.branches : node.branches.slice(0, BRANCH_LIMIT)
+    const conditionBranches = node.branches.filter((branch) => branch.edge.type === 'branch')
+    const visibleBranches = showAllBranches
+        ? node.branches
+        : [
+              ...conditionBranches.slice(0, BRANCH_LIMIT),
+              ...node.branches.filter((branch) => branch.edge.type === 'continue'),
+          ]
     const hiddenBranchCount = node.branches.length - visibleBranches.length
     const joinEdge = node.joinEdges[0]
     const joinAction = node.joinAction
-    const branchNoun = node.action.type === 'random_cohort_branch' ? 'paths' : 'conditions'
+    const branchNoun = node.action.type === 'conditional_branch' ? 'conditions' : 'paths'
+
     const toggleBranchCollapsed = (branchKey: string): void => {
         setCollapsedBranches((current) => {
             const next = new Set(current)
             next.has(branchKey) ? next.delete(branchKey) : next.add(branchKey)
             return next
         })
+    }
+
+    const selectContinuation = (): void => {
+        if (joinAction) {
+            setSelectedBranch(null)
+            setSelectedNodeId(joinAction.id)
+            onSelectContinuation?.(joinAction.id)
+            document.getElementById(`workflow-tree-step-${joinAction.id}`)?.scrollIntoView({ block: 'center' })
+        }
     }
 
     useEffect(() => {
@@ -65,22 +87,18 @@ export function HogFlowTreeNode({
     const step = (
         <HogFlowTreeStep
             action={node.action}
-            branchColor={branchColor}
             collapseControl={
                 node.branches.length > 0 ? (
-                    <Tooltip title={`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}>
-                        <Button
-                            type="button"
-                            variant="default"
-                            size="icon"
-                            aria-label={`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
-                            onClick={() => setBranchesOpen((open) => !open)}
-                        >
-                            <IconChevronDown
-                                className={cn('size-5 transition-transform', !branchesOpen && '-rotate-90')}
-                            />
-                        </Button>
-                    </Tooltip>
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        className="!bg-transparent"
+                        aria-label={`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
+                        aria-expanded={branchesOpen}
+                        tooltip={`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
+                        icon={<IconChevronDown className={cn(!branchesOpen && '-rotate-90')} />}
+                        onClick={() => setBranchesOpen((open) => !open)}
+                    />
                 ) : undefined
             }
             onDragStart={onDragStart}
@@ -94,7 +112,7 @@ export function HogFlowTreeNode({
     )
 
     return (
-        <div ref={nodeRef} className="flex w-full flex-col">
+        <div ref={nodeRef} className="flex w-full min-w-0 flex-col">
             {node.incomingEdge && (
                 <HogFlowTreeDropzone
                     active={activeDropzones}
@@ -110,195 +128,234 @@ export function HogFlowTreeNode({
                 step
             ) : (
                 <>
-                    {step}
-                    {branchesOpen && (
-                        <div className="flex flex-col gap-3 pt-2" data-workflow-tree-branch-content={node.action.id}>
-                            {visibleBranches.map((branch, index) => {
-                                const branchIndex = branch.edge.type === 'branch' ? (branch.edge.index ?? index) : null
-                                const branchColor = getHogFlowBranchColor(branchIndex)
-                                const isBranchSelected =
-                                    selectedBranch?.actionId === node.action.id && selectedBranch.index === branchIndex
-                                const branchFilters =
-                                    branchIndex !== null && node.action.type === 'conditional_branch'
-                                        ? (node.action.config.conditions[branchIndex]?.filters.properties ?? [])
-                                        : []
-                                const cohortPercentage =
-                                    branchIndex !== null && node.action.type === 'random_cohort_branch'
-                                        ? node.action.config.cohorts[branchIndex]?.percentage
-                                        : undefined
-
-                                const branchKey = `${branch.edge.from}-${branch.edge.type}-${branch.edge.index ?? 'continue'}`
-                                const branchCollapsed = collapsedBranches.has(branchKey)
-                                const hiddenStepCount = branch.sequence.nodes.length
-
-                                return (
-                                    <div
-                                        key={branchKey}
-                                        className="relative flex min-w-0 flex-col ps-0"
-                                        data-workflow-branch-index={branchIndex ?? 'continue'}
+                    <div className="min-w-0">
+                        {step}
+                        {branchesOpen && (
+                            <div
+                                className="flex min-w-0 flex-col gap-3 pt-3"
+                                data-workflow-tree-branch-content={node.action.id}
+                            >
+                                {conditionBranches.length > BRANCH_LIMIT && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        className="self-start"
+                                        onClick={() => setShowAllBranches((showAll) => !showAll)}
+                                        data-attr="workflow-tree-toggle-more-branches"
                                     >
-                                        <Item
-                                            variant="outline"
-                                            size="xs"
-                                            className="relative z-10 flex-nowrap bg-card text-start"
-                                            style={{
-                                                borderColor: branchColor,
-                                                borderWidth: isBranchSelected ? 2 : undefined,
-                                            }}
-                                            data-attr="workflow-tree-select-branch"
+                                        {showAllBranches
+                                            ? 'Show fewer branches'
+                                            : `Show ${hiddenBranchCount} more branches`}
+                                    </LemonButton>
+                                )}
+                                {visibleBranches.map((branch, index) => {
+                                    const branchIndex =
+                                        branch.edge.type === 'branch' ? (branch.edge.index ?? index) : null
+                                    const pathColor = getHogFlowBranchColor(branchIndex)
+                                    const isBranchSelected =
+                                        selectedBranch?.actionId === node.action.id &&
+                                        selectedBranch.index === branchIndex
+                                    const branchFilters =
+                                        branchIndex !== null && node.action.type === 'conditional_branch'
+                                            ? (node.action.config.conditions[branchIndex]?.filters.properties ?? [])
+                                            : []
+                                    const percentage =
+                                        branchIndex !== null && node.action.type === 'random_cohort_branch'
+                                            ? node.action.config.cohorts[branchIndex]?.percentage
+                                            : undefined
+                                    const branchKey = `${branch.edge.from}-${branch.edge.type}-${branch.edge.index ?? 'continue'}`
+                                    const branchCollapsed = collapsedBranches.has(branchKey)
+                                    const badge =
+                                        node.action.type === 'conditional_branch'
+                                            ? branchIndex === null
+                                                ? 'Else'
+                                                : `If #${branchIndex + 1}`
+                                            : node.action.type === 'wait_until_condition'
+                                              ? branchIndex === null
+                                                  ? 'Timeout'
+                                                  : 'Match'
+                                              : branchIndex === null
+                                                ? 'Fallback'
+                                                : percentage !== undefined
+                                                  ? `${percentage}%`
+                                                  : `${branchIndex + 1}`
+
+                                    return (
+                                        <div
+                                            key={branchKey}
+                                            className="relative min-w-0 ps-6"
+                                            data-workflow-branch-index={branchIndex ?? 'continue'}
                                         >
-                                            <Button
-                                                type="button"
-                                                variant="link"
-                                                className="absolute inset-0 z-0 h-full w-full"
-                                                aria-label={`Edit ${branch.label} path from ${node.action.name}`}
-                                                aria-pressed={isBranchSelected}
-                                                onClick={() => {
-                                                    setSelectedNodeId(node.action.id)
-                                                    setSelectedBranch({ actionId: node.action.id, index: branchIndex })
-                                                }}
-                                            />
-                                            <Badge
-                                                variant="default"
-                                                className="pointer-events-none relative z-10 font-mono text-xxs"
-                                                style={{ color: branchColor, borderColor: branchColor }}
+                                            <svg
+                                                aria-hidden="true"
+                                                className="pointer-events-none absolute start-2 -top-3 h-9 w-4 text-[var(--border-bold-3000)] rtl:-scale-x-100"
+                                                viewBox="0 0 16 36"
+                                                fill="none"
                                             >
-                                                {branch.edge.type === 'continue' ? 'ELSE' : 'IF'}
-                                            </Badge>
-                                            <ItemContent className="pointer-events-none relative z-10 min-w-0">
-                                                <ItemTitle className="max-w-full truncate text-xs">
-                                                    {branch.label}
-                                                </ItemTitle>
-                                            </ItemContent>
-                                            {branchFilters.length > 0 && (
-                                                <div className="pointer-events-none relative z-10 ms-auto min-w-0 max-w-[60%] overflow-hidden [&_.PropertyFilterButton]:!gap-1 [&_.PropertyFilterButton]:!px-1.5 [&_.PropertyFilterButton]:!py-px [&_.PropertyFilterButton]:!text-xs [&_.PropertyFilterButton>_.LemonIcon]:!text-xs">
-                                                    <PropertyFiltersDisplay filters={branchFilters} compact />
-                                                </div>
+                                                <path
+                                                    d={`M 1 0 V 23 A 12 12 0 0 0 13 35 H 16${index < visibleBranches.length - 1 ? ' M 1 23 V 36' : ''}`}
+                                                    stroke="currentColor"
+                                                    strokeWidth={2}
+                                                />
+                                            </svg>
+                                            {index < visibleBranches.length - 1 && (
+                                                <span
+                                                    aria-hidden="true"
+                                                    className="pointer-events-none absolute start-2 top-6 -bottom-3 border-s-2 border-[var(--border-bold-3000)]"
+                                                />
                                             )}
-                                            {cohortPercentage !== undefined && (
-                                                <Text
-                                                    size="xs"
-                                                    variant="muted"
-                                                    render={<span />}
-                                                    className="pointer-events-none relative z-10 ms-auto shrink-0"
+                                            <div
+                                                className="min-w-0 rounded ring-inset ring-[var(--workflow-branch-color)] has-[>[data-workflow-branch-header]:is(:hover,:focus-within)]:bg-[color-mix(in_srgb,var(--workflow-branch-color)_8%,transparent)] has-[>[data-workflow-branch-header]:is(:hover,:focus-within)]:ring-1"
+                                                style={{ '--workflow-branch-color': pathColor } as CSSProperties}
+                                                data-workflow-branch-highlight
+                                            >
+                                                <div
+                                                    data-workflow-branch-header
+                                                    className={cn(
+                                                        'flex min-w-0 items-start gap-2 rounded p-2',
+                                                        isBranchSelected && 'bg-surface-secondary ring-1 ring-primary'
+                                                    )}
                                                 >
-                                                    {cohortPercentage}%
-                                                </Text>
-                                            )}
-                                            <div className="relative z-20 ms-auto flex shrink-0 items-center gap-1">
-                                                <Tooltip title={`${branchCollapsed ? 'Show' : 'Hide'} branch steps`}>
-                                                    <Button
-                                                        type="button"
-                                                        variant="default"
-                                                        size="xs"
-                                                        className={cn(
-                                                            !(branchCollapsed && hiddenStepCount > 0) && '!w-5 !px-0'
-                                                        )}
+                                                    <LemonButton
+                                                        type="tertiary"
+                                                        size="xsmall"
+                                                        className="!bg-transparent"
                                                         aria-label={`${branchCollapsed ? 'Show' : 'Hide'} branch steps`}
+                                                        aria-expanded={!branchCollapsed}
+                                                        icon={
+                                                            <IconChevronDown
+                                                                className={cn(branchCollapsed && '-rotate-90')}
+                                                            />
+                                                        }
                                                         onClick={() => toggleBranchCollapsed(branchKey)}
-                                                    >
-                                                        {branchCollapsed &&
-                                                            hiddenStepCount > 0 &&
-                                                            `${hiddenStepCount} ${hiddenStepCount === 1 ? 'step' : 'steps'} hidden`}
-                                                        <IconChevronDown
-                                                            className={cn(
-                                                                'size-4 transition-transform',
-                                                                branchCollapsed && '-rotate-90'
+                                                    />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                                                            <LemonButton
+                                                                type="tertiary"
+                                                                size="xsmall"
+                                                                className="!px-0 max-w-full"
+                                                                aria-label={`Edit ${branch.label} path from ${node.action.name}`}
+                                                                aria-pressed={isBranchSelected}
+                                                                onClick={() => {
+                                                                    setSelectedNodeId(node.action.id)
+                                                                    setSelectedBranch({
+                                                                        actionId: node.action.id,
+                                                                        index: branchIndex,
+                                                                    })
+                                                                }}
+                                                                data-attr="workflow-tree-select-branch"
+                                                            >
+                                                                <span className="flex min-w-0 flex-wrap items-center gap-2">
+                                                                    <LemonTag
+                                                                        size="small"
+                                                                        className="shrink-0"
+                                                                        style={{
+                                                                            color: pathColor,
+                                                                            borderColor: pathColor,
+                                                                        }}
+                                                                    >
+                                                                        {badge}
+                                                                    </LemonTag>
+                                                                    <span className="break-words whitespace-normal">
+                                                                        {branch.label}
+                                                                    </span>
+                                                                </span>
+                                                            </LemonButton>
+                                                            {branchFilters.length > 0 && (
+                                                                <div className="pointer-events-none ms-auto min-w-0 max-w-full text-xs">
+                                                                    <PropertyFiltersDisplay
+                                                                        filters={branchFilters}
+                                                                        compact
+                                                                    />
+                                                                </div>
                                                             )}
+                                                        </div>
+                                                        {branchCollapsed && (
+                                                            <p className="mb-0 mt-1 break-words text-xs text-secondary">
+                                                                {getWorkflowTreeBranchSummary(node, branch)}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    {onFocusBranch &&
+                                                        (branch.sequence.nodes.length > 1 ||
+                                                            branch.sequence.nodes.some(
+                                                                (child) => child.branches.length > 0
+                                                            )) && (
+                                                            <LemonMenu
+                                                                items={[
+                                                                    {
+                                                                        label: 'Focus on this path',
+                                                                        onClick: () => onFocusBranch(branch.edge),
+                                                                    },
+                                                                ]}
+                                                            >
+                                                                <LemonButton
+                                                                    type="tertiary"
+                                                                    size="xsmall"
+                                                                    className="!bg-transparent shrink-0"
+                                                                    icon={<IconEllipsis />}
+                                                                    aria-label={`Actions for ${branch.label}`}
+                                                                    tooltip="Path actions"
+                                                                    data-attr="workflow-tree-focus-branch"
+                                                                />
+                                                            </LemonMenu>
+                                                        )}
+                                                </div>
+                                                <div
+                                                    className={cn(
+                                                        'min-w-0 ps-3 ms-2 mt-2',
+                                                        branchCollapsed && 'hidden'
+                                                    )}
+                                                >
+                                                    {branch.sequence.nodes.map((childNode, childIndex) => (
+                                                        <HogFlowTreeNode
+                                                            key={childNode.action.id}
+                                                            node={childNode}
+                                                            activeDropzones={activeDropzones}
+                                                            draggedActionId={draggedActionId}
+                                                            draggedActionIdRef={draggedActionIdRef}
+                                                            onDragStart={onDragStart}
+                                                            onDragEnd={onDragEnd}
+                                                            showIncomingConnector={childIndex > 0}
+                                                            onFocusBranch={onFocusBranch}
+                                                            onSelectContinuation={onSelectContinuation}
                                                         />
-                                                    </Button>
-                                                </Tooltip>
+                                                    ))}
+                                                    {branch.sequence.trailingEdge && (
+                                                        <HogFlowTreeDropzone
+                                                            active={activeDropzones}
+                                                            draggedActionId={draggedActionId}
+                                                            draggedActionIdRef={draggedActionIdRef}
+                                                            onDragEnd={onDragEnd}
+                                                            edge={branch.sequence.trailingEdge}
+                                                            showConnector={false}
+                                                            alwaysVisible={branch.sequence.nodes.length === 0}
+                                                            insertionLabel={`Add step to ${branch.label}`}
+                                                        />
+                                                    )}
+                                                    {joinAction && (
+                                                        <div className="relative">
+                                                            <LemonButton
+                                                                type="tertiary"
+                                                                size="xsmall"
+                                                                className="!px-0"
+                                                                icon={<IconArrowRight />}
+                                                                onClick={selectContinuation}
+                                                                data-attr="workflow-tree-select-continuation"
+                                                            >
+                                                                <span className="break-words whitespace-normal">{`Continue to: ${joinAction.name}`}</span>
+                                                            </LemonButton>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </Item>
-                                        <div className={cn('flex flex-col ps-8', branchCollapsed && 'hidden')}>
-                                            {branch.sequence.nodes.length === 0 && (
-                                                <div className="relative">
-                                                    <HogFlowTreeBranchIndicator
-                                                        color={branchColor}
-                                                        className="inset-y-2"
-                                                    />
-                                                    <Text size="xs" variant="muted" className="py-2">
-                                                        No steps in this branch.
-                                                    </Text>
-                                                </div>
-                                            )}
-                                            {branch.sequence.nodes.map((childNode, childIndex) => (
-                                                <HogFlowTreeNode
-                                                    key={childNode.action.id}
-                                                    node={childNode}
-                                                    activeDropzones={activeDropzones}
-                                                    draggedActionId={draggedActionId}
-                                                    draggedActionIdRef={draggedActionIdRef}
-                                                    onDragStart={onDragStart}
-                                                    onDragEnd={onDragEnd}
-                                                    branchColor={branchColor}
-                                                    showIncomingConnector={childIndex > 0}
-                                                />
-                                            ))}
-                                            {branch.sequence.trailingEdge && (
-                                                <HogFlowTreeDropzone
-                                                    active={activeDropzones}
-                                                    draggedActionId={draggedActionId}
-                                                    draggedActionIdRef={draggedActionIdRef}
-                                                    onDragEnd={onDragEnd}
-                                                    edge={branch.sequence.trailingEdge}
-                                                    showConnector={false}
-                                                    compact
-                                                />
-                                            )}
-                                            {joinAction && (
-                                                <div className="relative flex items-center gap-1">
-                                                    <HogFlowTreeBranchIndicator
-                                                        color={branchColor}
-                                                        className="inset-y-1"
-                                                    />
-                                                    <Text size="xxs" variant="muted" render={<span />}>
-                                                        {node.action.type === 'random_cohort_branch'
-                                                            ? 'End of cohort split · continues to'
-                                                            : 'End of condition · continues to'}
-                                                    </Text>
-                                                    <Button
-                                                        type="button"
-                                                        variant="link"
-                                                        size="xs"
-                                                        className="min-w-0 max-w-56 px-0"
-                                                        onClick={() => {
-                                                            setSelectedBranch(null)
-                                                            setSelectedNodeId(joinAction.id)
-                                                            document
-                                                                .getElementById(`workflow-tree-step-${joinAction.id}`)
-                                                                ?.scrollIntoView({
-                                                                    behavior: 'smooth',
-                                                                    block: 'center',
-                                                                })
-                                                        }}
-                                                        data-attr="workflow-tree-select-continuation"
-                                                    >
-                                                        <span className="truncate">{joinAction.name}</span>
-                                                        <IconArrowRight className="size-3" />
-                                                    </Button>
-                                                </div>
-                                            )}
                                         </div>
-                                    </div>
-                                )
-                            })}
-                            {node.branches.length > BRANCH_LIMIT && (
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="self-start border-dashed"
-                                    onClick={() => setShowAllBranches((showAll) => !showAll)}
-                                    data-attr="workflow-tree-toggle-more-branches"
-                                >
-                                    {showAllBranches
-                                        ? 'Show fewer branches'
-                                        : `Show ${hiddenBranchCount} more branches`}
-                                </Button>
-                            )}
-                        </div>
-                    )}
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
                     {joinEdge && (
                         <HogFlowTreeDropzone
                             active={activeDropzones}
@@ -308,6 +365,7 @@ export function HogFlowTreeNode({
                             edge={joinEdge}
                             isBranchJoin
                             joinEdges={node.joinEdges}
+                            insertionLabel={`Add step after ${node.action.name} paths`}
                         />
                     )}
                 </>

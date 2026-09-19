@@ -22,13 +22,50 @@ export interface WorkflowTreeBranch {
     sequence: WorkflowTreeSequence
 }
 
+// A wait can run without a timeout, and the duration field keeps a unit-only value such as "m"
+// while its number input is empty. Neither names a window, so accept only the complete duration
+// that the step schema accepts.
+const COMPLETE_DURATION_PATTERN = /^\d*\.?\d+[dhms]$/
+
 export function isBranchingAction(action: Pick<HogFlowAction, 'type'>): boolean {
     return BRANCHING_ACTION_TYPES.includes(action.type as (typeof BRANCHING_ACTION_TYPES)[number])
 }
 
 export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: HogFlowEdge): string {
+    if (action?.type === 'wait_until_condition') {
+        if (edge.type === 'continue') {
+            const maxWaitDuration = action.config.max_wait_duration
+            return COMPLETE_DURATION_PATTERN.test(maxWaitDuration ?? '')
+                ? `No match within ${maxWaitDuration}`
+                : 'No match'
+        }
+        const { condition, events } = action.config
+        if (condition?.name) {
+            return condition.name
+        }
+        // The editor leaves an entry behind when the last event is removed, and the runtime skips
+        // an entry that targets no event and no action. Such an entry cannot resolve the wait, so
+        // it must not name an event here.
+        const waitsForEvent = events?.some(
+            (eventConfig) =>
+                (eventConfig.filters?.events?.length ?? 0) > 0 || (eventConfig.filters?.actions?.length ?? 0) > 0
+        )
+        if (!waitsForEvent) {
+            return 'Condition matched'
+        }
+        // The property condition and the events resolve the wait through this same edge, so a wait
+        // that sets both must not name only one of them.
+        const filters = condition?.filters
+        const hasConditionFilters =
+            (filters?.properties?.length ?? 0) > 0 ||
+            (filters?.events?.length ?? 0) > 0 ||
+            (filters?.actions?.length ?? 0) > 0
+        return hasConditionFilters ? 'Condition or event matched' : 'Event received'
+    }
     if (edge.type === 'continue') {
-        return 'No match'
+        // A random cohort split scales its weights to their total and always picks a cohort, so this
+        // edge carries the leftover of an unusable split rather than a share of the traffic.
+        return action?.type === 'random_cohort_branch' ? 'Fallback if no cohort has traffic' : 'No match'
     }
 
     if (!action) {
@@ -36,8 +73,6 @@ export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: 
     }
 
     switch (action.type) {
-        case 'wait_until_condition':
-            return action.config.condition?.name || 'If condition matches'
         case 'random_cohort_branch':
             return action.config.cohorts?.[edge.index ?? 0]?.name || `If cohort #${(edge.index ?? 0) + 1} matches`
         case 'conditional_branch':
