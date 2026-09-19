@@ -7,6 +7,7 @@ import {
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   archiveTasksImperative,
   useArchiveCacheKeys,
@@ -21,6 +22,7 @@ import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectio
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
 import { toast } from "@posthog/ui/primitives/toast";
+import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -92,7 +94,7 @@ export function useSidebarBulkActions(
     enabled: bluebirdEnabled,
   });
   const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
-  const { fileTask } = useChannelTaskMutations();
+  const { fileTasks } = useChannelTaskMutations();
 
   const liveTaskIds = useLiveTaskIds(selectedCount > 0);
 
@@ -216,19 +218,24 @@ export function useSidebarBulkActions(
       if (selectedCount === 0 || isFiling) return;
       setIsFiling(true);
       try {
-        const results = await Promise.allSettled(
-          taskIds.map((taskId) => fileTask(channelId, taskId)),
-        );
-        const failedIds = taskIds.filter(
-          (_, i) => results[i].status === "rejected",
-        );
+        const { failedIds } = await fileTasks(channelId, taskIds);
+        const failed = new Set(failedIds);
+        for (const taskId of taskIds) {
+          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+            action_type: "file_task",
+            surface: "sidebar_bulk",
+            channel_id: channelId,
+            task_id: taskId,
+            success: !failed.has(taskId),
+          });
+        }
         reconcileSelection(failedIds);
         report("filed", taskIds.length - failedIds.length, failedIds.length);
       } finally {
         setIsFiling(false);
       }
     },
-    [fileTask, isFiling, reconcileSelection, report, selectedCount, taskIds],
+    [fileTasks, isFiling, reconcileSelection, report, selectedCount, taskIds],
   );
 
   // Memoized because SidebarMenu's bulk callbacks depend on this object; a
