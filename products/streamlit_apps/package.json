@@ -12,6 +12,8 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
         "@types/react": "*",
         "react": "*"
     }

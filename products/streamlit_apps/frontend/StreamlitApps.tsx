@@ -4,20 +4,20 @@ import { router } from 'kea-router'
 import { IconEllipsis, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
+
+import { streamlitAppsFeaturePreviewGate } from './featurePreviewGate'
 import type { AppSummaryContractApi } from './generated/api.schemas'
 import { streamlitAppsLogic } from './streamlitAppsLogic'
 import { StreamlitAppStatus, toStreamlitAppStatus } from './types'
 
 export const scene: SceneExport = {
     component: StreamlitApps,
-    logic: streamlitAppsLogic,
 }
 
 const STATUS_CONFIG: Record<StreamlitAppStatus, { label: string; type: LemonTagType }> = {
@@ -97,12 +97,17 @@ function AppCard({ app }: { app: AppSummaryContractApi }): JSX.Element {
 }
 
 export function StreamlitApps(): JSX.Element {
-    const streamlitAppsFeatureFlagEnabled = useFeatureFlag('STREAMLIT_APPS')
-    const { streamlitApps, streamlitAppsLoading } = useValues(streamlitAppsLogic)
+    return (
+        <FeaturePreviewSceneGate config={streamlitAppsFeaturePreviewGate}>
+            <StreamlitAppsList />
+        </FeaturePreviewSceneGate>
+    )
+}
 
-    if (!streamlitAppsFeatureFlagEnabled) {
-        return <NotFound object="page" />
-    }
+// Mounts streamlitAppsLogic only once the gate lets the list through, so a project without the
+// feature preview never starts its polling loop against an API that denies it.
+function StreamlitAppsList(): JSX.Element {
+    const { streamlitApps, streamlitAppsLoading } = useValues(streamlitAppsLogic)
 
     return (
         <div>
