@@ -1,9 +1,15 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from geoip2.errors import AddressNotFoundError
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.geoip import _lookup_location, get_geoip_location
+
+
+def _not_found_count() -> float:
+    return REGISTRY.get_sample_value("geoip_lookup_failures_total", {"reason": "not_found"}) or 0.0
 
 
 class TestGeoipLocation(BaseTest):
@@ -48,6 +54,21 @@ class TestGeoipLocation(BaseTest):
             get_geoip_location("8.8.8.8")
 
         mock_geoip.city.assert_called_once()
+
+    @patch("posthog.geoip.logger")
+    @patch("posthog.geoip.geoip")
+    def test_repeated_database_miss_counts_once_and_logs_no_error(self, mock_geoip, mock_logger):
+        # A public address the database doesn't cover is a coverage gap, so it must not reach the
+        # error log, and the negative result must be cached like a hit.
+        mock_geoip.city.side_effect = AddressNotFoundError("The address 8.8.8.8 is not in the database.")
+        before = _not_found_count()
+
+        for _ in range(3):
+            self.assertEqual(get_geoip_location("8.8.8.8"), {})
+
+        mock_geoip.city.assert_called_once()
+        mock_logger.exception.assert_not_called()
+        self.assertEqual(_not_found_count(), before + 1)
 
     @patch("posthog.geoip.geoip")
     def test_callers_cannot_corrupt_a_cached_entry(self, mock_geoip):
