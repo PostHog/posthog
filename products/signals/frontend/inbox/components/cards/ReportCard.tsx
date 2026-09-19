@@ -40,7 +40,7 @@ import {
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
-import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardImpactMetric, selectReportCardImpactMetric } from './ReportCardImpactMetric'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -156,8 +156,11 @@ export function ReportCard({
     const redesign = useFeatureFlag('INBOX_REDESIGN')
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
     // The impact column carries its own flag on top of the redesign: its figures come from live
-    // queries, so it rolls out per team as the metric quality is verified.
-    const showImpactColumn = redesign && metricsEnabled
+    // queries, so it rolls out per team as the metric quality is verified. Most reports carry no
+    // metric, so the column is gated on a figure being there to draw: an empty column would take
+    // width from the title and the summary for nothing.
+    const impactMetric = redesign && metricsEnabled ? selectReportCardImpactMetric(report.metrics) : null
+    const showImpactColumn = impactMetric !== null
     // The legacy layout addresses a report through the tab that listed it, so its back control returns there.
     const detailUrl = inboxReportDetailUrl(
         report.id,
@@ -301,11 +304,14 @@ export function ReportCard({
                 </div>
             </div>
 
-            {/* Reserved even with no figure to show: the fixed width keeps every row's figure and
-                timestamp on the same two vertical lines down the list. */}
-            {showImpactColumn ? (
-                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:justify-end">
-                    <ReportCardImpactMetric metrics={report.metrics} />
+            {/* The fixed width keeps every figure and timestamp on the same two vertical lines down
+                the list, whichever rows around this one carry a figure of their own. */}
+            {impactMetric ? (
+                <div
+                    className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:justify-end"
+                    data-attr="report-card-impact-column"
+                >
+                    <ReportCardImpactMetric metric={impactMetric} />
                     <TZLabel
                         time={report.updated_at ?? report.created_at}
                         className="ml-auto shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0"
