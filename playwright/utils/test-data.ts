@@ -91,7 +91,9 @@ export const pageviews = {
         }).repeat(2),
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(2) }).repeat(4),
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: hoursAgo(36) }).repeat(3),
-        ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(0) }).repeat(2),
+        // The "last 24 hours" assertions count these two events. daysAgo(0) resolves to
+        // 00:01 UTC today, which is in the future for a run that starts before that time.
+        ...createEvent({ event: '$pageview', user: pvUser, timestamp: hoursAgo(1) }).repeat(2),
     ],
     expected: {
         total: '38',
