@@ -239,13 +239,11 @@ export class LazyLoader<T> {
             const results: Record<string, T | null> = Object.create(null)
             const keysToLoad = new Set<string>()
 
-            // First, check if all keys are already cached and update the lastUsed time
             for (const key of keys) {
                 const cached = this.cache[key]
 
                 if (cached !== undefined) {
                     results[key] = cached.value
-                    // Always update the lastUsed time
                     cached.lastUsed = Date.now()
 
                     const cacheUntil = cached.cacheUntil
@@ -257,7 +255,6 @@ export class LazyLoader<T> {
                         continue
                     }
 
-                    // If we haven't triggered a hard refresh, we check for a background refresh
                     if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
                         void this.load([key]).catch((err) => {
                             logger.warn(`[LazyLoader:${this.options.name}] Background refresh failed`, {
@@ -290,11 +287,9 @@ export class LazyLoader<T> {
             const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
             setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
 
-            // We have something to load so we schedule it and then await all of them
             await this.load(Array.from(keysToLoad), options)
 
             for (const key of keys) {
-                // Grab the new cached result for all keys
                 results[key] = this.cache[key]?.value ?? null
             }
 
@@ -324,7 +319,6 @@ export class LazyLoader<T> {
         for (const key of keys) {
             let pendingLoad = this.pendingLoads[key]
             if (pendingLoad) {
-                // If we already have a scheduled loader for this key we just add it to the list
                 keyPromises.push(pendingLoad)
                 lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
                 continue
@@ -338,8 +332,6 @@ export class LazyLoader<T> {
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
             }
 
-            // Add the key to the buffer and add a pendingLoad that waits for the buffer to resolve.
-            // The values land in the cache via setValues, so callers read them from there.
             this.buffer.keys.add(key)
             pendingLoad = this.buffer.promise.finally(() => {
                 delete this.pendingLoads[key]
@@ -426,7 +418,6 @@ export class LazyLoader<T> {
             } catch (error) {
                 attempt++
                 if (error?.isRetriable !== true) {
-                    // Non-transient: rethrow immediately so genuine bugs surface rather than being masked.
                     throw error
                 }
                 if (performance.now() >= deadline) {
@@ -454,14 +445,12 @@ export class LazyLoader<T> {
         }
 
         // Evict extra headroom so we don't re-sort on every subsequent insert.
-        // Only apply headroom for caches large enough to benefit (>100 entries).
         const headroom = this.maxSize > 100 ? Math.ceil(this.maxSize * 0.1) : 0
         const toEvict = this.cacheSize - this.maxSize + headroom
 
         const cacheKeys = Object.keys(this.cache)
         cacheKeys.sort((a, b) => (this.cache[a]?.lastUsed ?? 0) - (this.cache[b]?.lastUsed ?? 0))
 
-        // Evict the least recently used entries
         const evictCount = Math.min(toEvict, cacheKeys.length)
         for (let i = 0; i < evictCount; i++) {
             delete this.cache[cacheKeys[i]]
