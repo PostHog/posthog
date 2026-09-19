@@ -28,7 +28,7 @@ interface QuotaMeterBarProps {
     label: string
     size?: 'small' | 'medium'
     /** Caption under the limit marker. Always shown, so the limit reads the same whether or not it is exceeded. */
-    limitLabel?: string
+    limitLabel?: ReactNode
     className?: string
 }
 
@@ -199,7 +199,7 @@ export function QuotaMeter({
     size?: 'small' | 'medium'
     className?: string
     /** Caption under the limit marker; defaults to the bar's plain "Spend limit". */
-    limitLabel?: string
+    limitLabel?: ReactNode
 }): JSX.Element {
     const { projection, segments, periodEndPct } = model
     const [freeWidth, billedWidth, ...segmentWidths] = quotaMeterWidths(
