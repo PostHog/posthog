@@ -158,7 +158,8 @@ class RequestFailure:
     event_count: int
 
 
-@dataclass
+# Mutable on purpose: _submit_batch_chunk and _merge_results build it up in place.
+@dataclass(frozen=False)
 class CaptureInternalResult:
     """Aggregated outcome of a (possibly multi-round, multi-request) v1 batch submission.
 
