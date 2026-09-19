@@ -15,7 +15,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
 from products.engineering_analytics.backend.logic.comparison_teams import choose_comparison_teams
-from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
+from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope, SummaryScope
 from products.engineering_analytics.backend.logic.pr_timeline import (
     GateAttempt,
     MasterFailureIndex,
@@ -27,7 +27,6 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.delivery_comparison import query_delivery_comparison
 from products.engineering_analytics.backend.logic.queries.delivery_summary import (
-    CI_LOOKBACK,
     DeliverySummaryAggregator,
     MergedPRFacts,
     query_delivery_summary,
@@ -288,20 +287,25 @@ class TestPRTimelineBuilder(SimpleTestCase):
 class TestDeliveryScope(SimpleTestCase):
     @parameterized.expand(
         [
-            ("nothing", {}),
-            ("two_people_at_once", {"author": "alice", "github_team": "team-replay"}),
-            ("blank_author", {"author": "  "}),
-            ("pr_without_repo", {"pr_number": 21}),
+            ("nothing", DeliveryScope, {}),
+            ("two_people_at_once", DeliveryScope, {"author": "alice", "github_team": "team-replay"}),
+            ("blank_author", DeliveryScope, {"author": "  "}),
+            ("pr_without_repo", DeliveryScope, {"pr_number": 21}),
+            ("summary_of_one_pull_request", SummaryScope, {"pr_number": 21, "repo": "PostHog/posthog"}),
         ]
     )
-    def test_rejects_anything_but_one_scope(self, _name: str, params: dict) -> None:
+    def test_rejects_anything_but_one_scope(self, _name: str, scope_type: type[DeliveryScope], params: dict) -> None:
         with self.assertRaises(ValueError):
-            DeliveryScope.from_params(
+            scope_type.from_params(
                 author=params.get("author"),
                 github_team=params.get("github_team"),
                 pr_number=params.get("pr_number"),
                 repo=params.get("repo"),
             )
+
+    def test_rejects_a_field_another_kind_owns(self) -> None:
+        with self.assertRaises(ValueError):
+            DeliveryScope(kind=DeliveryScopeKind.AUTHOR, github_team="team-replay")
 
 
 def _facts(
@@ -444,8 +448,8 @@ def _member_row(member_id: int, login: str, team_slug: str) -> dict:
     return {"id": member_id, "login": login, "team_id": 1, "team_slug": team_slug, "team_name": team_slug}
 
 
-_ALICE = DeliveryScope.from_params(author="alice", github_team=None, pr_number=None, repo=None)
-_ALICES_TEAM = DeliveryScope.from_params(author=None, github_team="team-replay", pr_number=None, repo=None)
+_ALICE = SummaryScope.from_params(author="alice", github_team=None, pr_number=None, repo=None)
+_ALICES_TEAM = SummaryScope.from_params(author=None, github_team="team-replay", pr_number=None, repo=None)
 
 
 class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
@@ -517,7 +521,7 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         )
 
     @parameterized.expand([("author", _ALICE), ("github_team", _ALICES_TEAM)])
-    def test_summary_compares_scope_with_repo_and_flags_missing_sources(self, _name: str, scope: DeliveryScope) -> None:
+    def test_summary_compares_scope_with_repo_and_flags_missing_sources(self, _name: str, scope: SummaryScope) -> None:
         self._seed()
         curated = CuratedGitHubSource.for_team(self.team)
 

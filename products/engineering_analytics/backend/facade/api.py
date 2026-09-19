@@ -291,7 +291,7 @@ def get_delivery_summary(
 ) -> DeliverySummary:
     """Delivery figures for exactly one of ``author`` or ``github_team``, each against the repository."""
     # Validate the scope before resolving the source, so a bad request reads as a bad scope.
-    scope = logic.DeliveryScope.from_params(author=author, github_team=github_team, pr_number=None, repo=None)
+    scope = logic.SummaryScope.from_params(author=author, github_team=github_team, pr_number=None, repo=None)
     return logic.build_delivery_summary(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         scope=scope,

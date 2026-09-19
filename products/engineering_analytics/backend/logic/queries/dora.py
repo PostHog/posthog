@@ -652,7 +652,7 @@ def _query_lead_time(
     team_placeholders: dict[str, ast.Expr] = {}
     if github_team:
         team = DeliveryScope(kind=DeliveryScopeKind.GITHUB_TEAM, github_team=github_team)
-        team_filter = f"AND {team.pr_predicate(members_source=members_source)}"
+        team_filter = f"AND {team.pr_predicate(scan.curated)}"
         team_placeholders = team.placeholders()
     attribution_ctes = scan.attribution_ctes(pr_filter=team_filter)
 
