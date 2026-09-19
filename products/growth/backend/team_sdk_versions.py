@@ -30,7 +30,10 @@ QUERY = parse_select("""
         properties.$lib AS lib,
         properties.$lib_version AS lib_version,
         MAX(timestamp) AS max_timestamp,
-        COUNT(*) AS event_count
+        COUNT(*) AS event_count,
+        -- topK samples more hosts than we keep, so dropping the blanks that server-side SDKs
+        -- send still usually leaves a full list of real hosts.
+        arraySlice(arrayFilter(h -> h != '', topK(5)(properties.$host)), 1, 3) AS top_hosts
     FROM events
     WHERE
         timestamp >= now() - INTERVAL 7 DAY
@@ -71,13 +74,14 @@ def get_sdk_versions_for_team(
         response = run_query(team)
 
         output: defaultdict[str, list[SdkVersionEntry]] = defaultdict(list)
-        for lib, lib_version, max_timestamp, event_count in response.results:
+        for lib, lib_version, max_timestamp, event_count, top_hosts in response.results:
             if lib in SDK_TYPES:
                 output[lib].append(
                     {
                         "lib_version": lib_version,
                         "max_timestamp": str(max_timestamp),
                         "count": event_count,
+                        "hosts": list(top_hosts),
                     }
                 )
 

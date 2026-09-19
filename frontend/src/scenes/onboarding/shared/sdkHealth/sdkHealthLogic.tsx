@@ -34,6 +34,7 @@ export type AugmentedTeamSdkVersionsInfoRelease = {
     version: string
     maxTimestamp: string
     count: number
+    hosts: string[]
     latestVersion: string
     releaseDate: string | undefined
     releasedAgo: string | undefined
@@ -213,6 +214,7 @@ export const sdkHealthLogic = kea<sdkHealthLogicType>([
                                     version: release.version,
                                     maxTimestamp: release.max_timestamp,
                                     count: release.count,
+                                    hosts: release.hosts,
                                     latestVersion: sdk.latest_version,
                                     releaseDate: release.release_date ?? undefined,
                                     releasedAgo: release.released_ago ?? undefined,

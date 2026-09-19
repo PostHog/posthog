@@ -120,6 +120,28 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
         },
     },
     {
+        title: (
+            <span>
+                HOSTS{' '}
+                <Tooltip title="The domains that sent the most events on this version. Blank for SDKs that run on a server, which don't report one.">
+                    <IconInfo />
+                </Tooltip>
+            </span>
+        ),
+        dataIndex: 'hosts',
+        render: function RenderHosts(_, record) {
+            return (
+                <div className="flex flex-col">
+                    {record.hosts.map((host) => (
+                        <code key={host} className="text-xs font-mono break-all">
+                            {host}
+                        </code>
+                    ))}
+                </div>
+            )
+        },
+    },
+    {
         title: '# events, last 7 days',
         dataIndex: 'count',
         render: function RenderCount(_, record) {

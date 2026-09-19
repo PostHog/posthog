@@ -84142,6 +84142,8 @@ export namespace Schemas {
       count: number;
       /** Timestamp of the most recent event seen for this version (ISO 8601). */
       max_timestamp: string;
+      /** Up to three hosts (the $host event property) that sent the most events on this version in the last 7 days. Use it to tell which site or domain is still on an old version when a project serves several. Empty for server-side SDKs, which send no host. */
+      hosts: string[];
       /**
          * When this version was published on GitHub (ISO 8601), or null if unknown.
          * @nullable
