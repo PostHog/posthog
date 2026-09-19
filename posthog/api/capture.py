@@ -55,8 +55,7 @@ logger = structlog.get_logger(__name__)
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
 
-# Events whose names carry this prefix belong on the AI lane (capture-ai), not the
-# analytics lane. `_capture_batch_impl` partitions every batch on it.
+# `_capture_batch_impl` sends every event with this prefix to capture-ai.
 AI_EVENT_NAME_PREFIX = "$ai_"
 
 # --------------------------------------------------------------------------- #
@@ -161,13 +160,11 @@ class RequestFailure:
 # Mutable on purpose: _submit_batch_chunk and _merge_results build it up in place.
 @dataclass(frozen=False)
 class CaptureInternalResult:
-    """Aggregated outcome of a (possibly multi-round, multi-request) v1 batch submission.
+    """Outcome of one v1 batch submission across all of its requests.
 
-    The per-uuid lists are the contract: every submitted uuid lands in exactly one of
-    ``ok``, ``dropped``, ``warnings``, ``retried`` or ``unaccounted``. ``error`` and
-    ``status_code`` summarize whole-request failures; a batch that spans several
-    requests (chunks, or both lanes) can be partially acked, so retry only
-    ``unaccounted`` and ``retried`` uuids, never the whole batch.
+    Every submitted uuid lands in exactly one of ``ok``, ``dropped``, ``warnings``,
+    ``retried`` or ``unaccounted``. A multi-request batch can be partially acked, so
+    retry only ``unaccounted`` and ``retried`` uuids, never the whole batch.
     """
 
     status_code: int
@@ -372,16 +369,10 @@ def _validate_batch_inputs(
 
 
 def _validate_event(ev: dict[str, Any], *, event_source: str, ai_lane: bool) -> EventIdentity:
-    """Run every client-side check on one event, and return the two fields it read.
+    """Every client-side rejection lives here so a batch is cleared before its first chunk publishes.
 
-    Every rejection capture_internal can decide without the server belongs here,
-    so `_capture_batch_impl` can clear a whole batch before submitting the first
-    chunk. A chunked batch would otherwise publish its early chunks and raise on
-    a later one, reporting failure after a partial ingestion.
-
-    ``ai_lane`` names the entry point the caller used in error messages. It does
-    not gate the event name: the wire lane is chosen per event from the `$ai_`
-    prefix in `_capture_batch_impl`.
+    ``ai_lane`` only names the entry point in error messages; the wire lane is chosen
+    per event from the `$ai_` prefix.
     """
     fn = _lane_fn_name(ai_lane)
 
@@ -413,11 +404,8 @@ def _validate_event(ev: dict[str, Any], *, event_source: str, ai_lane: bool) -> 
 
 
 def _validate_batch_events(events: list[dict[str, Any]], *, event_source: str, ai_lane: bool) -> None:
-    """Run every client-side check over a whole batch before anything is submitted.
-
-    Also rejects a uuid that appears twice: results are keyed by uuid, so a duplicate
-    would make one event's outcome silently overwrite the other's.
-    """
+    """Validate every event and reject duplicate uuids: results are keyed by uuid, so a
+    duplicate would overwrite one event's outcome."""
     fn = _lane_fn_name(ai_lane)
     seen_uuids: set[str] = set()
     for ev in events:
@@ -443,9 +431,8 @@ def prepare_capture_internal_batch(
     Returns ``(payload, ordered_uuids)`` so callers can correlate the
     results map.
 
-    ``ai_lane`` only names the entry point in error messages. The envelope is
-    the same on both lanes; `_capture_batch_impl` decides the wire lane per
-    event from the `$ai_` prefix.
+    ``ai_lane`` only names the entry point in error messages; the envelope is the
+    same on both lanes.
     """
     _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
 
@@ -678,10 +665,8 @@ def _submit_batch_chunk(
 def _merge_results(chunk_results: list[CaptureInternalResult]) -> CaptureInternalResult:
     """Merge the results of several requests (chunks, lanes) into one.
 
-    ``error`` and ``status_code`` come from the first failed request. When another
-    request in the same batch was acked, ``error["error"]`` is rewritten to
-    ``partial_request_failure`` so a caller cannot read it as "nothing landed" and
-    resend everything; the per-uuid lists say exactly which events need a retry.
+    ``error`` comes from the first failed request, rewritten to ``partial_request_failure``
+    when another request was acked so a caller does not resend the acked events.
     """
     merged = CaptureInternalResult(status_code=200)
     any_acked_request = False
@@ -720,13 +705,10 @@ def _submit_chunks(
     max_attempts: int,
     timeout: float,
 ) -> CaptureInternalResult:
-    """Submit every lane's events: one request when they fit one chunk, else chunked
-    and fanned out over a single worker pool shared by both lanes. Events are already
-    validated.
+    """Submit every lane's chunks over one shared worker pool.
 
-    Lanes are independent requests to different deployments, so a mixed batch runs
-    them concurrently rather than one after the other; the pool budget is shared so
-    a mixed batch cannot open twice the connections of a single-lane one.
+    Lanes go to different deployments, so a mixed batch runs them concurrently; sharing
+    the pool keeps it within the connection budget of a single-lane batch.
     """
     chunk_size = max(CAPTURE_INTERNAL_BATCH_CHUNK_SIZE, 1)
     chunks: list[tuple[list[dict[str, Any]], bool]] = [
@@ -747,7 +729,7 @@ def _submit_chunks(
             ai_lane=ai_lane,
         )
 
-    # Hot path: one lane, one chunk — submit directly, no threading overhead.
+    # Hot path: one lane, one chunk, so skip the pool.
     if len(chunks) == 1:
         return _submit_chunk(*chunks[0])
 
@@ -810,19 +792,13 @@ def _capture_batch_impl(
 ) -> CaptureInternalResult:
     """Shared body of capture_batch_internal and capture_batch_ai_internal.
 
-    ``ai_lane`` is the entry point the caller chose. The wire lane is decided per
-    event: every `$ai_`-prefixed name goes to `/i/v1/ai/events` on capture-ai and
-    everything else to `/i/v1/analytics/events`, whichever entry point was used.
-    capture-ai drops non-AI events per event as `misrouted_event`, so sending them
-    there would lose them; the analytics deployment would give an `$ai_*` event
-    person processing. Rerouting here keeps both lanes correct and is counted so
-    a call site on the wrong entry point is visible.
+    The wire lane follows the event name, not ``ai_lane``: capture-ai drops a non-AI
+    event as `misrouted_event`, and capture-analytics would give an `$ai_*` event person
+    processing. Reroutes are counted so a call site on the wrong entry point is visible.
     """
     _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
 
-    # Every client-side rejection fires here, before either lane submits, so a
-    # rejected event cannot follow a chunk that already published, and the error
-    # names the entry point the caller used.
+    # Reject the whole batch before either lane publishes a chunk.
     _validate_batch_events(events, event_source=event_source, ai_lane=ai_lane)
 
     ai_events = [ev for ev in events if ev["event"].startswith(AI_EVENT_NAME_PREFIX)]
@@ -1167,13 +1143,10 @@ def capture_ai_internal(
     capture-analytics.  That deployment is configured for AI traffic: an 8MiB per-event
     ceiling instead of 983040 bytes, and a direct produce to the AI topic.
 
-    The wire lane follows the event name, not the entry point: a non-`$ai_` name
-    passed here is sent to the analytics lane, and an `$ai_` name passed to
-    capture_internal is sent to the AI lane. Each reroute is counted
-    (``capture_v1_internal_events_rerouted``) and logged, so a call site on the
-    wrong entry point is visible without losing events. Prefer the matching entry
-    point anyway: it documents intent and keeps ``historical_migration`` and
-    ``session_id`` / ``window_id`` off AI events.
+    A non-`$ai_` name passed here goes to the analytics lane, and an `$ai_` name
+    passed to capture_internal goes to the AI lane; each reroute is counted
+    (``capture_v1_internal_events_rerouted``). Prefer the matching entry point: it
+    keeps ``historical_migration`` and ``session_id`` / ``window_id`` off AI events.
 
     ``historical_migration`` is not offered: AI backfills do not run through this path.
 

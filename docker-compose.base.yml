@@ -423,9 +423,8 @@ services:
             # matching the production capture-ai deployment.
             CAPTURE_MODE: ai
             RUST_LOG: 'info,rdkafka=warn'
-            # v1 sink for `/i/v1/ai/events`, the lane Django's capture_ai_internal uses.
-            # Every topic var is required by the sink config; the analytics-only ones
-            # are never produced to in `ai` mode. Local has no separate AI overflow topic.
+            # v1 sink for `/i/v1/ai/events` (Django's capture_ai_internal). The sink config
+            # requires every topic var; `ai` mode only produces to the AI topic.
             CAPTURE_V1_SINKS: 'msk'
             CAPTURE_V1_SINK_MSK_KAFKA_HOSTS: 'kafka:9092'
             CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN: 'events_plugin_ingestion_ai'
