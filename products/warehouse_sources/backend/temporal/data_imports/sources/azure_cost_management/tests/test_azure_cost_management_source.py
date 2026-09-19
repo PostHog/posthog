@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.source import (
     AzureCostManagementSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azurecostmanagement import (
@@ -136,6 +137,23 @@ class TestAzureCostManagementSource:
         error = "Azure Cost Management error (retryable): status=429, url=https://management.azure.com/q"
 
         assert any(key in error for key in self.source.get_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # A handshake the egress proxy cuts short while the token is minted. The tenant id sits
+            # in the url, so an unclassified message mints one tracked issue per Azure tenant.
+            "HTTPSConnectionPool(host='login.microsoftonline.com', port=443): Max retries exceeded with url: "
+            "/00000000-0000-0000-0000-000000000000/oauth2/v2.0/token "
+            "(Caused by SSLError(SSLEOFError(8, 'EOF occurred in violation of protocol (_ssl.c:1010)')))",
+            "SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred (_ssl.c:1010)')",
+        ],
+    )
+    def test_dropped_connections_are_reported_as_retryable(self, observed_error: str) -> None:
+        # These reach the handler only after `AUTH_RETRY` and the client's own backoff give up, so
+        # they are transient and recover on the next run.
+        assert error_message_matches(observed_error, self.source.get_retryable_errors())
+        assert not error_message_matches(observed_error, self.source.get_non_retryable_errors())
 
     def test_source_for_pipeline_passes_config_and_schema_through(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)

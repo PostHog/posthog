@@ -1,3 +1,4 @@
+import ssl
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
@@ -7,8 +8,10 @@ from unittest import mock
 
 import requests
 from parameterized import parameterized
+from urllib3.exceptions import ProtocolError, ProxyError, SSLError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.azure_cost_management import (
+    AUTH_RETRY,
     LOGIN_HOST,
     MANAGEMENT_HOST,
     AzureCostManagementClient,
@@ -490,6 +493,31 @@ class TestClientRequest:
             _client(session).request("POST", f"{MANAGEMENT_HOST}/q")
 
         assert "No access" in str(error.value)
+
+
+class TestAuthSessionRetries:
+    @parameterized.expand(
+        [
+            ("tls_handshake_drop", SSLError(ssl.SSLEOFError(8, "EOF occurred in violation of protocol"))),
+            ("proxy_connect_failure", ProxyError("Cannot connect to proxy.", ssl.SSLEOFError(8, "EOF"))),
+            ("connection_reset", ProtocolError("Connection aborted.", OSError("reset"))),
+        ]
+    )
+    def test_the_token_post_retries_a_dropped_connection(self, _name: str, error: Exception) -> None:
+        # urllib3 raises out of `increment` when it will not retry, which is what `Retry(total=0)`
+        # did to every one of these. The exchange is a POST, so the policy must opt POST in too.
+        remaining = AUTH_RETRY.increment("POST", f"{LOGIN_HOST}/tenant/oauth2/v2.0/token", error=error)
+
+        assert not remaining.is_exhausted()
+
+    def test_the_auth_session_carries_the_retry_policy(self) -> None:
+        with mock.patch(f"{TRANSPORT_MODULE}.make_tracked_session") as make_session:
+            AzureCostManagementClient("tenant", "client", "secret", mock.MagicMock())
+
+        # The auth session is the sample-capture-excluded one; the query session keeps its own
+        # backoff in `request`, so it must stay unretried at the transport.
+        auth_calls = [call for call in make_session.call_args_list if call.kwargs.get("capture") is False]
+        assert [call.kwargs["retry"] for call in auth_calls] == [AUTH_RETRY]
 
 
 class TestValidateCredentials:
