@@ -33,6 +33,16 @@ const eventWithNestedProperties: EventType = {
     },
 }
 
+// An event with no feature flags, so the flags tab has to say which group is empty rather than
+// falling back to the generic properties-table empty state.
+const eventWithoutFeatureFlags: EventType = {
+    ...eventWithNestedProperties,
+    properties: {
+        plan: 'enterprise',
+        $configured_session_timeout_ms: 1800000,
+    },
+}
+
 const meta: Meta<typeof EventDetails> = {
     component: EventDetails,
     title: 'Components/EventDetails',
@@ -58,6 +68,16 @@ export const NestedProperties: Story = {
     render: () => (
         <div className="w-[40rem]">
             <EventDetails event={eventWithNestedProperties} />
+        </div>
+    ),
+}
+
+export const EmptyFlagsGroup: Story = {
+    // This event has no nested values, so the meta's wait for a JSON viewer would never resolve.
+    parameters: { testOptions: { waitForSelector: '.LemonTable' } },
+    render: () => (
+        <div className="w-[40rem]">
+            <EventDetails event={eventWithoutFeatureFlags} />
         </div>
     ),
 }

@@ -3,13 +3,13 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
-import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AutocapturePreviewImage } from 'lib/components/AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
-import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
+import { EventPropertyTabContent, EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -254,37 +254,12 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                     case 'conversation':
                         return <AIEventExpanded event={event} />
                     case '$set_properties':
-                        return (
-                            <>
-                                <p>
-                                    Person properties sent with this event. Will replace any property value that may
-                                    have been set on this person profile before now.{' '}
-                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                        Learn more
-                                    </Link>
-                                </p>
-                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                            </>
-                        )
                     case '$set_once_properties':
-                        return (
-                            <>
-                                <p>
-                                    "Set once" person properties sent with this event. Will replace any property value
-                                    that has never been set on this person profile before now.{' '}
-                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                        Learn more
-                                    </Link>
-                                </p>
-                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                            </>
-                        )
                     case 'debug_properties':
                         return (
-                            <>
-                                <p>PostHog uses some properties to help debug issues with the SDKs.</p>
+                            <EventPropertyTabContent tabKey={tabKey} properties={properties}>
                                 <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                            </>
+                            </EventPropertyTabContent>
                         )
                     case 'error_display':
                         return (
@@ -296,16 +271,26 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                         )
                     case 'properties':
                         return (
-                            <SimpleKeyValueList
-                                item={properties}
-                                promotedKeys={promotedKeys}
-                                rowActions={primaryPropertyActions}
-                            />
+                            <EventPropertyTabContent tabKey={tabKey} properties={properties}>
+                                <SimpleKeyValueList
+                                    item={properties}
+                                    promotedKeys={promotedKeys}
+                                    rowActions={primaryPropertyActions}
+                                />
+                            </EventPropertyTabContent>
                         )
                     case 'flags':
-                        return <EventFlagsTab properties={properties} promotedKeys={promotedKeys} />
+                        return (
+                            <EventPropertyTabContent tabKey={tabKey} properties={properties}>
+                                <EventFlagsTab properties={properties} promotedKeys={promotedKeys} />
+                            </EventPropertyTabContent>
+                        )
                     default:
-                        return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                        return (
+                            <EventPropertyTabContent tabKey={tabKey} properties={properties}>
+                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                            </EventPropertyTabContent>
+                        )
                 }
             }}
         />
