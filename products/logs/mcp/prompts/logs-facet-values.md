@@ -24,13 +24,13 @@ Counts are cross-filtered: every active filter is applied _except the faceted fi
 
 ## query.facetField
 
-Top-level column to facet on: `severity_text` or `service_name`. Provide this OR `facetResourceAttribute`, not both. Counts are grouped on the raw logs table with all _other_ filters applied — so this path honors `severityLevels`, `serviceNames`, `searchTerm`, and `filterGroup`.
+Top-level column to facet on: `severity_text` or `service_name`. Provide this OR `facetResourceAttribute`, not both. Counts come from the same pre-aggregated rollup as attribute facets, so this path honors `severityLevels`, `serviceNames`, and resource-attribute filters, but not `searchTerm` or log-attribute filters.
 
 ## query.facetResourceAttribute
 
 Resource attribute key to facet on, e.g. `k8s.namespace.name`, `k8s.pod.name`, `host.name`. Provide this OR `facetField`, not both.
 
-**Limitation:** this path is served from a pre-aggregated rollup that has no severity or body dimension. It honors only `serviceNames` and other resource-attribute filters — `severityLevels`, `searchTerm`, and log-attribute filters are **ignored**. If you need those applied, facet a column instead, or narrow with `logs-attribute-values-list`.
+**Limitation:** this path is served from a pre-aggregated rollup that has no body dimension. It honors `severityLevels`, `serviceNames`, and other resource-attribute filters — `searchTerm` and log-attribute filters are **ignored**. If you need those applied, narrow with `logs-attribute-values-list`.
 
 ## query.facetSearch
 
@@ -45,7 +45,7 @@ Date range for the counts. Defaults to the last hour (`-1h`).
 
 ## query.severityLevels
 
-Filter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels. Ignored when faceting on `severity_text` (that field's own filter is excluded) and when faceting a resource attribute (rollup has no severity dimension).
+Filter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels. Ignored when faceting on `severity_text` (that field's own filter is excluded).
 
 ## query.serviceNames
 

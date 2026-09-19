@@ -1663,7 +1663,7 @@ export const FacetFieldEnumApi = {
 } as const
 
 export interface _LogsFacetValuesBodyApi {
-    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
+    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, log-attribute filters, or this facet's own filter.
      *
      * * `severity_text` - severity_text
      * * `service_name` - service_name */

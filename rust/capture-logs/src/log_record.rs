@@ -124,7 +124,8 @@ impl KafkaLogRow {
             severity_number = convert_severity_text_to_number(&severity_text);
         }
 
-        let resource_attributes = extract_resource_attributes(resource);
+        let mut resource_attributes = extract_resource_attributes(resource);
+        ensure_service_name_attribute(&mut resource_attributes);
 
         let mut attributes: HashMap<String, String> = record
             .attributes
@@ -145,7 +146,7 @@ impl KafkaLogRow {
         };
 
         let event_name = record.event_name;
-        let service_name = extract_string_from_map(&resource_attributes, "service.name");
+        let service_name = extract_string_from_map(&resource_attributes, SERVICE_NAME_ATTRIBUTE);
 
         // Trace/span IDs
         let trace_id = extract_trace_id(&record.trace_id);
@@ -210,6 +211,18 @@ pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<Da
 }
 
 // extract a JSON value as a string. If it's a string, strip the surrounding "quotes"
+pub const SERVICE_NAME_ATTRIBUTE: &str = "service.name";
+
+/// The log_attributes rollup holds one row per (log, resource attribute). Facet counts over the
+/// severity and service columns read the rows keyed on `service.name` so each log is counted once,
+/// which only holds if every log carries the key. Write it with an empty value when the resource
+/// omits it; `service_name` still resolves to "" for those rows.
+pub fn ensure_service_name_attribute(resource_attributes: &mut HashMap<String, String>) {
+    resource_attributes
+        .entry(SERVICE_NAME_ATTRIBUTE.to_string())
+        .or_insert_with(|| json!("").to_string());
+}
+
 fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> String {
     if let Some(value) = attributes.get(key) {
         if let Ok(JsonValue::String(value)) = serde_json::from_str::<JsonValue>(value) {
@@ -377,6 +390,7 @@ pub fn any_value_to_string(value: AnyValue) -> String {
 mod tests {
     use super::*;
     use apache_avro::{Codec, Reader, Schema, Writer};
+    use opentelemetry_proto::tonic::common::v1::KeyValue;
 
     use crate::avro_schema::AVRO_SCHEMA;
 
@@ -585,5 +599,34 @@ mod tests {
         let (final_ts, original) = override_timestamp(just_outside);
         assert!((final_ts - now).num_seconds().abs() < 2);
         assert_eq!(original.unwrap(), just_outside);
+    }
+
+    #[test]
+    fn test_new_writes_empty_service_name_attribute_when_resource_omits_it() {
+        let (row, _) = KafkaLogRow::new(LogRecord::default(), None, None).unwrap();
+        assert_eq!(
+            row.resource_attributes.get(SERVICE_NAME_ATTRIBUTE).unwrap(),
+            "\"\""
+        );
+        assert_eq!(row.service_name, "");
+    }
+
+    #[test]
+    fn test_new_keeps_service_name_attribute_from_resource() {
+        let resource = Resource {
+            attributes: vec![KeyValue {
+                key: SERVICE_NAME_ATTRIBUTE.to_string(),
+                value: Some(AnyValue {
+                    value: Some(Value::StringValue("svc".to_string())),
+                }),
+            }],
+            ..Default::default()
+        };
+        let (row, _) = KafkaLogRow::new(LogRecord::default(), Some(resource), None).unwrap();
+        assert_eq!(
+            row.resource_attributes.get(SERVICE_NAME_ATTRIBUTE).unwrap(),
+            "\"svc\""
+        );
+        assert_eq!(row.service_name, "svc");
     }
 }

@@ -42,6 +42,23 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return {r["value"]: r["count"] for r in response.json()["results"]}
 
+    @parameterized.expand([("severity_text",), ("service_name",)])
+    def test_column_facet_counts_each_log_once(self, facet_field):
+        # Column facets read the log_attributes rollup, which holds one row per (log, attribute).
+        # Restricting to the service.name rows is what keeps a log from being counted once per
+        # attribute it carries, so the counts must match a direct count over the logs table.
+        expected = dict(
+            sync_execute(
+                f"SELECT {facet_field}, count() FROM logs "
+                "WHERE team_id = %(team_id)s "
+                "AND timestamp >= parseDateTimeBestEffort(%(date_from)s) "
+                "AND timestamp < parseDateTimeBestEffort(%(date_to)s) "
+                f"GROUP BY {facet_field}",
+                {"team_id": self.team.pk, **self.DATE_RANGE},
+            )
+        )
+        self.assertEqual(self._facet(facet_field), expected)
+
     @parameterized.expand(
         [
             ("severity_text", "severityLevels"),
