@@ -12,6 +12,7 @@ from retry import retry
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.constants import AI_EVENT_NAME_PREFIX
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
@@ -37,9 +38,9 @@ def get_ph_client() -> PostHogClient:
     return PostHogClient(PH_US_API_KEY, sync_mode=True)
 
 
+# Only team discovery reads this list: it must pick up customer-emitted core events, never
+# server-side artifacts. Every metric below counts by `AI_EVENT_NAME_PREFIX` instead.
 AI_EVENTS = [event.value for event in AIEventType]
-# Metrics queries count every `$ai_*` event, the same population the billing report meters.
-AI_EVENT_NAME_PREFIX = "$ai_"
 LLM_PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 
 # The emitted report event. Shared by the emission and the already-reported lookup so the two

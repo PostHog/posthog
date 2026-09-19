@@ -30,7 +30,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.constants import FlagRequestType
+from posthog.constants import AI_EVENT_NAME_PREFIX, FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
@@ -85,10 +85,6 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSt
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
 
-# Every event whose name carries this prefix is an AI event for billing: it counts on the
-# LLM analytics meter and never on the product analytics meter. Capture and the AI
-# ingestion pipeline route by the same prefix, so the two meters stay disjoint.
-AI_EVENT_NAME_PREFIX = "$ai_"
 GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE = 20
 GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE = 20
 # Gateway generations are emitted after provider completion. The default gateway
