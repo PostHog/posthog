@@ -488,7 +488,6 @@ export const EditingQueued: Story = {
     text: SAMPLE_TEXT,
     isEditingQueued: true,
     onCancelEdit: () => {},
-    submitTooltipOverride: "Save edit",
   },
 };
 
@@ -498,6 +497,7 @@ export const SubmitBlocked: Story = {
     sessionId: "sb-blocked",
     text: SAMPLE_TEXT,
     submitDisabledExternal: true,
+    submitDisabledReason: "Pick a repository first",
   },
 };
 

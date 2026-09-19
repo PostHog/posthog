@@ -26,10 +26,7 @@ import {
   PI_HARNESS_FLAG,
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import {
-  spendStopMessage,
-  useSpendStop,
-} from "@posthog/ui/features/billing/useSpendStop";
+import { useSpendStop } from "@posthog/ui/features/billing/useSpendStop";
 import {
   TaskRepositoryChip,
   TaskRepositoryDialog,
@@ -122,6 +119,7 @@ import {
 } from "../../settings/settingsStore";
 import { useSkills } from "../../skills/useSkills";
 import { cloudTargetIds } from "../cloudTargets";
+import { taskComposerBlockedReason } from "../hooks/taskComposerBlockedReason";
 import { useCloudTargetSelection } from "../hooks/useCloudTarget";
 import {
   areReposReady,
@@ -1094,6 +1092,7 @@ export function TaskInput({
   const {
     isCreatingTask,
     canSubmit,
+    submitBlockedReason,
     handleSubmit,
     additionalDirectories,
     setAdditionalDirectories,
@@ -1130,6 +1129,15 @@ export function TaskInput({
     channelContextId,
     submissionBlocked: channelContextBlocked || !isWorkspaceModeResolved,
     allowNoRepo: repoOptional,
+  });
+
+  const newTaskSubmitBlockedReason = taskComposerBlockedReason({
+    spendStop,
+    creationBlockedReason: submitBlockedReason,
+    contextBlocked: channelContextBlocked,
+    workspaceModeResolved: isWorkspaceModeResolved,
+    configLoading: runtime === "pi" ? isPiConfigLoading : isPreviewLoading,
+    modelMissing: runtime === "pi" && !currentPiModel,
   });
 
   // Wraps the prompt in the autoresearch kickoff: protocol preamble first,
@@ -1631,9 +1639,8 @@ export function TaskInput({
                     (runtime === "pi" && !currentPiModel) ||
                     spendStop !== null
                   }
-                  submitTooltipOverride={
-                    spendStop ? spendStopMessage(spendStop) : undefined
-                  }
+                  surface="new_task"
+                  submitDisabledReason={newTaskSubmitBlockedReason}
                   tourTarget="task-input"
                   submitAdornment={
                     channelContextUnavailable || channelContextFailed ? (
