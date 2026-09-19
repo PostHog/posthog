@@ -11,8 +11,10 @@ from products.conversations.backend.facade.api import (
     SupportMessageSendError,
     SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured,
+    SupportSlackSender,
     list_support_bot_channels,
     post_support_message,
+    resolve_support_slack_sender,
 )
 from products.customer_analytics.backend.constants import (
     DELIVERY_IN_FLIGHT_ERROR,
@@ -33,7 +35,40 @@ class AnnouncementRateLimited(Exception):
     pass
 
 
-def create_announcement(team: Team, created_by: User, message: str, channel_ids: list[str]) -> Announcement:
+def _resolve_user_sender(team_id: int, user: User) -> SupportSlackSender:
+    """The Slack profile to post under when someone sends an announcement as themselves.
+
+    Matches by email, so a user whose Slack email differs from their PostHog one has no
+    identity to post under — say so instead of quietly falling back to the bot, which is
+    the exact outcome the option exists to avoid.
+    """
+    email = (user.email or "").strip()
+    if not email:
+        raise AnnouncementValidationError(
+            {"send_as": "Your PostHog account has no email address, so we cannot find your Slack profile."}
+        )
+    try:
+        sender = resolve_support_slack_sender(team_id, email)
+    except SupportSlackNotConfigured:
+        raise AnnouncementValidationError("The SupportHog Slack bot is not connected.")
+    if sender is None:
+        raise AnnouncementValidationError(
+            {
+                "send_as": f"No Slack user has the email {email}, so we cannot send as you. "
+                "Send as SupportHog instead, or sign in to Slack with this email."
+            }
+        )
+    return sender
+
+
+def create_announcement(
+    team: Team,
+    created_by: User,
+    message: str,
+    channel_ids: list[str],
+    send_as: str = Announcement.SendAs.BOT,
+) -> Announcement:
+    sender = _resolve_user_sender(team.pk, created_by) if send_as == Announcement.SendAs.USER else None
     try:
         allowed = {c.id: c for c in list_support_bot_channels(team.pk, members_only=True)}
     except SupportSlackNotConfigured:
@@ -51,6 +86,9 @@ def create_announcement(team: Team, created_by: User, message: str, channel_ids:
             created_by=created_by,
             total_channels=len(channel_ids),
             status=Announcement.Status.PENDING,
+            send_as=send_as,
+            sender_display_name=sender.name if sender else "",
+            sender_icon_url=sender.icon_url if sender else "",
         )
         AnnouncementDelivery.objects.bulk_create(
             [
@@ -123,10 +161,11 @@ def send_pending_deliveries(announcement_id: str, team_id: int) -> None:
         announcement.status = Announcement.Status.SENDING
         announcement.save(update_fields=["status", "updated_at"])
 
+    sender = _announcement_sender(announcement)
     deferred = 0
     for delivery in pending:
         try:
-            if not _deliver_to_channel(team_id, delivery, announcement.message):
+            if not _deliver_to_channel(team_id, delivery, announcement.message, sender):
                 deferred += 1
         except SupportSlackNotConfigured:
             logger.warning("announcement_no_slack_credentials", announcement_id=announcement_id, team_id=team_id)
@@ -154,14 +193,23 @@ def send_pending_deliveries(announcement_id: str, team_id: int) -> None:
         raise AnnouncementRateLimited(f"{deferred} channel(s) rate limited")
 
 
-def _deliver_to_channel(team_id: int, delivery: AnnouncementDelivery, message: str) -> bool:
+def _announcement_sender(announcement: Announcement) -> SupportSlackSender | None:
+    """The Slack identity to post under, or ``None`` to post as the SupportHog bot."""
+    if announcement.send_as != Announcement.SendAs.USER or not announcement.sender_display_name:
+        return None
+    return SupportSlackSender(name=announcement.sender_display_name, icon_url=announcement.sender_icon_url)
+
+
+def _deliver_to_channel(
+    team_id: int, delivery: AnnouncementDelivery, message: str, sender: SupportSlackSender | None = None
+) -> bool:
     was_rate_limit_deferred = delivery.error == DELIVERY_RATE_LIMIT_DEFERRED_ERROR
     # Claim the row before posting so a crash between the Slack post and the outcome save
     # can never lead to a double post on retry.
     delivery.error = DELIVERY_IN_FLIGHT_ERROR
     delivery.save(update_fields=["error", "updated_at"])
     try:
-        delivery.slack_message_ts = post_support_message(team_id, delivery.slack_channel_id, message)
+        delivery.slack_message_ts = post_support_message(team_id, delivery.slack_channel_id, message, sender=sender)
         delivery.status = AnnouncementDelivery.Status.SENT
         delivery.sent_at = timezone.now()
         delivery.error = ""

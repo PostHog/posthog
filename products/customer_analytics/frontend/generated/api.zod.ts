@@ -421,8 +421,17 @@ export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+export const announcementsCreateBodySendAsDefault = `bot`
+
 export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    send_as: zod
+        .enum(['bot', 'user'])
+        .describe('\* `bot` - SupportHog\n\* `user` - The person who created it')
+        .default(announcementsCreateBodySendAsDefault)
+        .describe(
+            "Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).\n\n\* `bot` - SupportHog\n\* `user` - The person who created it"
+        ),
     channels: zod
         .array(zod.string())
         .describe(

@@ -698,6 +698,9 @@ const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchema
         if (params.message !== undefined) {
             body['message'] = params.message
         }
+        if (params.send_as !== undefined) {
+            body['send_as'] = params.send_as
+        }
         if (params.channels !== undefined) {
             body['channels'] = params.channels
         }
