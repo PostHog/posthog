@@ -187,17 +187,14 @@ describe('TypeSafe transformation', () => {
             ...mockResponse(null),
             json: () => Promise.reject(new SyntaxError('Invalid JSON containing fake-demo-key and reader@example.com')),
         })
-        const errors: (string | undefined)[] = []
-        for (let i = 0; i < 3; i++) {
+        for (const expectedError of ['Check the API key', 'status 429', 'invalid answer']) {
             const result = await executeTypesafeTransformation(invocation)
             expect(result).toMatchObject({ finished: true, execResult: invocation.state.globals.event })
-            expect(result.error).not.toBeUndefined()
+            expect(result.error).toContain(expectedError)
             expect(result.error).not.toContain('fake-demo-key')
             // Monitoring drops result.error, so the reason only reaches the user as a log.
             expect(result.logs).toEqual([expect.objectContaining({ level: 'error', message: result.error })])
-            errors.push(result.error)
         }
-        expect(errors[1]).toContain('status 429')
         await expectCallMetrics('failure', 3)
         expect(captureError).toHaveBeenCalledTimes(3)
         expect(captureError.mock.calls.map(([, hint]) => hint?.tags?.failure_kind)).toEqual([
