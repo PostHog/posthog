@@ -20,12 +20,14 @@ import posthog from 'posthog-js'
 import { ViewportResolution } from '@posthog/replay-shared'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { getEventsWithPrimaryProperty } from 'lib/utils/events'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
+import type { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { HogQLQueryString, hogql } from '~/queries/utils'
 import { RecordingEventType } from '~/types'
 
@@ -216,21 +218,38 @@ AND properties.$lib != 'web'`
                         hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString
 
                     const tags = { scene: 'ReplaySingle', productKey: 'session_replay' }
-                    const [sessionEvents, relatedEvents]: any[] = await Promise.all([
-                        // make one query for all events that are part of the session
-                        api.queryHogQL(sessionEventsQuery, tags),
-                        // make a second for all events from that person,
-                        // not marked as part of the session
-                        // but in the same time range
-                        // these are probably e.g. backend events for the session
-                        // but with no session id
-                        // since posthog-js must always add session id we can also
-                        // take advantage of lib being materialized and further filter
-                        api.queryHogQL(relatedEventsQuery, tags),
-                    ])
+                    let eventResponses: any[]
+                    try {
+                        eventResponses = await Promise.all([
+                            // make one query for all events that are part of the session
+                            api.queryHogQL(sessionEventsQuery, tags),
+                            // make a second for all events from that person,
+                            // not marked as part of the session
+                            // but in the same time range
+                            // these are probably e.g. backend events for the session
+                            // but with no session id
+                            // since posthog-js must always add session id we can also
+                            // take advantage of lib being materialized and further filter
+                            api.queryHogQL(relatedEventsQuery, tags),
+                        ])
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // A late failure must not replace the result from a newer load.
+                        breakpoint()
+                        // The player works without the events list. Reapply the global reporting
+                        // gate because this fallback converts the loader failure into a success.
+                        console.warn('Failed to load session events for recording', e)
+                        if (shouldReportApiFailure(e)) {
+                            posthog.captureException(e)
+                        }
+                        return null
+                    }
 
                     breakpoint()
 
+                    const [sessionEvents, relatedEvents] = eventResponses
                     return [...sessionEvents.results, ...relatedEvents.results].map(
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
@@ -294,20 +313,21 @@ AND properties.$lib != 'web'`
                     const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
 
-                    try {
-                        const query = hogql`
-                            SELECT properties, uuid
-                            FROM events
-                            -- the timestamp range here is only to avoid querying too much of the events table
-                            -- we don't really care about the absolute value,
-                            -- but we do care about whether timezones have an odd impact
-                            -- so, we extend the range by a day on each side so that timezones don't cause issues
-                            WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
-                            AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
-                            AND event in ${eventNames}
-                            AND uuid in ${eventIds}`
+                    const query = hogql`
+                        SELECT properties, uuid
+                        FROM events
+                        -- the timestamp range here is only to avoid querying too much of the events table
+                        -- we don't really care about the absolute value,
+                        -- but we do care about whether timezones have an odd impact
+                        -- so, we extend the range by a day on each side so that timezones don't cause issues
+                        WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
+                        AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
+                        AND event in ${eventNames}
+                        AND uuid in ${eventIds}`
 
-                        const response = await api.queryHogQL(query, {
+                    let response: HogQLQueryResponse | null = null
+                    try {
+                        response = await api.queryHogQL(query, {
                             scene: 'ReplaySingle',
                             productKey: 'session_replay',
                         })
@@ -315,7 +335,23 @@ AND properties.$lib != 'web'`
                         if (response.error) {
                             throw new Error(response.error)
                         }
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // A late failure must not mark an event from a newer load as loaded.
+                        breakpoint()
+                        // Property expansion is best-effort. Reapply the global reporting gate
+                        // because this fallback converts the loader failure into a success.
+                        existingEvents.forEach((e) => (e.fullyLoaded = true))
+                        console.warn('Failed to load full event data for recording events', e)
+                        if (shouldReportApiFailure(e)) {
+                            posthog.captureException(e)
+                        }
+                        response = null
+                    }
 
+                    if (response) {
                         for (const event of existingEvents) {
                             const result = response.results.find((x: any) => {
                                 return x[1] === event.id
@@ -326,13 +362,6 @@ AND properties.$lib != 'web'`
                                 event.fullyLoaded = true
                             }
                         }
-                    } catch (e: any) {
-                        if (isBreakpoint(e)) {
-                            throw e
-                        }
-                        // NOTE: This is not ideal but should happen so rarely that it is tolerable.
-                        existingEvents.forEach((e) => (e.fullyLoaded = true))
-                        posthog.captureException(e, { feature: 'session-recording-load-full-event-data' })
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation

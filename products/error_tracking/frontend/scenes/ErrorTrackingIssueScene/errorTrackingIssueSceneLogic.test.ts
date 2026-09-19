@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import type { ErrorEventType } from 'lib/components/Errors/types'
 
@@ -48,7 +50,10 @@ describe('errorTrackingIssueSceneLogic', () => {
         logic.mount()
     })
 
-    afterEach(() => logic?.unmount())
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
 
     // The catch-all `/error_tracking/:id` route can capture a legacy settings slug. Without the
     // guard the scene fired every loader against a non-UUID id, spraying "issue_id must be a valid
@@ -64,6 +69,32 @@ describe('errorTrackingIssueSceneLogic', () => {
             scopedLogic.unmount()
         }
     )
+
+    // A date-range change starts a second spike request while the first is in flight, and a failed
+    // request degrades to no markers, which writes the same value a successful one writes. Without a
+    // supersede check the older request's late failure clears the markers the newer one just wrote.
+    it('does not let a superseded failing spike request clear newer markers', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        const spikeEvent: any = { id: 'spike-1', issue: { id: VALID_ISSUE_ID }, detected_at: '2026-01-02T00:00:00Z' }
+        let rejectFirstRequest: (error: unknown) => void = () => {}
+        const firstRequest = new Promise((_, reject) => {
+            rejectFirstRequest = reject
+        })
+        jest.spyOn(api.errorTracking, 'getSpikeEvents')
+            .mockReturnValueOnce(firstRequest as any)
+            .mockResolvedValueOnce({ results: [spikeEvent] } as any)
+
+        logic.actions.loadSpikeEvents()
+        logic.actions.loadSpikeEvents()
+        await expectLogic(logic).toDispatchActions(['loadSpikeEventsSuccess'])
+        expect(logic.values.spikeEvents).toEqual([spikeEvent])
+
+        rejectFirstRequest(new ApiError('Service Unavailable', 503))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.spikeEvents).toEqual([spikeEvent])
+    })
 
     it('loads the issue when the id is a valid UUID', async () => {
         const scopedLogic = errorTrackingIssueSceneLogic({ id: VALID_ISSUE_ID })
