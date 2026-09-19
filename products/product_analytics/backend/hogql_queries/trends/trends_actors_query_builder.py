@@ -39,6 +39,7 @@ from products.product_analytics.backend.hogql_queries.trends.aggregation_operati
 )
 from products.product_analytics.backend.hogql_queries.trends.breakdown import Breakdown
 from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay
+from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.product_analytics.backend.hogql_queries.trends.utils import group_node_to_expr, is_groups_math
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
     first_pageview_aware_properties_to_expr,
@@ -574,11 +575,25 @@ class TrendsActorsQueryBuilder:
         )
 
         if self.breakdown_value is not None and breakdown.enabled:
-            breakdown_filter = breakdown.get_actors_query_where_filter(lookup_values=self.breakdown_value)
+            breakdown_filter = breakdown.get_actors_query_where_filter(
+                lookup_values=self.breakdown_value,
+                top_breakdown_values_query=self._top_breakdown_values_query,
+            )
             if breakdown_filter is not None:
                 conditions.append(breakdown_filter)
 
         return conditions
+
+    def _top_breakdown_values_query(self) -> ast.SelectQuery:
+        return TrendsQueryBuilder(
+            trends_query=self.trends_query,
+            team=self.team,
+            query_date_range=self.trends_previous_date_range if self.is_compare_previous else self.trends_date_range,
+            series=self.entity,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        ).build_top_breakdown_values_query()
 
     def _filter_empty_actors_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []

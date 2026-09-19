@@ -8,6 +8,8 @@ from unittest.case import skip
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     ActorsQuery,
@@ -44,6 +46,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
 def get_actors(
@@ -377,88 +380,84 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result), 0)
 
-    @skip("fails, as other returns all breakdowns, even those that should be display with the breakdown_limit")
-    def test_trends_breakdown_others_persons(self):
+    @parameterized.expand(
+        [
+            ("single_breakdown", BreakdownFilter(breakdown="$browser", breakdown_limit=1), "Safari"),
+            (
+                "multiple_breakdowns",
+                BreakdownFilter(breakdowns=[Breakdown(property="$browser")], breakdown_limit=1),
+                ["Safari"],
+            ),
+        ]
+    )
+    def test_trends_breakdown_others_persons(self, _name: str, breakdown_filter: BreakdownFilter, top_value):
         self._create_events()
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=DateRange(date_from="-7d"),
-            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_limit=1),
+            breakdownFilter=breakdown_filter,
         )
+        other_value = [BREAKDOWN_OTHER_STRING_LABEL] if isinstance(top_value, list) else BREAKDOWN_OTHER_STRING_LABEL
 
-        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="Chrome")
+        with time_machine.travel("2023-05-06T20:00:00.000Z", tick=False):
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=top_value)
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 2)
+            self.assertEqual(len(result), 2)
+            self.assertEqual(get_distinct_id(result[0]), "person2")
+            self.assertEqual(get_event_count(result[0]), 2)
+            self.assertEqual(get_distinct_id(result[1]), "person3")
+            self.assertEqual(get_event_count(result[1]), 1)
 
-        result = self._get_actors(
-            trends_query=source_query, day="2023-04-29", breakdown="$$_posthog_breakdown_other_$$"
-        )
+            # "Other" holds the values ranked below the limit, so it must leave out Safari.
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=other_value)
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
+            self.assertEqual(len(result), 1)
+            self.assertEqual(get_distinct_id(result[0]), "person1")
+            self.assertEqual(get_event_count(result[0]), 3)
 
-    @skip("fails, as other returns all breakdowns, even those that should be display with the breakdown_limit")
-    def test_trends_multiple_breakdowns_others_persons(self):
-        self._create_events()
-        source_query = TrendsQuery(
-            series=[EventsNode(event="$pageview")],
-            dateRange=DateRange(date_from="-7d"),
-            breakdownFilter=BreakdownFilter(
-                breakdowns=[Breakdown(property="$browser")],
-                breakdown_limit=1,
-            ),
-        )
+            # Events without the property rank below the limit too, so they belong to "Other".
+            result = self._get_actors(trends_query=source_query, day="2023-05-06", breakdown=other_value)
 
-        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["Chrome"])
+            self.assertEqual(len(result), 1)
+            self.assertEqual(get_distinct_id(result[0]), "person1")
+            self.assertEqual(get_event_count(result[0]), 1)
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 2)
-
-        result = self._get_actors(
-            trends_query=source_query, day="2023-04-29", breakdown=["$$_posthog_breakdown_other_$$"]
-        )
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-
-    # TODO: remove this test once "Other" actually filters out all other values
-    def test_trends_filter_by_other(self):
-        self._create_events()
-        source_query = TrendsQuery(
-            series=[EventsNode(event="$pageview")],
-            dateRange=DateRange(date_from="-7d"),
-            breakdownFilter=BreakdownFilter(
-                breakdowns=[Breakdown(property="some_property", type=MultipleBreakdownType.EVENT)],
-                breakdown_limit=1,
-            ),
-        )
-
-        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=[BREAKDOWN_OTHER_STRING_LABEL])
-        self.assertEqual(len(result), 3)
+    def test_trends_total_value_breakdown_others_persons(self):
+        # A total-value chart and its "Other" drill-down must break ties in the breakdown totals the
+        # same way, or the chart draws a bar for one tied value while the drill-down folds the other.
+        for distinct_id, browser, event_count in [
+            ("person_top", "Chrome", 3),
+            ("person_a", "Edge", 1),
+            ("person_b", "Firefox", 1),
+        ]:
+            _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={})
+            for hour in range(event_count):
+                _create_event(
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=f"2023-05-01 1{hour}:00",
+                    properties={"$browser": browser},
+                    team=self.team,
+                )
 
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=DateRange(date_from="-7d"),
-            breakdownFilter=BreakdownFilter(
-                breakdowns=[
-                    Breakdown(property="some_property", type=MultipleBreakdownType.EVENT),
-                    Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
-                ],
-                breakdown_limit=1,
-            ),
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_PIE),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_limit=2),
         )
 
-        result = self._get_actors(
-            trends_query=source_query,
-            day="2023-05-01",
-            breakdown=[BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL],
-        )
-        self.assertEqual(len(result), 3)
+        with time_machine.travel("2023-05-06T20:00:00.000Z", tick=False):
+            response = TrendsQueryRunner(team=self.team, query=source_query).calculate()
+            self.assertEqual(
+                [result["breakdown_value"] for result in response.results],
+                ["Chrome", "Edge", BREAKDOWN_OTHER_STRING_LABEL],
+            )
+
+            result = self._get_actors(trends_query=source_query, breakdown=BREAKDOWN_OTHER_STRING_LABEL)
+
+            self.assertEqual(len(result), 1)
+            self.assertEqual(get_distinct_id(result[0]), "person_b")
 
     def test_trends_breakdown_null_persons(self):
         self._create_events()
@@ -799,6 +798,30 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_event_count(result[0]), 2)
         self.assertEqual(get_distinct_id(result[1]), "person1")
         self.assertEqual(get_event_count(result[1]), 1)
+
+    def test_trends_compare_breakdown_others_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="-7d"),
+            trendsFilter=TrendsFilter(),
+            compareFilter=CompareFilter(compare=True),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_limit=1),
+        )
+
+        # The previous period ranks its own breakdown values, so "Other" holds what that period
+        # ranks below the limit.
+        with time_machine.travel("2023-05-06T20:00:00.000Z", tick=False):
+            result = self._get_actors(
+                trends_query=source_query,
+                day="2023-05-06",
+                compare=Compare.PREVIOUS,
+                breakdown=BREAKDOWN_OTHER_STRING_LABEL,
+            )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
 
     def test_trends_event_multiple_breakdowns_persons(self):
         self._create_events()

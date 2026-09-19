@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from typing import Union, cast
 
 from posthog.schema import (
@@ -242,13 +243,51 @@ class Breakdown:
 
         return base_filter
 
-    def get_actors_query_where_filter(self, lookup_values: str | int | list[int | str] | list[str]) -> ast.Expr | None:
+    def get_breakdown_value_expr(self, exprs: list[ast.Expr]) -> ast.Expr:
+        """The value the trends query groups on, built from one expression per breakdown."""
+        if self.is_multiple_breakdown:
+            return ast.Array(
+                exprs=[
+                    ast.Call(
+                        name="ifNull",
+                        args=[hogql_to_string(expr), ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL)],
+                    )
+                    for expr in exprs
+                ]
+            )
+
+        return exprs[0]
+
+    @staticmethod
+    def _is_other_lookup(lookup_values: str | int | list[int | str] | list[str]) -> bool:
+        if isinstance(lookup_values, list):
+            return BREAKDOWN_OTHER_STRING_LABEL in lookup_values
+        return lookup_values == BREAKDOWN_OTHER_STRING_LABEL
+
+    def _get_other_actors_filter(self, top_breakdown_values_query: Callable[[], ast.SelectQuery]) -> ast.Expr | None:
+        # Histogram bins come from the min and max of the whole dataset, so the actors query
+        # cannot rebuild a bin label on its own. Such a breakdown only gets an "Other" bar when
+        # the bin count is above the breakdown limit.
+        if self.is_histogram_breakdown:
+            return None
+
+        # The actors query has no breakdown columns, so the value is built from the raw expressions.
+        return ast.CompareOperation(
+            left=self.get_breakdown_value_expr([column.expr for column in self.column_exprs]),
+            op=ast.CompareOperationOp.NotIn,
+            right=top_breakdown_values_query(),
+        )
+
+    def get_actors_query_where_filter(
+        self,
+        lookup_values: str | int | list[int | str] | list[str],
+        top_breakdown_values_query: Callable[[], ast.SelectQuery],
+    ) -> ast.Expr | None:
         if self.is_cohort_breakdown:
             return self._get_cohort_filter(lookup_values)
 
-        # TODO: fix filtering by "Other". If "Other" is selected, we include every person.
-        if lookup_values == BREAKDOWN_OTHER_STRING_LABEL:
-            return None
+        if self._is_other_lookup(lookup_values):
+            return self._get_other_actors_filter(top_breakdown_values_query)
 
         if self.enabled:
             exprs: list[ast.Expr] = []
@@ -304,9 +343,6 @@ class Breakdown:
         histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
-        if lookup_value == BREAKDOWN_OTHER_STRING_LABEL:
-            return None
-
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
         if breakdown_type == "hogql":
