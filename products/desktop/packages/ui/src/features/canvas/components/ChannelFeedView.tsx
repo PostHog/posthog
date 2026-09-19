@@ -1628,14 +1628,31 @@ export function ChannelFeedView({
     ? "w-full max-w-[900px]"
     : "mx-auto w-full max-w-[660px]";
   const composerBlock = composer && (
-    <div className={cn("mb-2", columnClass)}>{composer}</div>
+    <div
+      className={cn(
+        columnClass,
+        // A rule and some room under the composer: what follows is the log,
+        // not more of the box.
+        compact ? "mb-1 border-border border-b pb-4" : "mb-2",
+      )}
+    >
+      {composer}
+    </div>
   );
 
   // One row: the kind tabs, and — on the Reports kind only — the same compact
   // funnel the sidebar uses. Reports deliberately get no extra filter chrome
   // beyond that, so the row reads the same weight whichever kind is active.
   const kindFilterBlock = reports !== undefined && showKindFilter && (
-    <div className={cn("flex items-center gap-1 pt-1", columnClass)}>
+    <div
+      className={cn(
+        "flex items-center gap-1",
+        columnClass,
+        // A rule and some room under the composer: the filter belongs to the
+        // log below it, not to the box above.
+        compact ? "mt-4 border-border border-t pt-2" : "pt-1",
+      )}
+    >
       <Tabs
         value={activeKindFilter}
         onValueChange={(value: string) =>

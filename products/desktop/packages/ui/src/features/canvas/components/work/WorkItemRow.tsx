@@ -1,4 +1,5 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import { cn } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
@@ -7,6 +8,7 @@ import {
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { WorkRowSurface } from "@posthog/ui/features/canvas/components/work/WorkRowSurface";
+import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { TaskStatusDot } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
@@ -36,6 +38,8 @@ export function WorkItemRow({
   // No PR lookup: that is a query into git per row, and this list spans every
   // space the viewer has.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
+  // Whatever the list appearance settings ask each row to carry.
+  const subtitle = useChannelItemMetadata(item);
   // The session lists' own overflow behaviour: a name too long to fit tickers
   // under the pointer rather than stopping at an ellipsis nobody can read past.
   const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
@@ -46,10 +50,16 @@ export function WorkItemRow({
           optionValue={item.key}
           data-selected={isActive || undefined}
           onClick={onOpen}
+          className={subtitle ? "h-auto py-1" : undefined}
           {...hoverProps}
           {...focusProps}
         >
-          <span className="flex size-3.5 shrink-0 items-center justify-center">
+          <span
+            className={cn(
+              "flex size-3.5 shrink-0 items-center justify-center",
+              subtitle && "self-start pt-0.5",
+            )}
+          >
             {item.kind === "canvas" ? (
               iconForTemplate(item.templateId ?? "freeform", {
                 size: 13,
@@ -59,9 +69,16 @@ export function WorkItemRow({
               <TaskStatusDot dot={taskDot(status ?? {})} hitArea="row" />
             )}
           </span>
-          <OverflowTickerText reveal={reveal} className="flex-1">
-            {item.title}
-          </OverflowTickerText>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <OverflowTickerText reveal={reveal}>
+              {item.title}
+            </OverflowTickerText>
+            {subtitle && (
+              <span className="truncate text-muted-foreground/70 text-xxs group-data-selected/button:text-muted-foreground">
+                {subtitle}
+              </span>
+            )}
+          </span>
           <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/button:opacity-100 group-data-selected/button:opacity-100">
             {formatRelativeTimeShort(item.ts)}
           </span>

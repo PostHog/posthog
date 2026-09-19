@@ -1,21 +1,11 @@
-import { GitPullRequestIcon } from "@phosphor-icons/react";
 import {
   getPrVisualConfig,
   parsePrNumber,
 } from "@posthog/core/git-interaction/prStatus";
-import {
-  cn,
-  MenuLabel,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@posthog/quill";
+import { cn, MenuLabel } from "@posthog/quill";
 import { readPrUrls } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import {
-  feedDayLabel,
-  PrPopoverContent,
-} from "@posthog/ui/features/canvas/components/ChannelFeedView";
+import { feedDayLabel } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { getPrVisualIcon } from "@posthog/ui/features/git-interaction/prIcon";
 import {
   type PrStateDetails,
@@ -23,12 +13,10 @@ import {
   usePrTitles,
 } from "@posthog/ui/features/git-interaction/usePrDetails";
 import { usePrChecks } from "@posthog/ui/features/pr-review/usePrChecks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-/** How long the pointer may travel between a row and its card before it closes. */
-const CARD_CLOSE_DELAY_MS = 120;
+import { useMemo } from "react";
 
 interface PullRequestEntry {
   url: string;
@@ -78,16 +66,9 @@ function isLive(details: PrStateDetails | undefined): boolean {
 function PullRequestLine({
   entry,
   title,
-  open,
-  onOpen,
-  onClose,
 }: {
   entry: PullRequestEntry;
   title: string | undefined;
-  /** The column opens one card at a time, so a row never owns this. */
-  open: boolean;
-  onOpen: () => void;
-  onClose: () => void;
 }) {
   const live = isLive(entry.details);
   const checks = usePrChecks(live ? entry.url : null);
@@ -101,53 +82,36 @@ function PullRequestLine({
   const prNumber = parsePrNumber(entry.url);
   const settled = entry.details !== undefined;
   return (
-    <Popover open={open} onOpenChange={(next) => !next && onClose()}>
-      <PopoverTrigger
-        onMouseEnter={onOpen}
-        onMouseLeave={onClose}
-        render={
-          <button
-            type="button"
-            className="flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left font-medium text-[12px] text-muted-foreground leading-snug transition-colors hover:bg-fill-hover hover:text-foreground"
-            onClick={() => openExternalUrl(entry.url)}
-          >
-            <span className="flex size-3.5 shrink-0 items-center justify-center">
-              <Icon
-                size={13}
-                style={
-                  settled ? { color: `var(--${config.color}-9)` } : undefined
-                }
-                className={settled ? undefined : "opacity-50"}
-                aria-hidden
-              />
-            </span>
-            <span className="shrink-0 text-[11px] tabular-nums">
-              {prNumber ? `#${prNumber}` : "PR"}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-foreground">
-              {title ?? entry.task.title}
-            </span>
-            {tone && (
-              <span
-                role="img"
-                aria-label={CI_LABEL[tone]}
-                className={cn(
-                  "size-1.5 shrink-0 rounded-full",
-                  CI_DOT_CLASS[tone],
-                )}
-              />
-            )}
-          </button>
-        }
-      />
-      <PopoverContent
-        className="w-auto gap-0 p-2"
-        onMouseEnter={onOpen}
-        onMouseLeave={onClose}
-      >
-        <PrPopoverContent url={entry.url} />
-      </PopoverContent>
-    </Popover>
+    <button
+      type="button"
+      // The row says everything the card said; the title it truncates is the
+      // one thing left, and that is what the native tooltip is for.
+      title={title ?? entry.task.title}
+      className="flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left font-medium text-[12px] text-muted-foreground leading-snug transition-colors hover:bg-fill-hover hover:text-foreground"
+      onClick={() => openExternalUrl(entry.url)}
+    >
+      <span className="flex size-3.5 shrink-0 items-center justify-center">
+        <Icon
+          size={13}
+          style={settled ? { color: `var(--${config.color}-9)` } : undefined}
+          className={settled ? undefined : "opacity-50"}
+          aria-hidden
+        />
+      </span>
+      <span className="shrink-0 text-[11px] tabular-nums">
+        {prNumber ? `#${prNumber}` : "PR"}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-foreground">
+        {title ?? entry.task.title}
+      </span>
+      {tone && (
+        <span
+          role="img"
+          aria-label={CI_LABEL[tone]}
+          className={cn("size-1.5 shrink-0 rounded-full", CI_DOT_CLASS[tone])}
+        />
+      )}
+    </button>
   );
 }
 
@@ -198,25 +162,6 @@ export function SpacePullRequestsColumn({
     return out;
   }, [sources, details]);
 
-  // One card for the whole column. A card per row left two of them on screen
-  // at once while the pointer crossed between rows.
-  const [openUrl, setOpenUrl] = useState<string | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-  useEffect(() => () => clearTimeout(closeTimer.current), []);
-  const openCard = useCallback((url: string) => {
-    clearTimeout(closeTimer.current);
-    setOpenUrl(url);
-  }, []);
-  const closeCard = useCallback(() => {
-    clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(
-      () => setOpenUrl(null),
-      CARD_CLOSE_DELAY_MS,
-    );
-  }, []);
-
   return (
     <aside
       className={cn(
@@ -225,12 +170,9 @@ export function SpacePullRequestsColumn({
       )}
       aria-label="Pull requests"
     >
-      <div className="flex h-10 shrink-0 items-center px-3">
-        <span className="flex items-center gap-1.5 font-semibold text-[13px]">
-          <GitPullRequestIcon size={14} aria-hidden />
-          Pull requests
-        </span>
-      </div>
+      <ChromeBar>
+        <h2 className="font-bold text-base">Pull requests</h2>
+      </ChromeBar>
       <div className="scroll-mask-8 min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
         {sources.length === 0 ? (
           <p className="px-2 py-1 text-[12px] text-muted-foreground">
@@ -245,9 +187,6 @@ export function SpacePullRequestsColumn({
                   key={entry.url}
                   entry={entry}
                   title={titles[entry.url]}
-                  open={openUrl === entry.url}
-                  onOpen={() => openCard(entry.url)}
-                  onClose={closeCard}
                 />
               ))}
             </div>

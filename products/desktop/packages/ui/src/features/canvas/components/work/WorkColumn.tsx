@@ -4,7 +4,15 @@ import {
   DotsThreeIcon,
   PlusIcon,
 } from "@phosphor-icons/react";
-import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import {
+  type ChannelItemModel,
+  channelItemSources,
+  DEFAULT_CHANNEL_ITEM_FILTERS,
+  filterChannelItems,
+  groupChannelItems,
+  hasActiveChannelItemFilters,
+  sortChannelItems,
+} from "@posthog/core/canvas/channelItems";
 import {
   Autocomplete,
   AutocompleteList,
@@ -16,12 +24,18 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
   Skeleton,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
 import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
@@ -34,12 +48,12 @@ import {
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useDashboardMutations } from "@posthog/ui/features/canvas/hooks/useDashboards";
-import {
-  type RecentWorkItem,
-  useRecentWorkItems,
-} from "@posthog/ui/features/canvas/hooks/useRecentWorkItems";
+import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
+import { useRecentWorkItems } from "@posthog/ui/features/canvas/hooks/useRecentWorkItems";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
@@ -51,7 +65,7 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useRouterState } from "@tanstack/react-router";
-import { type ReactNode, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useMemo, useState } from "react";
 
 const RECENT_COLLAPSED_COUNT = 5;
 
@@ -186,6 +200,9 @@ export function WorkColumn() {
   // Two separate things: whether the section is open at all (the caret), and
   // whether it is showing everything or its first few (the count button).
   const [recentOpen, setRecentOpen] = useState(true);
+  // Which half of Recent is on screen, the way a space's list switches.
+  const [kind, setKind] = useState<ChannelItemModel["kind"]>("task");
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [spacesExpanded, setSpacesExpanded] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -208,12 +225,35 @@ export function WorkColumn() {
     : null;
 
   const needle = query.trim().toLowerCase();
-  const matchingItems = useMemo(
-    () =>
-      needle
-        ? items.filter(({ item }) => item.title.toLowerCase().includes(needle))
-        : items,
-    [items, needle],
+  // The same controls, reading the same store, as a space's own session list:
+  // a choice made in one list is the choice in the other.
+  const filters = useSidebarStore((state) => state.channelItemFilters);
+  const setFilters = useSidebarStore((state) => state.setChannelItemFilters);
+  const sort = useSidebarStore((state) => state.channelItemSort);
+  const setSort = useSidebarStore((state) => state.setChannelItemSort);
+  const grouping = useSidebarStore((state) => state.channelItemGrouping);
+  const setGrouping = useSidebarStore((state) => state.setChannelItemGrouping);
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const meUuid = currentUser?.uuid ?? null;
+  const me = useMemo(() => ({ uuid: meUuid }), [meUuid]);
+  const sources = useMemo(
+    () => channelItemSources(items.map((entry) => entry.item)),
+    [items],
+  );
+  const dayStart = useLocalDayStart();
+  const matchingItems = useMemo(() => {
+    const ofKind = items
+      .filter((entry) => entry.item.kind === kind)
+      .map((entry) => entry.item);
+    const filtered = filterChannelItems(ofKind, { query, filters, me });
+    return sortChannelItems(filtered, sort);
+  }, [items, kind, query, filters, me, sort]);
+  // The same sections a space's own list draws: the pins, then whatever the
+  // Group by choice says — days, or repositories.
+  const sections = useMemo(
+    () => groupChannelItems(matchingItems, sort, new Date(dayStart), grouping),
+    [matchingItems, sort, dayStart, grouping],
   );
   // #me leads, then the starred spaces in the list's own (name) order.
   const starredSpaces = useMemo(() => {
@@ -280,31 +320,42 @@ export function WorkColumn() {
   // A search is the user asking for everything that matches, so it opens the
   // list rather than making them expand it first.
   const showAllRecent = recentExpanded || needle !== "";
-  const shownItems = showAllRecent
-    ? matchingItems
-    : matchingItems.slice(0, RECENT_COLLAPSED_COUNT);
+  // The cap is on rows, not on sections: a section is cut where the cap falls
+  // and the ones past it drop, so a collapsed list reads like the open one.
+  const shownSections = useMemo(() => {
+    if (showAllRecent) return sections;
+    const out: typeof sections = [];
+    let left = RECENT_COLLAPSED_COUNT;
+    for (const section of sections) {
+      if (left <= 0) break;
+      out.push({ ...section, items: section.items.slice(0, left) });
+      left -= section.items.length;
+    }
+    return out;
+  }, [sections, showAllRecent]);
+  const shownItems = useMemo(
+    () => shownSections.flatMap((section) => section.items),
+    [shownSections],
+  );
   const canExpandRecent =
     needle === "" && matchingItems.length > RECENT_COLLAPSED_COUNT;
   const optionValues = useMemo(
     () => [
-      ...shownItems.map(({ item }) => item.key),
+      ...shownItems.map((item) => item.key),
       ...starredSpaces.map((channel) => channel.id),
     ],
     [shownItems, starredSpaces],
   );
 
-  const menuFor = (entry: RecentWorkItem): TaskRowMenuProps => ({
-    kind: entry.item.kind,
-    id: entry.item.id,
-    title: entry.item.title,
-    isPinned: entry.item.pinned,
-    task: entry.item.task ?? undefined,
-    channelId: entry.channelId,
-    onTogglePin: () => actions.togglePin(entry.item),
-    onArchive:
-      entry.item.kind === "task"
-        ? () => actions.archive(entry.item)
-        : undefined,
+  const menuFor = (item: ChannelItemModel): TaskRowMenuProps => ({
+    kind: item.kind,
+    id: item.id,
+    title: item.title,
+    isPinned: item.pinned,
+    task: item.task ?? undefined,
+    channelId: channelByKey.get(item.key),
+    onTogglePin: () => actions.togglePin(item),
+    onArchive: item.kind === "task" ? () => actions.archive(item) : undefined,
   });
 
   return (
@@ -353,6 +404,51 @@ export function WorkColumn() {
               ) : null
             }
           />
+          {recentOpen && (
+            <div className="flex items-center gap-1 px-1 pt-0.5 pb-1">
+              <Tabs
+                value={kind}
+                onValueChange={(value: string) =>
+                  setKind(value as ChannelItemModel["kind"])
+                }
+                className="min-w-0 flex-1"
+              >
+                <TabsList
+                  variant="line"
+                  className="quill-tabs-fill h-auto gap-0.5 border-b-0"
+                >
+                  <TabsTrigger
+                    value="task"
+                    className="shrink-0 rounded-sm px-2 py-0.5 text-[12px]"
+                  >
+                    Sessions
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="canvas"
+                    className="shrink-0 rounded-sm px-2 py-0.5 text-[12px]"
+                  >
+                    Canvases
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <ChannelFilterMenu
+                filters={filters}
+                onFilterChange={(key, value) =>
+                  setFilters({ ...filters, [key]: value })
+                }
+                onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
+                sort={sort}
+                onSortChange={setSort}
+                grouping={grouping}
+                onGroupingChange={setGrouping}
+                onEditAppearance={() => setAppearanceOpen(true)}
+                sources={sources}
+                showCreatedBy
+                showRunFilters={kind === "task"}
+                active={hasActiveChannelItemFilters(filters)}
+              />
+            </div>
+          )}
           {recentOpen &&
             (isLoading && items.length === 0 ? (
               <div className="flex flex-col gap-2 px-2 py-1.5">
@@ -362,20 +458,27 @@ export function WorkColumn() {
               </div>
             ) : shownItems.length === 0 ? (
               <p className="px-2 py-1 text-[12px] text-muted-foreground">
-                {needle
+                {needle || hasActiveChannelItemFilters(filters)
                   ? "Nothing here matches."
-                  : "Sessions and canvases you open show up here."}
+                  : kind === "canvas"
+                    ? "Canvases you open show up here."
+                    : "Sessions you open show up here."}
               </p>
             ) : (
               <div className="flex flex-col gap-px">
-                {shownItems.map((entry) => (
-                  <WorkItemRow
-                    key={entry.item.key}
-                    item={entry.item}
-                    isActive={entry.item.key === activeKey}
-                    onOpen={() => actions.open(entry.item)}
-                    menu={menuFor(entry)}
-                  />
+                {shownSections.map((section) => (
+                  <Fragment key={section.key}>
+                    {section.label && <MenuLabel>{section.label}</MenuLabel>}
+                    {section.items.map((item) => (
+                      <WorkItemRow
+                        key={item.key}
+                        item={item}
+                        isActive={item.key === activeKey}
+                        onOpen={() => actions.open(item)}
+                        menu={menuFor(item)}
+                      />
+                    ))}
+                  </Fragment>
                 ))}
               </div>
             ))}
@@ -446,6 +549,11 @@ export function WorkColumn() {
         </AutocompleteList>
       </div>
       <CreateChannelModal open={createOpen} onOpenChange={setCreateOpen} />
+      <EditListItemAppearanceDialog
+        surface="sidebar"
+        open={appearanceOpen}
+        onOpenChange={setAppearanceOpen}
+      />
     </Autocomplete>
   );
 }

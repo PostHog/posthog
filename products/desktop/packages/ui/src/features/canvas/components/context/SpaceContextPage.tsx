@@ -37,9 +37,9 @@ import { KnowledgeList } from "./KnowledgeList";
 import { MarkdownFileDialog } from "./MarkdownFileDialog";
 
 const COLUMN = "mx-auto w-full max-w-[1100px] px-8";
-// Under the tab strip the content is left aligned at the tabs' own inset, so
-// moving between tabs never shifts the left edge.
-const TAB_COLUMN = "w-full max-w-[1100px] px-6";
+// Under the tab strip the content spans the pane at the tabs' own inset, so a
+// section's action lands at the same right edge as the page's own.
+const TAB_COLUMN = "w-full px-6";
 
 interface SpaceContextPageProps {
   channelId: string;
@@ -253,7 +253,7 @@ export function SpaceContextPage({
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-border border-b">
-          <div className={cn(TAB_COLUMN, "flex h-11 items-center gap-2")}>
+          <div className="flex h-11 w-full items-center gap-2 px-6">
             <Text size="xs" variant="muted" className="min-w-0 truncate">
               {purpose}
             </Text>

@@ -354,6 +354,9 @@ export function WebsiteChannelHome({
           compact={isWork}
           reports={isWork ? reports : undefined}
           onOpenReport={isWork ? handleOpenReport : undefined}
+          // One log: everything that happened here, in order. Nothing to pick
+          // between.
+          showKindFilter={!isWork}
         />
       </div>
 
