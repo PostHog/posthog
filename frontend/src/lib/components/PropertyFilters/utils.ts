@@ -94,11 +94,34 @@ function flattenPropertyGroup(
     return flattenedProperties
 }
 
+/**
+ * A saved group can hold a bare property filter beside its nested groups. The editor draws nested
+ * groups only, so a bare entry becomes an empty group on screen. Wrap the bare entries instead.
+ * The outer operator still joins every entry, so the meaning of the group does not change.
+ */
+function toPropertyGroupValues(group: PropertyGroupFilter): PropertyGroupFilterValue[] {
+    const values: PropertyGroupFilterValue[] = []
+    let wrapper: PropertyGroupFilterValue | null = null
+    for (const value of group.values ?? []) {
+        if (isPropertyGroupFilterLike(value)) {
+            values.push(value as PropertyGroupFilterValue)
+            wrapper = null
+            continue
+        }
+        if (!wrapper) {
+            wrapper = { type: group.type, values: [] }
+            values.push(wrapper)
+        }
+        wrapper.values.push(value)
+    }
+    return values
+}
+
 export function convertPropertiesToPropertyGroup(
     properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
 ): PropertyGroupFilter {
     if (isPropertyGroup(properties)) {
-        return properties
+        return { ...properties, values: toPropertyGroupValues(properties) }
     }
     if (properties && properties.length > 0) {
         return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }

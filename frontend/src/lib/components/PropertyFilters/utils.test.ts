@@ -334,6 +334,24 @@ describe('convertPropertiesToPropertyGroup', () => {
             values: [],
         })
     })
+
+    it('wraps bare property filters that sit beside a nested group', () => {
+        const properties = {
+            type: FilterLogicalOperator.Or,
+            values: [
+                { type: FilterLogicalOperator.And, values: [{ key: '$lib' }] },
+                { key: '$browser' },
+                { key: '$current_url' },
+            ],
+        } as any
+        expect(convertPropertiesToPropertyGroup(properties)).toEqual({
+            type: FilterLogicalOperator.Or,
+            values: [
+                { type: FilterLogicalOperator.And, values: [{ key: '$lib' }] },
+                { type: FilterLogicalOperator.Or, values: [{ key: '$browser' }, { key: '$current_url' }] },
+            ],
+        })
+    })
 })
 
 describe('normalizePropertyFilterValue()', () => {
