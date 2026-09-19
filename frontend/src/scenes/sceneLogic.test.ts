@@ -11,6 +11,12 @@ describe('sceneLogic', () => {
             ['/account/credential-review', true],
             ['/project/492200/account/credential-review', true],
             ['/project/492200/dashboard/1', false],
+            // Regression guard: `organizationLogic` sends a blocked member to these pages and
+            // sends them straight back when they leave, so an /onboarding redirect from here
+            // makes the two guards replace each other until the browser throttles the history.
+            ['/organization-pending-deletion', true],
+            ['/project/492200/organization-pending-deletion', true],
+            ['/organization-deactivated', true],
         ])('isOnboardingNotRequiredForPath(%s) === %s', (path, expected) => {
             expect(isOnboardingNotRequiredForPath(path)).toBe(expected)
         })
