@@ -24,7 +24,10 @@ import { InboxActivityRow } from "@posthog/ui/features/canvas/components/InboxAc
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import { useActivityTaskMenu } from "@posthog/ui/features/canvas/hooks/useActivityTaskMenu";
-import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
+import {
+  useBlockedTaskIds,
+  useWorkingTaskIds,
+} from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useInboxActivityPreview } from "@posthog/ui/features/canvas/hooks/useInboxActivityPreview";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
@@ -105,6 +108,7 @@ export function ActivityFeedList({
     (!unreadsOnly && inboxActivity.isLoading);
   // Selected once for the feed, not once per row.
   const blockedTaskIds = useBlockedTaskIds();
+  const workingTaskIds = useWorkingTaskIds();
   // One pin and one archive mutation for the feed, for the same reason.
   const taskMenu = useActivityTaskMenu();
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
@@ -243,6 +247,7 @@ export function ActivityFeedList({
                           onMarkRead={markRead}
                           currentUser={currentUser}
                           blockedTaskIds={blockedTaskIds}
+                          workingTaskIds={workingTaskIds}
                           surface="activity_panel"
                           onActivate={(activated) => {
                             onActivate(activated);
