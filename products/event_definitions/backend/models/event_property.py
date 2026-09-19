@@ -2,6 +2,8 @@ from django.db import models
 
 from posthog.models.utils import UniqueConstraintByExpression, sane_repr
 
+from products.event_definitions.backend.models.property_definition import TaxonomyQuerySet
+
 
 class EventProperty(models.Model):
     id = models.BigAutoField(primary_key=True)
@@ -9,6 +11,8 @@ class EventProperty(models.Model):
     project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
     event = models.CharField(max_length=400, null=False)
     property = models.CharField(max_length=400, null=False)
+
+    objects = TaxonomyQuerySet.as_manager()
 
     class Meta:
         db_table = "posthog_eventproperty"

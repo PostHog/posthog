@@ -327,7 +327,7 @@ def _no_data_event_names(team: Team, limit: int) -> list[str]:
     # fixed lookback, decoupled from the report window: dormancy is a property of the event, not the run.
     cutoff = datetime.now(tz=UTC) - timedelta(days=NO_DATA_LOOKBACK_DAYS)
     names = (
-        EventDefinition.objects.filter(team_id=team.pk)
+        EventDefinition.objects.for_project(team.project_id)
         .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__lt=cutoff))
         .order_by(F("last_seen_at").desc(nulls_last=True), "name")
         .values_list("name", flat=True)[:limit]
@@ -337,8 +337,13 @@ def _no_data_event_names(team: Team, limit: int) -> list[str]:
 
 
 def _person_property_names(team: Team, limit: int) -> list[str]:
+    # With `ORDER BY name LIMIT n` behind the project key the planner walks the whole project through the unique
+    # index, because it mis-estimates how many rows have this type; the `team_id` index range plus a sort stays in
+    # milliseconds on the largest projects.
     names = (
-        PropertyDefinition.objects.filter(team_id=team.pk, type=PropertyDefinition.Type.PERSON)
+        PropertyDefinition.objects.filter(  # nosemgrep: taxonomy-scope-uses-project-key -- see the comment above
+            team_id=team.pk, type=PropertyDefinition.Type.PERSON
+        )
         .order_by("name")
         .values_list("name", flat=True)[:limit]
     )
@@ -426,7 +431,7 @@ def _pinned_event_names(prompt: str, event_names: Sequence[str]) -> list[str]:
 
 def _recent_event_names(team: Team, limit: int) -> list[str]:
     return list(
-        EventDefinition.objects.filter(team_id=team.pk)
+        EventDefinition.objects.for_project(team.project_id)
         .order_by(F("last_seen_at").desc(nulls_last=True), "name")
         .values_list("name", flat=True)[:limit]
     )
@@ -494,13 +499,15 @@ def _select_relevant_events(
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
-    # One indexed (team, event) query. Without it the planner gets no event-property schema and guesses
-    # property names — the top cause of InternalHogQLError.
+    # One indexed (project, event) query. Without it the planner gets no event-property schema and guesses
+    # property names — the top cause of InternalHogQLError. Project-scoped to match the event list it is
+    # given: a sibling environment can own the property rows of an event this one also reports.
     if not events:
         return {}
     by_event: dict[str, list[str]] = {}
     rows = (
-        EventProperty.objects.filter(team_id=team.pk, event__in=events)
+        EventProperty.objects.for_project(team.project_id)
+        .filter(event__in=events)
         .order_by("event", "property")
         # DB-tier backstop: a property-heavy event can otherwise pull its entire row set into Python
         # before the per-event cap below applies. Caps total rows read; rows are ordered by event name,

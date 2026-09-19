@@ -1,3 +1,5 @@
+from typing import Self
+
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models.expressions import F
@@ -19,7 +21,8 @@ PERSON_EMAIL_PROPERTY_NAME = "email"
 
 def effective_project_id_expr() -> Coalesce:
     """
-    The project scope the taxonomy tables are indexed by, for `.alias(effective_project_id=...)`.
+    The project scope the taxonomy tables are indexed by. Prefer `TaxonomyQuerySet.for_project()`;
+    use this directly only where the expression itself is needed (an annotation, a multi-project `IN`).
 
     It has to stay identical to the leading column of `posthog_propdef_proj_uniq` and of
     `index_property_def_query_proj` below, or a filter on it stops being a seek and becomes a
@@ -33,6 +36,18 @@ def effective_project_id_expr() -> Coalesce:
     Returns a new expression per call, so callers never share one instance across querysets.
     """
     return Coalesce(F("project_id"), F("team_id"), output_field=models.BigIntegerField())
+
+
+class TaxonomyQuerySet(models.QuerySet):
+    """QuerySet for the taxonomy tables, whose indexes lead with the project key rather than `team_id`."""
+
+    def for_project(self, project_id: int) -> Self:
+        """Scope to one project through `COALESCE(project_id, team_id)`.
+
+        That expression leads every taxonomy index, so this is a seek. A plain `team=` or `team_id=`
+        filter matches none of them and range-walks the whole team instead.
+        """
+        return self.alias(effective_project_id=effective_project_id_expr()).filter(effective_project_id=project_id)
 
 
 class PropertyFormat(models.TextChoices):
@@ -94,6 +109,8 @@ class PropertyDefinition(UUIDTModel):
     # DEPRECATED
     # Number of times an insight has been saved with this property in its filter in the last 30 rolling days (computed asynchronously when stars align)
     query_usage_30_day = models.IntegerField(default=None, null=True)
+
+    objects = TaxonomyQuerySet.as_manager()
 
     class Meta:
         db_table = "posthog_propertydefinition"

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition, Team
 from posthog.models.materialized_column_slots import MAX_SLOTS_PER_TEAM
 
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -256,6 +256,22 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
 
         slot = MaterializedColumnSlot.objects.get(property_definition=prop_def)
         assert slot.backfill_temporal_run_id is None
+
+    def test_assign_slot_accepts_a_sibling_environment_definition(self):
+        # Definitions belong to the project, and the listing offers a sibling environment's rows, so assigning
+        # one must work too.
+        other_env = Team.objects.create(organization=self.organization, project_id=self.team.project_id)
+        prop_def = PropertyDefinition.objects.create(
+            team=other_env, project_id=self.team.project_id, name="sibling_prop", property_type="String"
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/materialized_column_slots/assign_slot/",
+            {"property_definition_id": prop_def.id},
+        )
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["property_definition"] == str(prop_def.id)
 
     def test_assign_slot_returns_error_when_all_slots_used(self):
         """Test error when team has reached MAX_SLOTS_PER_TEAM."""
