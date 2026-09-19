@@ -4,13 +4,18 @@ import xml.etree.ElementTree as ET
 from posthog.test.base import BaseTest
 from unittest.mock import ANY, Mock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, TeamTaxonomyItem, TeamTaxonomyQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import EventDefinition, Team
 
 from ee.hogai.utils.helpers import (
+    JUST_INGESTED_LEGEND,
+    JUST_INGESTED_MARKER,
     MAX_EVENT_DESCRIPTION_LENGTH,
     NOT_SEEN_RECENTLY_LEGEND,
     NOT_SEEN_RECENTLY_MARKER,
@@ -500,3 +505,48 @@ class TestFormatEventsPrompt(BaseTest):
         self.assertEqual(NOT_SEEN_RECENTLY_MARKER in ai_trace_line, expected_marker)
         self.assertEqual(NOT_SEEN_RECENTLY_LEGEND in result, expected_marker)
         self.assertNotIn(NOT_SEEN_RECENTLY_MARKER, pageview_line)
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_yaml_lists_an_event_ingested_after_the_snapshot(self, mock_runner_class):
+        self._setup_mock_runner(mock_runner_class, self._create_taxonomy_items([("$pageview", 100)]))
+        EventDefinition.objects.create(team=self.team, name="quiz_retaken", last_seen_at=timezone.now())
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        EventDefinition.objects.create(team=other_team, name="other_team_event", last_seen_at=timezone.now())
+
+        result = format_events_yaml([], self.team, self.user)
+
+        quiz_line = next(line for line in result.splitlines() if line.startswith("- `quiz_retaken`"))
+        self.assertIn(JUST_INGESTED_MARKER, quiz_line)
+        self.assertIn(JUST_INGESTED_LEGEND, result)
+        self.assertNotIn("other_team_event", result)
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_yaml_does_not_repeat_an_event_the_snapshot_already_counts(self, mock_runner_class):
+        self._setup_mock_runner(mock_runner_class, self._create_taxonomy_items([("quiz_retaken", 42)]))
+        EventDefinition.objects.create(team=self.team, name="quiz_retaken", last_seen_at=timezone.now())
+
+        result = format_events_yaml([], self.team, self.user)
+
+        quiz_lines = [line for line in result.splitlines() if line.startswith("- `quiz_retaken`")]
+        self.assertEqual(len(quiz_lines), 1)
+        self.assertNotIn(JUST_INGESTED_MARKER, result)
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_yaml_leaves_out_definitions_older_than_the_snapshot(self, mock_runner_class):
+        self._setup_mock_runner(mock_runner_class, self._create_taxonomy_items([("$pageview", 100)]))
+        stale = datetime.datetime(2022, 6, 1, tzinfo=datetime.UTC)
+        EventDefinition.objects.create(team=self.team, name="legacy_event", created_at=stale, last_seen_at=stale)
+
+        result = format_events_yaml([], self.team, self.user)
+
+        self.assertNotIn("legacy_event", result)
+        self.assertNotIn(JUST_INGESTED_LEGEND, result)
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_yaml_merges_just_ingested_events_into_the_first_page_only(self, mock_runner_class):
+        self._setup_mock_runner(mock_runner_class, self._create_taxonomy_items([("$pageview", 100)]))
+        EventDefinition.objects.create(team=self.team, name="quiz_retaken", last_seen_at=timezone.now())
+
+        result = format_events_yaml([], self.team, self.user, limit=500, offset=500)
+
+        self.assertNotIn("quiz_retaken", result)
