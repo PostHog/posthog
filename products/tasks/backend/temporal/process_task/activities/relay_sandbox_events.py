@@ -37,6 +37,7 @@ from products.tasks.backend.models import (
     Task as TaskModel,
     TaskRun as TaskRunModel,
 )
+from products.tasks.backend.push_dispatcher import dispatch_task_run_turn_completed
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
 from products.tasks.backend.temporal.metrics import increment_tool_call_only_heartbeat
@@ -46,7 +47,13 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_slack_interaction_state,
 )
 
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, is_turn_complete, pi_turn_error, turn_complete_trace_id
+from ee.hogai.sandbox import (
+    PI_RUNTIME_ERROR_MESSAGE,
+    is_idle_resume_turn_complete,
+    is_turn_complete,
+    pi_turn_error,
+    turn_complete_trace_id,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -544,7 +551,13 @@ async def _relay_loop(
                                     # Hop off the event loop because the turn-completion dispatcher
                                     # performs sync Redis I/O and a potential network call to
                                     # the feature-flag service.
-                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_turn_completed, task_run))
+                                    asyncio.create_task(
+                                        asyncio.to_thread(
+                                            _safe_dispatch_turn_completed,
+                                            task_run,
+                                            turn_completed=not is_idle_resume_turn_complete(event_data),
+                                        )
+                                    )
                                 if (
                                     not turn_failed
                                     and is_agent_design_enabled
@@ -984,7 +997,7 @@ def _is_terminal_event(event_data: dict) -> bool:
     return method in TERMINAL_NOTIFICATION_METHODS
 
 
-def _safe_dispatch_turn_completed(task_run: TaskRunModel) -> None:
+def _safe_dispatch_turn_completed(task_run: TaskRunModel, *, turn_completed: bool = True) -> None:
     """Schedule a notification when an interactive run finishes a turn.
 
     Must be called via ``asyncio.to_thread`` (as the caller does) because the
@@ -993,9 +1006,7 @@ def _safe_dispatch_turn_completed(task_run: TaskRunModel) -> None:
     dispatch never bubbles into the relay loop.
     """
     try:
-        from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
-
-        notify_task_run_turn_completed(task_run)
+        dispatch_task_run_turn_completed(task_run, turn_completed=turn_completed)
     except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",

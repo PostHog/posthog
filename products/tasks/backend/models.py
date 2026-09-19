@@ -749,7 +749,11 @@ class Task(DeletedMetaFields, models.Model):
         extra_state: dict | None = None,
         branch: str | None = None,
         acting_user_id: int | None = None,
+        scheduled_at: datetime | None = None,
     ) -> "TaskRun":
+        if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
+            raise ValueError("scheduled_at must be timezone-aware")
+
         expected_created_by_id = self.created_by_id
         expected_ownership_version = self.ownership_version
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
@@ -827,8 +831,9 @@ class Task(DeletedMetaFields, models.Model):
             task_run = TaskRun.objects.create(
                 task=task,
                 team=task.team,
-                status=TaskRun.Status.QUEUED,
-                queued_at=django_timezone.now(),
+                status=TaskRun.Status.NOT_STARTED if scheduled_at is not None else TaskRun.Status.QUEUED,
+                queued_at=None if scheduled_at is not None else django_timezone.now(),
+                scheduled_at=scheduled_at,
                 **({"environment": environment} if environment else {}),
                 state=state,
                 branch=branch,
@@ -906,12 +911,40 @@ class Task(DeletedMetaFields, models.Model):
         self.state = state
 
     def soft_delete(self, capture_fn: Callable[..., None] | None = None):
-        self.deleted = True
-        self.deleted_at = django_timezone.now()
-        self.save()
+        deleted_at = django_timezone.now()
+        with transaction.atomic():
+            scheduled_run_ids = list(
+                TaskRun.objects.select_for_update()
+                .filter(
+                    task_id=self.id,
+                    scheduled_at__isnull=False,
+                    status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED],
+                )
+                .values_list("id", flat=True)
+            )
+            if scheduled_run_ids:
+                TaskWorkflowDispatch.objects.unscoped().filter(
+                    task_run_id__in=scheduled_run_ids,
+                    status__in=[TaskWorkflowDispatch.Status.PENDING, TaskWorkflowDispatch.Status.CLAIMED],
+                ).update(
+                    status=TaskWorkflowDispatch.Status.DEAD,
+                    last_error="Task deleted before the scheduled run started",
+                    claimed_by="",
+                    lease_expires_at=None,
+                    updated_at=deleted_at,
+                )
+                TaskRun.objects.filter(id__in=scheduled_run_ids).update(
+                    status=TaskRun.Status.CANCELLED,
+                    completed_at=deleted_at,
+                    error_message="This scheduled run was canceled because the task was deleted.",
+                    updated_at=deleted_at,
+                )
+            self.deleted = True
+            self.deleted_at = deleted_at
+            self.save(update_fields=["deleted", "deleted_at", "updated_at"])
         self.capture_event(
             "task_deleted",
-            {"duration_seconds": round((django_timezone.now() - self.created_at).total_seconds(), 1)},
+            {"duration_seconds": round((deleted_at - self.created_at).total_seconds(), 1)},
             capture_fn=capture_fn,
         )
 
@@ -1340,6 +1373,7 @@ class Task(DeletedMetaFields, models.Model):
         self_driving_head_branch: str | None = None,
         pending_user_message: str | None = None,
         workflow_id_prefix: str | None = None,
+        scheduled_at: datetime | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         github_read_access: bool = False,
@@ -1419,10 +1453,14 @@ class Task(DeletedMetaFields, models.Model):
 
         with transaction.atomic():
             task_run = task.create_run(
-                mode=mode, extra_state=run_extra_state or None, branch=branch, acting_user_id=user_id
+                mode=mode,
+                extra_state=run_extra_state or None,
+                branch=branch,
+                acting_user_id=user_id,
+                scheduled_at=scheduled_at,
             )
 
-            if start_workflow:
+            if start_workflow and scheduled_at is None:
                 # Defer the fire-and-forget workflow start until the creating transaction commits.
                 # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
                 # workflow's first activity can read the TaskRun before its row is visible and fail.
@@ -2268,6 +2306,9 @@ class TaskRun(models.Model):
     # move it. Null on rows queued before this field existed; readers fall back to
     # `created_at`, which is exact for a run that was only ever queued once.
     queued_at = models.DateTimeField(null=True, blank=True)
+    # The requested start time for a deferred run. It remains populated after dispatch so the
+    # actual queue/start timestamps can be compared with the requested time.
+    scheduled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task_run"
@@ -2324,6 +2365,11 @@ class TaskRun(models.Model):
             models.Index(
                 fields=["status", "environment", "origin_product"],
                 name="task_run_status_env_origin_idx",
+            ),
+            models.Index(
+                fields=["scheduled_at", "id"],
+                name="task_run_scheduled_due_idx",
+                condition=models.Q(status="not_started", environment="cloud", scheduled_at__isnull=False),
             ),
             # Terminal rows dominate over time, so the recency range must lead this partial index.
             models.Index(
@@ -2694,7 +2740,14 @@ class TaskRun(models.Model):
     # expiry — user history must not silently vanish after 30 days.
     DEFAULT_LOG_TTL_DAYS = 30
 
-    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS, lock_attempts: int = 3):
+    def append_log(
+        self,
+        entries: list[dict],
+        *,
+        ttl_days: int | None = DEFAULT_LOG_TTL_DAYS,
+        lock_attempts: int = 3,
+        batch_id: str | None = None,
+    ):
         """Append log entries to S3 storage.
 
         `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
@@ -2707,7 +2760,7 @@ class TaskRun(models.Model):
         if not entries:
             return
 
-        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts)
+        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
 
         self._mirror_logs_to_posthog_logs(entries)
 
@@ -3227,8 +3280,16 @@ class TaskWorkflowDispatch(TeamScopedRootMixin):
             ),
         ]
         indexes = [
-            models.Index(fields=["next_attempt_at"], condition=models.Q(status="pending"), name="twd_pending_due"),
-            models.Index(fields=["lease_expires_at"], condition=models.Q(status="claimed"), name="twd_claimed_lease"),
+            models.Index(
+                fields=["next_attempt_at", "created_at"],
+                condition=models.Q(status="pending"),
+                name="twd_pending_due_order",
+            ),
+            models.Index(
+                fields=["lease_expires_at", "next_attempt_at", "created_at"],
+                condition=models.Q(status="claimed"),
+                name="twd_claimed_lease_order",
+            ),
             models.Index(fields=["team", "created_at"], name="twd_team_created"),
         ]
 

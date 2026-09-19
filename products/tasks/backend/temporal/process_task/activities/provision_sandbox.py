@@ -699,6 +699,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         resume_mode = resume_mode_label(
             same_run_resume=run_state.same_run_resume,
             using_modal_snapshot=resume_snapshot_external_id is not None,
+            from_import_run=run_state.resume_from_import_run,
         )
         resume_decision_log = (
             activity.logger.warning if is_resume and resume_mode == "neither" else activity.logger.info

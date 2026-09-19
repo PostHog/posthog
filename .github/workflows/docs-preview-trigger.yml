@@ -21,7 +21,7 @@ jobs:
         # all continue-on-error, so they never blocked a merge anyway.
         if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Trigger posthog.com preview build
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Checkout
