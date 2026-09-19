@@ -50,7 +50,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 {hasCustomLimitSet ? (
                                     <>
                                         {usingInitialBillingLimit ? (
-                                            <Tooltip title="Initial limits protect you from accidentally incurring large unexpected charges. Some features may stop working and data may be dropped if your usage exceeds your limit.">
+                                            <Tooltip title="Initial limits protect you from accidentally incurring large unexpected charges. Some features stop working when your usage exceeds your limit, and data sent while you are over the limit is dropped. This data is lost and cannot be recovered, even after the limit resets.">
                                                 <span
                                                     className="text-sm"
                                                     data-attr={`default-billing-limit-${product.type}`}
@@ -60,7 +60,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                                 </span>
                                             </Tooltip>
                                         ) : (
-                                            <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working and data may be dropped if your usage exceeds your limit.">
+                                            <Tooltip title="Set a billing limit to control your recurring costs. Some features stop working when your usage exceeds your limit, and data sent while you are over the limit is dropped. This data is lost and cannot be recovered, even after the limit resets.">
                                                 <span
                                                     className="text-sm"
                                                     data-attr={`billing-limit-set-${product.type}`}
