@@ -76,6 +76,14 @@ describe("block shortcuts", () => {
     },
   );
 
+  it("a second backspace on an outdented nested bullet leaves a plain line", () => {
+    const editor = makeEditor("- alpha\n    - nested");
+    caretAt(editor, "nested", "before");
+    expect(press(editor, "Backspace")).toBe(true);
+    expect(press(editor, "Backspace")).toBe(true);
+    expect(markdown(editor)).toBe("- alpha\n\nnested");
+  });
+
   it("removes the empty bullet that shift+enter adds, keeping the line", () => {
     const editor = makeEditor("- alpha");
     caretAt(editor, "alpha", "after");
