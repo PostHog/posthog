@@ -355,11 +355,13 @@ function EvidenceHoverCardLoader({
   target,
   children,
   url,
+  onOpen,
   onExpand,
 }: {
   target: EvidenceLinkTarget;
   children: ReactNode;
   url: string | null;
+  onOpen: (url: string) => void;
   onExpand?: (label: string) => void;
 }) {
   const client = useOptionalAuthenticatedClient();
@@ -411,6 +413,7 @@ function EvidenceHoverCardLoader({
       url={url ?? resolvedUrl}
       preview={preview}
       loadState={loadState}
+      onOpen={onOpen}
       onExpand={onExpand}
     >
       {children}
@@ -492,6 +495,11 @@ function EvidenceRefChipContent({
   const openPostHogObjectTab = usePanelLayoutStore(
     (state) => state.openPostHogObjectTab,
   );
+
+  const openFromHoverCard = (targetUrl: string): void => {
+    setOpen(false);
+    openExternalUrl(targetUrl);
+  };
 
   const openReference = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
@@ -578,6 +586,7 @@ function EvidenceRefChipContent({
               <EvidenceHoverCardLoader
                 target={target}
                 url={url}
+                onOpen={openFromHoverCard}
                 onExpand={expand}
               >
                 {children}
