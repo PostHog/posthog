@@ -37,13 +37,14 @@ export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
     isActive?: boolean
     /**
-     * Whether to show a sessionRecordingPlaylistLogic selection checkbox on this preview.
+     * Whether to show a selection checkbox on this preview. The checkbox reads
+     * sessionRecordingsPlaylistLogic, so only a caller under that logic's BindLogic can set this.
      * @default false
      */
     selectable?: boolean
     /**
-     * Sort column for duration/error/TTL display. When set, playlist logic is not required
-     * (e.g. dashboard widgets that pass order from widget config).
+     * Sort column for duration/error/TTL display.
+     * @default DEFAULT_RECORDING_FILTERS_ORDER_BY
      */
     order?: RecordingsQuery['order']
 }
@@ -259,13 +260,13 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     )
 }
 
-const SessionRecordingPreviewBase = memo(
-    function SessionRecordingPreviewBase({
+export const SessionRecordingPreview = memo(
+    function SessionRecordingPreview({
         recording,
         isActive,
         selectable = false,
-        order,
-    }: SessionRecordingPreviewProps & { order: RecordingsQuery['order'] }): JSX.Element {
+        order = DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    }: SessionRecordingPreviewProps): JSX.Element {
         const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
@@ -353,12 +354,7 @@ const SessionRecordingPreviewBase = memo(
                                     recordingTtl={recording.recording_ttl}
                                 />
                             ) : (
-                                <RecordingDuration
-                                    recordingDuration={durationToShow(
-                                        recording,
-                                        order || DEFAULT_RECORDING_FILTERS_ORDER_BY
-                                    )}
-                                />
+                                <RecordingDuration recordingDuration={durationToShow(recording, order)} />
                             )}
                         </div>
 
@@ -381,29 +377,6 @@ const SessionRecordingPreviewBase = memo(
                 </div>
             </DraggableToNotebook>
         )
-    },
-    (prevProps, nextProps) =>
-        prevProps.recording.id === nextProps.recording.id &&
-        // The row renders matches_filters, and the same recording flips in and out of matching
-        // as filters change around an open player, so comparing only the id would keep it stale.
-        prevProps.recording.matches_filters === nextProps.recording.matches_filters &&
-        prevProps.isActive === nextProps.isActive &&
-        prevProps.selectable === nextProps.selectable &&
-        prevProps.order === nextProps.order
-)
-
-function SessionRecordingPreviewFromPlaylist(props: Omit<SessionRecordingPreviewProps, 'order'>): JSX.Element {
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
-    const order = filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
-    return <SessionRecordingPreviewBase {...props} order={order} />
-}
-
-export const SessionRecordingPreview = memo(
-    function SessionRecordingPreview({ order, ...props }: SessionRecordingPreviewProps): JSX.Element {
-        if (order !== undefined) {
-            return <SessionRecordingPreviewBase {...props} order={order} />
-        }
-        return <SessionRecordingPreviewFromPlaylist {...props} />
     },
     (prevProps, nextProps) =>
         prevProps.recording.id === nextProps.recording.id &&

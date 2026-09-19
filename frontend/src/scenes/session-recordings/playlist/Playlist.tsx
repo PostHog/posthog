@@ -137,6 +137,10 @@ export function Playlist({
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
+    const renderPreview = ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }): JSX.Element => (
+        <SessionRecordingPreview recording={item} isActive={isActive} selectable order={filters.order} />
+    )
+
     const sections: PlaylistSection[] = []
 
     if (type === 'collection' || pinnedRecordings.length > 0) {
@@ -149,7 +153,7 @@ export function Playlist({
                 </div>
             ),
             items: pinnedRecordings,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
+            render: renderPreview,
             initiallyOpen: true,
         })
     } else {
@@ -163,7 +167,7 @@ export function Playlist({
             ),
             items: otherRecordings,
             initiallyOpen: !pinnedRecordings.length,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
+            render: renderPreview,
             footer: (
                 <div className="p-4">
                     <div className="h-10 flex items-center justify-center gap-2 text-secondary">
