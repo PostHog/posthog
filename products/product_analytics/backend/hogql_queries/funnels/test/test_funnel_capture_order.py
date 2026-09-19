@@ -97,9 +97,10 @@ class TestFunnelCaptureOrderPartialCoverage(ClickhouseTestMixin, APIBaseTest):
     """One device whose events do not all carry a capture instant.
 
     Capture derives `$client_capture_time` from what the client sent, so a device can produce
-    some events with it and some without. Correcting only the covered rows moves them earlier
-    while the uncovered rows keep their delivery latency, which can reorder a pair that the
-    stored timestamp happened to get right.
+    some events with it and some without. Correcting only the events that have it would move
+    those earlier while the rest keep their delivery latency, which can reorder a pair the
+    stored timestamp happened to get right. The key therefore corrects a device only when every
+    one of its events carries the instant.
     """
 
     BASE = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
@@ -129,7 +130,7 @@ class TestFunnelCaptureOrderPartialCoverage(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("stored_order", False, 1),
-            ("capture_order", True, 0),
+            ("capture_order", True, 1),
         ]
     )
     def test_uncovered_row_between_two_covered_ones(

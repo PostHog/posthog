@@ -66,7 +66,8 @@ class FunnelBase(ABC):
                 if(
                     isNotNull(capture_ms)
                     AND isNotNull(device_offset_ms)
-                    AND ifNull(capture_device, '') != '',
+                    AND ifNull(capture_device, '') != ''
+                    AND device_rows_with_capture = device_rows,
                     (capture_ms + device_offset_ms) / 1000,
                     stored_ms / 1000
                 ) AS capture_order_key
@@ -75,7 +76,13 @@ class FunnelBase(ABC):
                     *,
                     min(stored_ms - capture_ms) OVER (
                         PARTITION BY aggregation_target, capture_device
-                    ) AS device_offset_ms
+                    ) AS device_offset_ms,
+                    count(capture_ms) OVER (
+                        PARTITION BY aggregation_target, capture_device
+                    ) AS device_rows_with_capture,
+                    count() OVER (
+                        PARTITION BY aggregation_target, capture_device
+                    ) AS device_rows
                 FROM (
                     SELECT
                         *,
