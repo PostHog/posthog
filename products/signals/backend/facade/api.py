@@ -20,6 +20,11 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.signals.backend.artefact_schemas import (
+    # Re-exported so the Slack mention handler can label the task it starts from a report's
+    # notification thread without naming the relationship vocabulary itself.
+    TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
+)
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
@@ -161,6 +166,15 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def report_id_for_slack_thread(*, team_id: int, channel: str, thread_ts: str) -> str | None:
+    """Facade entrypoint for the Slack mention handler. See slack_report_threads.report_id_for_slack_thread."""
+    from products.signals.backend.slack_report_threads import (
+        report_id_for_slack_thread as report_id_for_slack_thread_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return report_id_for_slack_thread_impl(team_id=team_id, channel=channel, thread_ts=thread_ts)
 
 
 def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":

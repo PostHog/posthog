@@ -52,6 +52,7 @@ from products.signals.backend.slack_formatting import (
     strip_chart_references as _strip_chart_references,
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
+from products.signals.backend.slack_report_threads import record_report_slack_thread
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -690,6 +691,19 @@ def _deliver_route_notification(
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         delivered = True
         thread_ts = response.get("ts") if hasattr(response, "get") else None
+        # A member target opens a direct message, so the conversation Slack posted into is not the
+        # id we sent. An inbound mention names the conversation, so that is what the link records.
+        posted_channel = response.get("channel") if hasattr(response, "get") else None
+        if thread_ts:
+            # Recorded before the evidence replies, so a failure posting those still leaves the
+            # thread resolvable back to the report.
+            record_report_slack_thread(
+                team_id=report.team_id,
+                report_id=str(report.id),
+                integration_id=route.integration.id,
+                channel=str(posted_channel or channel_id),
+                thread_ts=str(thread_ts),
+            )
         if signals and thread_ts:
             _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
     except Exception:

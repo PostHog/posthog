@@ -346,6 +346,7 @@ rules:
                               |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
+                              |SignalReportSlackThread
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -756,6 +757,7 @@ rules:
                         |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
+                        |SignalReportSlackThread
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity

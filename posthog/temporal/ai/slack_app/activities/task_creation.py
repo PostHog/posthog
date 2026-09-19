@@ -547,6 +547,7 @@ def create_posthog_code_task_for_repo_activity(
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
+    from products.signals.backend.facade import api as signals_facade
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -664,6 +665,15 @@ def create_posthog_code_task_for_repo_activity(
 
     run_prefs = resolve_run_preferences(override=model_override, team_id=integration.team_id, user_id=user_id)
 
+    # A report notification invites the reader to reply in its thread, so a mention there is the
+    # team discussing that report. Resolved from the context thread, which on a fork is the source
+    # thread the requester pointed at rather than the DM the agent answers in.
+    signal_report_id = signals_facade.report_id_for_slack_thread(
+        team_id=integration.team_id,
+        channel=fork_channel or channel,
+        thread_ts=fork_thread_ts or thread_ts,
+    )
+
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
     personal_channel_id: uuid.UUID | None = None
@@ -685,6 +695,10 @@ def create_posthog_code_task_for_repo_activity(
             origin_product=tasks_facade.TaskOriginProduct.SLACK,
             user_id=user_id,
             repository=repository,
+            signal_report_id=signal_report_id,
+            # Labelled a discussion, never an implementation: the thread is a conversation, and
+            # the implementation relationship holds the report's one PR slot and its spend gate.
+            signal_report_task_relationship=signals_facade.TASK_RUN_TYPE_DISCUSSION,
             create_pr=allow_pr_creation,
             mode="interactive",
             slack_thread_context=slack_thread_context,
