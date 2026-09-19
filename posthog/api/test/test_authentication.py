@@ -3,7 +3,7 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import cast
 
 import pytest
 import time_machine
@@ -2950,7 +2950,7 @@ class TestAuthenticatorsRunOncePerRequest(APIBaseTest):
         self,
         _name: str,
         authenticator_class: type[authentication.BaseAuthentication],
-        authorization_header: Callable[[Any], str] | None,
+        authorization_header: Callable[..., str] | None,
     ) -> None:
         headers = {}
         if authorization_header is not None:
@@ -2961,7 +2961,7 @@ class TestAuthenticatorsRunOncePerRequest(APIBaseTest):
             authenticator_class,
             "authenticate",
             autospec=True,
-            side_effect=authenticator_class.authenticate,
+            wraps=authenticator_class.authenticate,
         ) as authenticate:
             response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/", headers=headers)
 
