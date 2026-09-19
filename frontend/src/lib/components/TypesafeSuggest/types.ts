@@ -19,6 +19,8 @@ export interface TypesafeTextSuggestion {
     value: string
     confidence: number
     candidates: string[]
+    /** The second most likely candidate, so the UI can say what else was considered when the pick is unchanged. */
+    runner_up: string | null
 }
 
 export interface TypesafeTagSuggestion {
