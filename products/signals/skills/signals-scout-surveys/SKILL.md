@@ -52,7 +52,7 @@ Four cheap reads cold-start a run:
 - `scout-scratchpad-search` (`text=survey` or `text=nps`) — durable team steering. Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, or `reviewer:` key prefixes, plus the team's known active survey IDs, primary NPS / CSAT survey, healthy response baselines, known themes already raised, which report covers a theme, and who owns it.
 - `scout-runs-list` (last 7d) — what prior surveys runs found and ruled out.
 - `inbox-reports-list` (filter by `search`=survey name/theme, `source_product`, `ordering=-updated_at`) — the reports already in the inbox. A theme or regression you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring.
-- `scout-project-profile-get` — `top_events` for `survey shown` / `survey dismissed` / `survey sent` reach (the survey product isn't yet surfaced in the profile inventory; see "When you hit a gap" below).
+- `scout-project-profile-get` — `top_events` for `survey shown` / `survey dismissed` / `survey sent` reach (and `recent_surveys` for total and active counts plus the five most recently updated surveys — volume ranking still comes from SQL, since that list is capped and sorted by edit recency).
 
 Then orient on surveys specifically. Order matters — busy projects can have 100+ active surveys, and `surveys-get-all` is **never the right cold-start move** there. Each survey object is 30–50 KB (questions, internal targeting flag, appearance theme, creator metadata) and even `limit: 5` returns ~30 KB. Listing the lot blows the token budget before you've made a single decision.
 
@@ -266,15 +266,6 @@ Harness-level:
 
 - `scout-project-profile-get` / `scout-scratchpad-search` / `scout-runs-list` / `scout-runs-retrieve` — orientation + dedupe.
 - `scout-emit-report` / `scout-edit-report` / `scout-scratchpad-remember` — author a report / edit an existing one / remember.
-
-### When you hit a gap
-
-Two MCP gaps are known and may be worth flagging in a separate PR rather than working around in-skill:
-
-- **Project profile doesn't include surveys.** Cold-start orientation has to call `surveys-get-all` directly. Adding a `_surveys` builder to `products/signals/backend/scout_harness/profile/builders.py` (a few rows: active count, top surveys by recent volume, primary NPS / CSAT survey if any) would let every scout — not just this one — see surveys at orientation time. Worth a P3.
-- **Survey summarization isn't MCP-callable.** The product has a summarization pipeline at `products/surveys/backend/summarization/` but it's not exposed as an MCP tool. If it were, this scout could lean on cached summaries instead of re-aggregating themes from scratch each run. Worth a P2 for accuracy and cost.
-
-If you notice a third gap during a run that would meaningfully unlock this scout, write a scratchpad entry with key `mcp-gap:surveys:<short-name>` so the gap surfaces in the next review via `text=mcp-gap`.
 
 ## When to stop
 

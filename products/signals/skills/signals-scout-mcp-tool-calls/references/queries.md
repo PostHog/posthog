@@ -20,7 +20,7 @@ throughout:
   group showed as absent). Two formulations tested consistent and are the only ones to use:
   - **Classified failures (positive membership):**
     `toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')`.
-    On PostHog's own data only ~4% of failures are classified.
+    In the hono regime the classified share can be a few percent.
   - **Unclassified failures:** compute by **subtraction**, not `NOT IN` (which mishandles the absent
     value): `countIf(toBool($mcp_is_error)) - countIf(toBool($mcp_is_error) AND <the IN whitelist>)`.
     The remainder are tool-result errors (handler returned `{isError:true}` without a class) — ~96% here.
@@ -31,7 +31,7 @@ throughout:
   `''` to Float64). Read them with `toFloat(...)`.
 - The `$mcp_exec_tool_call_name` fallback is genuinely empty/NULL when absent, so the coalesce above is
   correct as written.
-- **`$mcp_error_message` does not exist on PostHog's own (hono) data** — it's an external-SDK-only field.
+- **`$mcp_error_message` does not exist in the hono regime** — it's an external-SDK-only field.
   Referencing it there yields a taxonomy warning and empty results, not an error.
 - **Category derivation:** never group rows directly by `properties.$mcp_tool_category` (some rows
   for a tool lack it — notably exec-routed calls captured before dispatch attribution). Derive per-tool
@@ -291,8 +291,8 @@ schema rather than the tool itself.
 
 Tools that fail materially but carry no diagnosable detail — the improvement is to add error
 instrumentation (or a clearer returned-error message) so failures become debuggable. The
-"no detail" marker is `error_type IN ('', 'None')` **and** no message — on PostHog's own data
-this is the _majority_ of failures (tool-result errors), so tune the ratio/floor to surface the
+"no detail" marker is `error_type IN ('', 'None')` **and** no message — in the hono regime
+this is usually the _majority_ of failures (tool-result errors), so tune the ratio/floor to surface the
 worst offenders rather than every tool.
 
 ```sql
