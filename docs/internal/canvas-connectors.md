@@ -18,6 +18,10 @@ Keep the dialog closed on load and close it after a successful save.
 Cloud run settings can use a separate dialog with an editable prompt, initially filled with the card's title and description.
 Send the edited prompt as the action's `description`; keep the card's own title and description unchanged.
 Save the prompt with the run request before starting. A retry must keep the same prompt and `idempotency_key`, including after a reload.
+Keep each new run's draft editable, even when the card has a saved or unconfirmed start.
+Use a separate retry action for each saved request. Do not let an old request lock the new draft or replace its edited prompt.
+Generate a fresh key for each new run, save the request before dispatch, and retain unconfirmed requests until their thread links are saved.
+If a retry returns an already linked task, keep its editable thread label and do not add a duplicate link.
 The action also accepts optional `model` and `reasoning_effort` fields for one Cloud task.
 Use the identifiers and supported efforts from the task model catalogue.
 The selected model determines the runtime adapter; reasoning effort requires an explicit model.
