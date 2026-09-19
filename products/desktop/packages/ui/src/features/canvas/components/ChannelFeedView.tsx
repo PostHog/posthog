@@ -1395,8 +1395,9 @@ function SystemFeedRow({ message }: { message: ChannelFeedSystemMessage }) {
 const DAY_MS = 86_400_000;
 
 // "Today" / "Yesterday" / "Aug 8" (with the year once it differs) for the
-// feed's day separators.
-function feedDayLabel(iso: string, now: Date): string {
+// feed's day separators. Exported so anything standing beside the feed dates
+// its own rows the same way.
+export function feedDayLabel(iso: string, now: Date): string {
   const date = new Date(iso);
   const startOfDay = (d: Date) =>
     new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();

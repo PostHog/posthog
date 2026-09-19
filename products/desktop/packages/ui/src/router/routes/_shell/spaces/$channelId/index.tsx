@@ -1,5 +1,4 @@
 import { WebsiteChannelHome } from "@posthog/ui/features/canvas/components/WebsiteChannelHome";
-import { WebsiteContext } from "@posthog/ui/features/canvas/components/WebsiteContext";
 import { SpaceTabbedPage } from "@posthog/ui/features/canvas/components/work/SpaceTabbedPage";
 import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import {
@@ -15,12 +14,11 @@ export const Route = createFileRoute("/_shell/spaces/$channelId/")({
 
 function ChannelHomeRoute() {
   const { channelId } = Route.useParams();
-  // Under the Work layout a space opens on its Context tab; the feed lives on
-  // the Activity tab.
+  // Under the Work layout a space opens on Activity, its first tab.
   if (useWorkLayout()) {
     return (
-      <SpaceTabbedPage channelId={channelId} tab="context">
-        <WebsiteContext channelId={channelId} />
+      <SpaceTabbedPage channelId={channelId} tab="activity">
+        <WebsiteChannelHome channelId={channelId} variant="work" />
       </SpaceTabbedPage>
     );
   }

@@ -3,11 +3,17 @@ import {
   getPrVisualConfig,
   parsePrNumber,
 } from "@posthog/core/git-interaction/prStatus";
-import { cn, MenuLabel } from "@posthog/quill";
-import { formatRelativeTimeShort, readPrUrls } from "@posthog/shared";
+import {
+  cn,
+  MenuLabel,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@posthog/quill";
+import { readPrUrls } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
-  HoverPopover,
+  feedDayLabel,
   PrPopoverContent,
 } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { getPrVisualIcon } from "@posthog/ui/features/git-interaction/prIcon";
@@ -19,44 +25,20 @@ import {
 import { usePrChecks } from "@posthog/ui/features/pr-review/usePrChecks";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-/**
- * What the column reads in: what needs you, what is not ready, what landed —
- * and `pending`, for a PR whose state GitHub has not answered for yet. Pending
- * sits last and wears no heading, so a row settles upward into its group once
- * and never starts out under a heading that turns out to be wrong.
- */
-type PrGroup = "open" | "draft" | "merged" | "closed" | "pending";
-
-const GROUPS: readonly PrGroup[] = [
-  "open",
-  "draft",
-  "merged",
-  "closed",
-  "pending",
-];
-
-const GROUP_LABEL: Record<PrGroup, string | null> = {
-  open: "Open",
-  draft: "Draft",
-  merged: "Merged",
-  closed: "Closed",
-  pending: null,
-};
+/** How long the pointer may travel between a row and its card before it closes. */
+const CARD_CLOSE_DELAY_MS = 120;
 
 interface PullRequestEntry {
   url: string;
   task: Task;
-  group: PrGroup;
   details: PrStateDetails | undefined;
 }
 
-function groupOf(details: PrStateDetails | undefined): PrGroup {
-  if (!details) return "pending";
-  if (details.merged) return "merged";
-  if (details.state === "closed") return "closed";
-  return details.draft ? "draft" : "open";
+interface PullRequestDay {
+  label: string;
+  entries: PullRequestEntry[];
 }
 
 const CI_DOT_CLASS = {
@@ -83,6 +65,11 @@ function ciTone(
   return "pass";
 }
 
+/** A PR still open is the only one whose CI is worth a request. */
+function isLive(details: PrStateDetails | undefined): boolean {
+  return !!details && !details.merged && details.state !== "closed";
+}
+
 /**
  * One pull request on one line: lifecycle glyph, number, title, CI, age. Its
  * state, CI detail and the session behind it live in the hover card the feed's
@@ -91,17 +78,19 @@ function ciTone(
 function PullRequestLine({
   entry,
   title,
-  showChecks,
-  muted = false,
+  open,
+  onOpen,
+  onClose,
 }: {
   entry: PullRequestEntry;
   title: string | undefined;
-  /** Only live PRs fetch checks: a merged one's CI is history. */
-  showChecks: boolean;
-  /** Its state has not come back yet, so the row waits rather than claims. */
-  muted?: boolean;
+  /** The column opens one card at a time, so a row never owns this. */
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
 }) {
-  const checks = usePrChecks(showChecks ? entry.url : null);
+  const live = isLive(entry.details);
+  const checks = usePrChecks(live ? entry.url : null);
   const tone = ciTone(checks.data);
   const config = getPrVisualConfig(
     entry.details?.state ?? "open",
@@ -110,55 +99,62 @@ function PullRequestLine({
   );
   const Icon = getPrVisualIcon(config.icon);
   const prNumber = parsePrNumber(entry.url);
+  const settled = entry.details !== undefined;
   return (
-    <HoverPopover
-      trigger={
-        <button
-          type="button"
-          className={cn(
-            "flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors",
-            "text-muted-foreground hover:bg-fill-hover hover:text-foreground",
-          )}
-          onClick={() => openExternalUrl(entry.url)}
-        >
-          <span className="flex size-3.5 shrink-0 items-center justify-center">
-            <Icon
-              size={13}
-              style={muted ? undefined : { color: `var(--${config.color}-9)` }}
-              className={muted ? "opacity-50" : undefined}
-              aria-hidden
-            />
-          </span>
-          <span className="shrink-0 text-[11px] tabular-nums">
-            {prNumber ? `#${prNumber}` : "PR"}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-foreground">
-            {title ?? entry.task.title}
-          </span>
-          {tone && (
-            <span
-              role="img"
-              aria-label={CI_LABEL[tone]}
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                CI_DOT_CLASS[tone],
-              )}
-            />
-          )}
-          <span className="shrink-0 text-[11px] tabular-nums">
-            {formatRelativeTimeShort(entry.task.updated_at)}
-          </span>
-        </button>
-      }
-      content={<PrPopoverContent url={entry.url} />}
-    />
+    <Popover open={open} onOpenChange={(next) => !next && onClose()}>
+      <PopoverTrigger
+        onMouseEnter={onOpen}
+        onMouseLeave={onClose}
+        render={
+          <button
+            type="button"
+            className="flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left font-medium text-[12px] text-muted-foreground leading-snug transition-colors hover:bg-fill-hover hover:text-foreground"
+            onClick={() => openExternalUrl(entry.url)}
+          >
+            <span className="flex size-3.5 shrink-0 items-center justify-center">
+              <Icon
+                size={13}
+                style={
+                  settled ? { color: `var(--${config.color}-9)` } : undefined
+                }
+                className={settled ? undefined : "opacity-50"}
+                aria-hidden
+              />
+            </span>
+            <span className="shrink-0 text-[11px] tabular-nums">
+              {prNumber ? `#${prNumber}` : "PR"}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-foreground">
+              {title ?? entry.task.title}
+            </span>
+            {tone && (
+              <span
+                role="img"
+                aria-label={CI_LABEL[tone]}
+                className={cn(
+                  "size-1.5 shrink-0 rounded-full",
+                  CI_DOT_CLASS[tone],
+                )}
+              />
+            )}
+          </button>
+        }
+      />
+      <PopoverContent
+        className="w-auto gap-0 p-2"
+        onMouseEnter={onOpen}
+        onMouseLeave={onClose}
+      >
+        <PrPopoverContent url={entry.url} />
+      </PopoverContent>
+    </Popover>
   );
 }
 
 /**
  * The pull requests of a space, beside its feed: every PR a session here
- * opened, grouped by what it needs. It stays whatever the feed's filter says,
- * so "what is shipping" is never a click away.
+ * opened, newest day first, so the column reads in the same order as the log
+ * next to it.
  */
 export function SpacePullRequestsColumn({
   tasks,
@@ -189,23 +185,37 @@ export function SpacePullRequestsColumn({
   // One batched lookup for the column, so a row is a render and not a request.
   const details = usePrDetailsMap(urls);
   const titles = usePrTitles(urls);
-  const groups = useMemo(() => {
-    const byGroup: Record<PrGroup, PullRequestEntry[]> = {
-      open: [],
-      draft: [],
-      merged: [],
-      closed: [],
-      pending: [],
-    };
+  const days = useMemo<PullRequestDay[]>(() => {
+    const now = new Date();
+    const out: PullRequestDay[] = [];
     for (const source of sources) {
-      const detail = details[source.url];
-      const group = groupOf(detail);
-      byGroup[group].push({ ...source, group, details: detail });
+      const label = feedDayLabel(source.task.updated_at, now);
+      const entry = { ...source, details: details[source.url] };
+      const last = out[out.length - 1];
+      if (last?.label === label) last.entries.push(entry);
+      else out.push({ label, entries: [entry] });
     }
-    return byGroup;
+    return out;
   }, [sources, details]);
 
-  const total = sources.length;
+  // One card for the whole column. A card per row left two of them on screen
+  // at once while the pointer crossed between rows.
+  const [openUrl, setOpenUrl] = useState<string | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
+  const openCard = useCallback((url: string) => {
+    clearTimeout(closeTimer.current);
+    setOpenUrl(url);
+  }, []);
+  const closeCard = useCallback(() => {
+    clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(
+      () => setOpenUrl(null),
+      CARD_CLOSE_DELAY_MS,
+    );
+  }, []);
 
   return (
     <aside
@@ -215,43 +225,33 @@ export function SpacePullRequestsColumn({
       )}
       aria-label="Pull requests"
     >
-      <div className="flex h-10 shrink-0 items-center justify-between px-3">
+      <div className="flex h-10 shrink-0 items-center px-3">
         <span className="flex items-center gap-1.5 font-semibold text-[13px]">
           <GitPullRequestIcon size={14} aria-hidden />
           Pull requests
         </span>
-        {total > 0 && (
-          <span className="text-[11px] text-muted-foreground tabular-nums">
-            {total}
-          </span>
-        )}
       </div>
       <div className="scroll-mask-8 min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
-        {total === 0 ? (
-          <p className="px-2 py-1 text-muted-foreground text-xs">
+        {sources.length === 0 ? (
+          <p className="px-2 py-1 text-[12px] text-muted-foreground">
             No pull requests yet. Sessions that open one show it here.
           </p>
         ) : (
-          GROUPS.map((group) =>
-            groups[group].length === 0 ? null : (
-              <div key={group} className="flex flex-col gap-px">
-                {GROUP_LABEL[group] ? (
-                  <MenuLabel className="px-2">{GROUP_LABEL[group]}</MenuLabel>
-                ) : (
-                  <div className="h-1.5" />
-                )}
-                {groups[group].map((entry) => (
-                  <PullRequestLine
-                    key={entry.url}
-                    entry={entry}
-                    title={titles[entry.url]}
-                    showChecks={group === "open" || group === "draft"}
-                    muted={group === "pending"}
-                  />
-                ))}
-              </div>
-            ),
-          )
+          days.map((day) => (
+            <div key={day.label} className="flex flex-col gap-px">
+              <MenuLabel className="px-2">{day.label}</MenuLabel>
+              {day.entries.map((entry) => (
+                <PullRequestLine
+                  key={entry.url}
+                  entry={entry}
+                  title={titles[entry.url]}
+                  open={openUrl === entry.url}
+                  onOpen={() => openCard(entry.url)}
+                  onClose={closeCard}
+                />
+              ))}
+            </div>
+          ))
         )}
       </div>
     </aside>

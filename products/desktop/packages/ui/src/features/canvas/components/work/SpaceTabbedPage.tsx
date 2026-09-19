@@ -32,9 +32,11 @@ export type SpaceTab =
   | "loops"
   | "settings";
 
+// Activity leads and owns the space's root: what happened here is what you
+// came for, and context is what you check.
 const TABS: readonly { key: SpaceTab; label: string; segment: string }[] = [
-  { key: "context", label: "Context", segment: "" },
-  { key: "activity", label: "Activity", segment: "/activity" },
+  { key: "activity", label: "Activity", segment: "" },
+  { key: "context", label: "Context", segment: "/context" },
   { key: "canvases", label: "Canvases", segment: "/canvases" },
   { key: "loops", label: "Loops", segment: "/loops" },
   { key: "settings", label: "Settings", segment: "/settings" },
