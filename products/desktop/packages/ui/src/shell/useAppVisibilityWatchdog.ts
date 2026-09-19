@@ -19,6 +19,14 @@ export function useAppVisibilityWatchdog(
       const opacity = computedOpacity ? Number.parseFloat(computedOpacity) : 1;
       const rect = element.getBoundingClientRect();
       if (opacity >= 0.01 && rect.width > 0 && rect.height > 0) return;
+      // A hidden or occluded window stops the animation clock, which holds the
+      // entrance animation on its first frame and keeps the app transparent even
+      // after the window comes back. An `!important` declaration wins over an
+      // animation, so this makes the app visible again whatever stalled it.
+      if (opacity < 0.01)
+        element.style.setProperty("opacity", "1", "important");
+      // Nobody can see a hidden window, so a report about it is a false alarm.
+      if (document.visibilityState === "hidden") return;
       const detail = {
         opacity,
         width: Math.round(rect.width),

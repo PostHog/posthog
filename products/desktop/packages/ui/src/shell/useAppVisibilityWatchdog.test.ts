@@ -27,6 +27,10 @@ function mountElement(opacity: string, width: number, height: number) {
   return element;
 }
 
+function hideWindow() {
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -34,6 +38,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.runOnlyPendingTimers();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.mocked(captureException).mockClear();
   document.body.innerHTML = "";
 });
@@ -72,9 +77,19 @@ describe("useAppVisibilityWatchdog", () => {
       active: false,
       reports: false,
     },
+    {
+      name: "invisible while the window is hidden",
+      opacity: "0",
+      width: 1200,
+      height: 800,
+      active: true,
+      hidden: true,
+      reports: false,
+    },
   ])(
     "reports=$reports when $name",
-    ({ opacity, width, height, active, reports }) => {
+    ({ opacity, width, height, active, hidden, reports }) => {
+      if (hidden) hideWindow();
       const ref = { current: mountElement(opacity, width, height) };
       renderHook(() => useAppVisibilityWatchdog(ref, active));
 
@@ -97,6 +112,19 @@ describe("useAppVisibilityWatchdog", () => {
         opacity: 0,
       }),
     );
+  });
+
+  it.each([
+    { name: "the window is visible", hidden: false },
+    { name: "the window is hidden", hidden: true },
+  ])("forces a transparent app opaque when $name", ({ hidden }) => {
+    if (hidden) hideWindow();
+    const element = mountElement("0", 1200, 800);
+    renderHook(() => useAppVisibilityWatchdog({ current: element }, true));
+
+    vi.advanceTimersByTime(3000);
+
+    expect(getComputedStyle(element).opacity).toBe("1");
   });
 
   it("does not report after unmounting before the deadline", () => {
