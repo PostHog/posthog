@@ -74,6 +74,7 @@ Error behavior is load-bearing:
 Product-facing destination setup lives in `products.alerts.backend.facade.destinations`. Read that module for the full surface. An adopter starts from:
 
 - `validate_destination_data`
+- `destination_handles_event_kind`
 - `build_alert_destination_config`
 - `create_alert_destination_hog_functions`
 - `soft_delete_alert_destinations`
@@ -88,6 +89,10 @@ does not return model rows, so the caller keeps ids and asks for anything else t
 another facade read.
 
 `EventKindSpec` describes destination-neutral content for one event kind. The shared builder converts it into a HogFunction payload through an internal registry where each destination type owns its template ID, required fields, input building, read-back, and read redaction. Adding a destination type means adding one entry there. Products own event IDs, event properties, wording, actions, and their allowed destination list.
+
+Not every destination type has something to send for every event kind. An incident manager such as PagerDuty follows only the kinds that trigger or resolve an incident, which a product marks with `EventKindSpec.incident_action`. Filter a product's event kinds with `destination_handles_event_kind` before building configs; `build_alert_destination_config` raises for a kind the destination type does not handle.
+
+A destination type whose configuration is a credential, such as the PagerDuty integration key, stores it as a secret template input. The read path merges `encrypted_inputs` back before it reads a config, so grouping and duplicate detection see the real value while `redact_destination_data` keeps it out of API responses.
 
 Validation failures raise `AlertDestinationValidationError`, a plain exception with a message and an optional field name. The adopter's view translates it into its own framework's validation error, because the facade has no HTTP layer of its own. `as_drf_validation_error` in `posthog.exceptions` does that translation for a DRF view.
 

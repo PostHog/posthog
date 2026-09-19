@@ -3599,7 +3599,7 @@ export const LogsAlertsDestroyParams = () => zod.object({
 })
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination only gets the firing and resolved kinds: firing triggers an incident and resolved resolves it.
  */
 export const LogsAlertsDestinationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
@@ -3610,11 +3610,16 @@ export const LogsAlertsDestinationsCreateParams = () => zod.object({
         ),
 })
 
+export const logsAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
+export const logsAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
+
 export const LogsAlertsDestinationsCreateBody = () => zod.object({
     type: zod
-        .enum(['slack', 'webhook', 'teams'])
-        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
-        .describe('Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'),
+        .enum(['slack', 'webhook', 'teams', 'pagerduty'])
+        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty')
+        .describe(
+            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty'
+        ),
     slack_workspace_id: zod
         .number()
         .optional()
@@ -3622,6 +3627,22 @@ export const LogsAlertsDestinationsCreateBody = () => zod.object({
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
     webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
+    pagerduty_routing_key: zod
+        .string()
+        .optional()
+        .describe('Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.'),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .default(logsAlertsDestinationsCreateBodyPagerdutySeverityDefault)
+        .describe(
+            'Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .default(logsAlertsDestinationsCreateBodyPagerdutyRegionDefault)
+        .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
 })
 
 /**

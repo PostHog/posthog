@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from typing import Literal
 
-from products.alerts.backend.facade.contracts import DestinationType, EventKindSpec
+from products.alerts.backend.facade.contracts import DestinationType, EventKindSpec, IncidentAction
 
 EventKind = Literal["firing", "resolved", "broken", "errored"]
-LOGS_DESTINATION_TYPES = (DestinationType.SLACK, DestinationType.WEBHOOK, DestinationType.TEAMS)
+LOGS_DESTINATION_TYPES = (
+    DestinationType.SLACK,
+    DestinationType.WEBHOOK,
+    DestinationType.TEAMS,
+    DestinationType.PAGERDUTY,
+)
 
 
 _PRODUCT_LABEL = "logs alert"
@@ -55,6 +60,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             "data": _FIRE_RESOLVE_DATA,
         },
         product_label=_PRODUCT_LABEL,
+        incident_action=IncidentAction.TRIGGER,
     ),
     "resolved": EventKindSpec(
         event_id="$logs_alert_resolved",
@@ -76,6 +82,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             "data": _FIRE_RESOLVE_DATA,
         },
         product_label=_PRODUCT_LABEL,
+        incident_action=IncidentAction.RESOLVE,
     ),
     "broken": EventKindSpec(
         event_id="$logs_alert_auto_disabled",

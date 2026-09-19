@@ -11,7 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.cdp.templates.fixtures import template_slack
+from posthog.cdp.templates.fixtures import template_pagerduty, template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from posthog.clickhouse.client import sync_execute
@@ -25,11 +25,12 @@ from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
-    LOGS_ALERT_EVENT_IDS,
     MAX_ALERTS_PER_TEAM,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     LogsAlertViewSet,
 )
+
+PAGERDUTY_ROUTING_KEY = "0123456789abcdef0123456789abcdef"
 
 
 def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: str) -> dict:
@@ -816,6 +817,7 @@ class TestLogsAlertAPI(APIBaseTest):
         # which looks up a HogFunctionTemplate by template_id.
         sync_template_to_db(template_slack)
         sync_template_to_db(template_microsoft_teams)
+        sync_template_to_db(template_pagerduty)
         HogFunctionTemplate.objects.get_or_create(
             template_id="template-webhook",
             defaults={
@@ -935,6 +937,41 @@ class TestLogsAlertAPI(APIBaseTest):
             assert text_value.startswith("**")
             assert "[View logs](" in text_value or "[View alert](" in text_value
 
+    def test_create_pagerduty_destination_pairs_a_trigger_with_a_resolve_and_hides_the_key(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY, "pagerduty_severity": "warning"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 2  # firing + resolved only: nothing resolves an incident opened for broken or errored
+
+        action_by_event = {}
+        for hf in HogFunction.objects.filter(id__in=ids):
+            assert hf.template_id == "template-pagerduty"
+            # The key is a secret input, so it lives in the encrypted column and never in `inputs`.
+            assert "routing_key" not in (hf.inputs or {})
+            assert (hf.encrypted_inputs or {})["routing_key"]["value"] == PAGERDUTY_ROUTING_KEY
+            inputs = hf.inputs or {}
+            assert inputs["dedup_key"]["value"] == f"posthog-alert-{created['id']}"
+            assert inputs["severity"]["value"] == "warning"
+            assert inputs["region"]["value"] == "us"
+            action_by_event[hf.filters["events"][0]["id"]] = inputs["event_action"]["value"]
+        assert action_by_event == {"$logs_alert_firing": "trigger", "$logs_alert_resolved": "resolve"}
+
+        detail = self.client.get(f"{self.base_url}{created['id']}/")
+        assert detail.status_code == status.HTTP_200_OK
+        destinations = detail.json()["destinations"]
+        assert len(destinations) == 1
+        assert set(destinations[0]["hog_function_ids"]) == set(ids)
+        assert destinations[0]["type"] == "pagerduty"
+        assert destinations[0]["pagerduty_routing_key"] == "••••" + PAGERDUTY_ROUTING_KEY[-4:]
+        assert destinations[0]["pagerduty_severity"] == "warning"
+        assert PAGERDUTY_ROUTING_KEY not in detail.content.decode()
+
     def test_reading_an_alert_groups_its_destinations_and_strips_webhook_credentials(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -1021,6 +1058,12 @@ class TestLogsAlertAPI(APIBaseTest):
             ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
             ("teams_missing_url", {"type": "teams"}),
             ("teams_invalid_url", {"type": "teams", "webhook_url": "not-a-url"}),
+            ("pagerduty_missing_key", {"type": "pagerduty"}),
+            ("pagerduty_malformed_key", {"type": "pagerduty", "pagerduty_routing_key": "not-a-key"}),
+            (
+                "pagerduty_unknown_severity",
+                {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY, "pagerduty_severity": "urgent"},
+            ),
         ]
     )
     def test_create_destination_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:
@@ -1137,6 +1180,11 @@ class TestLogsAlertAPI(APIBaseTest):
                 {"type": "webhook", "webhook_url": "https://example.com/a"},
                 {"type": "webhook", "webhook_url": "https://example.com/b"},
             ),
+            (
+                "two_pagerduty_keys",
+                {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY},
+                {"type": "pagerduty", "pagerduty_routing_key": "b" * 32},
+            ),
         ]
     )
     def test_delete_destination_removes_only_the_named_destination(
@@ -1189,6 +1237,7 @@ class TestLogsAlertAPI(APIBaseTest):
                 {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
             ),
             ("webhook_url", {"type": "webhook", "webhook_url": "https://example.com/hook"}),
+            ("pagerduty_key", {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY}),
         ]
     )
     def test_create_destination_rejects_a_duplicate_of_an_existing_destination(self, _name: str, payload: dict):
@@ -1201,7 +1250,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "This destination is already configured for this alert."
         assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
-        assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(LOGS_ALERT_EVENT_IDS)
+        assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(ids)
 
     def test_create_destination_locks_the_alert_row_before_the_duplicate_check(self):
         self._sync_destination_templates()

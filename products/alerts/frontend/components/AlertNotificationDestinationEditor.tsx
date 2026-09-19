@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { KeyboardEvent, ReactNode } from 'react'
 
 import { IconExternal, IconTrash } from '@posthog/icons'
 import {
@@ -6,6 +6,7 @@ import {
     LemonBanner,
     LemonInput,
     LemonSelect,
+    LemonSelectOptionLeaf,
     LemonSelectOptions,
     LemonSkeleton,
     LemonTag,
@@ -55,6 +56,30 @@ export interface AlertNotificationUrlInput {
     helpText?: ReactNode
 }
 
+export type AlertPagerDutySeverity = 'critical' | 'error' | 'warning' | 'info'
+export type AlertPagerDutyRegion = 'us' | 'eu'
+
+export const ALERT_PAGERDUTY_SEVERITY_OPTIONS: LemonSelectOptionLeaf<AlertPagerDutySeverity>[] = [
+    { value: 'critical', label: 'Critical' },
+    { value: 'error', label: 'Error' },
+    { value: 'warning', label: 'Warning' },
+    { value: 'info', label: 'Info' },
+]
+
+export const ALERT_PAGERDUTY_REGION_OPTIONS: LemonSelectOptionLeaf<AlertPagerDutyRegion>[] = [
+    { value: 'us', label: 'US' },
+    { value: 'eu', label: 'EU' },
+]
+
+export interface AlertNotificationPagerDutyInput {
+    routingKey: string
+    onRoutingKeyChange: (value: string) => void
+    severity: AlertPagerDutySeverity
+    onSeverityChange: (value: AlertPagerDutySeverity) => void
+    region: AlertPagerDutyRegion
+    onRegionChange: (value: AlertPagerDutyRegion) => void
+}
+
 interface AlertNotificationDestinationEditorProps<NotificationType extends string> {
     description?: ReactNode
     destinations: {
@@ -86,6 +111,7 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
         value: string
         onChange: (value: string) => void
     }
+    pagerduty?: AlertNotificationPagerDutyInput
     add: {
         onClick: () => void
         disabledReason?: string
@@ -227,6 +253,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
     notificationType,
     slack,
     url,
+    pagerduty,
     add,
 }: AlertNotificationDestinationEditorProps<NotificationType>): JSX.Element {
     const addDestinationButton = (
@@ -240,7 +267,19 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
             Add
         </LemonButton>
     )
-    const addDestinationButtonIsInline = notificationType.value === slack.notificationType || Boolean(url)
+    const addDestinationButtonIsInline =
+        notificationType.value === slack.notificationType || Boolean(url) || Boolean(pagerduty)
+    const addOnEnter = (event: KeyboardEvent<HTMLInputElement>): void => {
+        if (event.nativeEvent.isComposing) {
+            event.stopPropagation()
+            return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        if (!add.disabledReason) {
+            add.onClick()
+        }
+    }
 
     let slackDestinationInput: JSX.Element | null = null
     if (notificationType.value === slack.notificationType) {
@@ -330,22 +369,60 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                                 placeholder={url.input.placeholder}
                                 value={url.value}
                                 onChange={url.onChange}
-                                onPressEnter={(event) => {
-                                    if (event.nativeEvent.isComposing) {
-                                        event.stopPropagation()
-                                        return
-                                    }
-                                    event.preventDefault()
-                                    event.stopPropagation()
-                                    if (!add.disabledReason) {
-                                        add.onClick()
-                                    }
-                                }}
+                                onPressEnter={addOnEnter}
                                 fullWidth
                             />
                             {addDestinationButton}
                         </div>
                         {url.input.helpText ? <p className="text-xs text-muted-alt m-0">{url.input.helpText}</p> : null}
+                    </div>
+                ) : null}
+
+                {pagerduty ? (
+                    <div className="space-y-3">
+                        <fieldset className="space-y-1">
+                            <legend className="text-sm font-medium">Integration key</legend>
+                            <div className="flex flex-col sm:flex-row items-start gap-2">
+                                <LemonInput
+                                    type="password"
+                                    autoComplete="off"
+                                    placeholder="32-character Events API v2 integration key"
+                                    value={pagerduty.routingKey}
+                                    onChange={pagerduty.onRoutingKeyChange}
+                                    onPressEnter={addOnEnter}
+                                    fullWidth
+                                    data-attr="alert-pagerduty-routing-key"
+                                />
+                                {addDestinationButton}
+                            </div>
+                            <p className="text-xs text-muted-alt m-0">
+                                In PagerDuty, add an "Events API v2" integration to the service you want to page and
+                                paste its integration key here. An incident opens when the alert fires and resolves when
+                                the alert resolves.
+                            </p>
+                        </fieldset>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <fieldset className="space-y-1 flex-1 min-w-0">
+                                <legend className="text-sm font-medium">Severity</legend>
+                                <LemonSelect
+                                    fullWidth
+                                    options={ALERT_PAGERDUTY_SEVERITY_OPTIONS}
+                                    value={pagerduty.severity}
+                                    onChange={pagerduty.onSeverityChange}
+                                    data-attr="alert-pagerduty-severity"
+                                />
+                            </fieldset>
+                            <fieldset className="space-y-1 flex-1 min-w-0">
+                                <legend className="text-sm font-medium">Service region</legend>
+                                <LemonSelect
+                                    fullWidth
+                                    options={ALERT_PAGERDUTY_REGION_OPTIONS}
+                                    value={pagerduty.region}
+                                    onChange={pagerduty.onRegionChange}
+                                    data-attr="alert-pagerduty-region"
+                                />
+                            </fieldset>
+                        </div>
                     </div>
                 ) : null}
 
