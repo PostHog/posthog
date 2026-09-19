@@ -27,11 +27,32 @@ TWO_SERIES = {
     ],
 }
 
+# A rate built from two filtered views of one event. `series_index` numbers the formula
+# results here, so it cannot pick a series node.
+ONE_EVENT_RATE = {
+    "kind": "TrendsQuery",
+    "series": [
+        {"kind": "EventsNode", "event": "recording analyzed", "properties": [{"key": "ok", "value": "true"}]},
+        {"kind": "EventsNode", "event": "recording analyzed"},
+    ],
+    "trendsFilter": {"formulas": ["A/B"]},
+}
+
+TWO_EVENT_FORMULA = {
+    "kind": "TrendsQuery",
+    "series": [
+        {"kind": "EventsNode", "event": "$pageview"},
+        {"kind": "EventsNode", "event": "recording analyzed"},
+    ],
+    "trendsFilter": {"formulaNodes": [{"formula": "A"}, {"formula": "B"}]},
+}
+
 
 @parameterized.expand(
     [
         ("through_the_insight_viz_wrapper", BARE_EVENT_COUNT, 0),
         ("for_the_alerted_series_not_series_zero", TWO_SERIES, 1),
+        ("for_a_rate_over_one_event_whichever_formula_fired", ONE_EVENT_RATE, 1),
     ]
 )
 def test_reads_the_event_the_alerted_series_counts(_name: str, query: Any, series_index: int) -> None:
@@ -45,6 +66,7 @@ def test_reads_the_event_the_alerted_series_counts(_name: str, query: Any, serie
         ("sql_insight", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}, 0),
         ("index_out_of_range", {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}, 1),
         ("unreadable", "not a query", 0),
+        ("formula_over_two_events", TWO_EVENT_FORMULA, 1),
     ]
 )
 def test_returns_no_event_when_the_series_does_not_name_one(_name: str, query: Any, series_index: int) -> None:
