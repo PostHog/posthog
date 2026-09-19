@@ -18,6 +18,8 @@ def create_and_run_channel_task(
     description: str,
     idempotency_key: UUID,
     before_create: Callable[[], None],
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> TaskRunDTO:
     with transaction.atomic():
         channel = (
@@ -39,6 +41,23 @@ def create_and_run_channel_task(
                 raise ValueError("The previous task has no run. Open the task to start work.")
             run_id = latest_run.id
         else:
+            from products.tasks.backend.temporal.process_task.utils import (
+                get_reasoning_effort_error,
+                get_runtime_adapter_for_model,
+            )
+
+            run_options: dict[str, str] = {}
+            if reasoning_effort is not None and model is None:
+                raise ValueError("Select a model before setting reasoning effort.")
+            if model is not None:
+                runtime_adapter = get_runtime_adapter_for_model(model)
+                if runtime_adapter is None:
+                    raise ValueError("This model is not available. Select a model from the task model catalogue.")
+                if error := get_reasoning_effort_error(runtime_adapter, model, reasoning_effort):
+                    raise ValueError(error)
+                run_options = {"model": model, "runtime_adapter": runtime_adapter.value}
+                if reasoning_effort is not None:
+                    run_options["reasoning_effort"] = reasoning_effort
             before_create()
             task = api.create_task(
                 team_id,
@@ -50,7 +69,7 @@ def create_and_run_channel_task(
                     "origin_key": origin_key,
                 },
             )
-            result = api.run_task(task.id, team_id, user_id, validated_data={})
+            result = api.run_task(task.id, team_id, user_id, validated_data=run_options)
             if result is None:
                 raise ValueError("The task is no longer available.")
             if result.error is not None:

@@ -2176,8 +2176,16 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert task.title == "Follow up"
         assert not task.runs.exists()
 
-    @parameterized.expand([("without_repository", []), ("space_repositories", ["example/app", "example/api"])])
-    def test_cloud_task_uses_space_and_viewer_defaults_once(self, _name: str, repositories: list[str]) -> None:
+    @parameterized.expand(
+        [
+            ("without_repository", [], {}),
+            ("space_repositories", ["example/app", "example/api"], {}),
+            ("selected_model", [], {"model": "claude-opus-4-8", "reasoning_effort": "high"}),
+        ]
+    )
+    def test_cloud_task_uses_space_and_viewer_defaults_once(
+        self, _name: str, repositories: list[str], selection: dict[str, str]
+    ) -> None:
         canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
         integration = Integration.objects.create(team=self.team, kind="github", config={})
         self.channel.repositories = repositories
@@ -2202,6 +2210,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
             "title": "Review the signup flow",
             "description": "Check the empty state.",
             "idempotency_key": str(uuid4()),
+            **selection,
         }
 
         with (
@@ -2231,11 +2240,42 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert task.repositories == repositories
         assert task.github_integration_id == integration.id
         assert run.environment == TaskRun.Environment.CLOUD
-        assert run.state["model"] == "gpt-5.5"
-        assert run.state["runtime_adapter"] == "codex"
-        assert run.state["reasoning_effort"] == "medium"
+        assert run.state["model"] == selection.get("model", "gpt-5.5")
+        assert run.state["runtime_adapter"] == ("claude" if selection else "codex")
+        assert run.state["reasoning_effort"] == selection.get("reasoning_effort", "medium")
         assert task.runs.count() == 1
         dispatch.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("unknown_model", {"model": "unknown-model"}),
+            ("unsupported_effort", {"model": "gpt-5.5", "reasoning_effort": "invalid"}),
+            ("effort_without_model", {"reasoning_effort": "high"}),
+        ]
+    )
+    def test_cloud_task_rejects_invalid_model_selection_without_creating_work(
+        self, _name: str, selection: dict[str, str]
+    ) -> None:
+        canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+                return_value=DesktopAccessDecision.ALLOWED,
+            ),
+            patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
+        ):
+            response = self._invoke(
+                canvas_id,
+                "tasks.create_and_run",
+                {"title": "Review", "idempotency_key": str(uuid4()), **selection},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not Task.objects.exists()
+        assert not TaskRun.objects.exists()
+        dispatch.assert_not_called()
 
     @parameterized.expand([("access_denied", False, False, 403), ("usage_limited", True, True, 429)])
     def test_cloud_task_checks_access_and_usage_before_creating_work(
