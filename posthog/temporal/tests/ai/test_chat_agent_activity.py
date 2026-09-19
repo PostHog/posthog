@@ -88,6 +88,22 @@ class TestProcessChatAgentActivity:
             mock_redis_stream.write_to_stream.assert_called_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("mirror_enabled", [True, False])
+    async def test_activity_reports_whether_the_copy_is_enabled(
+        self, conversation_inputs, mock_redis_stream, mock_assistant, mirror_enabled
+    ):
+        with (
+            patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
+            patch("posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant),
+            patch(
+                "posthog.temporal.ai.chat_agent.has_conversation_task_mirror_feature_flag", return_value=mirror_enabled
+            ),
+        ):
+            result = await process_chat_agent_activity(conversation_inputs)
+
+        assert result.mirror_enabled is mirror_enabled
+
+    @pytest.mark.asyncio
     async def test_process_conversation_activity_streaming_error(
         self,
         conversation_inputs,

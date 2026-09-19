@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
@@ -15,6 +15,7 @@ import { DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from 
 
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailSceneTab, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailQuery } from './tabs/NodeDetailQuery'
 
 const NODE_ID = 'node-1'
 const SAVED_QUERY_ID = 'saved-query-1'
@@ -116,6 +117,31 @@ describe('nodeDetailSceneLogic', () => {
         await mountScene(urls.nodeDetail(NODE_ID))
 
         expect(logic.values.availableTabs).toEqual(['lineage'])
+    })
+
+    it('shows ten columns on each query page', async () => {
+        savedQuery = {
+            ...savedQuery,
+            columns: Array.from({ length: 11 }, (_, index) => ({
+                name: `column_${index + 1}`,
+                hogql_value: `column_${index + 1}`,
+                type: 'string',
+                schema_valid: true,
+            })),
+        }
+        await mountScene(urls.nodeDetail(NODE_ID, 'query'))
+
+        render(createElement(NodeDetailQuery, { id: NODE_ID }))
+
+        expect(screen.getByText('column_10')).toBeTruthy()
+        expect(screen.queryByText('column_11')).toBeNull()
+        expect(screen.getByText('1-10 of 11 columns')).toBeTruthy()
+
+        fireEvent.click(screen.getByLabelText('Next page'))
+
+        expect(screen.queryByText('column_10')).toBeNull()
+        expect(screen.getByText('column_11')).toBeTruthy()
+        expect(screen.getByText('11 of 11 columns')).toBeTruthy()
     })
 
     it('lists every tab a saved query supports when data quality checks are on', async () => {

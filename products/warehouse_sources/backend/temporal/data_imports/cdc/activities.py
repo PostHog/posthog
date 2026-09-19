@@ -1316,6 +1316,7 @@ class CDCExtractActivity:
                     #   (b) on crash-replay the already-flushed prefix of the in-flight
                     #       transaction is re-delivered — incremental_merge dedups by PK,
                     #       scd2_append may create duplicate history rows. Accepted vs. loss.
+                    #       The buffer lane trims that prefix in cleanup_superseded_files.
                     if (
                         self.last_complete_txn_end_lsn is not None
                         and self.last_complete_txn_end_lsn != self.last_confirmed_lsn

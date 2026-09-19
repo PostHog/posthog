@@ -261,7 +261,15 @@ class InstagramClient:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         self._raise_for_error(response)
-        body = response.json()
+        try:
+            body = response.json()
+        except ValueError as e:
+            # Every Graph API success path returns JSON, so a 2xx with an empty or non-JSON body is a
+            # truncated response or an edge server answering in Meta's place, not real output. The body
+            # stays out of the message: it can carry user-authored content or an HTML error page.
+            raise InstagramRetryableError(
+                f"Instagram API error (retryable): status={response.status_code}, message=response body was not JSON"
+            ) from e
         return body if isinstance(body, dict) else {"data": body}
 
     def _raise_for_error(self, response: requests.Response) -> None:

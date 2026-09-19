@@ -26,7 +26,7 @@ from products.data_modeling.backend.logic.freshness import (
 )
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
-from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
 # Declared target lives here, mirroring properties["system"]["suspended"] (circuit breaker).
@@ -224,7 +224,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         for source_id, target_id in Edge.objects.filter(dag=dag).values_list("source_id", "target_id")
     ]
 
-    schedulable = {str(node.id) for node in nodes if node.type != NodeType.TABLE}
+    schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
     declared_targets: dict[str, timedelta] = {}
     declared_anchors: dict[str, int] = {}
     for node in nodes:
@@ -308,7 +308,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
     """The DAG's schedulable nodes: everything that carries a live saved query (not a source
     table, not a soft-deleted query). The one definition of "what gets a freshness target"."""
-    return Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE).exclude(saved_query__deleted=True)
+    return Node.objects.filter(dag=dag, type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
 
 
 def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:

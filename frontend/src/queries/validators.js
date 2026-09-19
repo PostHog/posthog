@@ -13718,7 +13718,7 @@ const schema119 = {
         retention_window_start: { $ref: '#/definitions/integer' },
         retention_window_unit: { $ref: '#/definitions/FunnelConversionWindowTimeUnit' },
         sharedMetricId: { type: 'number' },
-        start_event: { $ref: '#/definitions/ExperimentMetricSource' },
+        start_event: { $ref: '#/definitions/ExperimentRetentionStart' },
         start_handling: { enum: ['first_seen', 'last_seen'], type: 'string' },
         uuid: { type: 'string' },
         version: { description: 'version of the node, used for schema migrations', type: 'number' },
@@ -13734,6 +13734,286 @@ const schema119 = {
         'start_handling',
     ],
     type: 'object',
+}
+const schema126 = {
+    discriminator: { propertyName: 'kind' },
+    oneOf: [
+        { $ref: '#/definitions/EventsNode' },
+        { $ref: '#/definitions/ActionsNode' },
+        { $ref: '#/definitions/ExperimentDataWarehouseNode' },
+        { $ref: '#/definitions/ExperimentExposureNode' },
+    ],
+    required: ['kind'],
+    type: 'object',
+}
+const schema127 = {
+    additionalProperties: false,
+    description:
+        "Sentinel start source for retention metrics. It carries no event of its own: at query time it resolves to the experiment's exposure, so one shared metric anchors correctly on any experiment regardless of that experiment's exposure event.",
+    properties: {
+        kind: { const: 'ExperimentExposureNode', type: 'string' },
+        response: { type: 'object' },
+        version: { description: 'version of the node, used for schema migrations', type: 'number' },
+    },
+    required: ['kind'],
+    type: 'object',
+}
+function validate137(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+    let vErrors = null
+    let errors = 0
+    const _errs1 = errors
+    let valid0 = false
+    let passing0 = null
+    const _errs2 = errors
+    if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs2 === errors
+    if (_valid0) {
+        valid0 = true
+        passing0 = 0
+    }
+    const _errs3 = errors
+    if (!validate107(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate107.errors : vErrors.concat(validate107.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs3 === errors
+    if (_valid0 && valid0) {
+        valid0 = false
+        passing0 = [passing0, 1]
+    } else {
+        if (_valid0) {
+            valid0 = true
+            passing0 = 1
+        }
+        const _errs4 = errors
+        if (!validate113(data, { instancePath, parentData, parentDataProperty, rootData })) {
+            vErrors = vErrors === null ? validate113.errors : vErrors.concat(validate113.errors)
+            errors = vErrors.length
+        }
+        var _valid0 = _errs4 === errors
+        if (_valid0 && valid0) {
+            valid0 = false
+            passing0 = [passing0, 2]
+        } else {
+            if (_valid0) {
+                valid0 = true
+                passing0 = 2
+            }
+            const _errs5 = errors
+            const _errs6 = errors
+            if (errors === _errs6) {
+                if (data && typeof data == 'object' && !Array.isArray(data)) {
+                    let missing0
+                    if (data.kind === undefined && (missing0 = 'kind')) {
+                        const err0 = {
+                            instancePath,
+                            schemaPath: '#/definitions/ExperimentExposureNode/required',
+                            keyword: 'required',
+                            params: { missingProperty: missing0 },
+                            message: "must have required property '" + missing0 + "'",
+                        }
+                        if (vErrors === null) {
+                            vErrors = [err0]
+                        } else {
+                            vErrors.push(err0)
+                        }
+                        errors++
+                    } else {
+                        const _errs8 = errors
+                        for (const key0 in data) {
+                            if (!(key0 === 'kind' || key0 === 'response' || key0 === 'version')) {
+                                const err1 = {
+                                    instancePath,
+                                    schemaPath: '#/definitions/ExperimentExposureNode/additionalProperties',
+                                    keyword: 'additionalProperties',
+                                    params: { additionalProperty: key0 },
+                                    message: 'must NOT have additional properties',
+                                }
+                                if (vErrors === null) {
+                                    vErrors = [err1]
+                                } else {
+                                    vErrors.push(err1)
+                                }
+                                errors++
+                                break
+                            }
+                        }
+                        if (_errs8 === errors) {
+                            if (data.kind !== undefined) {
+                                let data0 = data.kind
+                                const _errs9 = errors
+                                if (typeof data0 !== 'string') {
+                                    const err2 = {
+                                        instancePath: instancePath + '/kind',
+                                        schemaPath: '#/definitions/ExperimentExposureNode/properties/kind/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    }
+                                    if (vErrors === null) {
+                                        vErrors = [err2]
+                                    } else {
+                                        vErrors.push(err2)
+                                    }
+                                    errors++
+                                }
+                                if ('ExperimentExposureNode' !== data0) {
+                                    const err3 = {
+                                        instancePath: instancePath + '/kind',
+                                        schemaPath: '#/definitions/ExperimentExposureNode/properties/kind/const',
+                                        keyword: 'const',
+                                        params: { allowedValue: 'ExperimentExposureNode' },
+                                        message: 'must be equal to constant',
+                                    }
+                                    if (vErrors === null) {
+                                        vErrors = [err3]
+                                    } else {
+                                        vErrors.push(err3)
+                                    }
+                                    errors++
+                                }
+                                var valid2 = _errs9 === errors
+                            } else {
+                                var valid2 = true
+                            }
+                            if (valid2) {
+                                if (data.response !== undefined) {
+                                    let data1 = data.response
+                                    const _errs11 = errors
+                                    if (!(data1 && typeof data1 == 'object' && !Array.isArray(data1))) {
+                                        const err4 = {
+                                            instancePath: instancePath + '/response',
+                                            schemaPath: '#/definitions/ExperimentExposureNode/properties/response/type',
+                                            keyword: 'type',
+                                            params: { type: 'object' },
+                                            message: 'must be object',
+                                        }
+                                        if (vErrors === null) {
+                                            vErrors = [err4]
+                                        } else {
+                                            vErrors.push(err4)
+                                        }
+                                        errors++
+                                    }
+                                    var valid2 = _errs11 === errors
+                                } else {
+                                    var valid2 = true
+                                }
+                                if (valid2) {
+                                    if (data.version !== undefined) {
+                                        let data2 = data.version
+                                        const _errs13 = errors
+                                        if (!(typeof data2 == 'number' && isFinite(data2))) {
+                                            const err5 = {
+                                                instancePath: instancePath + '/version',
+                                                schemaPath:
+                                                    '#/definitions/ExperimentExposureNode/properties/version/type',
+                                                keyword: 'type',
+                                                params: { type: 'number' },
+                                                message: 'must be number',
+                                            }
+                                            if (vErrors === null) {
+                                                vErrors = [err5]
+                                            } else {
+                                                vErrors.push(err5)
+                                            }
+                                            errors++
+                                        }
+                                        var valid2 = _errs13 === errors
+                                    } else {
+                                        var valid2 = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    const err6 = {
+                        instancePath,
+                        schemaPath: '#/definitions/ExperimentExposureNode/type',
+                        keyword: 'type',
+                        params: { type: 'object' },
+                        message: 'must be object',
+                    }
+                    if (vErrors === null) {
+                        vErrors = [err6]
+                    } else {
+                        vErrors.push(err6)
+                    }
+                    errors++
+                }
+            }
+            var _valid0 = _errs5 === errors
+            if (_valid0 && valid0) {
+                valid0 = false
+                passing0 = [passing0, 3]
+            } else {
+                if (_valid0) {
+                    valid0 = true
+                    passing0 = 3
+                }
+            }
+        }
+    }
+    if (!valid0) {
+        const err7 = {
+            instancePath,
+            schemaPath: '#/oneOf',
+            keyword: 'oneOf',
+            params: { passingSchemas: passing0 },
+            message: 'must match exactly one schema in oneOf',
+        }
+        if (vErrors === null) {
+            vErrors = [err7]
+        } else {
+            vErrors.push(err7)
+        }
+        errors++
+        validate137.errors = vErrors
+        return false
+    } else {
+        errors = _errs1
+        if (vErrors !== null) {
+            if (_errs1) {
+                vErrors.length = _errs1
+            } else {
+                vErrors = null
+            }
+        }
+    }
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing1
+            if (data.kind === undefined && (missing1 = 'kind')) {
+                validate137.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing1 },
+                        message: "must have required property '" + missing1 + "'",
+                    },
+                ]
+                return false
+            }
+        } else {
+            validate137.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
+        }
+    }
+    validate137.errors = vErrors
+    return errors === 0
 }
 function validate134(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
@@ -14197,7 +14477,7 @@ function validate134(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                 if (data.start_event !== undefined) {
                                                                                     const _errs36 = errors
                                                                                     if (
-                                                                                        !validate98(data.start_event, {
+                                                                                        !validate137(data.start_event, {
                                                                                             instancePath:
                                                                                                 instancePath +
                                                                                                 '/start_event',
@@ -14209,9 +14489,9 @@ function validate134(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                     ) {
                                                                                         vErrors =
                                                                                             vErrors === null
-                                                                                                ? validate98.errors
+                                                                                                ? validate137.errors
                                                                                                 : vErrors.concat(
-                                                                                                      validate98.errors
+                                                                                                      validate137.errors
                                                                                                   )
                                                                                         errors = vErrors.length
                                                                                     }
