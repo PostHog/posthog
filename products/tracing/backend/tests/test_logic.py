@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.schema import PropertyOperator, SpanPropertyFilter, SpanPropertyFilterType
 
-from products.tracing.backend.logic import translate_span_filter
+from products.tracing.backend.logic import UnknownSpanFilterKeyError, translate_span_filter, validate_span_filter_key
 
 
 def _span_filter(key: str, value: object) -> SpanPropertyFilter:
@@ -65,8 +65,28 @@ class TestTranslateSpanFilter(SimpleTestCase):
 
     @parameterized.expand(
         [
+            # The API returns all three ids as hex, while the columns store base64, so each one
+            # needs converting or a filter on a value the API just handed out matches zero rows.
+            ("trace_id", "trace_id", "00000000000000000000000000000001", "AAAAAAAAAAAAAAAAAAAAAQ=="),
+            ("span_id", "span_id", "0000000000000001", "AAAAAAAAAAE="),
+            ("parent_span_id", "parent_span_id", "0000000000000001", "AAAAAAAAAAE="),
+        ]
+    )
+    def test_hex_ids_convert_to_base64(self, _name, key, value, expected):
+        span_filter = _span_filter(key, value)
+        translate_span_filter(span_filter)
+        self.assertEqual(span_filter.value, expected)
+
+    def test_hex_id_list_converts_to_base64(self):
+        span_filter = _span_filter("parent_span_id", ["0000000000000001", "0000000000000002"])
+        translate_span_filter(span_filter)
+        self.assertEqual(span_filter.value, ["AAAAAAAAAAE=", "AAAAAAAAAAI="])
+
+    @parameterized.expand(
+        [
             ("status_code", "status_code", 2, ["2"]),
             ("kind", "kind", "3", ["3"]),
+            ("parent_span_id", "parent_span_id", "0000000000000001", "AAAAAAAAAAE="),
         ]
     )
     def test_translation_is_idempotent(self, _name, key, value, expected):
@@ -74,3 +94,32 @@ class TestTranslateSpanFilter(SimpleTestCase):
         translate_span_filter(span_filter)
         translate_span_filter(span_filter)
         self.assertEqual(span_filter.value, expected)
+
+
+class TestValidateSpanFilterKey(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("column", "service_name"),
+            ("duration_alias", "duration"),
+            ("translated_duration", "duration_nano"),
+        ]
+    )
+    def test_accepts_span_columns(self, _name, key):
+        validate_span_filter_key(_span_filter(key, "x"))
+
+    @parameterized.expand(
+        [
+            # OTel attribute keys sent with the wrong filter type. Before the check they reached the
+            # HogQL resolver as unknown fields and failed the whole query with a 500.
+            ("camel_case_attribute", "sessionId"),
+            ("dotted_attribute", "http.method"),
+            ("attribute_map", "attributes"),
+        ]
+    )
+    def test_rejects_keys_that_are_not_span_columns(self, _name, key):
+        with self.assertRaises(UnknownSpanFilterKeyError) as caught:
+            validate_span_filter_key(_span_filter(key, "x"))
+        message = str(caught.exception)
+        self.assertIn(key, message)
+        self.assertIn("span_attribute", message)
+        self.assertIn("service_name", message)

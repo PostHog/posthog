@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -60,3 +62,53 @@ class TestSpanCountErrorHandling(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, 400, response.content)
+
+
+class TestSpanFilterKeyValidation(APIBaseTest):
+    @parameterized.expand(
+        [
+            # The two filter-extraction paths: the per-span runner mixin, and the aggregation mixin.
+            ("query", "query"),
+            ("aggregate", "aggregate"),
+        ]
+    )
+    def test_unknown_span_filter_key_returns_400_not_500(self, _name, endpoint):
+        # An OTel attribute key sent as type "span" used to reach the HogQL resolver as an unknown
+        # field, so a caller mistake surfaced as a server error.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/{endpoint}/",
+            {
+                "query": {
+                    "dateRange": {"date_from": "-1h"},
+                    "filterGroup": [{"key": "sessionId", "type": "span", "operator": "exact", "value": ["abc"]}],
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("span_attribute", json.dumps(response.json()))
+
+    def test_unknown_span_filter_key_returns_400_on_generic_query_endpoint(self):
+        # The same runner serves the generic query endpoint, which answers 400 for a HogQL query
+        # error but 500 for any other exception out of the runner constructor.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "TraceSpansQuery",
+                    "dateRange": {"date_from": "-1h"},
+                    "filterGroup": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "sessionId", "type": "span", "operator": "exact", "value": ["abc"]}],
+                            }
+                        ],
+                    },
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("span_attribute", json.dumps(response.json()))
