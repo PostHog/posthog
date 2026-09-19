@@ -15,6 +15,14 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class OrphanedEndpointSavedQueryError(Exception):
+    """No endpoint version points at this endpoint saved query.
+
+    Its HogQL is rebuilt from a version before every materialization run, so
+    without one the query can never materialize again.
+    """
+
+
 @dataclass(frozen=True)
 class EndpointInfo:
     """An endpoint (team-scoped, name-addressed). Version-specific data lives on EndpointVersionInfo."""
