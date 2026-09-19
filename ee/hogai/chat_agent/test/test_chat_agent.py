@@ -5,6 +5,8 @@ from uuid import uuid4
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import AsyncMock, patch
 
+from django.test import override_settings
+
 from asgiref.sync import async_to_sync, sync_to_async
 from langchain_core import messages
 from langchain_core.messages import BaseMessage
@@ -1742,6 +1744,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         self.assertIsInstance(state.messages[4], ContextMessage)
         self.assertEqual(state.root_conversation_start_id, state.messages[4].id)
 
+    @override_settings(INKEEP_API_KEY="test-inkeep-key")
     @patch("ee.hogai.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
     @patch(
         "ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl",
