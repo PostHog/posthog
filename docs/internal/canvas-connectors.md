@@ -61,6 +61,34 @@ message rather than silently creating a task with the space's default repository
 Prefilled forms use a separate `compose-task` navigation intent so older hosts reject the request
 instead of dropping its fields and opening a task with the wrong repository.
 
+### Private screenshot inputs
+
+The `screenshots.upload` action accepts `{content}` with base64 image bytes and returns `{id}`.
+The server checks the image content, not a supplied MIME type or filename.
+PNG, JPEG, and WebP images must be at most 1 MB and 16 megapixels.
+Images use private object storage, scoped to the project, viewer, and canvas.
+They are not public media assets. Store only their IDs in user state.
+The `screenshots.read` action accepts `{id}` and returns `{content, content_type}` for a data URL preview.
+It requires a user action, like other canvas actions. Do not fetch previews during render or on load.
+Uploads have immutable, server-generated IDs. Removing an ID from a card does not delete its stored image.
+
+Pass up to six IDs as `screenshot_ids` on `tasks.create_and_run`.
+The server copies each image into the task's private `user_attachment` artifacts before it starts the run.
+The run receives the artifact IDs through the existing task input path, not as public URLs in prompt text.
+The same canvas and viewer checks apply before any new task is created.
+Idempotent retries return the original run without reading or replacing its images.
+
+For card and run forms, handle file selection and clipboard image items without replacing pasted text.
+Keep card image IDs separate from run-only image IDs. Prefill each new run with the card's images.
+Allow removal from a run without changing the card. Save the selected IDs with the immutable run request before dispatch.
+Disable save and start while uploads are pending or have failed, and keep errors visible.
+Keep image bytes out of canvas state, analytics, and published source.
+
+Deploy the backend actions and the host upload-size allowance before publishing these controls.
+The host keeps its 64 KB limit for other requests; only `screenshots.upload` accepts a bounded 1 MB image payload.
+Declare both screenshot verbs in the canvas capabilities when enabling the controls.
+The source validator rejects these verbs on older servers, so the existing boards stay unchanged until deployment.
+
 ### Task summaries
 
 Test experimental summary features in a separate canvas with its own user-scoped state.

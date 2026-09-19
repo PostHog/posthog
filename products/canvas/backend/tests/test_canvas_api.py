@@ -1,4 +1,6 @@
+import io
 import json
+import base64
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,6 +13,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from PIL import Image
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -28,6 +31,7 @@ from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
+from products.canvas.backend.screenshots import read_screenshot
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
@@ -2105,6 +2109,48 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
 
 
 class TestCanvasActions(CanvasAPIBaseTest):
+    def _screenshot(self, canvas_id: str) -> tuple[str, bytes]:
+        image_bytes = io.BytesIO()
+        Image.new("RGB", (8, 8), "white").save(image_bytes, format="PNG")
+        content = image_bytes.getvalue()
+        response = self._invoke(canvas_id, "screenshots.upload", {"content": base64.b64encode(content).decode()})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["result"]["id"], content
+
+    @parameterized.expand([("viewer",), ("canvas",), ("team",)])
+    def test_screenshot_is_private_to_its_viewer_canvas_and_team(self, scope: str):
+        canvas_id = self._actions_canvas(verbs=("screenshots.upload", "screenshots.read", "tasks.create_and_run"))
+        screenshot_id, content = self._screenshot(canvas_id)
+        preview = self._invoke(canvas_id, "screenshots.read", {"id": screenshot_id})
+        assert preview.status_code == status.HTTP_200_OK
+        assert base64.b64decode(preview.json()["result"]["content"]) == content
+        assert preview.json()["result"]["content_type"] == "image/png"
+        if scope == "viewer":
+            viewer = User.objects.create_and_join(self.organization, "viewer@example.com", None)
+            self.client.force_login(viewer)
+        elif scope == "canvas":
+            canvas_id = self._actions_canvas(verbs=("screenshots.read", "tasks.create_and_run"))
+        else:
+            with self.assertRaisesMessage(ValueError, "Screenshot not found"):
+                read_screenshot(self.team.id + 1, self.user.id, UUID(canvas_id), UUID(screenshot_id))
+            return
+        response = self._invoke(canvas_id, "screenshots.read", {"id": screenshot_id})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("invalid_base64", "not base64!"),
+            ("not_image", base64.b64encode(b"<svg></svg>").decode()),
+            ("oversized", "A" * 1_398_105),
+        ]
+    )
+    def test_screenshot_rejects_invalid_uploads(self, _name: str, content: str):
+        canvas_id = self._actions_canvas(verbs=("screenshots.upload",))
+        before = dict(self.storage.objects)
+        response = self._invoke(canvas_id, "screenshots.upload", {"content": content})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self.storage.objects == before
+
     def _actions_canvas(self, verbs: tuple[str, ...] = ("tasks.create", "annotations.create")) -> str:
         canvas_id = self._create_canvas()
         capabilities = {
@@ -2197,7 +2243,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
     def test_cloud_task_uses_space_and_viewer_defaults_once(
         self, _name: str, repositories: list[str], selection: dict[str, str], description: dict[str, str]
     ) -> None:
-        canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
+        canvas_id = self._actions_canvas(verbs=("tasks.create_and_run", "screenshots.upload"))
         integration = Integration.objects.create(team=self.team, kind="github", config={})
         self.channel.repositories = repositories
         self.channel.github_integration = integration
@@ -2217,11 +2263,13 @@ class TestCanvasActions(CanvasAPIBaseTest):
             reasoning_effort="medium",
         )
         self.client.force_login(viewer)
+        screenshot_id, screenshot_content = self._screenshot(canvas_id)
         payload = {
             "title": "Review the signup flow",
             "idempotency_key": str(uuid4()),
             **selection,
             **description,
+            "screenshot_ids": [screenshot_id],
         }
 
         with (
@@ -2233,11 +2281,16 @@ class TestCanvasActions(CanvasAPIBaseTest):
                 "products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None
             ) as usage,
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
+            patch("products.tasks.backend.logic.services.staged_artifacts.tag_task_artifact"),
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self._invoke(canvas_id, "tasks.create_and_run", payload)
             usage.return_value = SimpleNamespace(is_rate_limited=True, limit_type="burst", reset_at=None, is_pro=False)
-            retry = self._invoke(canvas_id, "tasks.create_and_run", {**payload, "description": "A different prompt."})
+            retry = self._invoke(
+                canvas_id,
+                "tasks.create_and_run",
+                {**payload, "description": "A different prompt.", "screenshot_ids": [str(uuid4())]},
+            )
             new_request = self._invoke(canvas_id, "tasks.create_and_run", {**payload, "idempotency_key": str(uuid4())})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -2256,6 +2309,12 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert run.state["runtime_adapter"] == ("claude" if selection else "codex")
         assert run.state["reasoning_effort"] == selection.get("reasoning_effort", "medium")
         assert task.runs.count() == 1
+        assert len(run.artifacts) == 1
+        artifact = run.artifacts[0]
+        assert artifact["type"] == "user_attachment"
+        assert artifact["content_type"] == "image/png"
+        assert run.state["pending_user_artifact_ids"] == [artifact["id"]]
+        assert self.storage.objects[artifact["storage_path"]] == screenshot_content
         dispatch.assert_called_once()
 
     @parameterized.expand(
@@ -2263,10 +2322,13 @@ class TestCanvasActions(CanvasAPIBaseTest):
             ("unknown_model", {"model": "unknown-model"}),
             ("unsupported_effort", {"model": "gpt-5.5", "reasoning_effort": "invalid"}),
             ("effort_without_model", {"reasoning_effort": "high"}),
+            ("missing_screenshot", {"screenshot_ids": [str(uuid4())]}),
+            ("too_many_screenshots", {"screenshot_ids": [str(uuid4()) for _ in range(7)]}),
+            ("invalid_screenshot_id", {"screenshot_ids": ["../other-user/screenshot"]}),
         ]
     )
-    def test_cloud_task_rejects_invalid_model_selection_without_creating_work(
-        self, _name: str, selection: dict[str, str]
+    def test_cloud_task_rejects_invalid_inputs_without_creating_work(
+        self, _name: str, selection: dict[str, Any]
     ) -> None:
         canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
 

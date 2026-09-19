@@ -14,6 +14,7 @@ const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
 const MAX_CONCURRENT_CONNECTOR_REQUESTS = 8;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
+const MAX_SCREENSHOT_REQUEST_BYTES = 4 * Math.ceil((1024 * 1024) / 3) + 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
 const REPLAYABLE_SHORTCUT_KEYS = new Set([
   ",",
@@ -44,9 +45,17 @@ const REPLAYABLE_SHORTCUT_KEYS = new Set([
   "tab",
 ]);
 
-function isBoundedPayload(payload: unknown): boolean {
+function isBoundedPayload(method: string, payload: unknown): boolean {
   try {
-    return JSON.stringify(payload).length <= MAX_DATA_REQUEST_BYTES;
+    const limit =
+      method === "actionInvoke" &&
+      typeof payload === "object" &&
+      payload !== null &&
+      "verb" in payload &&
+      payload.verb === "screenshots.upload"
+        ? MAX_SCREENSHOT_REQUEST_BYTES
+        : MAX_DATA_REQUEST_BYTES;
+    return JSON.stringify(payload).length <= limit;
   } catch {
     return false;
   }
@@ -124,7 +133,7 @@ export function createCanvasHostMessageRouter(
           (holdsSlot && activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) ||
           (isConnectorRequest &&
             activeConnectorRequests >= MAX_CONCURRENT_CONNECTOR_REQUESTS) ||
-          !isBoundedPayload(message.payload)
+          !isBoundedPayload(message.method, message.payload)
         ) {
           options.post({
             channel: "posthog-canvas",
