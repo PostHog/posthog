@@ -375,6 +375,33 @@ describe('experimentLogic', () => {
             expect(logic.values.primaryMetricsResults).toEqual([existingResult])
             expect(logic.values.primaryMetricsResultsErrors).toEqual([null])
         })
+
+        it('puts the last saved metrics back when the save fails', async () => {
+            const rejectedMetric = {
+                uuid: 'rejected-uuid',
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: '$pageview' },
+            } as ExperimentMetric
+
+            logic.actions.setUnmodifiedExperiment(experiment)
+            logic.actions.setExperiment(experiment)
+            logic.actions.setExperiment({
+                metrics: [...(experiment.metrics || []), rejectedMetric],
+                primary_metrics_ordered_uuids: [rejectedMetric.uuid as string],
+            })
+            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('metric rejected'))
+
+            await expectLogic(logic, () => logic.actions.updateExperimentMetrics())
+                .toDispatchActions(['updateExperimentFailure'])
+                .toFinishAllListeners()
+
+            // Left in place, the rejected metric is resent by every later metrics save
+            expect(logic.values.experiment.metrics).toEqual(experiment.metrics)
+            expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(
+                experiment.primary_metrics_ordered_uuids
+            )
+        })
     })
 
     describe('recalculation trigger mapping', () => {
@@ -584,6 +611,32 @@ describe('experimentLogic', () => {
             )
         })
     })
+    describe('duplicateMetric', () => {
+        it('copies a stored metric without its unit-less conversion window', async () => {
+            // A copy that keeps the window fails to save, and dropping it from the stored metric
+            // would change that metric's fingerprint and hide its cached results.
+            const storedMetric = {
+                uuid: 'stored-uuid',
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                conversion_window: 7,
+            } as ExperimentMetric
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [storedMetric],
+                metrics_secondary: [],
+            } as unknown as Experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateMetric({ uuid: 'stored-uuid', isSecondary: false, newUuid: 'copy-uuid' })
+            })
+
+            const [original, copy] = logic.values.experiment.metrics as ExperimentMetric[]
+            expect(original).toHaveProperty('conversion_window', 7)
+            expect(copy).not.toHaveProperty('conversion_window')
+        })
+    })
     describe('duplicateSharedMetricAsInlineMetric', () => {
         const sharedMetricId = 555
         const breakdown = { property: '$browser', type: 'event' } as Breakdown
@@ -630,6 +683,30 @@ describe('experimentLogic', () => {
             ])
             // The original shared metric link is left untouched
             expect(logic.values.experiment.saved_metrics).toEqual([sharedSavedMetric])
+        })
+
+        it('copies the shared metric without its unit-less conversion window', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [
+                    {
+                        ...sharedSavedMetric,
+                        query: { ...sharedSavedMetric.query, conversion_window: 7 },
+                    },
+                ],
+            } as unknown as Experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateSharedMetricAsInlineMetric({
+                    sharedMetricId,
+                    isSecondary: false,
+                    newUuid: 'new-inline-uuid',
+                })
+            })
+
+            expect(logic.values.experiment.metrics?.[0]).not.toHaveProperty('conversion_window')
         })
 
         it('is a no-op when the shared metric is not linked as the requested type', async () => {

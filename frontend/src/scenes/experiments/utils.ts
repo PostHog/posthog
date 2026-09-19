@@ -1208,6 +1208,22 @@ export function withoutProjectedFlagConfig(parameters: Experiment['parameters'] 
     ) as Experiment['parameters']
 }
 
+/** Drops a conversion window that has no unit, which the query engine ignores and the API rejects
+ * on a new metric. Copies need it, because metrics saved before that rule still hold such a window.
+ * The metric copied from keeps its own: removing it changes that metric's fingerprint, which hides
+ * the cached results of a running experiment. */
+export function withoutUnitlessConversionWindow<T extends object>(metric: T): T {
+    const { conversion_window, conversion_window_unit } = metric as {
+        conversion_window?: number | null
+        conversion_window_unit?: FunnelConversionWindowTimeUnit | null
+    }
+    if (conversion_window == null || conversion_window_unit) {
+        return metric
+    }
+    const { conversion_window: _unitless, ...rest } = metric as T & { conversion_window?: number | null }
+    return rest as T
+}
+
 /** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */
 export function toFlagVariantsInput(
     variants: MultivariateFlagVariant[]
