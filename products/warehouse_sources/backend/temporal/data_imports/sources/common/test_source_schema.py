@@ -69,6 +69,48 @@ class TestBuildDefaultSchemas:
         assert schemas[0]["incremental_field"] == "created_at"
         assert "primary_key_columns" not in schemas[0]
 
+    def test_keyless_table_falls_back_to_append_when_supported(self) -> None:
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events_keyless",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("created_at")],
+                    detected_primary_keys=[],
+                )
+            ]
+        )
+        assert schemas == [
+            {
+                "name": "events_keyless",
+                "should_sync": True,
+                "sync_type": "append",
+                "incremental_field": "created_at",
+                "incremental_field_type": "datetime",
+            }
+        ]
+
+    def test_keyless_table_falls_back_to_full_refresh_when_append_unsupported(self) -> None:
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events_keyless_no_append",
+                    supports_incremental=True,
+                    supports_append=False,
+                    incremental_fields=[_field("created_at")],
+                    detected_primary_keys=[],
+                )
+            ]
+        )
+        assert schemas == [
+            {
+                "name": "events_keyless_no_append",
+                "should_sync": True,
+                "sync_type": "full_refresh",
+            }
+        ]
+
     @parameterized.expand(
         [
             ("no_incremental_support", False, False, []),

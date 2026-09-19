@@ -95,13 +95,15 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
 def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     """Default sync settings for one discovered table.
 
-    Picks ``incremental`` when the source supports it and a tracking column exists (cheapest
-    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never picks ``cdc``
-    or ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and
-    explicit opt-in.
+    Picks ``incremental`` when the source supports it, a tracking column exists, and at least one
+    primary key is detected (incremental syncs require a primary key to deduplicate/merge). Falls
+    back to ``append`` when supported and a tracking column exists, else ``full_refresh``. Never
+    picks ``cdc`` or ``webhook`` — both need prerequisites (Postgres setup, webhook registration)
+    and explicit opt-in.
     """
     chosen = _select_incremental_field(source_schema.incremental_fields)
-    if source_schema.supports_incremental and chosen is not None:
+    has_primary_keys = bool(source_schema.detected_primary_keys)
+    if source_schema.supports_incremental and chosen is not None and has_primary_keys:
         sync_type = "incremental"
     elif source_schema.supports_append and chosen is not None:
         sync_type = "append"
