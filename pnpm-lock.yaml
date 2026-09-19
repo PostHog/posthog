@@ -205,7 +205,7 @@ patchedDependencies:
     hash: b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811
     path: patches/jest-junit@16.0.0.patch
   kea@4.0.0-pre.6:
-    hash: 139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5
+    hash: 02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388
     path: patches/kea@4.0.0-pre.6.patch
 
 importers:
@@ -1090,34 +1090,34 @@ importers:
         version: 4.1.0
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-disposables:
         specifier: 'catalog:'
-        version: 1.0.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 1.0.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-localstorage:
         specifier: 'catalog:'
-        version: 3.1.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-waitfor:
         specifier: 'catalog:'
-        version: 0.2.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-window-values:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       liquidjs:
         specifier: ^10.27.0
         version: 10.27.0
@@ -2322,26 +2322,26 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/aeo: {}
 
@@ -2367,16 +2367,16 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -2386,7 +2386,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/ai_observability:
     dependencies:
@@ -2425,19 +2425,19 @@ importers:
         version: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       papaparse:
         specifier: '*'
         version: 5.4.1
@@ -2471,7 +2471,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/ai_training: {}
 
@@ -2485,7 +2485,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
@@ -2497,19 +2497,19 @@ importers:
         version: 6.0.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -2531,7 +2531,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/analytics_platform:
     dependencies:
@@ -2573,13 +2573,13 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2589,7 +2589,7 @@ importers:
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/apm: {}
 
@@ -2605,25 +2605,25 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2636,7 +2636,7 @@ importers:
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/batch_exports: {}
 
@@ -2649,19 +2649,19 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2679,22 +2679,22 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -2710,7 +2710,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/canvas:
     dependencies:
@@ -2747,13 +2747,13 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2766,7 +2766,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/cohorts:
     dependencies:
@@ -2787,13 +2787,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2803,7 +2803,7 @@ importers:
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/context_layer: {}
 
@@ -2817,7 +2817,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -2868,16 +2868,16 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       lowlight:
         specifier: '*'
         version: 3.3.0
@@ -2908,7 +2908,7 @@ importers:
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/core_events: {}
 
@@ -2961,22 +2961,22 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -3009,16 +3009,16 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -3049,7 +3049,7 @@ importers:
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/data_catalog:
     dependencies:
@@ -3073,13 +3073,13 @@ importers:
         version: 7.3.0
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3098,7 +3098,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/data_modeling:
     dependencies:
@@ -3122,16 +3122,16 @@ importers:
         version: 0.10.0
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3147,7 +3147,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/data_quality:
     dependencies:
@@ -3165,16 +3165,16 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3198,7 +3198,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -3207,19 +3207,19 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -3255,26 +3255,26 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/endpoints:
     dependencies:
@@ -3301,16 +3301,16 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3320,7 +3320,7 @@ importers:
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/engineering_analytics:
     dependencies:
@@ -3341,20 +3341,20 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/error_tracking:
     dependencies:
@@ -3420,19 +3420,19 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -3454,7 +3454,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/event_definitions: {}
 
@@ -3474,13 +3474,13 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3499,7 +3499,7 @@ importers:
         version: 14.6.1(@testing-library/dom@10.4.0)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/exports: {}
 
@@ -3525,13 +3525,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -3547,7 +3547,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/field_notes: {}
 
@@ -3567,13 +3567,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3604,16 +3604,16 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -3623,7 +3623,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/growth:
     dependencies:
@@ -3644,13 +3644,13 @@ importers:
         version: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3666,7 +3666,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/legal_documents:
     dependencies:
@@ -3675,7 +3675,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@9.3.4)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -3690,16 +3690,16 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -3729,16 +3729,16 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@18.3.1)
@@ -3748,7 +3748,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/live_debugger:
     dependencies:
@@ -3757,7 +3757,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3772,10 +3772,10 @@ importers:
         version: 7.3.0
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3785,7 +3785,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/llm_analytics: {}
 
@@ -3850,19 +3850,19 @@ importers:
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       papaparse:
         specifier: '*'
         version: 5.4.1
@@ -3893,7 +3893,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/managed_migrations:
     dependencies:
@@ -3902,22 +3902,22 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3940,10 +3940,10 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3973,13 +3973,13 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -3992,25 +3992,25 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/mcp_registry:
     dependencies:
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4025,16 +4025,16 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4070,13 +4070,13 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -4101,7 +4101,7 @@ importers:
         version: 14.6.1(@testing-library/dom@10.4.0)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/notebooks:
     dependencies:
@@ -4122,13 +4122,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -4141,13 +4141,13 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/notifications:
     dependencies:
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
 
   products/persons:
     dependencies:
@@ -4171,13 +4171,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -4187,7 +4187,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/platform_features: {}
 
@@ -4222,22 +4222,22 @@ importers:
         version: 3.0.6
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-disposables:
         specifier: 'catalog:'
-        version: 1.0.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 1.0.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       marked:
         specifier: '*'
         version: 17.0.4
@@ -4265,7 +4265,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       msw:
         specifier: '*'
         version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
@@ -4310,16 +4310,16 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       natural-orderby:
         specifier: '*'
         version: 3.0.2
@@ -4347,7 +4347,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       timekeeper:
         specifier: '*'
         version: 2.2.0
@@ -4368,20 +4368,20 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/pulse:
     dependencies:
@@ -4396,13 +4396,13 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -4412,7 +4412,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/reminders: {}
 
@@ -4435,20 +4435,20 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/replay_vision:
     dependencies:
@@ -4460,7 +4460,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
@@ -4475,19 +4475,19 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       lodash.uniqby:
         specifier: ^4.7.0
         version: 4.7.0
@@ -4509,7 +4509,7 @@ importers:
         version: 14.6.1(@testing-library/dom@10.4.0)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/revenue_analytics:
     dependencies:
@@ -4530,16 +4530,16 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4554,20 +4554,20 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/session_replay:
     dependencies:
@@ -4576,7 +4576,7 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4591,7 +4591,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/products-mcp-store':
         specifier: workspace:*
         version: link:../mcp_store
@@ -4618,19 +4618,19 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       mdast-util-from-markdown:
         specifier: ^2.0.3
         version: 2.0.3
@@ -4652,7 +4652,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       msw:
         specifier: ^2.14.6
         version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
@@ -4673,16 +4673,16 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4698,7 +4698,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/slack_app: {}
 
@@ -4721,13 +4721,13 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -4737,7 +4737,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/streamlit_apps:
     dependencies:
@@ -4746,19 +4746,19 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4791,16 +4791,16 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -4816,7 +4816,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/surveys:
     dependencies:
@@ -4837,13 +4837,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4853,7 +4853,7 @@ importers:
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/tasks:
     dependencies:
@@ -4877,16 +4877,16 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4896,7 +4896,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/toolbar: {}
 
@@ -4928,16 +4928,16 @@ importers:
         version: 6.0.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -4950,7 +4950,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/user_interviews:
     dependencies:
@@ -4974,13 +4974,13 @@ importers:
         version: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -4993,7 +4993,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/visual_review:
     dependencies:
@@ -5014,13 +5014,13 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -5030,7 +5030,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/warehouse_sources: {}
 
@@ -5046,7 +5046,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -5061,19 +5061,19 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -5095,7 +5095,7 @@ importers:
         version: 1.0.0
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/wizard:
     dependencies:
@@ -5107,7 +5107,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-components':
         specifier: workspace:*
         version: link:../../packages/quill/packages/components
@@ -5122,10 +5122,10 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.433.9(@types/react@18.3.27)(react@18.3.1)
@@ -5138,7 +5138,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   products/workflows:
     dependencies:
@@ -5177,19 +5177,19 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+        version: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       papaparse:
         specifier: ^5.4.1
         version: 5.4.1
@@ -5220,7 +5220,7 @@ importers:
         version: 5.3.8
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   rust/common/hogvm/node: {}
 
@@ -30391,11 +30391,11 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       antd: 5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
-      kea-router: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
+      kea-router: 3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
@@ -40066,35 +40066,35 @@ snapshots:
 
   kdbush@4.0.2: {}
 
-  kea-disposables@1.0.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-disposables@1.0.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
 
-  kea-forms@3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-forms@3.2.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
 
-  kea-loaders@3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-loaders@3.1.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
 
-  kea-localstorage@3.1.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-localstorage@3.1.0(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
 
-  kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
       url-pattern: 1.0.3
 
-  kea-subscriptions@3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-subscriptions@3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
 
-  kea-test-utils@0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-test-utils@0.2.4(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
-      kea-waitfor: 0.2.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
+      kea-waitfor: 0.2.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1))
 
   kea-typegen@3.8.3(typescript@6.0.3):
     dependencies:
@@ -40109,15 +40109,15 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  kea-waitfor@0.2.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-waitfor@0.2.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
 
-  kea-window-values@3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-window-values@3.0.1(kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea: 4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1)
 
-  kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1):
+  kea@4.0.0-pre.6(patch_hash=02ef22e52340ec4e1e950f15969339aaf39bcf95bd1241854231f8973a574388)(react@18.3.1):
     dependencies:
       react: 18.3.1
       redux: 5.0.1
