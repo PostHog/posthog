@@ -1,6 +1,9 @@
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -110,3 +113,22 @@ class FieldDiscoveryTest(BaseTest):
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+    @parameterized.expand(
+        [
+            ("at_threshold", 0, True),
+            ("over_threshold", -1, False),
+        ]
+    )
+    def test_organization_size_classification(self, _name: str, threshold_offset: int, expects_discovery: bool):
+        get_client().delete(_get_cache_key(str(self.organization.id)))
+        self._create_activity_log("Dashboard", {"field": "value"})
+        record_count = ActivityLog.objects.filter(organization_id=self.organization.id).count()
+
+        with patch(
+            "posthog.api.advanced_activity_logs.field_discovery.SMALL_ORG_THRESHOLD",
+            record_count + threshold_offset,
+        ):
+            results = self._run_field_discovery()
+
+        self.assertEqual("Dashboard" in results["detail_fields"], expects_discovery)

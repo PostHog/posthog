@@ -4,7 +4,7 @@ from typing import Optional
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 
-from .constants import CACHE_KEY_PREFIX, CACHE_TTL_SECONDS, SMALL_ORG_THRESHOLD
+from .constants import CACHE_KEY_PREFIX, CACHE_TTL_SECONDS
 
 
 def _get_cache_key(organization_id: str) -> str:
@@ -26,13 +26,13 @@ def get_cached_fields(organization_id: str) -> Optional[dict]:
         return None
 
 
-def cache_fields(organization_id: str, fields_data: dict, record_count: int) -> None:
+def cache_fields(organization_id: str, fields_data: dict, is_large_org: bool) -> None:
     try:
         client = get_client()
         key = _get_cache_key(organization_id)
         json_data = json.dumps(fields_data, default=str)
 
-        if record_count > SMALL_ORG_THRESHOLD:
+        if is_large_org:
             # Non-expiring cache for large orgs
             client.set(key, json_data)
         else:
