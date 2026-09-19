@@ -2,20 +2,12 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCheckCircle, IconCopy, IconQuestion, IconRefresh, IconWarning } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonModal,
-    LemonSelect,
-    LemonSkeleton,
-    Spinner,
-    Tooltip,
-    lemonToast,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
@@ -141,10 +133,9 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                                 <LemonButton
                                                                     size="small"
                                                                     icon={<IconCopy />}
-                                                                    onClick={() => {
-                                                                        void navigator.clipboard.writeText(subdomain)
-                                                                        lemonToast.success('Target copied to clipboard')
-                                                                    }}
+                                                                    onClick={() =>
+                                                                        void copyToClipboard(subdomain, 'target')
+                                                                    }
                                                                     tooltip="Copy target"
                                                                     className="ml-0.5 -mr-0.5"
                                                                 />
@@ -170,10 +161,9 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                         <LemonButton
                                                             size="small"
                                                             icon={<IconCopy />}
-                                                            onClick={() => {
-                                                                void navigator.clipboard.writeText(record.recordValue)
-                                                                lemonToast.success('Value copied to clipboard')
-                                                            }}
+                                                            onClick={() =>
+                                                                void copyToClipboard(record.recordValue, 'value')
+                                                            }
                                                             tooltip="Copy value"
                                                         />
                                                     </div>
