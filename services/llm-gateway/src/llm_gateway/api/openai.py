@@ -11,6 +11,7 @@ from llm_gateway.api.handler import (
     handle_llm_request,
     normalize_litellm_model_name,
 )
+from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.inference_routing import (
     is_inference_routed_model,
@@ -20,6 +21,7 @@ from llm_gateway.inference_routing import (
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.modal_routing import send_modal_chat_completions, send_modal_responses
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
+from llm_gateway.openai_credentials import make_openai_responses_call, uses_openai_credentials
 from llm_gateway.products.config import validate_product
 from llm_gateway.request_context import apply_posthog_context_from_headers
 
@@ -34,9 +36,26 @@ def _invalid_request_error(message: str) -> HTTPException:
     )
 
 
+def _raise_if_openai_unavailable(model: str, openai_available: bool) -> None:
+    if openai_available or not uses_openai_credentials(model):
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error": {
+                "message": "OpenAI is unavailable. Try again later.",
+                "type": "service_unavailable",
+                "code": "openai_unavailable",
+            }
+        },
+    )
+
+
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
+    *,
+    openai_available: bool,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
@@ -47,6 +66,7 @@ async def _handle_chat_completions(
     if is_modal_served_model(body.model):
         return await send_modal_chat_completions(data, user, body.stream or False, product)
 
+    _raise_if_openai_unavailable(body.model, openai_available)
     return await handle_llm_request(
         request_data=data,
         user=user,
@@ -61,6 +81,8 @@ async def _handle_chat_completions(
 async def _handle_responses(
     body: ResponsesRequest,
     user: RateLimitedUser,
+    *,
+    openai_available: bool,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     """Handle OpenAI Responses API request.
@@ -101,13 +123,14 @@ async def _handle_responses(
     normalized_model = normalize_litellm_model_name(original_model, OPENAI_RESPONSES_CONFIG.name)
     data["model"] = normalized_model
 
+    _raise_if_openai_unavailable(normalized_model, openai_available)
     return await handle_llm_request(
         request_data=data,
         user=user,
         model=normalized_model,
         is_streaming=body.stream or False,
         provider_config=OPENAI_RESPONSES_CONFIG,
-        llm_call=litellm.aresponses,
+        llm_call=make_openai_responses_call(get_settings()),
         product=product,
     )
 
@@ -119,7 +142,11 @@ async def chat_completions(
     request: Request,
 ) -> dict[str, Any] | StreamingResponse:
     apply_posthog_context_from_headers(request)
-    return await _handle_chat_completions(body, user)
+    return await _handle_chat_completions(
+        body,
+        user,
+        openai_available=request.app.state.openai_available,
+    )
 
 
 @openai_router.post("/{product}/v1/chat/completions", response_model=None)
@@ -131,7 +158,12 @@ async def chat_completions_with_product(
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
     apply_posthog_context_from_headers(request)
-    return await _handle_chat_completions(body, user, product=product)
+    return await _handle_chat_completions(
+        body,
+        user,
+        openai_available=request.app.state.openai_available,
+        product=product,
+    )
 
 
 @openai_router.post("/v1/responses", response_model=None)
@@ -141,7 +173,11 @@ async def responses_v1(
     request: Request,
 ) -> dict[str, Any] | StreamingResponse:
     apply_posthog_context_from_headers(request)
-    return await _handle_responses(body, user)
+    return await _handle_responses(
+        body,
+        user,
+        openai_available=request.app.state.openai_available,
+    )
 
 
 @openai_router.post("/{product}/v1/responses", response_model=None)
@@ -153,7 +189,12 @@ async def responses_v1_with_product(
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
     apply_posthog_context_from_headers(request)
-    return await _handle_responses(body, user, product=product)
+    return await _handle_responses(
+        body,
+        user,
+        openai_available=request.app.state.openai_available,
+        product=product,
+    )
 
 
 @openai_router.post("/responses", response_model=None)
@@ -163,7 +204,11 @@ async def responses(
     request: Request,
 ) -> dict[str, Any] | StreamingResponse:
     apply_posthog_context_from_headers(request)
-    return await _handle_responses(body, user)
+    return await _handle_responses(
+        body,
+        user,
+        openai_available=request.app.state.openai_available,
+    )
 
 
 @openai_router.post("/{product}/responses", response_model=None)
@@ -175,7 +220,12 @@ async def responses_with_product(
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
     apply_posthog_context_from_headers(request)
-    return await _handle_responses(body, user, product=product)
+    return await _handle_responses(
+        body,
+        user,
+        openai_available=request.app.state.openai_available,
+        product=product,
+    )
 
 
 async def _handle_transcription(
@@ -183,6 +233,8 @@ async def _handle_transcription(
     model: str,
     user: RateLimitedUser,
     language: str | None = None,
+    *,
+    openai_available: bool,
     product: str = "llm_gateway",
 ) -> dict[str, Any]:
     if not file.filename:
@@ -204,6 +256,7 @@ async def _handle_transcription(
         )
 
     normalized_model = normalize_litellm_model_name(model, OPENAI_TRANSCRIPTION_CONFIG.name)
+    _raise_if_openai_unavailable(normalized_model, openai_available)
     content = await file.read()
     file_tuple = (file.filename, content, file.content_type or "audio/mpeg")
 
@@ -234,7 +287,13 @@ async def audio_transcriptions(
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     apply_posthog_context_from_headers(request)
-    return await _handle_transcription(file, model, user, language)
+    return await _handle_transcription(
+        file,
+        model,
+        user,
+        language,
+        openai_available=request.app.state.openai_available,
+    )
 
 
 @openai_router.post("/{product}/v1/audio/transcriptions", response_model=None)
@@ -248,4 +307,11 @@ async def audio_transcriptions_with_product(
 ) -> dict[str, Any]:
     validate_product(product)
     apply_posthog_context_from_headers(request)
-    return await _handle_transcription(file, model, user, language, product=product)
+    return await _handle_transcription(
+        file,
+        model,
+        user,
+        language,
+        openai_available=request.app.state.openai_available,
+        product=product,
+    )

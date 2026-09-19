@@ -149,7 +149,9 @@ def run_gateway_server(configure_all_providers: bool = False, bedrock_region_nam
     mock_db_pool = create_mock_db_pool()
     port = get_free_port()
 
-    env_patches = {}
+    # The startup check asks OpenAI whether the key and the organization pair. These
+    # tests configure fake keys, and a real request also slows every server start.
+    env_patches = {"LLM_GATEWAY_OPENAI_CREDENTIAL_CHECK_ENABLED": "false"}
     if bedrock_region_name:
         env_patches["LLM_GATEWAY_BEDROCK_REGION_NAME"] = bedrock_region_name
     if configure_all_providers:
