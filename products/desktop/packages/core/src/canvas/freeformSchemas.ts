@@ -269,6 +269,9 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
     ok: z.boolean(),
     result: z.unknown().optional(),
     error: z.string().optional(),
+    // The failure clears on its own, so the canvas runtime may send the same
+    // request again after a backoff.
+    retryable: z.boolean().optional(),
   }),
 ]);
 export type HostToCanvasMessage = z.infer<typeof hostToCanvasMessageSchema>;

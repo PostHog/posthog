@@ -1304,6 +1304,22 @@ export interface CanvasRuntimeErrorProperties {
   csp_directive?: string;
 }
 
+export interface CanvasDataRequestRejectedProperties {
+  /** Which host bridge refused it: the authoring sandbox or a published build. */
+  surface: "freeform" | "built";
+  /**
+   * Why the host refused it. The request method only — never the payload, which
+   * is agent-authored and can carry query results.
+   */
+  reason:
+    | "payload-too-large"
+    | "data-queue-full"
+    | "connector-queue-full"
+    | "needs-user-action"
+    | "agent-needs-user-action";
+  method: string;
+}
+
 export type ContextActionType = "save_version" | "generate_started" | "discard";
 
 export interface ContextActionProperties {
@@ -1756,6 +1772,7 @@ export const ANALYTICS_EVENTS = {
   CANVAS_VIEWED: "Canvas viewed",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
+  CANVAS_DATA_REQUEST_REJECTED: "Canvas data request rejected",
   CONTEXT_ACTION: "Context action",
   PROJECT_MENU_ACTION: "Project menu action",
 
@@ -1972,6 +1989,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
+  [ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED]: CanvasDataRequestRejectedProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
   [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
 
