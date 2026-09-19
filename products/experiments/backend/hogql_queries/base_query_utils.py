@@ -198,8 +198,10 @@ def event_or_action_to_filter(
                 right=ast.Constant(value=entity_node.event),
             )
 
-    if entity_node.properties:
-        event_properties = ast.And(exprs=[property_to_expr(property, team) for property in entity_node.properties])
+    fixed_properties = entity_node.fixedProperties if isinstance(entity_node, EventsNode | ActionsNode) else []
+    properties = [*(entity_node.properties or []), *(fixed_properties or [])]
+    if properties:
+        event_properties = ast.And(exprs=[property_to_expr(property, team) for property in properties])
         event_filter = ast.And(exprs=[event_filter, event_properties])
 
     return event_filter

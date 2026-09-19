@@ -170,9 +170,15 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand(
+        [
+            ("editable_properties", "properties"),
+            ("fixed_properties", "fixedProperties"),
+        ]
+    )
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_query_runner_includes_event_property_filters(self):
+    def test_query_runner_includes_event_property_filters(self, _case: str, properties_field: str) -> None:
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -183,9 +189,11 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         metric = ExperimentMeanMetric(
             source=EventsNode(
                 event="purchase",
-                properties=[
-                    EventPropertyFilter(key="plan", operator=PropertyOperator.IS_NOT, value="pro", type="event"),
-                ],
+                **{
+                    properties_field: [
+                        EventPropertyFilter(key="plan", operator=PropertyOperator.IS_NOT, value="pro", type="event"),
+                    ]
+                },
             ),
         )
 
