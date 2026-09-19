@@ -1,7 +1,7 @@
-# The metrics4 tables: one row per series and hour, fed from metrics2_input.
-# metrics4_samples holds the points of a series-hour as parallel arrays; the
-# others are the hourly series, name and attribute rollups
-# (posthog/clickhouse/metrics/metrics4.py).
+# These tables store hourly data from metrics2_input.
+# metrics4_samples stores each sample field in a parallel array.
+# The other tables store series, name, and attribute data.
+# posthog/clickhouse/metrics/metrics4.py defines the source schema.
 database "posthog" {
   table "metrics4_attributes" {
     order_by     = ["team_id", "metric_name", "attribute_type", "time_bucket", "attribute_key", "attribute_value", "service_name", "original_expiry_time_bucket"]

@@ -1,24 +1,25 @@
-"""The metrics4 tables: one row per series and hour, fed from `metrics2_input`.
+"""Define the metrics4 tables and their materialized views.
 
-- `metrics4_samples` holds the data points of one series-hour as parallel arrays
-  (`timestamp_arr`, `value_arr`, ...). Readers build one sorted `(ts, value)`
-  array per series with `groupArrayArray` over the hour rows, which is the shape
-  the PromQL bridge already computes from `metrics2` with `groupArray`.
-- `metrics4_series` keeps one label row per series-hour, so it records when a
-  series was active.
-- `metrics4_names` and `metrics4_attributes` are the hourly name and attribute
-  rollups behind the pickers.
+`metrics4_samples` groups points by series, hour, and expiry date. It stores each
+point field in a parallel array. Readers use `groupArrayArray` to combine partial
+rows. The PromQL bridge already builds this shape from `metrics2` with
+`groupArray`. Readers must sort points because the table does not sort the arrays
+by time.
 
-The tables share `original_expiry_timestamp` with the rest of the chain: the
-Kafka view counts retention from the sample timestamp, with a 30-day default.
+`metrics4_series` stores one label row for each series and hour in each expiry
+partition after a merge. This structure records when a series was active.
+`metrics4_names` and `metrics4_attributes` store hourly data for the name and
+attribute selectors.
 
-Why the parallel arrays of `metrics4_samples` stay aligned: inside one insert
-block every `groupArray(col)` of one key sees the same rows in the same order,
-so index `i` of every array is the same source point. On merge the engine applies
-`groupArrayArray` (concatenation) to every array column of the equal-key rows in
-the same sequence. Nothing sorts the arrays by time, so readers must not assume
-time order. `ARRAY JOIN` over several arrays throws when lengths differ, so a
-misalignment fails loudly.
+All tables use `original_expiry_timestamp` from `metrics2_input`. The Kafka view
+calculates this value from the sample timestamp. The default retention period is
+30 days.
+
+Each `groupArray` function reads the same rows in the same order within one
+insert block. Thus, the fields for a source point use the same array index.
+During a merge, the engine reads equal-key rows in the same sequence for each
+array. The `groupArrayArray` function concatenates each array in that sequence.
+An `ARRAY JOIN` operation fails if parallel arrays have different lengths.
 """
 
 from django.conf import settings
@@ -32,7 +33,7 @@ METRICS4_SERIES_TABLE_NAME = "metrics4_series"
 METRICS4_NAMES_TABLE_NAME = "metrics4_names"
 METRICS4_ATTRIBUTES_TABLE_NAME = "metrics4_attributes"
 
-# (metrics2 column, element type) for every per-point column that becomes an array.
+# Each tuple gives a metrics2 column and the element type for its metrics4 array.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("timestamp", "DateTime64(6)"),
     ("observed_timestamp", "DateTime64(6)"),
@@ -46,8 +47,9 @@ METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("_offset", "UInt64"),
 )
 
-# Codecs apply to the element stream of an array. The timestamps and Kafka offsets of one
-# row are in insert order, so the delta codecs fit; T64 and Gorilla do not depend on order.
+# Each codec processes the continuous element stream of an array.
+# Each array keeps its insert order. The delta codecs use this order.
+# T64 and Gorilla do not require ordered values.
 _ARRAY_CODECS: dict[str, str] = {
     "timestamp": " CODEC(DoubleDelta, Default)",
     "observed_timestamp": " CODEC(DoubleDelta, Default)",
@@ -67,11 +69,13 @@ def METRICS4_SAMPLES_TABLE_SQL() -> str:
         f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray, Array({element_type})){_ARRAY_CODECS.get(name, '')}"
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
     )
-    # One row holds a full hour of one series, so a granule of 8192 rows would span every
-    # series of an insert and the key filter could not skip any of it. A granule that spans
-    # several metric names has a key range that contains every `time_bucket` of the smaller
-    # names, so the primary key alone cannot prune by hour; the minmax index on `time_bucket`
-    # does, as `idx_timestamp_minmax` does for `metrics2`.
+    # One row contains one hour of data for one series.
+    # A granule of 8192 rows can include every series from one insert.
+    # The key filter cannot skip part of such a granule.
+    # A granule can also include several metric names.
+    # Its key range can then include every time bucket for a metric name.
+    # The `time_bucket` minmax index lets an hour filter skip the granule.
+    # The `metrics2` table uses `idx_timestamp_minmax` for the same purpose.
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
 (

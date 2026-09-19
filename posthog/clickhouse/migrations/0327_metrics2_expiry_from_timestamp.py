@@ -6,9 +6,7 @@ from posthog.clickhouse.metrics.metrics2 import KAFKA_METRICS_AVRO2_MV_SELECT
 
 DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
-# `original_expiry_timestamp` counted retention from `observed_timestamp` with a 90-day default.
-# It now counts from the sample's `timestamp` with a 30-day default. Rows already written keep
-# their old expiry.
+# Use the sample timestamp so a late sample expires with its series.
 operations = [
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.kafka_metrics_avro2_mv MODIFY QUERY\n{KAFKA_METRICS_AVRO2_MV_SELECT()}",
