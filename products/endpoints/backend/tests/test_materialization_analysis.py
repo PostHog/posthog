@@ -16,7 +16,11 @@ from products.endpoints.backend.logic.strategies import apply_where_filter
 from products.endpoints.backend.materialization_transforms import (
     REAGGREGATABLE_BASE_FUNCTIONS,
     DownstreamCTEShape,
+    MaterializableVariable,
+    MaterializationNotSupportedError,
+    MaterializationTransformer,
     PropagatingSource,
+    VariablePlaceholderFinder,
     _build_cte_read_graph,
     _classify_downstream_cte,
     _downstream_ctes,
@@ -812,3 +816,118 @@ class TestCTEVariableAnalysis(SimpleTestCase):
         assert can_materialize is True
         assert len(var_infos) == 1
         assert var_infos[0].cte_name is None
+
+
+class TestTransformerAgreesWithPreflight(SimpleTestCase):
+    """The transform must accept every query the pre-flight analysis says it can materialize."""
+
+    @staticmethod
+    def _transform(query_str: str, variables: dict) -> ast.SelectQuery:
+        hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables}
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
+        assert can_materialize is True, reason
+
+        transformed = MaterializationTransformer(var_infos).visit(parse_select(query_str))
+        assert isinstance(transformed, ast.SelectQuery)
+
+        # transform_query_for_materialization prints with no variable values, so a placeholder the
+        # transform leaves behind has nothing left to resolve it.
+        finder = VariablePlaceholderFinder()
+        finder.visit(transformed)
+        assert finder.variable_placeholders == []
+
+        return transformed
+
+    def test_or_without_a_variable_is_left_alone(self):
+        # The pre-flight gate rejects an OR only when a variable sits inside it, so the transform
+        # must not reject a variable-free OR it happens to reach.
+        var = MaterializableVariable(
+            variable_id="var-1",
+            code_name="event_name",
+            column_chain=["event"],
+            column_expression="event",
+        )
+        query_str = "SELECT count() FROM events WHERE properties.a = '1' OR properties.b = '2'"
+
+        transformed = MaterializationTransformer([var]).visit(parse_select(query_str))
+
+        assert isinstance(transformed.where, ast.Or)
+        assert "event_name" in {expr.alias for expr in transformed.select if isinstance(expr, ast.Alias)}
+
+    def test_or_holding_a_variable_is_still_rejected(self):
+        var = MaterializableVariable(
+            variable_id="var-1",
+            code_name="event_name",
+            column_chain=["event"],
+            column_expression="event",
+        )
+        query_str = "SELECT count() FROM events WHERE properties.a = '1' OR event = {variables.event_name}"
+
+        with self.assertRaises(MaterializationNotSupportedError):
+            MaterializationTransformer([var]).visit(parse_select(query_str))
+
+    def test_subquery_in_where_keeps_its_own_where_and_select(self):
+        transformed = self._transform(
+            "SELECT count() FROM events WHERE event = {variables.event_name} "
+            "AND distinct_id IN (SELECT distinct_id FROM events WHERE event = '$identify')",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        )
+
+        assert isinstance(transformed.where, ast.CompareOperation)
+        subquery = transformed.where.right
+        assert isinstance(subquery, ast.SelectQuery)
+        assert subquery.where is not None
+        assert len(subquery.select) == 1
+
+    def test_subquery_in_from_keeps_its_own_where_and_select(self):
+        transformed = self._transform(
+            "SELECT count() FROM (SELECT event FROM events WHERE timestamp > now()) "
+            "WHERE event = {variables.event_name}",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        )
+
+        assert transformed.select_from is not None
+        subquery = transformed.select_from.table
+        assert isinstance(subquery, ast.SelectQuery)
+        assert subquery.where is not None
+        assert len(subquery.select) == 1
+
+    @parameterized.expand(
+        [
+            (
+                "outer_where_and_subquery",
+                "SELECT count() FROM events WHERE timestamp >= {variables.start_date} "
+                "AND distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date})",
+            ),
+            (
+                "subquery_only",
+                "SELECT count() FROM events "
+                "WHERE distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date})",
+            ),
+            (
+                "subquery_in_from",
+                "SELECT count() FROM (SELECT event FROM events WHERE timestamp >= {variables.start_date}) "
+                "WHERE event = '$pageview'",
+            ),
+            (
+                "cte_body_and_its_subquery",
+                "WITH recent AS (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date} "
+                "AND distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= {variables.start_date})) "
+                "SELECT count() FROM recent",
+            ),
+        ]
+    )
+    def test_variable_in_a_subquery_is_rejected_by_preflight(self, _name: str, query_str: str):
+        # The transform only rewrites a context root, so it would leave the nested placeholder in
+        # place and printing the materialized query would fail on it.
+        hogql_query = {
+            "kind": "HogQLQuery",
+            "query": query_str,
+            "variables": {"var-1": {"code_name": "start_date", "value": "2024-01-01"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
+
+        assert can_materialize is False
+        assert reason == "Variable used inside a subquery is not yet supported for materialization"
+        assert var_infos == []

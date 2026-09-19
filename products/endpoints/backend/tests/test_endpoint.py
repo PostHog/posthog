@@ -1383,6 +1383,35 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert data["can_materialize"] is True
         assert data["transformed_query"] is not None
 
+    def test_preview_reports_an_unresolvable_query_as_a_limitation(self):
+        InsightVariable.objects.create(team=self.team, id=self.var_id_1, code_name="start_ts", type="String")
+        create_endpoint_with_version(
+            name="unresolvable-endpoint",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM no_such_table WHERE timestamp >= {variables.start_ts}",
+                "variables": {
+                    self.var_id_1: {"variableId": self.var_id_1, "code_name": "start_ts", "value": "2024-01-01"},
+                },
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/unresolvable-endpoint/materialization_preview/",
+            {},
+            format="json",
+        )
+
+        # The pre-flight analysis reads the AST only, so a missing table first fails while the
+        # transform resolves the query against the team's schema. A dropped warehouse table gets
+        # here the same way.
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["can_materialize"] is False
+        assert "no_such_table" in data["reason"]
+
     def test_create_does_not_auto_materialize(self):
         endpoint_data = self._create_endpoint_with_variables("no-auto-mat")
 
