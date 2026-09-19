@@ -61,7 +61,12 @@ import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseCon
 import { groupFilters } from './FeatureFlags'
 import { featureFlagScheduleEditLogic } from './featureFlagScheduleEditLogic'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
-import { isSchedulePaused, maxRolloutPercentage } from './scheduleOccurrences'
+import {
+    isSchedulePaused,
+    maxRolloutPercentage,
+    maxUntargetedRolloutPercentage,
+    sharedAggregationTarget,
+} from './scheduleOccurrences'
 import { ScheduleTimeline } from './ScheduleTimeline'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
@@ -484,6 +489,23 @@ export default function FeatureFlagSchedule(): JSX.Element {
 
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
+
+    // Release condition sets are OR'd, and the sets that bucket on one identifier share a hash, so
+    // a condition at or below a rollout the flag already serves to everyone reaches nobody new.
+    const servedToEveryone = maxUntargetedRolloutPercentage(
+        featureFlag.filters.groups,
+        aggregationGroupTypeIndex,
+        sharedAggregationTarget(schedulePayload.filters?.groups, aggregationGroupTypeIndex)
+    )
+    const scheduledConditionRollout = maxRolloutPercentage(schedulePayload.filters?.groups)
+    const conditionReachesNobodyNew =
+        scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition &&
+        featureFlag.active &&
+        servedToEveryone !== null &&
+        scheduledConditionRollout !== null &&
+        // An untouched form starts at 0%, where nobody has said what they want yet.
+        scheduledConditionRollout > 0 &&
+        scheduledConditionRollout <= servedToEveryone
 
     const { variants: displayVariants, payloads: displayPayloads } = getScheduledVariantsPayloads(
         featureFlag,
@@ -959,6 +981,16 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 />
                             </div>
                         )}
+
+                    {/* Warning when the added condition is already covered by what the flag serves */}
+                    {conditionReachesNobodyNew && (
+                        <LemonBanner type="warning">
+                            This flag already serves {servedToEveryone}% of everyone, and release conditions are
+                            combined with OR. A condition at {scheduledConditionRollout}% will not change who sees the
+                            flag when this change runs. To stage a rollout, lower the existing condition first, then
+                            schedule the increases.
+                        </LemonBanner>
+                    )}
 
                     {/* Warning when updating variants won't actually change what anyone sees */}
                     {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&

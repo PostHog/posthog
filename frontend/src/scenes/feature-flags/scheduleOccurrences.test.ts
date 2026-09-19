@@ -1,7 +1,11 @@
 import { dayjs } from 'lib/dayjs'
 
 import {
+    AnyPropertyFilter,
+    FeatureFlagGroupType,
     FeatureFlagType,
+    PropertyFilterType,
+    PropertyOperator,
     RecurrenceInterval,
     ScheduledChangeOperationType,
     ScheduledChangePayload,
@@ -10,7 +14,12 @@ import {
 } from '~/types'
 
 import { makeScheduledChange, resetScheduledChangeIds } from './makeScheduledChange'
-import { OCCURRENCE_CAP, expandScheduleOccurrences } from './scheduleOccurrences'
+import {
+    OCCURRENCE_CAP,
+    expandScheduleOccurrences,
+    maxUntargetedRolloutPercentage,
+    sharedAggregationTarget,
+} from './scheduleOccurrences'
 
 const NOW = dayjs('2026-01-01T00:00:00Z')
 
@@ -18,10 +27,17 @@ function change(overrides: Partial<ScheduledChangeType> & { payload: ScheduledCh
     return makeScheduledChange({ scheduled_at: NOW.add(1, 'day').toISOString(), ...overrides })
 }
 
-function conditionPayload(rolloutPercentage: number): ScheduledChangePayload {
+const PERSON_FILTER: AnyPropertyFilter = {
+    key: 'email',
+    value: 'a',
+    type: PropertyFilterType.Person,
+    operator: PropertyOperator.Exact,
+}
+
+function conditionPayload(rolloutPercentage: number, properties: AnyPropertyFilter[] = []): ScheduledChangePayload {
     return {
         operation: ScheduledChangeOperationType.AddReleaseCondition,
-        value: { groups: [{ properties: [], rollout_percentage: rolloutPercentage, variant: null }] },
+        value: { groups: [{ properties, rollout_percentage: rolloutPercentage, variant: null }] },
     }
 }
 
@@ -58,6 +74,7 @@ describe('expandScheduleOccurrences', () => {
 
         expect(occurrences.map((o) => o.projected.rolloutPercentage)).toEqual([25, 50, 75, 100])
         expect(occurrences.map((o) => o.addedRolloutPercentage)).toEqual([25, 50, 75, 100])
+        expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, false, false, false])
         expect(occurrences.map((o) => o.timestamp)).toEqual([
             NOW.add(1, 'day').toISOString(),
             NOW.add(2, 'day').toISOString(),
@@ -65,6 +82,115 @@ describe('expandScheduleOccurrences', () => {
             NOW.add(4, 'day').toISOString(),
         ])
     })
+
+    it.each([
+        {
+            name: 'a flag that already serves everyone',
+            current: 100,
+            adds: [25, 50, 100],
+            expected: [true, true, true],
+        },
+        { name: 'a ramp that overtakes the current level', current: 30, adds: [25, 50], expected: [true, false] },
+        { name: 'an add that matches the current level', current: 25, adds: [25], expected: [true] },
+        {
+            name: 'an add covered by an earlier scheduled add',
+            current: 10,
+            adds: [50, 30],
+            expected: [false, true],
+        },
+    ])('marks a covered condition add as no change: $name', ({ current, adds, expected }) => {
+        const schedules = adds.map((rollout, index) =>
+            change({ payload: conditionPayload(rollout), scheduled_at: NOW.add(index + 1, 'day').toISOString() })
+        )
+
+        const occurrences = expandScheduleOccurrences(
+            schedules,
+            flag({ filters: { groups: [{ properties: [], rollout_percentage: current, variant: null }] } }),
+            NOW
+        )
+
+        expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual(expected)
+    })
+
+    it('ignores property-narrowed condition sets in the projected reach and the no-change flag', () => {
+        // A narrowed set serves its percentage of one segment (internal emails, a beta cohort), not
+        // of everyone, so it cannot prove that a wider condition reaches nobody new. Counting one at
+        // 100% as full reach also pins the projection at 100% and flattens a staged ramp.
+        const schedules = [
+            change({ payload: conditionPayload(100, [PERSON_FILTER]), scheduled_at: NOW.add(1, 'day').toISOString() }),
+            change({ payload: conditionPayload(50), scheduled_at: NOW.add(2, 'day').toISOString() }),
+        ]
+
+        const occurrences = expandScheduleOccurrences(
+            schedules,
+            flag({
+                filters: {
+                    groups: [
+                        { properties: [PERSON_FILTER], rollout_percentage: 100, variant: null },
+                        { properties: [], rollout_percentage: 10, variant: null },
+                    ],
+                    multivariate: null,
+                },
+            }),
+            NOW
+        )
+
+        expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, false])
+        // The flag's own untargeted 10% holds while a targeted condition lands, then the 50% add
+        // raises it.
+        expect(occurrences.map((o) => o.projected.rolloutPercentage)).toEqual([10, 50])
+    })
+
+    const aggregationCases: {
+        name: string
+        flagAggregation: number | null | undefined
+        coveringAggregation: number | null | undefined
+        expected: boolean
+    }[] = [
+        {
+            // The covering set hashes the group key, so its 100% is a share of groups and covers no
+            // share of the users an inherited condition reaches.
+            name: 'a covering set on another aggregation target',
+            flagAggregation: undefined,
+            coveringAggregation: 0,
+            expected: false,
+        },
+        {
+            // Both sets hash the group key here, so the coverage claim still holds.
+            name: 'a covering set that shares the flag-level group target',
+            flagAggregation: 0,
+            coveringAggregation: undefined,
+            expected: true,
+        },
+    ]
+
+    it.each(aggregationCases)(
+        'judges an added condition against $name: no change=$expected',
+        ({ flagAggregation, coveringAggregation, expected }) => {
+            const schedules = [change({ payload: conditionPayload(25) })]
+
+            const occurrences = expandScheduleOccurrences(
+                schedules,
+                flag({
+                    filters: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 100,
+                                variant: null,
+                                aggregation_group_type_index: coveringAggregation,
+                            },
+                        ],
+                        aggregation_group_type_index: flagAggregation,
+                        multivariate: null,
+                    },
+                }),
+                NOW
+            )
+
+            expect(occurrences[0].rolloutUnchanged).toBe(expected)
+        }
+    )
 
     it('carries status, rollout, and variant projections through a mixed plan', () => {
         const schedules = [
@@ -379,5 +505,95 @@ describe('expandScheduleOccurrences', () => {
         const occurrences = expandScheduleOccurrences(schedules, flag(), NOW)
 
         expect(occurrences[0].timestamp).toEqual('2026-01-30T09:00:00.000Z')
+    })
+})
+
+describe('maxUntargetedRolloutPercentage', () => {
+    const cases: {
+        name: string
+        groups: FeatureFlagGroupType[]
+        flagAggregation?: number | null
+        target: number | null | undefined
+        expected: number | null
+    }[] = [
+        {
+            name: 'ignores a condition set a property filter narrows',
+            groups: [
+                { properties: [PERSON_FILTER], rollout_percentage: 100, variant: null },
+                { properties: [], rollout_percentage: 20, variant: null },
+            ],
+            target: null,
+            expected: 20,
+        },
+        {
+            name: 'reads a missing rollout as everyone',
+            groups: [{ properties: [], rollout_percentage: null, variant: null }],
+            target: null,
+            expected: 100,
+        },
+        {
+            name: 'returns null when every set is narrowed',
+            groups: [{ properties: [PERSON_FILTER], rollout_percentage: 100, variant: null }],
+            target: null,
+            expected: null,
+        },
+        {
+            name: 'ignores a condition set that targets a group type',
+            groups: [
+                { properties: [], rollout_percentage: 100, variant: null, aggregation_group_type_index: 0 },
+                { properties: [], rollout_percentage: 20, variant: null },
+            ],
+            target: null,
+            expected: 20,
+        },
+        {
+            name: 'measures a condition set that inherits the flag-level group target',
+            groups: [{ properties: [], rollout_percentage: 60, variant: null }],
+            flagAggregation: 0,
+            target: 0,
+            expected: 60,
+        },
+        {
+            name: 'returns null when the target is unknown',
+            groups: [{ properties: [], rollout_percentage: 60, variant: null }],
+            target: undefined,
+            expected: null,
+        },
+    ]
+
+    it.each(cases)('$name', ({ groups, flagAggregation, target, expected }) => {
+        expect(maxUntargetedRolloutPercentage(groups, flagAggregation, target)).toEqual(expected)
+    })
+})
+
+describe('sharedAggregationTarget', () => {
+    const cases: {
+        name: string
+        groups: FeatureFlagGroupType[]
+        flagAggregation?: number | null
+        expected: number | null | undefined
+    }[] = [
+        {
+            name: 'reads the flag-level target when every set inherits it',
+            groups: [
+                { properties: [], rollout_percentage: 100, variant: null },
+                { properties: [], rollout_percentage: 50, variant: null },
+            ],
+            flagAggregation: 0,
+            expected: 0,
+        },
+        {
+            name: 'returns undefined when the sets target different identifiers',
+            groups: [
+                { properties: [], rollout_percentage: 100, variant: null, aggregation_group_type_index: 0 },
+                { properties: [], rollout_percentage: 50, variant: null, aggregation_group_type_index: null },
+            ],
+            expected: undefined,
+        },
+        { name: 'returns undefined when there are no sets', groups: [], expected: undefined },
+    ]
+
+    it.each(cases)('$name', ({ groups, flagAggregation, expected }) => {
+        expect(sharedAggregationTarget(groups, flagAggregation)).toEqual(expected)
     })
 })
