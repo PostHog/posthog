@@ -80,7 +80,13 @@ export const loginTelemetryLogic = kea<loginTelemetryLogicType>([
         [LISTENED_ACTIONS.submitLoginRequest]: () => {
             // Only the password form dispatches this. An SSO sign-in leaves the page, and a passkey
             // prompt opens on its own, so `method` says which failures this denominator pairs with.
-            posthog.capture('login attempted', { method: 'password', region: values.preflight?.region })
+            posthog.capture('login attempted', {
+                method: 'password',
+                region: values.preflight?.region,
+                // Autofill starts the precheck, so a submit can land while it is still in flight.
+                // That window once swallowed the click, and this says how often it is reached.
+                precheck_in_flight: loginLogic.findMounted()?.values.precheckResponseLoading ?? false,
+            })
         },
         // Every terminal error of the password, SSO and passkey steps passes through
         // `setGeneralError`, so a submit failure and a redirect failure are both counted once.

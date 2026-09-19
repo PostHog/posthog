@@ -103,7 +103,6 @@ export function LoginForm(): JSX.Element {
     const { sendSupportRequest } = useValues(supportLogic)
     const {
         precheckResponse,
-        precheckResponseLoading,
         login,
         isLoginSubmitting,
         generalError,
@@ -399,7 +398,9 @@ export function LoginForm(): JSX.Element {
                                 fullWidth
                                 htmlType="submit"
                                 data-attr="password-login"
-                                loading={isLoginSubmitting || precheckResponseLoading}
+                                // Not gated on the precheck: a loading LemonButton is disabled, so a
+                                // click inside the precheck autofill starts was swallowed silently.
+                                loading={isLoginSubmitting}
                             >
                                 Log in
                             </LemonButton>

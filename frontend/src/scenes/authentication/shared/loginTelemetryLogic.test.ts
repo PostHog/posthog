@@ -79,11 +79,25 @@ describe('loginTelemetryLogic', () => {
         login.actions.submitLogin()
         await expectLogic(login).toDispatchActions(['setGeneralError'])
 
-        expect(capturedProperties('login attempted')).toMatchObject({ method: 'password' })
+        expect(capturedProperties('login attempted')).toMatchObject({ method: 'password', precheck_in_flight: false })
         expect(capturedProperties('login failed')).toMatchObject({
             step: 'login',
             error_code: 'invalid_credentials',
         })
+    })
+
+    // Autofill starts the precheck, and a click a few tens of milliseconds later lands inside it.
+    // The attempt has to say so, because that window is the one the submit button used to swallow.
+    it('reports an attempt made while the precheck is still in flight', async () => {
+        precheckHandler.mockImplementation(() => new Promise(() => {}))
+        login.actions.precheck({ email: 'user@example.com' })
+        await expectLogic(login).toMatchValues({ precheckResponseLoading: true })
+
+        login.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+        login.actions.submitLogin()
+        await expectLogic(login).toDispatchActions(['submitLoginRequest'])
+
+        expect(capturedProperties('login attempted')).toMatchObject({ precheck_in_flight: true })
     })
 
     // A throttle and an expired code are different failures. Reporting the rejected response, not the
