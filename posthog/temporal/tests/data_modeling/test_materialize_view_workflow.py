@@ -22,6 +22,7 @@ from posthog.temporal.data_modeling.activities.enrich_view_semantics import Enri
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     ACCOUNT_PROPERTY_S3_SYNC_PATCH,
     ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH,
+    TRINO_SHADOW_EXECUTION_PATCH,
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
 )
@@ -308,7 +309,8 @@ class TestQualityGateBranching:
         assert result.quality_audited is expected_audited
         assert result.quality_blocking_failures is None
 
-    async def test_a_blocked_publish_still_settles_the_managed_warehouse_shadow(self):
+    @pytest.mark.parametrize("trino_patch", [False, True])
+    async def test_a_blocked_publish_still_settles_the_managed_warehouse_shadow(self, trino_patch: bool):
         # The blocked branch returns early. Leaving the shadow activity unawaited holds the parent
         # DAG's concurrency slot and orphans the shadow job.
         shadow_handle = AsyncMock()
@@ -322,14 +324,20 @@ class TestQualityGateBranching:
             None,  # quality_block_materialization
         ]
 
-        with patch.object(MaterializeViewWorkflow, "_collect_shadow_comparison", new=AsyncMock()) as collect:
+        with (
+            patch.object(MaterializeViewWorkflow, "_collect_shadow_comparison", new=AsyncMock()) as collect,
+            patch.object(temporalio.workflow, "start_activity", return_value=shadow_handle) as start_shadow,
+        ):
             result, execute_activity = await self._run(
-                activity_results, {"checks_failed_blocking": 1}, shadow_handle=shadow_handle
+                activity_results,
+                {"checks_failed_blocking": 1},
+                patched=lambda name: trino_patch if name == TRINO_SHADOW_EXECUTION_PATCH else True,
             )
 
         assert result.quality_blocking_failures == 1
         assert execute_activity.await_args_list[1].args[1].engine == DataModelingJobEngine.MANAGED_WAREHOUSE
         collect.assert_awaited_once()
+        assert start_shadow.call_args.args[1].use_trino is trino_patch
 
 
 def _cancelled_child_error() -> ChildWorkflowError:
