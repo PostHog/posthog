@@ -153,6 +153,21 @@ class TestSelectors(BaseTest):
         selector1 = Selector("div#root\\:id")
         self.assertEqual(selector1.parts[0].data, {"tag_name": "div", "attr_id": "root:id"})
 
+    def test_class_before_attribute(self):
+        # A class that precedes an attribute selector must not be captured as the tag name
+        selector1 = Selector('.btn[ng-disabled="true"]')
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"attr_class__contains": ["btn"], "attributes__attr__ng-disabled": "true"},
+        )
+
+    def test_multiple_attributes(self):
+        selector1 = Selector('[type="button"][ng-click="save()"]')
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"attributes__attr__type": "button", "attributes__attr__ng-click": "save()"},
+        )
+
 
 class TestSelectorRegexMatching(SimpleTestCase):
     @parameterized.expand(
@@ -233,11 +248,55 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 [Element(tag_name="a"), Element(tag_name="b")],
                 False,
             ),
+            (
+                "a descendant part does not match text inside another element",
+                "form button.btn",
+                [
+                    Element(tag_name="button", attr_class=["btn"]),
+                    Element(tag_name="a", href="/form-signup"),
+                ],
+                False,
+            ),
+            (
+                "class and attribute have to land on the same element",
+                '.btn[ng-disabled="true"]',
+                [
+                    Element(tag_name="span", attr_class=["btn"]),
+                    Element(tag_name="div", attributes={"attr__ng-disabled": "true"}),
+                ],
+                False,
+            ),
+            (
+                "nth-child and nth-of-type together",
+                "button.btn:nth-child(3):nth-of-type(1)",
+                [Element(tag_name="button", attr_class=["btn"], nth_child=3, nth_of_type=1)],
+                True,
+            ),
+            (
+                "an id alongside an attribute the chain sorts before it",
+                '#submit[type="button"]',
+                [Element(tag_name="button", attr_id="submit", attributes={"attr__type": "button"})],
+                True,
+            ),
         ]
     )
     def test_selector_matches_elements_chain(self, _name, selector, elements, expected):
         regex = build_selector_regex(Selector(selector, escape_slashes=False))
         self.assertEqual(bool(re.search(regex, elements_to_string(elements))), expected)
+
+    @parameterized.expand(
+        [
+            ("pseudo-class after a class", ".btn:hover", True),
+            ("pseudo-class after a tag", "button:hover", True),
+            ("attribute operator", '[href^="http"]', True),
+            ("tailwind variant, which is a real class", ".hover:bg-blue", False),
+            ("class named after a pseudo-class, with no colon to make it one", ".active", False),
+            ("tailwind arbitrary value", ".sm:[max-width:640px]", False),
+            ("universal selector, which the compiler supports", "*", False),
+        ]
+    )
+    def test_unsupported_syntax_detection(self, _name, selector, expected):
+        self.assertEqual(Selector(selector, escape_slashes=False).has_unsupported_syntax(), expected)
 
 
 class TestSelectorRegexMonotonicity(SimpleTestCase):
@@ -292,9 +351,15 @@ class TestSelectorRegexMonotonicity(SimpleTestCase):
                 regex += r".*"
         return r"(^|;)" + regex if regex else r""
 
-    def test_fix_only_widens_matching(self):
+    # The tail widening only adds matches, with one deliberate exception: the old
+    # tail ran past a quote and found a class name inside an attribute value, on an
+    # element that carries no such class. Element-confined matching drops that.
+    INTENDED_NARROWING = (".class", 'span:attr__title="x.class y"nth-child="0"nth-of-type="0"')
+
+    def test_fix_widens_matching_except_inside_quoted_values(self):
         chains = [elements_to_string(elements) for elements in self.ELEMENT_CHAINS]
         newly_matching_pairs = 0
+        narrowing_seen = False
         for selector_string in self.SELECTORS:
             selector = Selector(selector_string, escape_slashes=False)
             old_regex = self._pre_fix_build_selector_regex(selector)
@@ -303,9 +368,15 @@ class TestSelectorRegexMonotonicity(SimpleTestCase):
                 old_match = bool(re.search(old_regex, chain))
                 new_match = bool(re.search(new_regex, chain))
                 with self.subTest(selector=selector_string, chain=chain):
-                    if old_match:
+                    if (selector_string, chain) == self.INTENDED_NARROWING:
+                        narrowing_seen = True
+                        self.assertTrue(old_match)
+                        self.assertFalse(new_match)
+                    elif old_match:
                         self.assertTrue(new_match)
                 if new_match and not old_match:
                     newly_matching_pairs += 1
         # the corpus has to exercise the widening, or the superset check is vacuous
         self.assertGreater(newly_matching_pairs, 0)
+        # and it has to still reach the narrowing, or that assertion is skipped silently
+        self.assertTrue(narrowing_seen)
