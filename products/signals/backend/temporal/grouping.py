@@ -953,15 +953,17 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     team_id=input.team_id,
                     source_id=input.source_id,
                 )
-            # A signal on an already-researched report that did not spawn re-research, because the
-            # report is either between buckets or past its last one. Emitted so the withheld
-            # re-research volume is trackable, split by which of the two reasons held it back.
-            if db_result.reresearch_capped:
+            # A signal on an already-researched report that is waiting for its next bucket, emitted
+            # so the withheld re-research volume is trackable. A report past its last bucket never
+            # researches again, so emitting there would measure a permanent backlog once per signal
+            # forever instead of work held back.
+            if db_result.reresearch_capped and db_result.next_research_bucket is not None:
                 try:
                     posthoganalytics.capture(
                         event="signal_report_reresearch_skipped",
                         distinct_id=str(team.uuid),
                         properties={
+                            "team_id": input.team_id,
                             "report_id": db_result.report_id,
                             "signal_count": db_result.report_signal_count,
                             "status": db_result.report_status,
@@ -971,9 +973,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                             "run_count": db_result.run_count,
                             "signals_researched": db_result.report_signals_researched,
                             "next_bucket": db_result.next_research_bucket,
-                            "skip_reason": (
-                                "buckets_exhausted" if db_result.next_research_bucket is None else "below_next_bucket"
-                            ),
+                            # Constant now that only this case emits, and kept so saved queries
+                            # that filter on it keep resolving.
+                            "skip_reason": "below_next_bucket",
                         },
                         groups=groups(team.organization, team),
                     )
