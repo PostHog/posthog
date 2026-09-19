@@ -102,7 +102,8 @@ class TestSyncMCPCatalog(TestCase):
         with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=["42"]):
             counts = sync_mcp_catalog(entries=[entry])
             template = MCPServerTemplate.objects.get(url=entry.url)
-            assert template.name == "Slack (dev)"
+            assert template.name == "Slack via PostHog (dev)"
+            assert template.description == "Search public Slack channels with the internal PostHog development app."
             assert template.oauth_credentials_source == "slack_dev_app"
             assert template.oauth_credentials == {}
             assert entry.oauth_scope_allowlist is not None

@@ -199,13 +199,30 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         inactive_names = set(MCPServerTemplate.objects.filter(is_active=False).values_list("name", flat=True))
         assert inactive_names.isdisjoint(names)
 
-    @parameterized.expand([True, False])
-    def test_slack_dev_template_is_only_listed_for_allowed_projects(self, allowed: bool) -> None:
+    @parameterized.expand(
+        [
+            ("allowed_and_flagged", True, True, True),
+            ("allowed_without_flag", True, False, False),
+            ("flagged_outside_allowed_project", False, True, False),
+        ]
+    )
+    def test_slack_dev_template_visibility(self, _name: str, allowed: bool, flag_enabled: bool, expected: bool) -> None:
         template = self._create_active_template(oauth_credentials_source="slack_dev_app")
-        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)] if allowed else []):
+        with (
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)] if allowed else []),
+            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=flag_enabled) as feature_enabled,
+        ):
             response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
         assert response.status_code == status.HTTP_200_OK
-        assert (str(template.id) in {entry["id"] for entry in response.json()["results"]}) is allowed
+        assert (str(template.id) in {entry["id"] for entry in response.json()["results"]}) is expected
+        if allowed:
+            assert feature_enabled.call_args.kwargs["person_properties"] == {"email": self.user.email}
+            assert feature_enabled.call_args.kwargs["groups"] == {
+                "organization": str(self.organization.id),
+                "project": str(self.team.id),
+            }
+        else:
+            feature_enabled.assert_not_called()
 
     def test_list_servers_entries_match_serializer_schema(self):
         self._create_active_template()
@@ -372,6 +389,34 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [result["id"] for result in response.json()["results"]] == [str(registered.id)]
         assert not MCPGatewayServer.objects.for_team(self.team.id).filter(url=untouched.url).exists()
+
+    def test_slack_dev_registered_server_follows_ui_flag(self) -> None:
+        self._make_admin()
+        template = self._template("Slack dev")
+        template.oauth_credentials_source = "slack_dev_app"
+        template.save(update_fields=["oauth_credentials_source", "updated_at"])
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Slack via PostHog (dev)",
+            url=template.url,
+            template=template,
+            created_by=self.user,
+        )
+
+        with (
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=False),
+        ):
+            hidden_response = self.client.get(self._api_url())
+        with (
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True),
+        ):
+            visible_response = self.client.get(self._api_url())
+
+        assert hidden_response.status_code == status.HTTP_200_OK
+        assert str(server.id) not in {result["id"] for result in hidden_response.json()["results"]}
+        assert str(server.id) in {result["id"] for result in visible_response.json()["results"]}
 
     def test_list_exposes_the_auth_type_members_connect_with(self) -> None:
         self._make_admin()

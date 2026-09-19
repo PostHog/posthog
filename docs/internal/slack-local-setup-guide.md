@@ -272,11 +272,14 @@ It does not move bot events to production or change the production Slack app's c
    Apply the same configuration to the web processes and workers.
    Production deployments must also add these variables to `posthog/charts` and provision their values through `posthog/secrets`.
    Adding the settings in this repository does not configure production.
-4. Run `python manage.py sync_mcp_server_templates` in that environment.
-   The existing Slack MCP entry becomes **Slack (dev)** and uses the separate credentials.
+4. Enable the `mcp-slack-dev` feature flag for PostHog users.
+   Target users whose email ends with `@posthog.com`.
+   For local testing, add `mcp-slack-dev` to `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` and restart Django.
+5. Run `python manage.py sync_mcp_server_templates` in that environment.
+   The existing Slack MCP entry becomes **Slack via PostHog (dev)** and uses the separate credentials.
    It activates only after the shared-client probe passes.
    Existing Slack MCP installations block a change of OAuth app; do not disconnect them without their owners' approval.
-5. In an allowed project, connect **Slack (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results.
+6. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results.
    Confirm that another project cannot list or authorize this entry.
 
 The connection keeps the catalog's reviewed MCP scopes; it does not request all scopes available to the bot.

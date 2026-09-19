@@ -211,7 +211,13 @@ def _entry_for_environment(entry: CatalogEntry, template: MCPServerTemplate | No
         return entry
     if template is not None and not dev_template and template.installations.exists():
         raise ValueError("Disconnect existing Slack MCP installations before changing OAuth apps")
-    return replace(entry, name="Slack (dev)", oauth_credentials_source="slack_dev_app", disabled=not dev_enabled)
+    return replace(
+        entry,
+        name="Slack via PostHog (dev)",
+        description="Search public Slack channels with the internal PostHog development app.",
+        oauth_credentials_source="slack_dev_app",
+        disabled=not dev_enabled,
+    )
 
 
 def sync_mcp_catalog(entries: list[CatalogEntry] | None = None, skip_probe: bool = False) -> SyncCounts:

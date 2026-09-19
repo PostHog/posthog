@@ -66,6 +66,7 @@ from ..models import (
     TeamMCPGatewayConfig,
 )
 from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
+from ..visibility import slack_dev_mcp_ui_enabled
 
 logger = structlog.get_logger(__name__)
 
@@ -937,6 +938,10 @@ class MCPGatewayServerViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet[MCPGatewayServer]) -> QuerySet[MCPGatewayServer]:
         servers = MCPGatewayServer.objects.for_team(self.team_id)
+        if servers.filter(template__oauth_credentials_source="slack_dev_app").exists() and not slack_dev_mcp_ui_enabled(
+            user=cast(User, self.request.user), team=self.team
+        ):
+            servers = servers.exclude(template__oauth_credentials_source="slack_dev_app")
         if not self._is_project_admin():
             user_id = cast(int, self.request.user.id)
             servers = servers.filter(is_team_enabled=True).exclude(member_revocations__user_id=user_id)
