@@ -681,7 +681,8 @@ export function getUsageLimitConsequence(productName: string): string {
  * Build a consolidated message for products that have reached their usage limits.
  *
  * Billing grants a grace period on the first crossing in a billing period, so the consequence is
- * future and conditional: it only happens if usage is still over the limit when the grace ends.
+ * not immediate. The wording states the grace policy rather than the customer's position in it,
+ * because the billing payload carries no grace or enforcement state to branch on.
  */
 export function buildUsageLimitReachedMessage(
     products: Array<{ type?: string | null; name: string; subscribed: boolean | null }>,
@@ -717,9 +718,9 @@ export function buildUsageLimitReachedMessage(
     return {
         title: products.length === 1 ? 'Usage limit reached' : 'Usage limits reached',
         message:
-            `You have reached the usage limit for ${productListText}. ` +
-            `You have a short grace period before the limit takes effect. Please ${actionText}. ` +
-            `If you are still over the limit when the grace period ends, ${consequenceText}.`,
+            `You have reached the usage limit for ${productListText}. Please ${actionText}. ` +
+            `A short grace period applies before the limit takes effect. ` +
+            `After the grace period, ${consequenceText}.`,
     }
 }
 

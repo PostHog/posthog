@@ -490,8 +490,8 @@ describe('buildUsageLimitReachedMessage', () => {
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
             'You have reached the usage limit for Session replay. ' +
-                'You have a short grace period before the limit takes effect. Please increase your billing limit. ' +
-                'If you are still over the limit when the grace period ends, data loss may occur.'
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, data loss may occur.'
         )
     })
 
@@ -508,8 +508,8 @@ describe('buildUsageLimitReachedMessage', () => {
         expect(result.title).toEqual('Usage limits reached')
         expect(result.message).toEqual(
             'You have reached the usage limit for Session replay and Feature flags & Experiments. ' +
-                'You have a short grace period before the limit takes effect. Please increase your billing limit. ' +
-                'If you are still over the limit when the grace period ends, data loss may occur and feature flags will not evaluate.'
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, data loss may occur and feature flags will not evaluate.'
         )
     })
 
@@ -518,8 +518,8 @@ describe('buildUsageLimitReachedMessage', () => {
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
             'You have reached the usage limit for PostHog AI. ' +
-                'You have a short grace period before the limit takes effect. Please increase your billing limit. ' +
-                'If you are still over the limit when the grace period ends, PostHog AI will be unavailable.'
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, PostHog AI will be unavailable.'
         )
     })
 
@@ -528,8 +528,8 @@ describe('buildUsageLimitReachedMessage', () => {
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
             'You have reached the usage limit for Self-driving inbox. ' +
-                'You have a short grace period before the limit takes effect. Please increase your billing limit. ' +
-                'If you are still over the limit when the grace period ends, self-driving agents will be paused.'
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, self-driving agents will be paused.'
         )
     })
 
@@ -541,8 +541,8 @@ describe('buildUsageLimitReachedMessage', () => {
         expect(result.title).toEqual('Usage limits reached')
         expect(result.message).toEqual(
             'You have reached the usage limit for PostHog AI and Session replay. ' +
-                'You have a short grace period before the limit takes effect. Please increase your billing limit. ' +
-                'If you are still over the limit when the grace period ends, PostHog AI will be unavailable and data loss may occur.'
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, PostHog AI will be unavailable and data loss may occur.'
         )
     })
 
@@ -553,8 +553,8 @@ describe('buildUsageLimitReachedMessage', () => {
         ])
         expect(result.message).toEqual(
             'You have reached the usage limit for Session replay and Product analytics. ' +
-                'You have a short grace period before the limit takes effect. Please increase your billing limit. ' +
-                'If you are still over the limit when the grace period ends, data loss may occur.'
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, data loss may occur.'
         )
     })
 
