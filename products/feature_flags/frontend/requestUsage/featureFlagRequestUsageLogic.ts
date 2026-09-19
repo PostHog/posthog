@@ -14,8 +14,11 @@ export type FeatureFlagRequestUsageMetric = 'requests' | 'billing_units'
 export type FeatureFlagRequestTypeFilter = 'all' | 'remote_evaluation' | 'local_evaluation'
 
 // DateFilter's "Last 7 days" starts at midnight seven days ago and can therefore
-// span almost eight elapsed days. Keep this aligned with the backend validator.
-export const MAX_HOURLY_RANGE_DAYS = 8
+// span almost eight elapsed days. Keep these aligned with the backend validator.
+export const MAX_RANGE_DAYS: Record<FeatureFlagRequestUsageInterval, number> = {
+    hour: 8,
+    day: 31,
+}
 
 export interface FeatureFlagRequestUsageSeries {
     id: number
@@ -37,15 +40,40 @@ interface ResolvedDateRange {
     dateTo: dayjs.Dayjs
 }
 
-function resolveDateRange(dateFrom: string, dateTo: string | null): ResolvedDateRange {
+function resolveDateFrom(dateFrom: string): dayjs.Dayjs {
+    return dateStringToDayJs(dateFrom) ?? dayjs().subtract(30, 'day')
+}
+
+function resolveInclusiveDateTo(dateTo: string | null): dayjs.Dayjs | null {
     const parsedDateTo = dateTo ? (dateStringToDayJs(dateTo) ?? dayjs(dateTo)) : null
     // A date-only value such as "2026-08-20" represents that entire calendar day.
-    const inclusiveDateTo = parsedDateTo && !dateTo?.includes('T') ? parsedDateTo.endOf('day') : parsedDateTo
-    return {
-        dateFrom: dateStringToDayJs(dateFrom) ?? dayjs().subtract(30, 'day'),
-        // The API treats date_to as exclusive, so step past the inclusive picker value.
-        dateTo: inclusiveDateTo ? inclusiveDateTo.add(1, 'millisecond') : dayjs(),
+    return parsedDateTo && !dateTo?.includes('T') ? parsedDateTo.endOf('day') : parsedDateTo
+}
+
+function resolveDateRange(
+    dateFrom: string,
+    dateTo: string | null,
+    interval: FeatureFlagRequestUsageInterval
+): ResolvedDateRange {
+    const resolvedDateFrom = resolveDateFrom(dateFrom)
+    const inclusiveDateTo = resolveInclusiveDateTo(dateTo)
+    if (!inclusiveDateTo) {
+        return { dateFrom: resolvedDateFrom, dateTo: dayjs() }
     }
+    // The API treats date_to as exclusive, so step past the inclusive picker value. The step stops
+    // at the limit the API accepts, because a selection of exactly MAX_RANGE_DAYS days is allowed
+    // and one extra millisecond makes the API reject the whole request.
+    const latestDateTo = resolvedDateFrom.add(MAX_RANGE_DAYS[interval], 'day')
+    const exclusiveDateTo = inclusiveDateTo.add(1, 'millisecond')
+    return {
+        dateFrom: resolvedDateFrom,
+        dateTo: exclusiveDateTo.isAfter(latestDateTo) ? latestDateTo : exclusiveDateTo,
+    }
+}
+
+// Measured on the inclusive end, so the length matches the range the user picked in the picker.
+function selectedRangeDays(dateFrom: string, dateTo: string | null): number {
+    return (resolveInclusiveDateTo(dateTo) ?? dayjs()).diff(resolveDateFrom(dateFrom), 'day', true)
 }
 
 function seriesLabel(item: FeatureFlagRequestUsageItemApi): string {
@@ -54,7 +82,7 @@ function seriesLabel(item: FeatureFlagRequestUsageItemApi): string {
 }
 
 function buildDates(dateFrom: string, dateTo: string | null, interval: FeatureFlagRequestUsageInterval): string[] {
-    const range = resolveDateRange(dateFrom, dateTo)
+    const range = resolveDateRange(dateFrom, dateTo, interval)
     const dates: string[] = []
     let bucket = range.dateFrom.utc().startOf(interval)
 
@@ -92,6 +120,7 @@ export interface featureFlagRequestUsageLogicValues {
     filteredItems: FeatureFlagRequestUsageItemApi[]
     interval: FeatureFlagRequestUsageInterval
     isHourlyAvailable: boolean
+    isRangeTooLong: boolean
     largestSdk: FeatureFlagRequestUsageSdkTotal | null
     loadError: boolean
     metric: FeatureFlagRequestUsageMetric
@@ -155,6 +184,7 @@ export interface featureFlagRequestUsageLogicActions {
 export interface featureFlagRequestUsageLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isHourlyAvailable: (dateFrom: string, dateTo: string | null) => boolean
+        isRangeTooLong: (dateFrom: string, dateTo: string | null) => boolean
         sdkOptions: (usageResponse: FeatureFlagRequestUsageResponseApi | null) => {
             key: string
             label: string
@@ -206,7 +236,7 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
                     if (!values.currentProjectId) {
                         throw new Error('No project selected')
                     }
-                    const range = resolveDateRange(values.dateFrom, values.dateTo)
+                    const range = resolveDateRange(values.dateFrom, values.dateTo, values.interval)
                     const params = {
                         date_from: range.dateFrom.toISOString(),
                         date_to: range.dateTo.toISOString(),
@@ -238,10 +268,13 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
     selectors({
         isHourlyAvailable: [
             (s) => [s.dateFrom, s.dateTo],
-            (dateFrom: string, dateTo: string | null): boolean => {
-                const range = resolveDateRange(dateFrom, dateTo)
-                return range.dateTo.diff(range.dateFrom, 'day', true) <= MAX_HOURLY_RANGE_DAYS
-            },
+            (dateFrom: string, dateTo: string | null): boolean =>
+                selectedRangeDays(dateFrom, dateTo) <= MAX_RANGE_DAYS.hour,
+        ],
+        isRangeTooLong: [
+            (s) => [s.dateFrom, s.dateTo],
+            (dateFrom: string, dateTo: string | null): boolean =>
+                selectedRangeDays(dateFrom, dateTo) > MAX_RANGE_DAYS.day,
         ],
         sdkOptions: [
             (s) => [s.usageResponse],
@@ -345,11 +378,15 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
         ],
     }),
     listeners(({ actions, values }) => ({
-        setInterval: () => actions.loadUsageResponse(),
+        setInterval: () => {
+            if (!values.isRangeTooLong) {
+                actions.loadUsageResponse()
+            }
+        },
         setDates: () => {
             if (!values.isHourlyAvailable) {
                 actions.setInterval('day')
-            } else {
+            } else if (!values.isRangeTooLong) {
                 actions.loadUsageResponse()
             }
         },
