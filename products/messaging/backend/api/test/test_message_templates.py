@@ -1,10 +1,13 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.models.utils import UUIDT
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -56,6 +59,28 @@ class TestMessageTemplatesAPI(APIBaseTest):
             "email": {"subject": "Test Subject", "text": "Test Body"},
         }
         assert template["type"] == "email"
+
+    def test_list_pages_stay_stable_when_templates_share_a_created_at(self):
+        # created_at is not unique, so a page boundary inside a batch of templates
+        # written at the same moment can repeat or skip rows.
+        row_ids = sorted(UUIDT() for _ in range(4))
+        for row_id in row_ids:
+            MessageTemplate.objects.create(
+                id=row_id,
+                team=self.team,
+                name="Batch template",
+                content={"email": {"subject": "Subject", "text": "Body"}},
+                type="email",
+            )
+        MessageTemplate.objects.filter(pk__in=row_ids).update(created_at=timezone.now())
+
+        paged_ids: list[str] = []
+        for offset in (0, 2, 4):
+            response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/?limit=2&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids.extend(template["id"] for template in response.json()["results"])
+
+        assert paged_ids == [str(row_id) for row_id in reversed(row_ids)] + [str(self.message_template.id)]
 
     def test_retrieve_message_template(self):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")

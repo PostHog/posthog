@@ -301,7 +301,7 @@ class MessageTemplatesViewSet(
                 deleted=False,
             )
             .select_related("created_by")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
 
     @extend_schema(request=DesignPatchSerializer, responses={200: MessageTemplateSerializer})
