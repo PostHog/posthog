@@ -22,6 +22,8 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.presentation.views.serializers import (
+    _POPULATION_KIND_REQUIRED_DAYS,
+    POPULATION_KINDS,
     VALIDATION_WARNING_CODES,
     AutoresearchPipelineCreateSerializer,
     PopulationDefinitionField,
@@ -555,6 +557,11 @@ class TestValidationWarningSerializer(SimpleTestCase):
 class TestPipelineCreateSerializerValidation(SimpleTestCase):
     # Field- and target-shape validation runs in memory, so these cases never need a DB.
     # The endpoint wiring (bad body -> 400) is covered by the APIBaseTest create tests above.
+
+    def test_required_key_table_covers_every_population_kind(self) -> None:
+        # POPULATION_KINDS is derived from the compiler registry in dataset/labeling.py, so a kind
+        # registered there reaches this table unannounced. A gap is a 500 on create, not a 400.
+        self.assertEqual(set(_POPULATION_KIND_REQUIRED_DAYS), set(POPULATION_KINDS))
 
     def _serializer(self, **overrides: Any) -> AutoresearchPipelineCreateSerializer:
         data: dict[str, Any] = {"name": "Pipeline", "target_event": "$pageview", **overrides}
