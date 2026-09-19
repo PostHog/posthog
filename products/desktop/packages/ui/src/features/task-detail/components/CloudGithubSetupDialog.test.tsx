@@ -75,6 +75,11 @@ describe("CloudGithubSetupDialog", () => {
     const user = userEvent.setup();
     render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
 
+    expect(
+      screen.getByRole("button", { name: "Details" }).closest("p"),
+    ).toHaveTextContent(
+      "Read and write access to the repos you select. Details",
+    );
     await user.click(
       screen.getByRole("button", {
         name: "Details",

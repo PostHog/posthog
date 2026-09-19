@@ -101,15 +101,18 @@ export function CloudGithubSetupDialogContent({
               >
                 Not now
               </Button>
-              <Button
-                type="button"
-                variant="link-muted"
-                className="mt-2 h-auto p-0 text-xs"
-                data-attr="github-permissions"
-                onClick={onOpenPermissions}
-              >
-                Details
-              </Button>
+              <p className="mt-2 text-balance text-center text-muted-foreground text-xs">
+                Read and write access to the repos you select.{" "}
+                <Button
+                  type="button"
+                  variant="link-muted"
+                  className="inline h-auto p-0 text-xs underline"
+                  data-attr="github-permissions"
+                  onClick={onOpenPermissions}
+                >
+                  Details
+                </Button>
+              </p>
             </>
           ) : (
             <Button type="button" variant="primary" onClick={onClose}>
