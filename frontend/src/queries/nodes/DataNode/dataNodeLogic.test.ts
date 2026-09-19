@@ -1,5 +1,7 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { createCustomerJourney } from 'lib/customerJourneys/createCustomerJourney'
+
 import { useMocks } from '~/mocks/jest'
 import {
     QUERY_SCAN_POLL_DEADLINE_MS,
@@ -64,6 +66,221 @@ describe('dataNodeLogic', () => {
         initKeaTests()
     })
     afterEach(() => logic?.unmount())
+
+    describe('query journey ownership', () => {
+        const response = { results: [['synthetic-person@example.com']], is_cached: true }
+        let capture: jest.Mock
+        let startRequest: jest.Mock
+
+        beforeEach(() => {
+            capture = jest.fn()
+            startRequest = jest.fn((queryId: string) =>
+                createCustomerJourney(
+                    {
+                        journey_name: 'person_search',
+                        resource_type: 'persons',
+                        resource_id: 'list',
+                        trigger: 'query_execution',
+                        readiness_scope: 'persons_list_query_to_table_commit',
+                        readiness_contract_version: 1,
+                        attempt_id: queryId,
+                        region: 'US',
+                        project_id: 1,
+                        organization_id: 'synthetic-org',
+                        registry_version: 'test',
+                    },
+                    {
+                        now: () => 1,
+                        capture,
+                        visibility: { getState: () => 'visible', subscribe: () => () => {} },
+                    }
+                )
+            )
+        })
+
+        const mount = (extra: Record<string, unknown> = {}): void => {
+            logic = dataNodeLogic({
+                key: testUniqueKey,
+                query: { kind: NodeKind.ActorsQuery, search: 'synthetic-search-secret' },
+                autoLoad: false,
+                queryJourney: { startRequest },
+                ...extra,
+            })
+            logic.mount()
+        }
+
+        it('starts at dispatch but requires an exact committed response, once', async () => {
+            mockedQuery.mockResolvedValue(response)
+            mount()
+            logic.actions.loadData()
+            expect(startRequest).toHaveBeenCalledTimes(1)
+            expect(capture).toHaveBeenCalledTimes(1)
+            await expectLogic(logic).toFinishAllListeners()
+            const receipt = logic.values.queryJourneyReceipt!
+            logic.actions.acknowledgeQueryJourney(receipt.generation, { ...response })
+            expect(capture).toHaveBeenCalledTimes(1)
+            logic.actions.acknowledgeQueryJourney(receipt.generation, response)
+            logic.actions.acknowledgeQueryJourney(receipt.generation, response)
+            expect(capture).toHaveBeenCalledTimes(2)
+            expect(capture.mock.calls[1][1]).toMatchObject({
+                outcome: 'usable',
+                first_useful_ms: 0,
+                response_cached: true,
+            })
+            expect(JSON.stringify(capture.mock.calls)).not.toMatch(/synthetic-search-secret|synthetic-person/)
+        })
+
+        it.each([
+            [{ status: 513 }, 'failed', 'out_of_memory'],
+            [{ code: 'clickhouse_memory_limit_exceeded' }, 'failed', 'out_of_memory'],
+            [{ status: 504 }, 'timed_out', 'timeout'],
+            [{ status: 512 }, 'failed', 'query_rejected'],
+            [{ status: 500 }, 'failed', 'query_error'],
+            [{ code: 'synthetic-unknown-code' }, 'failed', 'query_error'],
+        ])('preserves a structured query failure %j without its text', async (failure, outcome, errorType) => {
+            mockedQuery.mockRejectedValueOnce({ ...failure, detail: 'synthetic-error-secret timeout memory' })
+            mount()
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(capture.mock.calls).toHaveLength(2)
+            expect(capture.mock.calls.at(-1)?.[1]).toMatchObject({ outcome, error_type: errorType })
+            expect(JSON.stringify(capture.mock.calls)).not.toContain('synthetic-error-secret')
+            expect(logic.values.queryJourneyReceipt).toBeNull()
+        })
+
+        it.each(['success', 'error'])('does not let a stale %s finish the replacement', async (terminal) => {
+            let resolve!: (value: any) => void
+            let reject!: (error: Error) => void
+            mockedQuery
+                .mockImplementationOnce(
+                    () =>
+                        new Promise((yes, no) => {
+                            resolve = yes
+                            reject = no
+                        })
+                )
+                .mockResolvedValueOnce(response)
+            mount()
+            logic.actions.loadData()
+            await expectLogic(logic).delay(0)
+            logic.actions.loadData()
+            await expectLogic(logic).delay(0)
+            if (terminal === 'success') {
+                resolve({ results: [] })
+            } else {
+                reject(new Error('synthetic-error-secret'))
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            const receipt = logic.values.queryJourneyReceipt!
+            expect(receipt.response).toBe(response)
+            expect(capture.mock.calls.filter(([event]) => event === 'customer_journey_finished')).toEqual([
+                ['customer_journey_finished', expect.objectContaining({ outcome: 'superseded' })],
+            ])
+            logic.actions.acknowledgeQueryJourney(receipt.generation, response)
+            expect(capture.mock.calls.at(-1)?.[1].outcome).toBe('usable')
+            expect(JSON.stringify(capture.mock.calls)).not.toContain('synthetic-error-secret')
+        })
+
+        it.each(['cancel', 'uninstrumented replacement'])('invalidates receipts on %s', async (terminal) => {
+            mockedQuery.mockResolvedValue(response)
+            mount()
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            const receipt = logic.values.queryJourneyReceipt!
+            if (terminal === 'cancel') {
+                logic.actions.cancelQuery()
+            } else {
+                dataNodeLogic({ ...logic.props, queryJourney: undefined })
+                logic.actions.loadData()
+            }
+            logic.actions.acknowledgeQueryJourney(receipt.generation, response)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(capture.mock.calls.at(-1)?.[1].outcome).toBe(terminal === 'cancel' ? 'cancelled' : 'superseded')
+            expect(startRequest).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not turn a late cancelled response into usable results', async () => {
+            let resolve!: (response: any) => void
+            mockedQuery.mockImplementationOnce(
+                () =>
+                    new Promise((yes) => {
+                        resolve = yes
+                    })
+            )
+            mount()
+            logic.actions.loadData()
+            await expectLogic(logic).delay(0)
+            logic.actions.cancelQuery()
+            resolve(response)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.queryJourneyReceipt).toBeNull()
+            expect(capture.mock.calls.at(-1)?.[1]).toMatchObject({ outcome: 'cancelled' })
+            expect(capture.mock.calls.at(-1)?.[1]).not.toHaveProperty('first_useful_ms')
+        })
+
+        it('requires observed SQL surface and protects its replacement from stale cleanup', async () => {
+            mockedQuery.mockResolvedValue(response)
+            mount({ queryJourney: { startRequest, requireObservedSurface: true } })
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(startRequest).not.toHaveBeenCalled()
+            const oldOwner = Symbol()
+            const newOwner = Symbol()
+            logic.actions.observeQueryJourney(oldOwner)
+            logic.actions.observeQueryJourney(newOwner)
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.stopObservingQueryJourney(oldOwner)
+            expect(capture).toHaveBeenCalledTimes(1)
+            logic.actions.stopObservingQueryJourney(newOwner)
+            expect(capture.mock.calls.at(-1)?.[1].outcome).toBe('observation_stopped')
+        })
+
+        it('keeps shared observation alive until the last surface unmounts', async () => {
+            mockedQuery.mockResolvedValue(response)
+            mount({ queryJourney: { startRequest, requireObservedSurface: true } })
+            const firstOwner = Symbol()
+            const secondOwner = Symbol()
+            logic.actions.observeQueryJourney(firstOwner)
+            logic.actions.observeQueryJourney(secondOwner)
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.stopObservingQueryJourney(secondOwner)
+            expect(capture).toHaveBeenCalledTimes(1)
+            const receipt = logic.values.queryJourneyReceipt!
+            logic.actions.acknowledgeQueryJourney(receipt.generation, receipt.response)
+            expect(capture.mock.calls.at(-1)?.[1].outcome).toBe('usable')
+            logic.actions.stopObservingQueryJourney(firstOwner)
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(startRequest).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([{ doNotLoad: true }, { cachedResults: { results: [] } }])(
+            'skips guarded cache loads %j',
+            async (guards) => {
+                mount(guards)
+                logic.actions.loadData()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(startRequest).not.toHaveBeenCalled()
+            }
+        )
+
+        it('keeps polls and capture failures out of request behavior', async () => {
+            mockedQuery.mockResolvedValue(response)
+            mount()
+            logic.actions.loadData('async', 'synthetic-poll')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(startRequest).not.toHaveBeenCalled()
+            startRequest.mockImplementation(() => {
+                throw new Error('synthetic capture error')
+            })
+            logic.actions.loadData()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.response).toBe(response)
+            expect(logic.values.responseError).toBeNull()
+        })
+    })
 
     it('calls query to fetch data', async () => {
         const results = {}

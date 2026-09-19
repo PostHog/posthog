@@ -1,6 +1,7 @@
 import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { customerJourneyCaptureHooks } from 'lib/customerJourneys/projectCustomerJourneyCapture'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -69,7 +70,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 __capturePostHogExceptions: true,
             },
             metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
-            before_send: options.beforeSend,
+            before_send: customerJourneyCaptureHooks(options.beforeSend),
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

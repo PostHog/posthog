@@ -110,8 +110,10 @@ import type {
     TraceSpansTreeQueryResponse,
 } from '../../schema/schema-general'
 import type { DataNodeRegisteredProps } from './dataNodeCollectionLogic'
+import { QueryJourneyDescriptor, QueryJourneyObserver, QueryJourneyReceipt } from './queryJourney'
 
 export interface DataNodeLogicProps {
+    queryJourney?: QueryJourneyDescriptor
     key: string
     query: DataNode
     /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
@@ -303,6 +305,7 @@ export interface dataNodeLogicValues {
     query: DataNode<Record<string, any>>
     queryCancelled: boolean
     queryId: string | null
+    queryJourneyReceipt: QueryJourneyReceipt | null
     queryLog: HogQLQueryResponse | null
     queryLogLoading: boolean
     queryLogQueryId: string | null
@@ -360,6 +363,13 @@ export interface dataNodeLogicActions {
     }
     abortQuery: (payload: { queryId: string }) => {
         queryId: string
+    }
+    acknowledgeQueryJourney: (
+        generation: number,
+        response: unknown
+    ) => {
+        generation: number
+        response: unknown
     }
     cancelQuery: () => {
         value: true
@@ -589,6 +599,9 @@ export interface dataNodeLogicActions {
         totalCount: number | null
         payload?: any
     }
+    observeQueryJourney: (owner: symbol) => {
+        owner: symbol
+    }
     pollQueryScan: () => {
         value: true
     }
@@ -603,6 +616,9 @@ export interface dataNodeLogicActions {
     }
     setPollResponse: (status: QueryStatus | null) => {
         status: QueryStatus | null
+    }
+    setQueryJourneyReceipt: (receipt: QueryJourneyReceipt | null) => {
+        receipt: QueryJourneyReceipt | null
     }
     setQueryLogQueryId: (queryId: string) => {
         queryId: string
@@ -716,6 +732,9 @@ export interface dataNodeLogicActions {
     }
     stopAutoLoad: () => {
         value: true
+    }
+    stopObservingQueryJourney: (owner: symbol) => {
+        owner: symbol
     }
     toggleAutoLoad: () => {
         value: true
@@ -975,6 +994,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
+        setQueryJourneyReceipt: (receipt: QueryJourneyReceipt | null) => ({ receipt }),
+        acknowledgeQueryJourney: (generation: number, response: unknown) => ({ generation, response }),
+        observeQueryJourney: (owner: symbol) => ({ owner }),
+        stopObservingQueryJourney: (owner: symbol) => ({ owner }),
         loadData: (
             refresh?: RefreshType,
             alreadyRunningQueryId?: string,
@@ -1010,6 +1033,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
+                    const observer: QueryJourneyObserver | undefined =
+                        cache.queryJourneyObserver ??
+                        (props.queryJourney ? (cache.queryJourneyObserver = new QueryJourneyObserver()) : undefined)
+                    const generation = !pollOnly ? observer?.replace() : undefined
+                    if (!pollOnly && observer) {
+                        actions.setQueryJourneyReceipt(null)
+                    }
                     const rawQuery = overrideQuery ?? props.query
                     if (!rawQuery || typeof rawQuery !== 'object' || !('kind' in rawQuery)) {
                         return null
@@ -1059,6 +1089,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
+                    if (!pollOnly) {
+                        observer?.start(props.queryJourney, queryId)
+                    }
                     actions.abortAnyRunningQuery()
                     actions.setPollResponse(null)
                     const abortController = new AbortController()
@@ -1099,6 +1132,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         })
                         breakpoint()
                         actions.setElapsedTime(response.duration)
+                        if (generation !== undefined && response.data?.error) {
+                            observer?.fail(generation, response.data)
+                        } else if (generation !== undefined) {
+                            const receipt = observer?.received(generation, queryId, response.data)
+                            if (receipt) {
+                                actions.setQueryJourneyReceipt(receipt)
+                            }
+                        }
                         return response.data
                     } catch (error: any) {
                         if (error.duration) {
@@ -1109,6 +1150,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             actions.abortQuery({ queryId })
                         }
                         breakpoint()
+                        if (generation !== undefined) {
+                            observer?.fail(generation, error)
+                        }
                         throw error
                     }
                 },
@@ -1266,6 +1310,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        queryJourneyReceipt: [
+            null as QueryJourneyReceipt | null,
+            { setQueryJourneyReceipt: (_, { receipt }) => receipt },
+        ],
         isRefresh: [
             false,
             {
@@ -2066,6 +2114,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     listeners(({ actions, values, cache, props }) => ({
+        observeQueryJourney: ({ owner }) => {
+            if (props.queryJourney) {
+                cache.queryJourneyObserver ??= new QueryJourneyObserver()
+                cache.queryJourneyObserver.observe(owner)
+            }
+        },
+        stopObservingQueryJourney: ({ owner }) => {
+            cache.queryJourneyObserver?.unobserve(owner)
+        },
+        acknowledgeQueryJourney: ({ generation, response }) => {
+            cache.queryJourneyObserver?.acknowledge(generation, response)
+            if (
+                values.queryJourneyReceipt?.generation === generation &&
+                values.queryJourneyReceipt.response === response
+            ) {
+                actions.setQueryJourneyReceipt(null)
+            }
+        },
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
@@ -2081,6 +2147,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
         cancelQuery: () => {
+            cache.queryJourneyObserver?.stop('cancelled')
+            actions.setQueryJourneyReceipt(null)
             actions.abortAnyRunningQuery()
             actions.resetLoadingTimer()
         },
@@ -2201,7 +2269,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cancelQuery: actions.cancelQuery,
         })
     }),
-    beforeUnmount(({ actions, props, values }) => {
+    beforeUnmount(({ actions, props, values, cache }) => {
+        cache.queryJourneyObserver?.stop('observation_stopped')
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }

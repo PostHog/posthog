@@ -22,6 +22,31 @@ def client_from_pool():
         yield mock
 
 
+@pytest.mark.parametrize("client_query_id", [None, "refresh-attempt"])
+@pytest.mark.parametrize("fails", [False, True])
+def test_execution_span_identifies_the_query_sent_to_clickhouse(client_from_pool, client_query_id, fails):
+    client = client_from_pool.return_value.__enter__.return_value
+    if fails:
+        client.execute.side_effect = ValueError("Query failed")
+
+    with (
+        tags_context(team_id=123, client_query_id=client_query_id),
+        patch("posthog.clickhouse.client.execute.trace.get_current_span") as current_span,
+    ):
+        if fails:
+            with pytest.raises(ValueError, match="Query failed"):
+                sync_execute("SELECT 1", flush=False)
+        else:
+            sync_execute("SELECT 1", flush=False)
+
+    attributes = dict(call.args for call in current_span.return_value.set_attribute.call_args_list)
+    assert attributes["clickhouse.query_id"] == client.execute.call_args.kwargs["query_id"]
+    if client_query_id:
+        assert attributes["clickhouse.client_query_id"] == client_query_id
+    else:
+        assert "clickhouse.client_query_id" not in attributes
+
+
 @pytest.fixture
 def llm_analytics_slots():
     """Counts concurrency slots taken per query, with the limiter forced on (it is inert in tests)."""

@@ -21,6 +21,7 @@ from django.urls import reverse
 
 import structlog
 from loginas import settings as la_settings
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -29,7 +30,9 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.middleware import (
+    CHQueries,
     CSPMiddleware,
     ManagedProxyClientIPMiddleware,
     ManagedProxyClientIPOutcome,
@@ -2885,3 +2888,26 @@ class TestViewManagedCsp(SimpleTestCase):
             assert response["Content-Security-Policy"].startswith("frame-ancestors ")
         assert ("Content-Security-Policy-Report-Only" in response) == (expects_reporting and path != "/admin/")
         assert ("Reporting-Endpoints" in response) == expects_reporting
+
+
+@pytest.mark.parametrize("from_view,raises", [(False, False), (True, False), (True, True)])
+def test_chqueries_correlates_request_span_after_view_tags(from_view: bool, raises: bool) -> None:
+    request = RequestFactory().get("/api/projects/@current/query/", {"client_query_id": "synthetic-initial"})
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="synthetic-session")
+
+    def respond(request: HttpRequest) -> HttpResponse:
+        if from_view:
+            tag_queries(client_query_id="synthetic-resolved")
+        if raises:
+            raise RuntimeError("synthetic failure")
+        return HttpResponse("ok")
+
+    with TracerProvider().get_tracer(__name__).start_as_current_span("request") as span:
+        if raises:
+            with pytest.raises(RuntimeError, match="synthetic failure"):
+                CHQueries(respond)(request)
+        else:
+            CHQueries(respond)(request)
+        assert isinstance(span, ReadableSpan) and span.attributes is not None
+        assert span.attributes["query.client_query_id"] == ("synthetic-resolved" if from_view else "synthetic-initial")
