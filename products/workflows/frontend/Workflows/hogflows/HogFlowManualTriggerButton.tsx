@@ -2,16 +2,22 @@ import { useActions, useValues } from 'kea'
 
 import { IconPlayFilled } from '@posthog/icons'
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
-import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
+import { NextScheduledRun, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './steps/batchTriggerLogic'
+
+const formatScheduledRun = ({ at, timezone }: NextScheduledRun): string => {
+    const local = timezone ? dayjs(at).tz(timezone) : dayjs(at)
+    return `${local.format('MMM D, YYYY [at] h:mm A')}${timezone ? ` (${timezone})` : ''}`
+}
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -22,6 +28,7 @@ const TriggerPopover = ({
 }): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
     const { workflow, variableValues, inputs } = useValues(logic)
+    const { nextScheduledRun } = useValues(workflowLogic(props))
     const { setInput, clearInputs, triggerManualWorkflow, triggerBatchWorkflow } = useActions(logic)
 
     const isAccountAudience =
@@ -107,6 +114,12 @@ const TriggerPopover = ({
 
     return (
         <div className="flex flex-col gap-4 p-3 min-w-80 max-w-96">
+            {nextScheduledRun && (
+                <LemonBanner type="warning">
+                    This workflow already runs on its own schedule. The next scheduled run is{' '}
+                    {formatScheduledRun(nextScheduledRun)}. Running it now is an extra run on top of that.
+                </LemonBanner>
+            )}
             {variablesSection}
             <div className="flex justify-end border-t pt-3">
                 <LemonButton
@@ -140,7 +153,7 @@ const TriggerPopover = ({
 
 export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
-    const { workflow, hasUnsavedChanges } = useValues(workflowLogic(props))
+    const { workflow, hasUnsavedChanges, nextScheduledRun } = useValues(workflowLogic(props))
     const { popoverVisible } = useValues(logic)
     const { setPopoverVisible } = useActions(logic)
 
@@ -156,7 +169,9 @@ export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.
                       : undefined
             }
             sideIcon={<IconChevronDown className={`transition-transform ${popoverVisible ? 'rotate-180' : ''}`} />}
-            tooltip="Triggers workflow immediately"
+            tooltip={
+                nextScheduledRun ? 'Runs the workflow now, on top of its schedule' : 'Runs the workflow now, one time'
+            }
             onClick={() => setPopoverVisible(!popoverVisible)}
         >
             Trigger
