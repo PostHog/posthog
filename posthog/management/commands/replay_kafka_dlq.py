@@ -31,6 +31,16 @@ def resolve_pipeline(
     return dataclasses.replace(DLQ_REPLAY_PIPELINES[pipeline], **overrides)
 
 
+def _parse_producer_config(pairs: list[str]) -> dict[str, str]:
+    config: dict[str, str] = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not key.strip():
+            raise CommandError(f"--producer-config expects key=value, got {pair!r}")
+        config[key.strip()] = value.strip()
+    return config
+
+
 class Command(BaseCommand):
     help = "Replay a Kafka DLQ topic back into its target topic using a consumer group."
 
@@ -72,6 +82,17 @@ class Command(BaseCommand):
             default=None,
             help="Largest record to produce, in bytes; unset uses KAFKA_<PROFILE>_PRODUCER_MAX_REQUEST_SIZE, then 1 MiB",
         )
+        parser.add_argument(
+            "--producer-config",
+            action="append",
+            default=[],
+            metavar="KEY=VALUE",
+            help=(
+                "Extra librdkafka producer setting, repeatable. Use for a broker "
+                "'message too large' rejection, e.g. --producer-config batch.size=131072 "
+                "or --producer-config compression.type=gzip"
+            ),
+        )
         parser.add_argument("--dry-run", action="store_true", help="Count without producing or committing")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -106,6 +127,7 @@ class Command(BaseCommand):
             skip_team_ids=options["skip_team_ids"],
             max_messages_per_second=options["max_messages_per_second"],
             max_message_bytes=options["max_message_bytes"],
+            producer_config=_parse_producer_config(options["producer_config"]),
             should_stop=lambda: stop_requested["value"],
             log=lambda message: self.stdout.write(message),
         )

@@ -192,6 +192,7 @@ def drain_dlq(
     max_messages_per_second: Optional[float] = None,
     max_message_bytes: Optional[int] = None,
     unassigned_timeout_seconds: float = 60.0,
+    producer_config: Optional[dict[str, Any]] = None,
     should_stop: Callable[[], bool] = lambda: False,
     log: Callable[[str], None] = print,
 ) -> dict[str, int]:
@@ -212,7 +213,8 @@ def drain_dlq(
     caller can stop the run after the current batch commits, rather than abandoning it
     mid-flight. A run that holds no
     partitions for unassigned_timeout_seconds gives up, so a spare member of an
-    over-subscribed group exits instead of polling forever.
+    over-subscribed group exits instead of polling forever. producer_config merges extra
+    librdkafka producer settings over the defaults, for tuning past a broker size limit.
     """
     source = get_profile_settings(topic=source_topic)
     target = get_profile_settings(topic=target_topic)
@@ -252,6 +254,9 @@ def drain_dlq(
         message_max_bytes = max_message_bytes or target.producer_settings.get("max_request_size")
         if message_max_bytes:
             producer_conf["message.max.bytes"] = int(message_max_bytes)
+        # Applied last, so an operator can tune batch.size or compression.type to get past
+        # a broker "message too large" rejection.
+        producer_conf.update(producer_config or {})
         producer = Producer(producer_conf)
 
     replayed = 0
