@@ -242,12 +242,27 @@ export function WorkColumn() {
     [items],
   );
   const dayStart = useLocalDayStart();
+  const pinnedKeys = useMemo(
+    () =>
+      new Set(
+        items
+          .filter((entry) => entry.item.pinned)
+          .map((entry) => entry.item.key),
+      ),
+    [items],
+  );
   const matchingItems = useMemo(() => {
     const ofKind = items
       .filter((entry) => entry.item.kind === kind)
       .map((entry) => entry.item);
     const filtered = filterChannelItems(ofKind, { query, filters, me });
-    return sortChannelItems(filtered, sort);
+    // Recent crosses every space, and every space's pins at the top of one
+    // list is a pile nobody asked for. The Pinned filter still finds them;
+    // they just sit under the day they were last touched.
+    const unpinned = filtered.map((item) =>
+      item.pinned ? { ...item, pinned: false } : item,
+    );
+    return sortChannelItems(unpinned, sort);
   }, [items, kind, query, filters, me, sort]);
   // The same sections a space's own list draws: the pins, then whatever the
   // Group by choice says — days, or repositories.
@@ -347,11 +362,16 @@ export function WorkColumn() {
     [shownItems, starredSpaces],
   );
 
+  const spaceNameFor = (item: ChannelItemModel): string | undefined => {
+    const channelId = channelByKey.get(item.key);
+    return channels.find((channel) => channel.id === channelId)?.name;
+  };
+
   const menuFor = (item: ChannelItemModel): TaskRowMenuProps => ({
     kind: item.kind,
     id: item.id,
     title: item.title,
-    isPinned: item.pinned,
+    isPinned: pinnedKeys.has(item.key),
     task: item.task ?? undefined,
     channelId: channelByKey.get(item.key),
     onTogglePin: () => actions.togglePin(item),
@@ -476,6 +496,7 @@ export function WorkColumn() {
                         isActive={item.key === activeKey}
                         onOpen={() => actions.open(item)}
                         menu={menuFor(item)}
+                        spaceName={spaceNameFor(item)}
                       />
                     ))}
                   </Fragment>

@@ -358,7 +358,13 @@ export interface BrowserTabTileCountProperties {
 }
 
 export interface TaskListAppearanceChangedProperties {
-  secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
+  secondary_fields: (
+    | "space"
+    | "repository"
+    | "branch"
+    | "creator"
+    | "activity"
+  )[];
   secondary_field_count: number;
   surface: TaskListSurface;
 }

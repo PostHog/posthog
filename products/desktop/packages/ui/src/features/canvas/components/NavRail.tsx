@@ -304,18 +304,9 @@ function NavRailImpl() {
     const onClick = pick(destination);
 
     if (pane === "activity") {
-      // Under the Work layout the bell toggles the column, so there is nothing
-      // to peek at: the column is the peek.
-      return workLayout ? (
-        <NavIcon
-          key={pane}
-          icon={<BellIcon size={16} weight={isActive ? "fill" : "regular"} />}
-          label={label}
-          isActive={isActive}
-          onClick={onClick}
-          badge={badge}
-        />
-      ) : (
+      // The bell keeps its peek: hovering shows the feed, clicking opens the
+      // column, and the card stands down once that column is on screen.
+      return (
         <ActivityNavItem
           key={pane}
           isActive={isActive}

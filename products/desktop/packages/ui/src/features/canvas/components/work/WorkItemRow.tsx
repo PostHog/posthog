@@ -27,11 +27,14 @@ import {
 export function WorkItemRow({
   item,
   menu,
+  spaceName,
   isActive,
   onOpen,
 }: {
   item: ChannelItemModel;
   menu: TaskRowMenuProps;
+  /** The list crosses every space, so a row can say which one it is in. */
+  spaceName: string | undefined;
   isActive: boolean;
   onOpen: () => void;
 }) {
@@ -39,7 +42,7 @@ export function WorkItemRow({
   // space the viewer has.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
   // Whatever the list appearance settings ask each row to carry.
-  const subtitle = useChannelItemMetadata(item);
+  const subtitle = useChannelItemMetadata(item, spaceName);
   // The session lists' own overflow behaviour: a name too long to fit tickers
   // under the pointer rather than stopping at an ellipsis nobody can read past.
   const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();

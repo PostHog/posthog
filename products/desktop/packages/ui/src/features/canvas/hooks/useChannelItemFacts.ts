@@ -29,8 +29,12 @@ export function channelItemAuthor(item: ChannelItemModel): string | null {
   return item.authorName;
 }
 
-function channelItemFacts(item: ChannelItemModel): ChannelItemFacts {
+function channelItemFacts(
+  item: ChannelItemModel,
+  spaceName: string | undefined,
+): ChannelItemFacts {
   return {
+    space: spaceName,
     repository: item.repository?.label,
     branch: item.branch ?? undefined,
     creator: channelItemAuthor(item) ?? undefined,
@@ -44,8 +48,10 @@ function channelItemFacts(item: ChannelItemModel): ChannelItemFacts {
  */
 export function useChannelItemMetadata(
   item: ChannelItemModel,
+  /** Which space it is filed to, where the list crosses more than one. */
+  spaceName?: string,
 ): ReactNode | undefined {
   const fields = useSidebarStore((state) => state.listItemMetadataFields);
   if (fields.length === 0) return undefined;
-  return metadataFromValues(channelItemFacts(item), fields);
+  return metadataFromValues(channelItemFacts(item, spaceName), fields);
 }

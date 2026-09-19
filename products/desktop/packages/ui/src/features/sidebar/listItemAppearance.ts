@@ -3,6 +3,7 @@ import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { formatAbsoluteDateTime, formatRelativeAge } from "@posthog/shared";
 
 export const LIST_ITEM_METADATA_FIELDS = [
+  "space",
   "repository",
   "branch",
   "creator",
@@ -13,6 +14,7 @@ export type ListItemMetadataField = (typeof LIST_ITEM_METADATA_FIELDS)[number];
 
 export const LIST_ITEM_METADATA_LABELS: Record<ListItemMetadataField, string> =
   {
+    space: "Space",
     repository: "Repository",
     branch: "Branch",
     creator: "Creator",
@@ -111,9 +113,12 @@ export function taskMetadataSegments(
   >,
   creatorName: string | undefined,
   fields: readonly ListItemMetadataField[],
+  /** Only a list that crosses spaces has one to name. */
+  spaceName?: string,
 ): ListItemMetadataSegment[] {
   return listItemMetadataSegments(
     {
+      space: spaceName,
       repository: repositoryLabel(task.repository),
       branch: task.linkedBranch ?? task.branchName,
       creator: creatorName,
