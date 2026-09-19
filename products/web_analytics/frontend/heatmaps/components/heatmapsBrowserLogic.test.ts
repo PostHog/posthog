@@ -140,6 +140,29 @@ describe('heatmapsBrowserLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(dataLogic.values.href).toBe('https://example.com/pricing')
         })
+
+        // The snapshot is a DOM captured at one width, so that width is the only one the overlay can
+        // line up with. The viewport filter used to come from the analyst's own window instead, which
+        // asked the API for viewports the recorded visitor never had and returned an empty heatmap.
+        it('filters on the recording width instead of the analyst window width', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            const dataLogic = heatmapDataLogic({ context: 'in-app' })
+
+            logic.actions.setReplayIframeData({
+                html: '<html></html>',
+                width: 390,
+                height: 800,
+                startDateTime: undefined,
+                url: 'https://example.com/pricing',
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            // 390px at the default 0.9 viewport accuracy, so the preview width and the queried
+            // range describe the same viewport
+            expect(dataLogic.values.widthOverride).toBe(390)
+            expect(dataLogic.values.viewportRange).toEqual({ min: 351, max: 429 })
+        })
     })
 
     describe('non-recording stale href', () => {

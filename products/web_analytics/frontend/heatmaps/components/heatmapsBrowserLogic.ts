@@ -670,6 +670,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 // Auto-detect match type for replay data URLs too
                 const isPattern = isUrlPattern(replayIframeData.url)
                 actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+                // The snapshot is a DOM captured at one width, and that width is the only one the
+                // overlay can line up with. Without this the width falls back to the generic default,
+                // so the query asks for viewports the recorded visitor never had and the heatmap
+                // comes back empty on a page that clearly has interactions.
+                if (replayIframeData.width > 0) {
+                    actions.setWindowWidthOverride(replayIframeData.width)
+                }
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
