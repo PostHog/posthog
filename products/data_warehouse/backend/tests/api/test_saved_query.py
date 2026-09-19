@@ -1166,12 +1166,46 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         return response.json()
 
-    def test_update_sync_frequency_rejects_invalid_value(self):
+    def test_create_applies_the_requested_sync_frequency(self) -> None:
+        from products.data_modeling.backend.facade.api import get_declared_target
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event from events LIMIT 100"},
+                    "sync_frequency": "6hour",
+                },
+            )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["sync_frequency"], "6hour")
+        self.assertEqual(
+            get_declared_target(Node.objects.get(saved_query_id=response.json()["id"])), timedelta(hours=6)
+        )
+
+    def test_explicit_null_sync_frequency_clears_the_target(self) -> None:
+        from products.data_modeling.backend.facade.api import get_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}"
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            initial = self.client.patch(url, {"sync_frequency": "6hour"})
+            self.assertEqual(initial.status_code, 200, initial.content)
+            response = self.client.patch(url, {"sync_frequency": None})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNone(response.json()["sync_frequency"])
+        self.assertIsNone(get_declared_target(Node.objects.get(saved_query_id=saved_query["id"])))
+
+    @parameterized.expand(
+        [("unknown", "every_fortnight"), ("list", []), ("dict", {}), ("number", 5), ("boolean", True)]
+    )
+    def test_update_sync_frequency_rejects_invalid_value(self, _name, value):
         saved_query = self._create_saved_query()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-            {"sync_frequency": "every_fortnight"},
+            {"sync_frequency": value},
         )
         self.assertEqual(response.status_code, 400, response.content)
 

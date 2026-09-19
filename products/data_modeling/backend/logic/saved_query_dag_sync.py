@@ -17,6 +17,7 @@ from products.data_modeling.backend.facade.system_tables import DATA_MODELING_AL
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -498,6 +499,68 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
         nodes.delete()
     for dag in dags:
         maybe_reconcile_dag(dag)
+
+
+NodeMoveRefusal = Literal["multiple_placements", "blocked", "materializing", "moved"]
+
+
+class NodeMoveError(Exception):
+    """Raised when a saved query's node cannot move to the requested DAG.
+
+    Carries `reason` rather than prose, so a caller serving a user words the refusal itself.
+    """
+
+    def __init__(self, reason: NodeMoveRefusal) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) -> None:
+    """Place a saved query's node in the given DAG, keeping its frequency target and job history.
+
+    Holds the source and destination DAGs for the whole check-and-move, in id order, for the
+    reason `delete_node_from_dag` holds every DAG it touches: otherwise a sync can attach a
+    dependent between the dependents check and the move, leaving an edge whose source sits in
+    another DAG, which `Edge.save` treats as an invariant violation.
+
+    A move is refused while a materialization runs. Its activities load the node by team, node
+    and DAG, so the move makes the remaining ones stop finding it -- including the activity that
+    records the failure, which leaves the job row Running with nothing to close it. A job that
+    starts between the check and the move is still possible; serializing those needs a lock on
+    the job-start side.
+    """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    with transaction.atomic():
+        saved_query = DataWarehouseSavedQuery.objects.get(team_id=team_id, id=saved_query_id)
+        dag = DAG.objects.get(team_id=team_id, id=dag_id)
+        placements = Node.objects.filter(team_id=team_id, saved_query=saved_query)
+        held = {dag.id} | {node.dag_id for node in placements if node.dag_id is not None}
+        for held_dag_id in sorted(held, key=str):
+            _lock_dag(team_id, held_dag_id)
+
+        nodes = list(placements.select_related("dag"))
+        if len(nodes) > 1:
+            raise NodeMoveError("multiple_placements")
+        if nodes and nodes[0].dag_id != dag.id:
+            node = nodes[0]
+            if node.dag_id not in held:
+                # Another move landed between the read above and the locks, so the DAG this node
+                # sits in now is not one of the ones being held.
+                raise NodeMoveError("moved")
+            if node.dag.is_managed or node.outgoing_edges.exists():
+                raise NodeMoveError("blocked")
+            if DataModelingJob.objects.filter(
+                team_id=team_id, saved_query=saved_query, status=DataModelingJobStatus.RUNNING
+            ).exists():
+                raise NodeMoveError("materializing")
+            previous_dag = node.dag
+            # Rebuild parents in the destination without discarding the node's targets or job history.
+            Edge.objects.filter(team_id=team_id, target=node).delete()
+            node.dag = dag
+            node.save(update_fields=["dag"])
+            maybe_reconcile_dag(previous_dag)
+        sync_saved_query_to_dag(saved_query, dag=dag)
 
 
 def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> None:
