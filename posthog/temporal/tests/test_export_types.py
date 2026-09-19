@@ -7,7 +7,10 @@ from temporalio.exceptions import (
     TimeoutType,
 )
 
+from posthog.errors import CHQueryErrorS3AccessDenied
 from posthog.temporal.exports.types import ExportError, extract_error_details, is_user_query_export_error
+
+from products.exports.backend.tasks.failure_handler import export_slo_failure_details
 
 
 def test_extract_error_details_classifies_temporal_activity_timeout() -> None:
@@ -75,8 +78,24 @@ def test_extract_error_details_classifies_temporal_activity_timeout() -> None:
             True,
         ),
         (ExportError(exception_class="ValidationError"), True),
+        # Real dimensions from the activity, not a literal: this class is a user query error whose
+        # SLO details name the storage component, so the metadata check has to keep reading it as
+        # the customer's failure. Otherwise a refused bucket read burns the export error budget.
+        (
+            ExportError(
+                exception_class=CHQueryErrorS3AccessDenied.__name__,
+                failure_details=export_slo_failure_details(CHQueryErrorS3AccessDenied.__name__),
+            ),
+            True,
+        ),
     ],
-    ids=["django_validation_error", "builtin_syntax_error", "drf_validation_error", "legacy_name_fallback"],
+    ids=[
+        "django_validation_error",
+        "builtin_syntax_error",
+        "drf_validation_error",
+        "legacy_name_fallback",
+        "storage_access_denied",
+    ],
 )
 def test_is_user_query_export_error_uses_failure_metadata(error: ExportError, expected: bool) -> None:
     assert is_user_query_export_error(error) is expected

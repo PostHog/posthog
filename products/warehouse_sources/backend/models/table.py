@@ -42,6 +42,7 @@ from posthog.errors import (
     CORRUPTED_PARQUET_METADATA_MESSAGE,
     RAGGED_ROWS_MESSAGE,
     CHQueryErrorRaggedFileRows,
+    CHQueryErrorS3AccessDenied,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -638,7 +639,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     )
                     break
                 except Exception as err:
-                    if i >= attempts - 1 or (retry_deadline is not None and time.monotonic() >= retry_deadline):
+                    # The retries exist for an intermittent cluster failure. A refused read is not
+                    # one: the bucket keeps refusing until its credentials are fixed, so the
+                    # remaining attempts add four more denied reads and 15 seconds of sleep to a
+                    # synchronous request, then raise the same error from here anyway.
+                    if (
+                        isinstance(err, CHQueryErrorS3AccessDenied)
+                        or i >= attempts - 1
+                        or (retry_deadline is not None and time.monotonic() >= retry_deadline)
+                    ):
                         capture_exception(err)
                         if safe_expose_ch_error:
                             self._safe_expose_ch_error(err)
@@ -1177,13 +1186,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # we key on here.
         raw_message = err.message if isinstance(err, ClickHouseServerException) else str(err)
 
-        # sync_execute wraps the exception before this function receives it, so a ragged-CSV failure
-        # arrives as CHQueryErrorRaggedFileRows with its message already rewritten to RAGGED_ROWS_MESSAGE.
-        # The raw ClickHouse phrase the ExtractErrors loop keys on is gone, and re-wrapping below drops
-        # the class too, so recognize it here and surface its actionable message instead of blaming the
-        # bucket. A raw ServerException (not pre-wrapped) still matches through the loop on raw_message.
-        if isinstance(err, CHQueryErrorRaggedFileRows):
-            raise Exception(RAGGED_ROWS_MESSAGE)
+        # sync_execute wraps the exception before this function receives it, so these arrive with a
+        # message already rewritten to user-facing copy. The raw ClickHouse phrase the ExtractErrors
+        # loop keys on is gone, and re-wrapping below drops the class too, so surface the message
+        # they already carry instead of blaming the bucket. A raw ServerException (not pre-wrapped)
+        # still matches through the loop on raw_message.
+        if isinstance(err, CHQueryErrorRaggedFileRows | CHQueryErrorS3AccessDenied):
+            raise Exception(str(err))
 
         err = wrap_clickhouse_query_error(err)
 
