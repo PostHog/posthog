@@ -31,55 +31,31 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
         [
             (
                 False,
-                True,
                 None,
                 "send_followup_message",
-                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
             ),
             (
-                True,
-                False,
-                1,
-                "send_followup_message",
-                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
-            ),
-            (
-                True,
                 True,
                 1,
                 SEND_STEER_SIGNAL,
-                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
             ),
             (
-                True,
                 True,
                 RuntimeError("query not registered"),
                 "send_followup_message",
-                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
             ),
             (
-                True,
                 True,
                 TimeoutError("query timed out"),
                 "send_followup_message",
-                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
-            ),
-            (
-                True,
-                RuntimeError("feature flag unavailable"),
-                1,
-                "send_followup_message",
-                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
             ),
         ]
     )
     def test_capability_gates_versioned_signal_and_preserves_sender_fields(
         self,
         steer: bool,
-        feature_flag_result: bool | Exception,
         query_result: int | Exception | None,
         expected_signal: str,
-        expected_args: list[object],
     ) -> None:
         handle = Mock()
         handle.signal = AsyncMock()
@@ -91,14 +67,7 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
         client = Mock()
         client.get_workflow_handle.return_value = handle
 
-        with (
-            patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled") as feature_enabled,
-            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
-        ):
-            if isinstance(feature_flag_result, Exception):
-                feature_enabled.side_effect = feature_flag_result
-            else:
-                feature_enabled.return_value = feature_flag_result
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
             signal_task_followup_message(
                 "workflow-id",
                 "hello",
@@ -109,8 +78,10 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
                 steer=steer,
             )
 
-        handle.signal.assert_awaited_once_with(expected_signal, args=expected_args)
-        if steer and feature_flag_result is True:
+        handle.signal.assert_awaited_once_with(
+            expected_signal, args=["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}]
+        )
+        if steer:
             handle.query.assert_awaited_once_with(
                 STEERING_PROTOCOL_QUERY,
                 rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
