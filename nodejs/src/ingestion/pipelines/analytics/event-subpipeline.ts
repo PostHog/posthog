@@ -21,6 +21,7 @@ import { createPrepareEventStep } from '~/ingestion/common/steps/event-processin
 import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
 import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
+import { createValidateSessionIdStep } from '~/ingestion/common/steps/event-processing/validate-session-id-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
     createRecordEventUsageAfterIngestStep,
@@ -124,6 +125,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
         )
         .pipe(createNormalizeEventStep())
+        .pipe(createValidateSessionIdStep())
         .pipe(
             createProcessPersonlessStep(
                 options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
