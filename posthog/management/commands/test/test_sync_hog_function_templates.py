@@ -2,6 +2,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
+
+from parameterized import parameterized
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.management.commands.sync_hog_function_templates import (
@@ -16,7 +19,7 @@ pytestmark = pytest.mark.django_db
 
 
 class TestSyncHogFunctionTemplates:
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_sync_python_templates(self, mock_get_hog_function_templates):
         """Test that Python templates are synced to the database."""
         # Mock the Node.js API to avoid external dependencies
@@ -78,7 +81,7 @@ class TestSyncHogFunctionTemplates:
             assert node_template.type == "transformation"
             assert node_template.name == f"Test {template_id}"
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_sync_handles_invalid_template(self, mock_get_hog_function_templates):
         """Test that the command handles invalid templates gracefully."""
         # Create an invalid Node.js template (missing required fields)
@@ -102,20 +105,44 @@ class TestSyncHogFunctionTemplates:
         assert all(tid in db_template_ids for tid in TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
         assert "invalid_template" not in db_template_ids
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
-    def test_sync_handles_api_error(self, mock_get_hog_function_templates):
-        """Test that the command handles API errors gracefully."""
-        # Mock an API error
-        mock_get_hog_function_templates.side_effect = Exception("API Error")
+    @parameterized.expand(
+        [
+            ("connection_error", Exception("API Error"), None),
+            ("non_200_response", None, 503),
+        ]
+    )
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
+    def test_sync_fails_loudly_when_nodejs_is_unavailable(
+        self, _name, side_effect, status_code, mock_get_hog_function_templates
+    ):
+        if side_effect is not None:
+            mock_get_hog_function_templates.side_effect = side_effect
+        else:
+            mock_response = MagicMock()
+            mock_response.status_code = status_code
+            mock_get_hog_function_templates.return_value = mock_response
 
-        # Run the command, should not raise an exception
-        call_command("sync_hog_function_templates")
+        HogFunctionTemplate.objects.create(
+            template_id="coming-soon-from-nodejs",
+            name="Coming soon",
+            description="Only ever served by the Node.js service",
+            type="destination",
+            code="return event",
+            inputs_schema=[],
+            status="coming_soon",
+            free=True,
+            category=["Custom"],
+            code_language="hog",
+        )
 
-        # Verify that Python test templates were still created
+        with pytest.raises(CommandError):
+            call_command("sync_hog_function_templates")
+
         db_template_ids = set(HogFunctionTemplate.objects.values_list("template_id", flat=True))
         assert all(tid in db_template_ids for tid in TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
+        assert "coming-soon-from-nodejs" in db_template_ids
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_sync_metrics(self, mock_get_hog_function_templates):
         """Test that the command reports the correct metrics."""
         # Mock the Node.js API to avoid external dependencies
@@ -148,7 +175,7 @@ class TestSyncHogFunctionTemplates:
         # Just check that the command ran successfully
         assert "Hog function template sync complete" in output
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_template_contents(self, mock_get_hog_function_templates):
         """Test that template contents are properly stored in the database."""
         # Mock the Node.js API to avoid external dependencies
@@ -174,7 +201,7 @@ class TestSyncHogFunctionTemplates:
         if db_template.type not in TYPES_WITH_JAVASCRIPT_SOURCE:
             assert db_template.bytecode is not None
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_template_version_behavior(self, mock_get_hog_function_templates):
         """Test that template versioning behaves correctly"""
         # Mock the Node.js API to avoid external dependencies
@@ -186,7 +213,7 @@ class TestSyncHogFunctionTemplates:
         # Clear any existing templates
         HogFunctionTemplate.objects.all().delete()
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_delete_deleted_coming_soon_templates(self, mock_get_hog_function_templates):
         """Test that coming-soon templates are properly deleted when they're no longer in in the codebase."""
 
@@ -229,7 +256,7 @@ class TestSyncHogFunctionTemplates:
         # Verify the old template was deleted
         assert not HogFunctionTemplate.objects.filter(template_id="coming-soon-old-template").exists()
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_does_not_delete_deleted_templates(self, mock_get_hog_function_templates):
         """Test that non coming-soon templates are not deleted when they're no longer in in the codebase."""
 
