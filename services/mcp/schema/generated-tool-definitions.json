@@ -8964,7 +8964,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool\nthat returns the project API token, which is safe to put in client-side code. Project listing, project\nupdates and the session context leave it out, so ask for a single project when you need the token.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",
