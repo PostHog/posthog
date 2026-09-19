@@ -101,7 +101,12 @@ export type SwitchPlanPayload = {
     to_plan_key: string
 }
 
-const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
+const parseBillingResponse = (data: Partial<BillingType> | null | undefined): BillingType | null => {
+    // The billing API can answer a successful request with an empty body, which api.get resolves to null.
+    if (!data) {
+        return null
+    }
+
     if (data.billing_period) {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
@@ -611,12 +616,12 @@ export interface billingLogicActions {
         errorObject?: any
     }
     updateBillingLimitsSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: {
             [key: string]: number | null
         }
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: {
             [key: string]: number | null
         }
@@ -861,7 +866,12 @@ export const billingLogic = kea<billingLogicType>([
                         'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
                     )
 
-                    return parseBillingResponse(response)
+                    const billing = parseBillingResponse(response)
+                    if (!billing) {
+                        // No billing data to render, so let the scene show its retrieval error.
+                        throw new Error('The billing API returned an empty response')
+                    }
+                    return billing
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
@@ -869,7 +879,7 @@ export const billingLogic = kea<billingLogicType>([
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
                         lemonToast.success('Billing limits updated')
                         actions.loadBilling()
-                        return parseBillingResponse(response)
+                        return parseBillingResponse(response) ?? values.billing
                     } catch (error: unknown) {
                         lemonToast.error(
                             'There was an error updating your billing limits. Please try again or contact support.'
@@ -902,7 +912,7 @@ export const billingLogic = kea<billingLogicType>([
                         actions.loadUser()
                         actions.loadCurrentOrganization()
 
-                        return parseBillingResponse(jsonRes)
+                        return parseBillingResponse(jsonRes) ?? values.billing
                     } catch (error: any) {
                         if (error.code) {
                             if (error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
