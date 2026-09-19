@@ -504,6 +504,7 @@ export function WorkColumn() {
                         onOpen={() => actions.open(item)}
                         menu={menuFor(item)}
                         spaceName={spaceNameFor(item)}
+                        channelId={channelByKey.get(item.key)}
                       />
                     ))}
                   </Fragment>

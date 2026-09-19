@@ -1,6 +1,7 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { cn } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { writeCanvasDragData } from "@posthog/ui/features/canvas/canvasDrag";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
@@ -12,10 +13,12 @@ import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useCha
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { TaskStatusDot } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import {
   OverflowTickerText,
   useOverflowTickerReveal,
 } from "@posthog/ui/primitives/OverflowTickerText";
+import { type DragEvent, useCallback } from "react";
 
 /**
  * One line in the Work column's Recent list: what state it is in, what it is
@@ -28,6 +31,7 @@ export function WorkItemRow({
   item,
   menu,
   spaceName,
+  channelId,
   isActive,
   onOpen,
 }: {
@@ -35,6 +39,8 @@ export function WorkItemRow({
   menu: TaskRowMenuProps;
   /** The list crosses every space, so a row can say which one it is in. */
   spaceName: string | undefined;
+  /** Travels with a dragged canvas, which is filed to a space. */
+  channelId: string | undefined;
   isActive: boolean;
   onOpen: () => void;
 }) {
@@ -46,6 +52,26 @@ export function WorkItemRow({
   // The session lists' own overflow behaviour: a name too long to fit tickers
   // under the pointer rather than stopping at an ellipsis nobody can read past.
   const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
+  // A row is a thing you can drop into a tile or the command centre, and it
+  // carries the same payload the space lists' rows do — the drop targets read
+  // one format, so a row writing another is simply not droppable.
+  const handleDragStart = useCallback(
+    (event: DragEvent<HTMLElement>) => {
+      if (item.kind === "canvas") {
+        writeCanvasDragData(event.dataTransfer, item.id, {
+          name: item.title,
+          channelId: channelId ?? null,
+        });
+        event.dataTransfer.effectAllowed = "copy";
+        return;
+      }
+      writeTaskDragData(event.dataTransfer, item.id);
+      // Both: a tile asks for `copy` and the pinned run asks for `move`, and a
+      // source permitting only one resolves the other pairing to no drop.
+      event.dataTransfer.effectAllowed = "copyMove";
+    },
+    [channelId, item.id, item.kind, item.title],
+  );
   return (
     <TaskRowContextMenu menu={menu}>
       <ChannelItemHoverCard item={item} menu={menu}>
@@ -53,6 +79,8 @@ export function WorkItemRow({
           optionValue={item.key}
           data-selected={isActive || undefined}
           onClick={onOpen}
+          draggable
+          onDragStart={handleDragStart}
           className={subtitle ? "h-auto py-1" : undefined}
           {...hoverProps}
           {...focusProps}
