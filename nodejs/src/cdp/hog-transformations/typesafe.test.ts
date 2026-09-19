@@ -9,7 +9,7 @@ import { createExampleInvocation } from '../_tests/fixtures'
 import { template } from '../templates/_transformations/typesafe/typesafe.template'
 import { CyclotronJobInvocationHogFunction } from '../types'
 import type { TransformationExecutionOptions } from './hog-transformer.service'
-import { executeTypesafeTransformation } from './typesafe'
+import { executeTypesafeTransformation, typesafeAnswerCache } from './typesafe'
 
 jest.mock('~/common/utils/request', () => ({ fetch: jest.fn() }))
 jest.mock('~/common/utils/posthog', () => ({ captureException: jest.fn() }))
@@ -91,6 +91,7 @@ describe('TypeSafe transformation', () => {
         jest.useFakeTimers()
         request.mockReset()
         captureError.mockReset()
+        typesafeAnswerCache.clear()
         exporter = new InMemoryMetricExporter(0)
         provider = new MeterProvider({
             readers: [new PeriodicExportingMetricReader({ exporter, exportIntervalMillis: 60_000 })],
@@ -132,6 +133,27 @@ describe('TypeSafe transformation', () => {
         expect(event.properties).not.toHaveProperty('content_category')
         await expectCallMetrics('success', 1, 100)
         expect(captureError).not.toHaveBeenCalled()
+    })
+
+    it('answers a repeated input from the cache and keys the cache by transformation', async () => {
+        request.mockResolvedValue(mockResponse({ type: 'choice', choice: 'art', confidence: 0.95 }))
+        const invocation = createInvocation()
+        await executeTypesafeTransformation(invocation)
+        const cached = await executeTypesafeTransformation(invocation)
+        expect(cached).toMatchObject({
+            execResult: { properties: expect.objectContaining({ content_category: 'art' }) },
+            logs: [
+                expect.objectContaining({ level: 'info', message: expect.stringContaining('cache') }),
+                expect.objectContaining({ level: 'info', message: 'TypeSafe added the category to the event.' }),
+            ],
+        })
+        expect(request).toHaveBeenCalledTimes(1)
+
+        const otherTransformation = createInvocation()
+        otherTransformation.hogFunction.id = 'another-transformation'
+        await executeTypesafeTransformation(otherTransformation)
+        expect(request).toHaveBeenCalledTimes(2)
+        await expectCallMetrics('success', 2)
     })
 
     it.each<{ properties?: Record<string, any>; options?: TransformationExecutionOptions }>([
@@ -187,17 +209,14 @@ describe('TypeSafe transformation', () => {
             ...mockResponse(null),
             json: () => Promise.reject(new SyntaxError('Invalid JSON containing fake-demo-key and reader@example.com')),
         })
-        const errors: (string | undefined)[] = []
-        for (let i = 0; i < 3; i++) {
+        for (const expectedError of ['Check the API key', 'status 429', 'invalid answer']) {
             const result = await executeTypesafeTransformation(invocation)
             expect(result).toMatchObject({ finished: true, execResult: invocation.state.globals.event })
-            expect(result.error).not.toBeUndefined()
+            expect(result.error).toContain(expectedError)
             expect(result.error).not.toContain('fake-demo-key')
             // Monitoring drops result.error, so the reason only reaches the user as a log.
             expect(result.logs).toEqual([expect.objectContaining({ level: 'error', message: result.error })])
-            errors.push(result.error)
         }
-        expect(errors[1]).toContain('status 429')
         await expectCallMetrics('failure', 3)
         expect(captureError).toHaveBeenCalledTimes(3)
         expect(captureError.mock.calls.map(([, hint]) => hint?.tags?.failure_kind)).toEqual([
@@ -264,12 +283,14 @@ describe('TypeSafe transformation', () => {
         request.mockResolvedValue(mockResponse({ type: 'choice', choice: 'art', confidence: 0.95 }))
         for (const apiKey of ['fake-key-one', 'fake-key-two']) {
             const invocation = createInvocation()
+            invocation.hogFunction.id = `transformation-with-${apiKey}`
             invocation.state.globals.inputs.api_key = apiKey
             await executeTypesafeTransformation(invocation)
             expect(request).toHaveBeenLastCalledWith(
                 'https://api.typesafe.ai/v1/systemone',
                 expect.objectContaining({
                     headers: expect.objectContaining({ Authorization: `Bearer ${apiKey}` }),
+                    timeoutMs: 1000,
                 })
             )
         }
