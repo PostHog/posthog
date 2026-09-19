@@ -239,17 +239,26 @@ describe('Logs', { concurrent: false }, () => {
         const facetTool = GENERATED_TOOLS['logs-facet-values-create']!()
 
         it.each([
-            { name: 'column facet', query: { facetField: 'service_name' as const } },
-            { name: 'resource-attribute facet', query: { facetResourceAttribute: 'k8s.namespace.name' } },
-        ])('should return per-value counts for a $name', async ({ query }) => {
+            {
+                name: 'column facet',
+                query: { facetField: 'service_name' as const },
+                readValues: (results: any) => results.facetField,
+            },
+            {
+                name: 'resource-attribute facet',
+                query: { facetResourceAttribute: 'k8s.namespace.name' },
+                readValues: (results: any) => results.facetResourceAttributes.flatMap((entry: any) => entry.values),
+            },
+        ])('should return per-value counts for a $name', async ({ query, readValues }) => {
             const result = await facetTool.handler(context, {
                 query: { ...query, dateRange: { date_from: '-24h' } },
             })
             const facetData = parseToolResponse(result)
 
             expect(facetData).toHaveProperty('results')
-            expect(Array.isArray(facetData.results)).toBe(true)
-            for (const facet of facetData.results) {
+            const values = readValues(facetData.results)
+            expect(Array.isArray(values)).toBe(true)
+            for (const facet of values) {
                 expect(facet.value).not.toBeUndefined()
                 expect(typeof facet.count).toBe('number')
             }

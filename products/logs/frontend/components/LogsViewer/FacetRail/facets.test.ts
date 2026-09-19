@@ -9,6 +9,7 @@ import {
     customFacetIdentity,
     facetScopeSignature,
     filterFacetsByName,
+    isBatchableFacet,
     mergeSelectedIntoOptions,
     resolveFacets,
 } from './facets'
@@ -325,6 +326,76 @@ describe('facets', () => {
 
         it('returns null for a curated facet', () => {
             expect(customFacetIdentity(CONFIGURED_FACETS[0])).toBeNull()
+        })
+    })
+
+    describe('isBatchableFacet', () => {
+        const KEY = 'k8s.namespace.name'
+        const RESOURCE = facet(KEY, 'Namespace', 'Kubernetes')
+        const ATTRIBUTE = buildCustomFacet(KEY, 'attribute')
+        const COLUMN = CONFIGURED_FACETS.find((f) => f.source.type === 'column')!
+
+        const groupWith = (filters: Record<string, unknown>[]): UniversalFiltersGroup => ({
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.And, values: filters as UniversalFiltersGroup['values'] }],
+        })
+        const filterOn = (
+            type: PropertyFilterType,
+            operator: PropertyOperator,
+            key: string = KEY
+        ): Record<string, unknown> => ({ key, type, operator, value: 'argo' })
+
+        // The batch runs one WHERE for every facet, so a facet whose own filter would have to be
+        // excluded can't be in it. The match is on key alone, any operator, mirroring what
+        // LogsFilterBuilder's exclude_resource_attribute drops — narrowing this to exact/is_not
+        // would batch a facet the backend still filters by, collapsing its counts to one value.
+        it.each<[string, FacetConfig, Record<string, unknown>[], boolean]>([
+            ['a resource facet with no filters', RESOURCE, [], true],
+            [
+                'a resource facet filtered on another key',
+                RESOURCE,
+                [filterOn(PropertyFilterType.LogResourceAttribute, PropertyOperator.Exact, 'k8s.pod.name')],
+                true,
+            ],
+            [
+                'a resource facet with an exact filter on its own key',
+                RESOURCE,
+                [filterOn(PropertyFilterType.LogResourceAttribute, PropertyOperator.Exact)],
+                false,
+            ],
+            [
+                'a resource facet with an is_not filter on its own key',
+                RESOURCE,
+                [filterOn(PropertyFilterType.LogResourceAttribute, PropertyOperator.IsNot)],
+                false,
+            ],
+            [
+                'a resource facet with a non-rail operator on its own key',
+                RESOURCE,
+                [filterOn(PropertyFilterType.LogResourceAttribute, PropertyOperator.IContains)],
+                false,
+            ],
+            // A log_attribute filter never reaches the rollup query, so there is nothing to exclude.
+            [
+                'an attribute facet with a filter on its own key',
+                ATTRIBUTE,
+                [filterOn(PropertyFilterType.LogAttribute, PropertyOperator.Exact)],
+                true,
+            ],
+            [
+                'a resource facet with a log_attribute filter on the same key',
+                RESOURCE,
+                [filterOn(PropertyFilterType.LogAttribute, PropertyOperator.Exact)],
+                true,
+            ],
+            // Column facets read the logs table, not the rollup — never batchable.
+            ['a column facet', COLUMN, [], false],
+        ])('%s', (_, config, filters, expected) => {
+            expect(isBatchableFacet(config, groupWith(filters))).toBe(expected)
+        })
+
+        it('treats an undefined filter group as no filters', () => {
+            expect(isBatchableFacet(RESOURCE, undefined)).toBe(true)
         })
     })
 })

@@ -332,15 +332,23 @@ const sparklineMock: MockSignature = async ({ request }) => {
  * Facet values + counts for the rail, computed over the same generated logs the viewer is showing so
  * the counts and the rows agree. Cross-filtering is the backend's job: it strips the faceted field's
  * own filter, which here means faceting on a field ignores that field's selection but honors the rest.
+ *
+ * The rail asks two ways, and the response carries both: a single target, which excludes its own
+ * filter and honors facetSearch, or a list of attribute keys sharing one filter set, which the rail
+ * uses for most of its facets so they cost one request between them.
  */
 const facetValuesMock: MockSignature = async ({ request }) => {
     await delayIfNotTestRunner()
     const body = (await request.json()) as Record<string, any>
     const facetField = body.query?.facetField
     const resourceAttribute = body.query?.facetResourceAttribute
+    const attribute = body.query?.facetAttribute
+    const resourceKeys: string[] = resourceAttribute ? [resourceAttribute] : (body.query?.facetResourceAttributes ?? [])
+    const attributeKeys: string[] = attribute ? [attribute] : (body.query?.facetAttributes ?? [])
     // Strip the filter belonging to the facet being queried, whichever facet that is. Picking the
     // wrong one inverts the contract: the facet would zero out its own selected value and keep
-    // counting rows another facet has filtered away.
+    // counting rows another facet has filtered away. A list of keys shares one filter set, so
+    // nothing is stripped for it — the same trade the batched query makes.
     const own: FacetFilterTarget | null =
         facetField === 'service_name'
             ? SERVICE_NAME_FILTER
@@ -352,25 +360,46 @@ const facetValuesMock: MockSignature = async ({ request }) => {
     const scopedGroup = own ? setFacetSelection(body.query?.filterGroup, own, EMPTY_SELECTION) : body.query?.filterGroup
     const { logs } = await getLogs({ query: { ...body.query, filterGroup: scopedGroup } })
 
-    const counts = new Map<string, number>()
-    for (const log of logs) {
-        const value =
-            facetField === 'service_name'
-                ? log.resource_attributes['service.name']
-                : facetField === 'severity_text'
-                  ? log.severity_text.toLowerCase()
-                  : log.resource_attributes[resourceAttribute]
-        if (value) {
-            counts.set(String(value), (counts.get(String(value)) ?? 0) + 1)
+    // A search only ever accompanies a single target, matching the endpoint.
+    const search = String(
+        facetField || resourceAttribute || attribute ? (body.query?.facetSearch ?? '') : ''
+    ).toLowerCase()
+    const countValues = (readValue: (log: LogMessage) => string | undefined): { value: string; count: number }[] => {
+        const counts = new Map<string, number>()
+        for (const log of logs) {
+            const value = readValue(log)
+            if (value) {
+                counts.set(String(value), (counts.get(String(value)) ?? 0) + 1)
+            }
         }
+        return Array.from(counts.entries())
+            .filter(([value]) => !search || value.toLowerCase().includes(search))
+            .sort(([, a], [, b]) => b - a)
+            .map(([value, count]) => ({ value, count }))
     }
 
-    const search = String(body.query?.facetSearch ?? '').toLowerCase()
-    const results = Array.from(counts.entries())
-        .filter(([value]) => !search || value.toLowerCase().includes(search))
-        .sort(([, a], [, b]) => b - a)
-        .map(([value, count]) => ({ value, count }))
-    return [200, { results }]
+    return [
+        200,
+        {
+            results: {
+                facetField: facetField
+                    ? countValues((log) =>
+                          facetField === 'service_name'
+                              ? log.resource_attributes['service.name']
+                              : log.severity_text.toLowerCase()
+                      )
+                    : [],
+                facetResourceAttributes: resourceKeys.map((key) => ({
+                    key,
+                    values: countValues((log) => log.resource_attributes[key]),
+                })),
+                facetAttributes: attributeKeys.map((key) => ({
+                    key,
+                    values: countValues((log) => log.attributes?.[key]),
+                })),
+            },
+        },
+    ]
 }
 
 // The taxonomic filter asks for `attribute_type=log|resource` and reads a paginated list whose items

@@ -2,6 +2,7 @@ import os
 import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -30,17 +31,32 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
                 {sql}
             """)
 
-    def _facet(self, facet_field: str, **filters) -> dict[str, int]:
-        body = {"query": {"facetField": facet_field, "dateRange": self.DATE_RANGE, **filters}}
+    def _post_facets(self, query: dict) -> dict:
+        body = {"query": {"dateRange": self.DATE_RANGE, **query}}
         response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()["results"]
+
+    def _search(self, target: str, key: str, term: str, **filters) -> dict[str, int]:
+        body = {"query": {target: key, "facetSearch": term, "dateRange": self.DATE_RANGE, **filters}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_search", body, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return {r["value"]: r["count"] for r in response.json()["results"]}
 
+    def _facet(self, facet_field: str, **filters) -> dict[str, int]:
+        # facetSearch is a different endpoint now, so route it there rather than duplicating callers.
+        if "facetSearch" in filters:
+            return self._search("facetField", facet_field, filters.pop("facetSearch"), **filters)
+        results = self._post_facets({"facetField": facet_field, **filters})
+        return {r["value"]: r["count"] for r in results["facetField"]}
+
     def _facet_attr(self, key: str, target: str = "facetResourceAttribute", **filters) -> dict[str, int]:
-        body = {"query": {target: key, "dateRange": self.DATE_RANGE, **filters}}
-        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return {r["value"]: r["count"] for r in response.json()["results"]}
+        if "facetSearch" in filters:
+            return self._search(target, key, filters.pop("facetSearch"), **filters)
+        results = self._post_facets({target: key, **filters})
+        group = "facetAttributes" if target == "facetAttribute" else "facetResourceAttributes"
+        entries = results[group]
+        return {r["value"]: r["count"] for r in entries[0]["values"]} if entries else {}
 
     @parameterized.expand(
         [
@@ -288,6 +304,114 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
     def test_attribute_facet_search_no_match_returns_empty(self, target, key):
         self.assertEqual(self._facet_attr(key, target=target, facetSearch="no-such-value-xyz"), {})
 
+    # The batch endpoint answers several attribute facets in one query. Keys carrying a filter of
+    # their own can't batch (they'd have to exclude it), so these use keys the filters never touch.
+    BATCH_RESOURCE_KEYS = ["k8s.pod.name", "k8s.node.name"]
+    BATCH_ATTRIBUTE_KEYS = ["log.iostream"]
+
+    def _facet_batch(self, resource_keys, attribute_keys, **filters) -> dict[tuple[str, str], dict[str, int]]:
+        results = self._post_facets(
+            {"facetResourceAttributes": resource_keys, "facetAttributes": attribute_keys, **filters}
+        )
+        return {
+            **{
+                ("resource", e["key"]): {v["value"]: v["count"] for v in e["values"]}
+                for e in results["facetResourceAttributes"]
+            },
+            **{("log", e["key"]): {v["value"]: v["count"] for v in e["values"]} for e in results["facetAttributes"]},
+        }
+
+    def _namespace_filter(self, operator):
+        return {
+            "key": "k8s.namespace.name",
+            "type": "log_resource_attribute",
+            "operator": operator,
+            "value": next(iter(self._facet_attr("k8s.namespace.name"))),
+        }
+
+    @parameterized.expand(
+        [
+            ("no_filters", lambda self: {}),
+            ("severity", lambda self: {"severityLevels": [next(iter(self._facet("severity_text")))]}),
+            ("service", lambda self: {"serviceNames": [next(iter(self._facet("service_name")))]}),
+            ("resource_exact", lambda self: {"filterGroup": [self._namespace_filter("exact")]}),
+            ("resource_is_not", lambda self: {"filterGroup": [self._namespace_filter("is_not")]}),
+        ]
+    )
+    def test_batch_matches_per_facet_results(self, _name, make_filters):
+        # Batching is only safe if it returns what the per-facet queries return, under every filter
+        # the rollup honours. The is_not case also pins that one LogsFilterBuilder is built per
+        # request: _generate_resource_attribute_filters inverts operators in place, so a second
+        # builder would read the negative filter as a positive one and undercount.
+        filters = make_filters(self)
+        batched = self._facet_batch(self.BATCH_RESOURCE_KEYS, self.BATCH_ATTRIBUTE_KEYS, **filters)
+
+        # Comparing the two paths alone would pass if a filter reached neither. Prove it bit first.
+        if filters:
+            unfiltered = self._facet_batch(self.BATCH_RESOURCE_KEYS, self.BATCH_ATTRIBUTE_KEYS)
+            self.assertNotEqual(batched, unfiltered)
+
+        for key in self.BATCH_RESOURCE_KEYS:
+            single = self._facet_attr(key, **filters)
+            self.assertGreater(len(single), 0)
+            self.assertEqual(batched[("resource", key)], single)
+        for key in self.BATCH_ATTRIBUTE_KEYS:
+            single = self._facet_attr(key, target="facetAttribute", **filters)
+            self.assertGreater(len(single), 0)
+            self.assertEqual(batched[("log", key)], single)
+
+    def test_one_key_list_keeps_shared_filter_semantics(self):
+        # A one-key list takes the same cheap top-N query as a singular request, so the two shapes
+        # differ only by whether the key's own filter is excluded. That distinction is a flag on one
+        # runner now, and losing it here would silently swap a facet's counts for the other shape's.
+        base = self._facet_attr("k8s.namespace.name")
+        own_value = next(iter(base))
+        filter_group = [
+            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": own_value}
+        ]
+
+        # Asked for on its own: excludes its own filter, so the counts do not move.
+        self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
+
+        # Asked for in a key list: shares one WHERE, so its own filter applies and narrows it to
+        # the selected value.
+        batched = self._facet_batch(["k8s.namespace.name"], [], filterGroup=filter_group)
+        self.assertEqual(list(batched[("resource", "k8s.namespace.name")]), [own_value])
+
+    def test_batch_limits_values_per_facet(self):
+        # The limit is applied per facet by a window partition. A global LIMIT would starve every
+        # facet but the highest-volume one, which the equality test above can't see.
+        with patch("products.logs.backend.log_facet_values_query_runner.DEFAULT_FACET_LIMIT", 2):
+            batched = self._facet_batch(self.BATCH_RESOURCE_KEYS, self.BATCH_ATTRIBUTE_KEYS)
+
+        for key in self.BATCH_RESOURCE_KEYS:
+            self.assertEqual(len(batched[("resource", key)]), 2)
+        for key in self.BATCH_ATTRIBUTE_KEYS:
+            self.assertEqual(len(batched[("log", key)]), 2)
+
+    def test_batch_does_not_mix_attribute_types(self):
+        # One rollup holds both types, and the batch targets them as separate OR arms. A key asked
+        # for under the wrong type must come back present but empty, not carrying the other's values.
+        batched = self._facet_batch(["log.iostream"], ["k8s.namespace.name"])
+        self.assertEqual(batched[("resource", "log.iostream")], {})
+        self.assertEqual(batched[("log", "k8s.namespace.name")], {})
+
+    @parameterized.expand(
+        [
+            ("no_keys", {}),
+            ("empty_lists", {"facetResourceAttributes": [], "facetAttributes": []}),
+            ("over_cap", {"facetAttributes": [f"key.{i}" for i in range(51)]}),
+            # The two request shapes apply different filters — a single target excludes its own
+            # filter and honours facetSearch, the key lists do neither — so mixing them would
+            # silently return counts under two different rules in one response.
+            ("single_and_plural", {"facetAttribute": "log.iostream", "facetAttributes": ["hostname"]}),
+        ]
+    )
+    def test_rejects_invalid_target_combinations(self, _name, query):
+        body = {"query": {**query, "dateRange": self.DATE_RANGE}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_requires_exactly_one_facet_target(self):
         for query in (
             {},  # none
@@ -303,3 +427,17 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             body = {"query": {**query, "dateRange": self.DATE_RANGE}}
             response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            # facet_search is single-target and needs the term, so these are its two boundary rules.
+            ("no_target", {"facetSearch": "x"}),
+            ("two_targets", {"facetField": "service_name", "facetAttribute": "log.iostream", "facetSearch": "x"}),
+            ("missing_search", {"facetResourceAttribute": "k8s.pod.name"}),
+            ("blank_search", {"facetResourceAttribute": "k8s.pod.name", "facetSearch": "  "}),
+        ]
+    )
+    def test_facet_search_rejects_invalid_requests(self, _name, query):
+        body = {"query": {**query, "dateRange": self.DATE_RANGE}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_search", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

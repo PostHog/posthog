@@ -20,11 +20,11 @@ export interface RailFacetProps {
     hidden?: boolean
 }
 
-/** One facet in the rail, with its own independently-loaded values (see facetValuesLogic). */
+/** One facet in the rail. Values come from the rail's shared batch, or its own fetch — see facetValuesLogic. */
 export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | null {
     // `facet` comes from the memoized visibleFacets selector, so this identity is stable.
     const logicProps = useMemo(() => ({ id, facet }), [id, facet])
-    const { facetValues, facetValuesLoading, facetSearch, collapsed } = useValues(facetValuesLogic(logicProps))
+    const { displayedValues, valuesLoading, facetSearch, collapsed } = useValues(facetValuesLogic(logicProps))
     const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
     const { filterGroup } = useValues(logsViewerFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
@@ -44,8 +44,8 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
     )
     // Values + counts come from the cross-filtered endpoint.
     const fetched: FacetOption[] = useMemo(
-        () => facetValues.map((r) => ({ value: r.value, label: r.value, count: r.count })),
-        [facetValues]
+        () => displayedValues.map((r) => ({ value: r.value, label: r.value, count: r.count })),
+        [displayedValues]
     )
     // Fixed value set from config, counts overlaid. Missing values render as a dimmed 0.
     const fixedOptions: FacetOption[] = useMemo(() => {
@@ -85,7 +85,7 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
                 selected={selected}
                 excluded={excluded}
                 onToggle={onToggle}
-                loading={facetValuesLoading}
+                loading={valuesLoading}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
                 dimZeroCounts
@@ -102,7 +102,7 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
             selected={selected}
             excluded={excluded}
             onToggle={onToggle}
-            loading={facetValuesLoading}
+            loading={valuesLoading}
             emptyLabel={facet.emptyLabel}
             searchValue={facet.searchable ? facetSearch : undefined}
             onSearchChange={facet.searchable ? setFacetSearch : undefined}
