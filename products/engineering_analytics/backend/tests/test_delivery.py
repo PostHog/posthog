@@ -16,8 +16,8 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
 from products.engineering_analytics.backend.logic.comparison_teams import choose_comparison_teams
 from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope, SummaryScope
+from products.engineering_analytics.backend.logic.merge_queue import GateAttempt
 from products.engineering_analytics.backend.logic.pr_timeline import (
-    GateAttempt,
     MasterFailureIndex,
     PRTimelineBuilder,
     PRTimelineInput,
@@ -35,6 +35,7 @@ from products.engineering_analytics.backend.logic.queries.delivery_summary impor
     query_delivery_summary,
     scope_repo_figure,
 )
+from products.engineering_analytics.backend.logic.queries.merge_queue_overview import query_merge_queue_overview
 from products.engineering_analytics.backend.logic.queries.pull_request_timelines import query_pull_request_timelines
 from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPLOYMENT_STATUSES_COLUMNS,
@@ -200,7 +201,7 @@ class TestPRTimelineBuilder(SimpleTestCase):
                         ReviewVerdict(reviewer="ada", state="COMMENTED", submitted_at=_at(3)),
                         ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(6)),
                     ],
-                    gates=[GateAttempt(started_at=_at(7), completed_at=_at(8))],
+                    gates=[GateAttempt(attempt="gate-1", started_at=_at(7), completed_at=_at(8), failed=False)],
                 ),
                 [],
                 [
@@ -232,7 +233,7 @@ class TestPRTimelineBuilder(SimpleTestCase):
                     10,
                     [_attempt("a", 0, 1)],
                     reviews=[ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(1))],
-                    gates=[GateAttempt(started_at=_at(2), completed_at=_at(3))],
+                    gates=[GateAttempt(attempt="gate-1", started_at=_at(2), completed_at=_at(3), failed=False)],
                     is_open=True,
                     trunk_out=True,
                 ),
@@ -250,7 +251,7 @@ class TestPRTimelineBuilder(SimpleTestCase):
                     10,
                     [_attempt("a", 0, 1)],
                     reviews=[ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(1))],
-                    gates=[GateAttempt(started_at=_at(2), completed_at=_at(3))],
+                    gates=[GateAttempt(attempt="gate-1", started_at=_at(2), completed_at=_at(3), failed=False)],
                     is_merged=False,
                 ),
                 [],
@@ -511,6 +512,8 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         red_start, red_end = _ago_offset_with_duration(2, 0, 3600)
         fix_start, fix_end = _ago_offset_with_duration(2, 8 * 3600, 3600)
         gate_start, gate_end = _ago_offset_with_duration(2, 20 * 3600, 3600)
+        post_merge_probe_start, post_merge_probe_end = _ago_offset_with_duration(1, 3600, 3600)
+        old_gate_start, old_gate_end = _ago_offset_with_duration(20, 0, 3600)
         self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
@@ -530,6 +533,30 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
                     actor="trunk-io[bot]",
                 ),
                 _run_row(3004, "CI", "sha22", "completed", "success", _ago(2), _ago(2), pr_number=22),
+                _run_row(
+                    3005,
+                    "CI",
+                    "sha21probe",
+                    "completed",
+                    "failure",
+                    post_merge_probe_start,
+                    post_merge_probe_end,
+                    pr_number=9002,
+                    head_branch="trunk-merge/pr-21/cabec75e-5181-4429-aea5-0501a52d0688-bisection",
+                    actor="trunk-io[bot]",
+                ),
+                _run_row(
+                    3006,
+                    "CI",
+                    "sha26queue",
+                    "completed",
+                    "failure",
+                    old_gate_start,
+                    old_gate_end,
+                    pr_number=9003,
+                    head_branch="trunk-merge/pr-26/old",
+                    actor="trunk-io[bot]",
+                ),
             ],
         )
 
@@ -537,10 +564,9 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
     def test_summary_compares_scope_with_repo_and_flags_missing_sources(self, _name: str, scope: SummaryScope) -> None:
         self._seed()
         curated = CuratedGitHubSource.for_team(self.team)
+        date_from = datetime.now(tz=UTC) - timedelta(days=7)
 
-        summary = query_delivery_summary(
-            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
-        )
+        summary = query_delivery_summary(curated=curated, scope=scope, date_from=date_from, date_to=None)
 
         assert (summary.opened_pr_count, summary.merged_pr_count, summary.open_pr_count, summary.draft_pr_count) == (
             3,
@@ -557,6 +583,15 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert summary.median_ready_to_merge_seconds.repo == (86400 + 3 * 86400) / 2
         assert summary.pushes_after_approval_per_merged_pr.scope == 1
         assert summary.merge_queue_attempts_per_merged_pr.scope == 1
+        assert summary.failed_merge_queue_share.scope == 0
+        overview = query_merge_queue_overview(
+            curated=curated,
+            date_from=date_from,
+            date_to=None,
+            prev_from=date_from - timedelta(days=7),
+        )
+        assert overview.avg_attempts_per_merge == summary.merge_queue_attempts_per_merged_pr.scope
+        assert overview.failed_gate_merge_share == summary.failed_merge_queue_share.scope
         assert summary.push_count == 2
         assert summary.cost_per_merged_pr_usd.scope is None
         assert summary.lead_time.deploy_data_available is False
