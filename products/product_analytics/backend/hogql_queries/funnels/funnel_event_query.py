@@ -603,7 +603,10 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 # Same expression shape as the events branch so the UNION column types match.
                 ast.Alias(
                     alias="client_capture_time",
-                    expr=ast.Call(name="parseDateTimeBestEffort", args=[ast.Constant(value="")]),
+                    expr=ast.Call(
+                        name="parseDateTimeBestEffort",
+                        args=[ast.Constant(value=""), ast.Constant(value="UTC")],
+                    ),
                 ),
             ]
         return [
@@ -628,7 +631,13 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                         ast.Call(
                             name="toString",
                             args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, "properties", "$client_capture_time"])],
-                        )
+                        ),
+                        # The second argument is load-bearing, and it is the timezone: the
+                        # printer supplies precision itself. With one argument it resolves this
+                        # to the throwing parser, which fails the whole query on any row that
+                        # has no capture instant rather than letting it fall back. The value is
+                        # an absolute instant, so the zone only picks the nullable overload.
+                        ast.Constant(value="UTC"),
                     ],
                 ),
             ),
