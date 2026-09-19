@@ -501,7 +501,8 @@ class ExportedAssetViewSet(
 ):
     scope_object = "export"
     # Both FKs are read on every retrieve to authorize the asset, so fetch them with it.
-    queryset = ExportedAsset.objects.select_related("dashboard", "insight").order_by("-created_at")
+    # created_at is not unique, so it cannot page reliably on its own
+    queryset = ExportedAsset.objects.select_related("dashboard", "insight").order_by("-created_at", "-id")
     serializer_class = ExportedAssetSerializer
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
