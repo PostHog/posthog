@@ -27,6 +27,15 @@ class ServiceAccountInfo(typing.TypedDict):
     client_email: str
 
 
+def _is_blank(value: str | None) -> bool:
+    """Whether a required identifier is absent: unset, empty, or only whitespace.
+
+    A cleared form field arrives as an empty string, not `None`, so both must count as
+    missing. Otherwise a blank value passes as configured and we call BigQuery with it.
+    """
+    return value is None or not value.strip()
+
+
 def get_client(
     project_id: str | None,
     integration: GoogleCloudServiceAccountIntegration | None,
@@ -274,12 +283,22 @@ class BigQueryDatasetTestStep(DestinationTestStep):
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
         if (
-            self.project_id is None
-            or self.dataset_id is None
+            _is_blank(self.project_id)
+            or _is_blank(self.dataset_id)
             or (self.service_account_info is None and self.integration is None)
         ):
             return False
         return True
+
+    def _missing_configuration(self) -> list[str]:
+        missing = []
+        if _is_blank(self.dataset_id):
+            missing.append("Dataset ID")
+        if _is_blank(self.project_id):
+            missing.append("BigQuery project")
+        if self.service_account_info is None and self.integration is None:
+            missing.append("credentials")
+        return missing
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
@@ -344,13 +363,25 @@ class BigQueryTableTestStep(DestinationTestStep):
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
         if (
-            self.project_id is None
-            or self.dataset_id is None
-            or self.table_id is None
+            _is_blank(self.project_id)
+            or _is_blank(self.dataset_id)
+            or _is_blank(self.table_id)
             or (self.service_account_info is None and self.integration is None)
         ):
             return False
         return True
+
+    def _missing_configuration(self) -> list[str]:
+        missing = []
+        if _is_blank(self.table_id):
+            missing.append("Table ID")
+        if _is_blank(self.dataset_id):
+            missing.append("Dataset ID")
+        if _is_blank(self.project_id):
+            missing.append("BigQuery project")
+        if self.service_account_info is None and self.integration is None:
+            missing.append("credentials")
+        return missing
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
