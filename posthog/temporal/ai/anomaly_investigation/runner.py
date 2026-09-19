@@ -392,7 +392,7 @@ async def run_investigation(
     # choice, so forcing a specific tool returns a 400 and this finalize turn would fall through to
     # the generic fallback report. Binding *only* the final-report tool, plus the explicit "submit
     # now" nudge on the budget-exhausted turn, reliably elicits the call without forcing it; if the
-    # model returns plain text instead, the text-JSON fallback in _parse_report still recovers it.
+    # model returns plain text instead, the text-JSON fallback in _parse_report_text still recovers it.
     llm_with_final_report = llm.bind_tools([final_report_tool])
 
     # Without a langchain CallbackHandler attached, MaxChatAnthropic's posthog_properties
