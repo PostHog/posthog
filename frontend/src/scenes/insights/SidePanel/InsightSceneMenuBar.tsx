@@ -94,9 +94,16 @@ export function InsightSceneMenuBar({
 
 function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const theInsightLogic = insightLogic(insightLogicProps)
-    const { insightProps, insight, hasDashboardItemId, canEditInsight, isSavingTags, insightDuplicating } =
-        useValues(theInsightLogic)
-    const { duplicateInsight, deleteInsight, setInsightMetadata } = useActions(theInsightLogic)
+    const {
+        insightProps,
+        insight,
+        hasDashboardItemId,
+        canEditInsight,
+        isSavingTags,
+        insightDuplicating,
+        typesafeTagSuggestionLoading,
+    } = useValues(theInsightLogic)
+    const { duplicateInsight, deleteInsight, setInsightMetadata, suggestTagsWithTypesafe } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
     const {
@@ -441,6 +448,12 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         dataAttrKey={RESOURCE_TYPE}
                         canEdit={canEditInsight}
                         loading={isSavingTags}
+                        onSuggest={
+                            featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_TYPESAFE_SUGGESTIONS]
+                                ? suggestTagsWithTypesafe
+                                : undefined
+                        }
+                        suggesting={typesafeTagSuggestionLoading}
                     />
                     <SceneActivityIndicator
                         at={insight.last_modified_at}

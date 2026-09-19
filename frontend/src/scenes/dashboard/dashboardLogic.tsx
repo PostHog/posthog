@@ -36,6 +36,11 @@ import {
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
+import type {
+    TypesafeSubjectPayload,
+    TypesafeTagSuggestion,
+    TypesafeTextSuggestion,
+} from 'lib/components/TypesafeSuggest/types'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -395,6 +400,13 @@ export interface dashboardLogicValues {
     textTileId: DashboardTileIdOrNew
     textTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+    typesafeDescriptionSuggestion: TypesafeTextSuggestion | null
+    typesafeDescriptionSuggestionLoading: boolean
+    typesafeNameSuggestion: TypesafeTextSuggestion | null
+    typesafeNameSuggestionLoading: boolean
+    typesafePayload: TypesafeSubjectPayload
+    typesafeTagSuggestion: TypesafeTagSuggestion | null
+    typesafeTagSuggestionLoading: boolean
     urlFilters: DashboardFilter
     urlSearchParamsAtEditModeEntry: {
         filters?: unknown
@@ -961,6 +973,69 @@ export interface dashboardLogicActions {
     setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => {
         results: Record<number, DashboardWidgetRunResultApi>
     }
+    suggestDescriptionWithTypesafe: () => {
+        value: true
+    }
+    suggestDescriptionWithTypesafeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    suggestDescriptionWithTypesafeSuccess: (
+        typesafeDescriptionSuggestion: TypesafeTextSuggestion,
+        payload?: {
+            value: true
+        }
+    ) => {
+        typesafeDescriptionSuggestion: TypesafeTextSuggestion
+        payload?: {
+            value: true
+        }
+    }
+    suggestNameWithTypesafe: () => {
+        value: true
+    }
+    suggestNameWithTypesafeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    suggestNameWithTypesafeSuccess: (
+        typesafeNameSuggestion: TypesafeTextSuggestion,
+        payload?: {
+            value: true
+        }
+    ) => {
+        typesafeNameSuggestion: TypesafeTextSuggestion
+        payload?: {
+            value: true
+        }
+    }
+    suggestTagsWithTypesafe: () => {
+        value: true
+    }
+    suggestTagsWithTypesafeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    suggestTagsWithTypesafeSuccess: (
+        typesafeTagSuggestion: TypesafeTagSuggestion,
+        payload?: {
+            value: true
+        }
+    ) => {
+        typesafeTagSuggestion: TypesafeTagSuggestion
+        payload?: {
+            value: true
+        }
+    }
     tileStreamingComplete: () => {
         value: true
     }
@@ -1204,6 +1279,10 @@ export interface dashboardLogicMeta {
         insightTiles: (
             tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
         ) => DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+        typesafePayload: (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+        ) => TypesafeSubjectPayload
         textTiles: (
             tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
         ) => DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
@@ -1316,6 +1395,13 @@ function exitFilterEditModeWhenSaved(
     if (values.dashboardSettingsState === 'saved' && values.dashboardEditing?.filters && !values.layoutEditMode) {
         actions.setDashboardEditing(null, DashboardEventSource.DashboardFilters)
     }
+}
+
+const TYPESAFE_SUGGESTION_FAILED = "Couldn't get a suggestion from TypeSafe. Try again."
+
+function typesafeKeptMessage(field: 'name' | 'description', suggestion: TypesafeTextSuggestion): string {
+    const next = suggestion.runner_up ? ` Its next pick was "${suggestion.runner_up}".` : ''
+    return `TypeSafe kept the current ${field}.${next}`
 }
 
 export const dashboardLogic = kea<dashboardLogicType>([
@@ -1482,6 +1568,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDashboardCustomizeMenuOpen: (open: boolean) => ({ open }),
         changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         updateDashboardTags: (tags: string[]) => ({ tags }),
+        suggestNameWithTypesafe: true,
+        suggestDescriptionWithTypesafe: true,
+        suggestTagsWithTypesafe: true,
         /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
@@ -1940,6 +2029,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw e
                     }
                 },
+            },
+        ],
+        typesafeNameSuggestion: [
+            null as TypesafeTextSuggestion | null,
+            {
+                suggestNameWithTypesafe: async () => await api.typesafeSuggestions.title(values.typesafePayload),
+            },
+        ],
+        typesafeDescriptionSuggestion: [
+            null as TypesafeTextSuggestion | null,
+            {
+                suggestDescriptionWithTypesafe: async () =>
+                    await api.typesafeSuggestions.description(values.typesafePayload),
+            },
+        ],
+        typesafeTagSuggestion: [
+            null as TypesafeTagSuggestion | null,
+            {
+                suggestTagsWithTypesafe: async () => await api.typesafeSuggestions.tags(values.typesafePayload),
             },
         ],
     })),
@@ -3058,6 +3166,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
                 >[]
             ) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
+        ],
+        typesafePayload: [
+            (s) => [s.dashboard, s.insightTiles],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                insightTiles: DashboardTile<QueryBasedInsightModel>[]
+            ): TypesafeSubjectPayload => ({
+                subject: 'dashboard',
+                name: dashboard?.name || '',
+                description: dashboard?.description || '',
+                tile_names: insightTiles
+                    .map((tile) => tile.insight?.name || tile.insight?.derived_name || '')
+                    .filter((name) => !!name),
+            }),
         ],
         textTiles: [
             (s) => [s.tiles],
@@ -4906,6 +5028,47 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         updateDashboardTags: ({ tags }: { tags: string[] }) => {
             actions.triggerDashboardUpdate({ tags })
+        },
+        suggestNameWithTypesafeSuccess: ({ typesafeNameSuggestion }) => {
+            if (!typesafeNameSuggestion) {
+                return
+            }
+            if (typesafeNameSuggestion.value === (values.dashboard?.name || '')) {
+                lemonToast.info(typesafeKeptMessage('name', typesafeNameSuggestion))
+                return
+            }
+            actions.triggerDashboardUpdate({ name: typesafeNameSuggestion.value, allowUndo: true })
+        },
+        suggestDescriptionWithTypesafeSuccess: ({ typesafeDescriptionSuggestion }) => {
+            if (!typesafeDescriptionSuggestion) {
+                return
+            }
+            if (typesafeDescriptionSuggestion.value === (values.dashboard?.description || '')) {
+                lemonToast.info(typesafeKeptMessage('description', typesafeDescriptionSuggestion))
+                return
+            }
+            actions.triggerDashboardUpdate({ description: typesafeDescriptionSuggestion.value, allowUndo: true })
+        },
+        suggestTagsWithTypesafeSuccess: ({ typesafeTagSuggestion }) => {
+            if (!typesafeTagSuggestion) {
+                return
+            }
+            const current = values.dashboard?.tags || []
+            const merged = Array.from(new Set([...current, ...typesafeTagSuggestion.tags]))
+            if (merged.length === current.length) {
+                lemonToast.info('TypeSafe did not find any other existing tag that fits this dashboard.')
+                return
+            }
+            actions.updateDashboardTags(merged)
+        },
+        suggestNameWithTypesafeFailure: () => {
+            lemonToast.error(TYPESAFE_SUGGESTION_FAILED)
+        },
+        suggestDescriptionWithTypesafeFailure: () => {
+            lemonToast.error(TYPESAFE_SUGGESTION_FAILED)
+        },
+        suggestTagsWithTypesafeFailure: () => {
+            lemonToast.error(TYPESAFE_SUGGESTION_FAILED)
         },
         setTileOverride: ({ tile }) => {
             const tileLogicProps = { dashboardId: props.id, tileId: tile.id, filtersOverrides: tile.filters_overrides }

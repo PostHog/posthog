@@ -46,3 +46,12 @@ Code that branches on the literal region (`get_instance_region()`, `region == "U
 `COMPACT_IN_REGION` controls which Cloud region registers the daily AI checkpoint compaction schedule. It defaults to `US`; set it explicitly only when moving the rollout to another region.
 
 See also [sandboxes-setup-guide.md](sandboxes-setup-guide.md) for the PostHog Desktop sandbox providers.
+
+## TypeSafe metadata suggestions
+
+Insights and dashboards can offer sparkle buttons that ask TypeSafe's Jev model to pick a title, a description, which existing tags apply, and which dashboard an insight belongs on.
+Jev picks from candidates the backend builds; it never writes text.
+The buttons appear only when the `product-analytics-typesafe-suggestions` feature flag is on for the project and the organization has approved AI data processing.
+The backend also needs `TYPESAFE_API_KEY` in `.env.local`; without it the endpoint answers 403 and the frontend hides nothing, so set the flag only where the key exists.
+TypeSafe is not a listed PostHog subprocessor, so keep the flag off for customer projects until that changes.
+The egress budget lives in `posthog/egress/typesafe/README.md`.
