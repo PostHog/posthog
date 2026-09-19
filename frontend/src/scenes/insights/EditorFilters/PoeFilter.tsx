@@ -12,9 +12,9 @@ interface PoeFilterProps {
 }
 
 export function PoeFilter({ insightProps }: PoeFilterProps): JSX.Element {
-    const { poeMode } = useValues(poeFilterLogic(insightProps))
+    const { queryTimePoeEnabled } = useValues(poeFilterLogic(insightProps))
     const { hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
-    const { setPoeMode } = useActions(poeFilterLogic(insightProps))
+    const { setQueryTimePoeEnabled } = useActions(poeFilterLogic(insightProps))
     const disabledReason = hasDataWarehouseSeries
         ? 'Data warehouse insights always use the latest table properties.'
         : undefined
@@ -30,14 +30,8 @@ export function PoeFilter({ insightProps }: PoeFilterProps): JSX.Element {
             <LemonSwitch
                 className="m-2"
                 disabled={!!disabledReason}
-                onChange={(checked) => {
-                    if (checked) {
-                        setPoeMode('person_id_override_properties_joined')
-                    } else {
-                        setPoeMode(null)
-                    }
-                }}
-                checked={!!poeMode}
+                onChange={setQueryTimePoeEnabled}
+                checked={queryTimePoeEnabled}
             />
         </LemonDisabledArea>
     )
