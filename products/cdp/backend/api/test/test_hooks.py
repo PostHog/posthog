@@ -1,8 +1,11 @@
 import uuid
+from datetime import timedelta
 from typing import Any
 
 import pytest
 from posthog.test.base import ClickhouseTestMixin
+
+from django.utils import timezone
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
@@ -40,6 +43,19 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=20)
         response = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
         self.assertEqual(response.status_code, 204)
+
+    def test_list_pages_are_stable_when_hooks_share_a_timestamp(self):
+        for index in (1, 2, 3):
+            Hook.objects.create(id=f"hook-{index}", user=self.user, team=self.team)
+        newest = timezone.now()
+        Hook.objects.filter(id__in=["hook-1", "hook-2"]).update(created=newest)
+        Hook.objects.filter(id="hook-3").update(created=newest - timedelta(hours=1))
+
+        first_page = self.client.get(f"/api/projects/{self.team.id}/hooks/?limit=2").json()
+        second_page = self.client.get(f"/api/projects/{self.team.id}/hooks/?limit=2&offset=2").json()
+
+        listed = [hook["id"] for hook in first_page["results"] + second_page["results"]]
+        assert listed == ["hook-2", "hook-1", "hook-3"]
 
     def test_invalid_target(self):
         data = {
