@@ -16,6 +16,7 @@ from products.customer_analytics.backend.logic.account_property_runs import (
     start_account_property_sync_runs,
 )
 from products.customer_analytics.backend.logic.account_property_sync import (
+    _WRITE_CONFLICT_RETRIES,
     AccountPropertySyncPhase,
     AccountPropertySyncSegment,
     AppliedSourceValues,
@@ -142,7 +143,7 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         with patch(
             f"{_MODULE}.set_synced_custom_property_value",
             side_effect=CustomPropertyValueConflict("raced"),
-        ):
+        ) as write:
             applied = _apply_source_values(
                 self.team.id,
                 source,
@@ -151,6 +152,7 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
                 AccountPropertySyncSegment.TRACKED,
             )
 
+        assert write.call_count == 2 * _WRITE_CONFLICT_RETRIES
         assert (applied.written, applied.conflicted, applied.failed) == (0, 2, False)
         assert applied.hashes == {}
 
