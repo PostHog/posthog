@@ -129,11 +129,11 @@ describe("ActivityRow", () => {
     expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
   });
 
-  it("shows the full waiting status in a tooltip", () => {
+  it("shows the full waiting status and space in a tooltip", () => {
     render(
       <ActivityRow
         menu={taskMenu()}
-        item={item({ activityKind: "awaiting_input" })}
+        item={item({ activityKind: "awaiting_input", channelName: "personal" })}
         onMarkRead={vi.fn()}
         onActivate={vi.fn()}
         blockedTaskIds={new Set(["task-1"])}
@@ -142,7 +142,9 @@ describe("ActivityRow", () => {
     );
 
     expect(
-      screen.getByTitle("just now · Agent is waiting for your reply"),
+      screen.getByTitle(
+        "just now · Agent is waiting for your reply in Personal",
+      ),
     ).toBeInTheDocument();
   });
 

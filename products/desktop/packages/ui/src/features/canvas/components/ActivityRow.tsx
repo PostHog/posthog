@@ -169,7 +169,12 @@ export function ActivityRow({
             {item.isUnread && !compact && <Badge variant="info">New</Badge>}
           </span>
           <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xxs">
-            <span className="truncate" title={presentation.metadata}>
+            <span
+              className="truncate"
+              title={[presentation.metadata, presentation.spaceLabel]
+                .filter(Boolean)
+                .join(" ")}
+            >
               {presentation.metadata}
             </span>
             {presentation.spaceLabel && (
