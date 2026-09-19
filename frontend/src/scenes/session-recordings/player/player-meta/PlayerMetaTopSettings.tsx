@@ -1,23 +1,19 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
 import { IconBottomPanel, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
-import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsButton, SettingsMenu, SettingsToggle } from 'lib/components/PanelSettings/PanelSettings'
-import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
+import { RecordingExpiryWarning } from 'scenes/session-recordings/player/player-meta/RecordingExpiryWarning'
 import {
     ModesWithInteractions,
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { urls } from 'scenes/urls'
 
 function PlayerControlsLayoutToggle(): JSX.Element {
     const { playerControlsOverlay } = useValues(sessionRecordingPlayerLogic)
@@ -86,68 +82,6 @@ function InspectDOM(): JSX.Element {
     )
 }
 
-function TTLWarning(): JSX.Element | null {
-    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
-    const lowTtl =
-        sessionPlayerMetaData?.recording_ttl &&
-        sessionPlayerMetaData.recording_ttl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS
-
-    useEffect(() => {
-        if (lowTtl) {
-            posthog.capture('recording viewed with very low TTL', sessionPlayerMetaData)
-        }
-    }, [sessionPlayerMetaData, lowTtl])
-
-    if (!lowTtl) {
-        return null
-    }
-
-    return (
-        <div className="font-medium">
-            <LemonButton
-                status="danger"
-                size="xsmall"
-                className={cn('rounded-[0px]')}
-                data-attr="recording-ttl-dialog"
-                onClick={() => {
-                    LemonDialog.open({
-                        title: 'Recording about to expire',
-                        description: (
-                            <span>
-                                <br />
-                                This recording will expire in{' '}
-                                <strong>{sessionPlayerMetaData.recording_ttl} days</strong>.
-                                <br />
-                                <br />
-                                Go to{' '}
-                                <Link to={urls.settings('project-replay', 'replay-retention')}>
-                                    Session Replay settings
-                                </Link>{' '}
-                                to increase your retention period to keep future recordings around for longer.
-                                <br />
-                                <br />
-                                Refer to{' '}
-                                <Link
-                                    to="https://posthog.com/docs/session-replay/data-retention"
-                                    disableClientSideRouting
-                                    disableDocsPanel
-                                    target="_blank"
-                                >
-                                    this page
-                                </Link>{' '}
-                                for more information about data retention in Session Replay.
-                            </span>
-                        ),
-                    })
-                }}
-                noPadding
-            >
-                This recording will expire in {sessionPlayerMetaData.recording_ttl} days
-            </LemonButton>
-        </div>
-    )
-}
-
 export function PlayerMetaTopSettings(): JSX.Element {
     const {
         logicProps: { withSidebar, mode },
@@ -182,7 +116,7 @@ export function PlayerMetaTopSettings(): JSX.Element {
                     </div>
 
                     <div>
-                        <TTLWarning />
+                        <RecordingExpiryWarning />
                     </div>
 
                     <div className="flex flex-row gap-0.5">

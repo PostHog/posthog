@@ -13,7 +13,6 @@ import {
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { getVideoExportDisabledReason } from 'lib/components/ExportButton/exportStatus'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -22,6 +21,10 @@ import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
+import {
+    VIDEO_EXPORT_LIMIT_REACHED,
+    getRecordingExportDisabledReasons,
+} from 'scenes/session-recordings/player/recordingExportDisabledReasons'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -132,6 +135,45 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
     )
 }
 
+function exportMenuItems({
+    hasReachedExportFullVideoLimit,
+    exportRecordingToFile,
+    exportRecordingToVideoFile,
+    durationMs,
+}: {
+    hasReachedExportFullVideoLimit: boolean
+    exportRecordingToFile: () => void
+    exportRecordingToVideoFile: () => void
+    durationMs: number | undefined
+}): LemonMenuItems {
+    const disabledReasons = getRecordingExportDisabledReasons(durationMs, hasReachedExportFullVideoLimit)
+
+    return [
+        {
+            label: 'PostHog .json',
+            status: 'default',
+            icon: <IconDownload />,
+            onClick: () => exportRecordingToFile(),
+            tooltip:
+                'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
+            disabledReason: disabledReasons.json,
+            'data-attr': 'replay-export-posthog-json',
+        },
+        {
+            label: 'Export to MP4',
+            status: hasReachedExportFullVideoLimit ? 'danger' : 'default',
+            icon: <IconDownload />,
+            onClick: () => exportRecordingToVideoFile(),
+            tooltip: hasReachedExportFullVideoLimit
+                ? VIDEO_EXPORT_LIMIT_REACHED
+                : 'Export PostHog recording data to MP4 video file.',
+            disabledReason: disabledReasons.video,
+            'data-attr': 'replay-export-mp4',
+            className: hasReachedExportFullVideoLimit ? 'replay-export-limit-reached-button' : '',
+        },
+    ]
+}
+
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
     const { logicProps, isMuted, hasReachedExportFullVideoLimit, sessionPlayerData } =
         useValues(sessionRecordingPlayerLogic)
@@ -140,16 +182,8 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
 
-    // Creating an export requires editor access to the export resource.
-    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.Export,
-        AccessControlLevel.Editor
-    )
-
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
-
-    const tooLongToExportReason = getVideoExportDisabledReason(sessionPlayerData?.durationMs)
 
     const onDelete = useMemo(
         () => () => {
@@ -194,32 +228,14 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 },
                 icon: <IconBlank />,
             },
-            isStandardMode && {
-                label: 'PostHog .json',
-                status: 'default',
-                icon: <IconDownload />,
-                onClick: () => exportRecordingToFile(),
-                tooltip:
-                    'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
-                disabledReason: exportAccessControlDisabledReason ?? undefined,
-                'data-attr': 'replay-export-posthog-json',
-            },
-            isStandardMode && {
-                label: 'Export to MP4',
-                status: hasReachedExportFullVideoLimit ? 'danger' : 'default',
-                icon: <IconDownload />,
-                onClick: () => exportRecordingToVideoFile(),
-                tooltip: hasReachedExportFullVideoLimit
-                    ? 'You have reached your export limit.'
-                    : 'Export PostHog recording data to MP4 video file.',
-                disabledReason:
-                    (hasReachedExportFullVideoLimit ? 'You have reached your export limit.' : undefined) ??
-                    tooLongToExportReason ??
-                    exportAccessControlDisabledReason ??
-                    undefined,
-                'data-attr': 'replay-export-mp4',
-                className: hasReachedExportFullVideoLimit ? 'replay-export-limit-reached-button' : '',
-            },
+            ...(isStandardMode
+                ? exportMenuItems({
+                      hasReachedExportFullVideoLimit,
+                      exportRecordingToFile,
+                      exportRecordingToVideoFile,
+                      durationMs: sessionPlayerData?.durationMs,
+                  })
+                : []),
         ]
 
         if (logicProps.playerKey !== 'modal') {
@@ -248,8 +264,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         isMuted,
         setMuted,
         hasReachedExportFullVideoLimit,
-        tooLongToExportReason,
-        exportAccessControlDisabledReason,
+        sessionPlayerData?.durationMs,
     ])
 
     return (
