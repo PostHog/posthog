@@ -32,6 +32,7 @@ from products.business_knowledge.backend.models.knowledge_source import Knowledg
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -130,6 +131,52 @@ class TestProductsInUse(BaseTest):
     def test_empty_when_field_is_null(self) -> None:
         self.team.has_completed_onboarding_for = None
         self.team.save()
+        assert _products_in_use(self.team) == []
+
+    @parameterized.expand(
+        [
+            ("funnel_query", {"query": {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}}),
+            ("retention_query", {"query": {"kind": "InsightVizNode", "source": {"kind": "RetentionQuery"}}}),
+            ("legacy_filters_funnel", {"filters": {"insight": "FUNNELS"}}),
+        ]
+    )
+    def test_credits_product_analytics_from_saved_behavioral_insight(self, _name: str, insight_kwargs: dict) -> None:
+        self.team.has_completed_onboarding_for = {}
+        self.team.save()
+        Insight.objects.create(team=self.team, name="activation flow", **insight_kwargs)
+        assert _products_in_use(self.team) == ["product_analytics"]
+
+    def test_credits_product_analytics_from_unsaved_insight_on_a_listed_dashboard(self) -> None:
+        self.team.has_completed_onboarding_for = {}
+        self.team.save()
+        insight = Insight.objects.create(
+            team=self.team,
+            name="activation flow",
+            saved=False,
+            query={"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}},
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Activation")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        assert _products_in_use(self.team) == ["product_analytics"]
+
+    @parameterized.expand(
+        [
+            ("trends_query", {"query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}}),
+            ("deleted", {"deleted": True, "query": {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}}),
+            ("unsaved_legacy_row", {"saved": False, "filters": {"insight": "FUNNELS"}}),
+            (
+                "stale_legacy_type_on_a_trends_query",
+                {
+                    "filters": {"insight": "FUNNELS"},
+                    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                },
+            ),
+        ]
+    )
+    def test_does_not_credit_product_analytics(self, _name: str, insight_kwargs: dict) -> None:
+        self.team.has_completed_onboarding_for = {}
+        self.team.save()
+        Insight.objects.create(team=self.team, name="not a flow", **insight_kwargs)
         assert _products_in_use(self.team) == []
 
     def test_handles_non_dict_field_gracefully(self) -> None:

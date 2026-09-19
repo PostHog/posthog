@@ -42,7 +42,13 @@ You can't scan a whole project in one run. Your leverage is a **durable watchlis
 
 ## Quick close-out: is there a flow worth watching?
 
-If `scout-project-profile-get` shows `product_analytics` is **not** in `products_in_use`, **or** there are no saved funnel/retention/lifecycle insights (check via the `system.insights` search below) **and** `top_events` is too thin to infer even one activation flow (fewer than ~3 discrete business events above ~100/day), this team has no behavioral flow to score yet. Write one `not-in-use:product_analytics:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
+Close out early only when **all three** of these hold. If one of them fails, the run continues.
+
+1. `scout-project-profile-get` does not list `product_analytics` in `products_in_use`.
+2. The team has no saved funnel, retention, lifecycle, or stickiness insight. Check this with the `system.insights` search below on every run. The `products_in_use` marker follows onboarding completion first, so a team that saved a funnel but never finished onboarding can lose the marker and still have flows to score.
+3. `top_events` is too thin to infer even one activation flow (fewer than ~3 discrete business events above ~100/day).
+
+When all three hold, this team has no behavioral flow to score yet. Write one `not-in-use:product_analytics:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
 
 Before closing out on `top_events` thinness, rule out a capture gap: its counts are windowed (each row carries `window_days`), not lifetime, so a project whose ingestion recently went dark reads identically to one that never had a flow. If the events look thin for a team that otherwise looks active, confirm with a direct `execute-sql` over a longer window (e.g. 30d) before concluding there's no flow — a recent capture cliff is a volume problem for another surface, not an absence of behavior to score.
 

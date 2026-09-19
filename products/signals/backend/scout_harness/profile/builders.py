@@ -30,7 +30,8 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Max, Q, TextField
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -50,6 +51,7 @@ from products.business_knowledge.backend.models.constants import SourceStatus
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.facade.api import insight_has_listed_tile
 from products.dashboards.backend.models.dashboard import Dashboard
 
 # `products.experiments` ships a facade (api.py + contracts.py) but the contract is
@@ -60,6 +62,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
+from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
 from products.signals.backend.scout_harness.profile.schema import Inventory
@@ -75,7 +78,18 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v14"
+INVENTORY_SOURCE_VERSION = "v15"
+
+# Product-analytics key as it appears in `Team.has_completed_onboarding_for` and in
+# `products_in_use` (matches `ProductKey.PRODUCT_ANALYTICS`).
+PRODUCT_ANALYTICS_KEY = "product_analytics"
+
+# The saved-insight kinds that mark real product-analytics use: the behavioral flows the
+# product-analytics scout scores. Matched against the current `query` JSON (cast to text, so a
+# nested `source.kind` matches the way the scout's own `query::text ILIKE` search does) and, for
+# rows that never got a `query`, against the legacy `filters.insight` type.
+_BEHAVIORAL_QUERY_KINDS = ("FunnelsQuery", "RetentionQuery", "LifecycleQuery", "StickinessQuery", "PathsQuery")
+_LEGACY_BEHAVIORAL_INSIGHT_TYPES = ("FUNNELS", "RETENTION", "LIFECYCLE", "STICKINESS", "PATHS")
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -179,16 +193,51 @@ def _project_context(team: Team) -> dict[str, Any]:
 
 
 def _products_in_use(team: Team) -> list[str]:
-    """Products this team has completed onboarding for.
+    """Products this team uses: the onboarding-completion flags, plus product analytics
+    credited from a saved behavioral insight.
 
-    `Team.has_completed_onboarding_for` is a JSON map of `{product_key: bool}` — keys
-    we report are the ones the team explicitly finished onboarding. Missing or null
-    field returns an empty list rather than raising.
+    `Team.has_completed_onboarding_for` is a JSON map of `{product_key: bool}` — keys we
+    report are the ones the team explicitly finished onboarding. A missing, null, or
+    non-dict field contributes nothing rather than raising.
+
+    That flag alone under-reports product analytics. A team keeps saved funnels and
+    retention insights without ever finishing the onboarding step that writes the flag, so
+    `product_analytics` goes missing while the team clearly uses it. Scouts quick-close on
+    this list, which turns the gap into a skipped investigation, so a saved behavioral
+    insight credits the key too.
     """
     onboarded = team.has_completed_onboarding_for or {}
     if not isinstance(onboarded, dict):
-        return []
-    return sorted(key for key, value in onboarded.items() if bool(value))
+        onboarded = {}
+    products = {key for key, value in onboarded.items() if bool(value)}
+    if PRODUCT_ANALYTICS_KEY not in products and _has_saved_behavioral_insight(team):
+        products.add(PRODUCT_ANALYTICS_KEY)
+    return sorted(products)
+
+
+def _has_saved_behavioral_insight(team: Team) -> bool:
+    """Whether the team keeps a saved funnel / retention / lifecycle / stickiness / paths insight.
+
+    Mirrors the product-analytics scout's own `system.insights` search, so the profile and the
+    scout agree on "is there a flow here to score". Two conditions keep the answer honest:
+
+    - `saved=True` or a listed dashboard tile, the same rule the insight list endpoint applies,
+      because the deprecated `saved` flag is what hides the unnamed rows the removed 2020 insight
+      history left behind.
+    - The legacy `filters.insight` type only counts on a row with no `query`. The filters-to-query
+      backfill left `filters` in place, and changing an insight's type rewrites `query` alone, so a
+      trends chart can carry a stale funnel type forever.
+    """
+    kind_match = Q()
+    for kind in _BEHAVIORAL_QUERY_KINDS:
+        kind_match |= Q(query_text__icontains=kind)
+    return (
+        Insight.objects.filter(team=team, deleted=False)
+        .filter(Q(saved=True) | insight_has_listed_tile())
+        .annotate(query_text=Cast("query", output_field=TextField()))
+        .filter(kind_match | Q(query__isnull=True, filters__insight__in=_LEGACY_BEHAVIORAL_INSIGHT_TYPES))
+        .exists()
+    )
 
 
 def _product_intents(team: Team) -> list[dict[str, Any]]:
