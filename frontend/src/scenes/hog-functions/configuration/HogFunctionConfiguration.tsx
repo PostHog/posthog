@@ -165,6 +165,13 @@ export function HogFunctionConfiguration({
                                     processing of this data. Only send data you are allowed to share with TypeSafe.
                                 </p>
                             ) : null}
+                            {(templateId ?? hogFunction?.template?.id) === 'template-typesafe-classify' ? (
+                                <p>
+                                    This step sends the question, categories, and selected context to TypeSafe using
+                                    your API key. TypeSafe processes this data outside your PostHog agreements. Send
+                                    only data you are allowed to share with TypeSafe.
+                                </p>
+                            ) : null}
                             <p>
                                 This {humanizeHogFunctionType(type)} is experimental and may behave unexpectedly.{' '}
                                 <Link

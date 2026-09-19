@@ -43,6 +43,7 @@ import { template as slackTemplate } from './_destinations/slack/slack.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
+import { template as typesafeClassifyTemplate } from './_destinations/typesafe/typesafe.template'
 import { template as unifyTemplate } from './_destinations/unify/unify.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
 import { template as whatsappTemplate } from './_destinations/whatsapp/whatsapp.template'
@@ -102,6 +103,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogGroupIdentifyTemplate,
     posthogUpdatePersonPropertiesTemplate,
     posthogSetHogflowVariableTemplate,
+    typesafeClassifyTemplate,
     posthogGetTicketTemplate,
     posthogUpdateTicketTemplate,
     posthogCreateTaskTemplate,

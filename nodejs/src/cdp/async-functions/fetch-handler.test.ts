@@ -24,4 +24,10 @@ describe('fetch handler', () => {
         expect(first.standard_webhooks?.webhook_id).toBeTruthy()
         expect(second.standard_webhooks?.webhook_id).not.toBe(first.standard_webhooks?.webhook_id)
     })
+
+    it('keeps a bearer token reference for resolution when the request is sent', async () => {
+        const params = await callFetch({ bearer_token_input: 'api_key' })
+        expect(params.bearer_token_input).toBe('api_key')
+        expect(params.headers).not.toHaveProperty('Authorization')
+    })
 })

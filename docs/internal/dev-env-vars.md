@@ -109,3 +109,30 @@ Error reports contain a fixed message, failure type, and HTTP status when availa
 Metrics use the existing `OTEL_METRICS_EXPORT_URL` and `OTEL_METRICS_EXPORT_TOKEN` settings. Error Tracking uses the existing `POSTHOG_API_KEY` and `POSTHOG_HOST_URL` settings.
 The corresponding exporter or client must be configured for records to reach PostHog.
 Disable the transformation in the UI to stop classification.
+
+## TypeSafe workflow step
+
+Enable `typesafe-workflow` for a test project and run `python manage.py sync_hog_function_templates`.
+The flag defaults to off and controls template access and workflow validation.
+It is separate from `typesafe-transformation`.
+
+Add **Classify with TypeSafe** in the workflow builder.
+Enter a TypeSafe API key, a classification question, the context to send, and a JSON object of category names and descriptions.
+For example, classify an activity as `painting`, `gardening`, or `other` using `{event.properties.text}` as context.
+Context can also use `{variables.example}` from an earlier step.
+The question and categories are literal inputs.
+The step sends only the configured context, question, and categories to TypeSafe.
+TypeSafe processes this data outside the customer's PostHog agreements.
+
+The step returns `{category, confidence}` and creates `typesafe_category` (string) and `typesafe_confidence` (number) output variables.
+Use a branch condition on `typesafe_confidence` to handle uncertain answers.
+A low-confidence answer remains a valid result.
+A failed request or invalid answer fails the step and does not replace output variables.
+Workflow error settings determine whether execution stops or continues.
+
+The API key uses the workflow's encrypted secret storage.
+The queued request holds the input name, and the fetch worker adds the bearer token at execution time.
+Requests use the existing workflow HTTP timeout, retry policy, invocation logs, and HTTP metrics.
+Use workflow step success and failure counts to check the rollout.
+Turning the flag off blocks new use but does not cancel existing runs.
+Disable the workflow and cancel its active invocations to stop calls.

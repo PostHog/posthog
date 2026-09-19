@@ -18,6 +18,7 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
+import { resolveBearerToken } from '../utils/bearer-token'
 import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
@@ -485,6 +486,20 @@ export class HogExecutorAsyncService {
                 headers: signedHeaders,
                 key: resolved.key,
             })
+        }
+
+        if (params.bearer_token_input) {
+            const resolved = resolveBearerToken(params.url, params.bearer_token_input, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            // Resolve the secret for each attempt so queued requests never store the API key.
+            signedHeaders = {
+                ...Object.fromEntries(
+                    Object.entries(signedHeaders).filter(([key]) => key.toLowerCase() !== 'authorization')
+                ),
+                Authorization: `Bearer ${resolved.token}`,
+            }
         }
 
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
