@@ -143,6 +143,29 @@ describe('experimentMetricsLogic', () => {
         logic?.unmount()
     })
 
+    it('reports only the actual terminal run to a manual refresh observer', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                    200,
+                    completedRecalculation,
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [200, completedRecalculation2],
+            },
+        })
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+        const observation = { attemptId: 'synthetic-refresh', bindRun: jest.fn(), results: jest.fn(), fail: jest.fn() }
+        await logic.asyncActions.triggerRecalculation('manual', observation)
+        expect(observation.bindRun).toHaveBeenCalledWith('recalc-2')
+        expect(observation.results).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'recalc-2', status: 'completed' })
+        )
+        expect(observation.fail).not.toHaveBeenCalled()
+    })
+
     const mountLogic = (): void => {
         logic = experimentMetricsLogic({ experiment: EXPERIMENT })
         logic.mount()
@@ -894,6 +917,38 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
         })
 
+        it('reports the existing local poll deadline as timed_out, without inventing a backend result', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        completedRecalculation,
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        {
+                            ...inProgressRecalculation,
+                            started_at: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
+                        },
+                    ],
+                },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+            await jest.advanceTimersByTimeAsync(0)
+            const observation = {
+                attemptId: 'synthetic-refresh',
+                bindRun: jest.fn(),
+                results: jest.fn(),
+                fail: jest.fn(),
+            }
+            logic.actions.triggerRecalculation('manual', observation)
+            await jest.advanceTimersByTimeAsync(0)
+            await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            expect(observation.fail).toHaveBeenCalledWith('timed_out', 'timeout')
+            expect(observation.results).not.toHaveBeenCalled()
+        })
+
         it('gives up after MAX_POLL_RETRIES consecutive retrieve failures', async () => {
             let retrieveCalls = 0
             useMocks({
@@ -916,6 +971,14 @@ describe('experimentMetricsLogic', () => {
 
             // Flush afterMount → 404 → trigger → poll(create), then drive enough ticks to exhaust retries.
             await jest.advanceTimersByTimeAsync(0)
+            const observation = {
+                attemptId: 'synthetic-refresh',
+                bindRun: jest.fn(),
+                results: jest.fn(),
+                fail: jest.fn(),
+            }
+            logic.actions.triggerRecalculation('manual', observation)
+            await jest.advanceTimersByTimeAsync(0)
             // A config change queued a rerun while the run was in flight.
             logic.actions.setQueuedRerun('metric_config_change')
             for (let i = 0; i < MAX_POLL_RETRIES + 2; i++) {
@@ -924,6 +987,8 @@ describe('experimentMetricsLogic', () => {
 
             // Stops retrieving once the cap is hit and surfaces an error; never loops forever.
             expect(retrieveCalls).toBe(MAX_POLL_RETRIES)
+            expect(observation.fail).toHaveBeenCalledWith('failed', 'load_error')
+            expect(observation.results).not.toHaveBeenCalled()
             expect(lemonToast.error).toHaveBeenCalledWith(
                 'Failed to load recalculation results. Please reload to try again.'
             )

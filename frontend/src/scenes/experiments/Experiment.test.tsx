@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
+import { startCustomerJourney } from 'lib/customerJourneys/startCustomerJourney'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
@@ -16,6 +17,8 @@ import { experimentsLogic } from '../../../../products/experiments/frontend/scen
 import { Experiment } from './Experiment'
 import { FORM_MODES } from './experimentLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'
+
+jest.mock('lib/customerJourneys/startCustomerJourney')
 
 jest.mock('./ExperimentWizard/ExperimentWizard', () => ({
     ExperimentWizard: () => <div data-attr="experiment-wizard" />,
@@ -109,6 +112,79 @@ beforeAll(() => {
 })
 
 describe('Experiment component', () => {
+    it('commits manual results on the real metrics tab and stops observing when that tab is removed', async () => {
+        localStorage.clear()
+        sessionStorage.clear()
+        const experimentData = {
+            ...DRAFT_EXPERIMENT,
+            start_date: '2024-01-01T00:00:00Z',
+            status: ExperimentStatus.Running,
+        }
+        useMocks({
+            ...mockApiForExperiment(experimentData),
+            post: {
+                '/api/environments/:team/query/:kind': () => [
+                    200,
+                    { timeseries: [], total_exposures: {}, is_cached: true },
+                ],
+            },
+        })
+        mountKeaLogics()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const handle = { attemptId: '', firstUseful: jest.fn(), finish: jest.fn(), dispose: jest.fn() }
+        jest.mocked(startCustomerJourney).mockImplementation((options) => ({
+            ...handle,
+            attemptId: options.attempt_id!,
+        }))
+        const { sceneLogic } = renderExperimentViewPage(experimentData)
+        await waitFor(() => screen.getAllByText('Add primary metric'))
+        const logic = sceneLogic.values.experimentLogicRef!.logic
+        await act(async () => {
+            await logic.asyncActions.refreshExperimentResults(true, 'manual', false, 'full_results_refresh')
+        })
+        expect(handle.finish).toHaveBeenCalledWith(
+            'usable',
+            expect.objectContaining({ total_count: 1, exposures_response_cached: true })
+        )
+        handle.finish.mockClear()
+        let releaseExposures!: () => void
+        const exposuresPending = new Promise<void>((resolve) => {
+            releaseExposures = resolve
+        })
+        let requested = false
+        useMocks({
+            post: {
+                '/api/environments/:team/query/:kind': async () => {
+                    requested = true
+                    await exposuresPending
+                    return [200, { timeseries: [], total_exposures: {} }]
+                },
+            },
+        })
+        let refresh!: Promise<void>
+        act(() => {
+            refresh = logic.asyncActions.refreshExperimentResults(true, 'manual', false, 'full_results_refresh')
+        })
+        await waitFor(() => expect(requested).toBe(true))
+        expect(handle.finish).not.toHaveBeenCalled()
+        act(() => {
+            sceneLogic.actions.setActiveTabKey('settings')
+        })
+        expect(handle.finish).toHaveBeenCalledWith('observation_stopped', expect.any(Object))
+        await act(async () => {
+            releaseExposures()
+            await refresh
+        })
+        expect(handle.finish).toHaveBeenCalledTimes(1)
+        jest.mocked(startCustomerJourney).mockClear()
+        await act(async () => {
+            await logic.asyncActions.refreshExperimentResults(true, 'manual', false, 'full_results_refresh')
+        })
+        expect(startCustomerJourney).not.toHaveBeenCalled()
+        cleanupKea(sceneLogic)
+        jest.mocked(startCustomerJourney).mockReset()
+    })
+
     it('create mode shows wizard', async () => {
         localStorage.clear()
         sessionStorage.clear()

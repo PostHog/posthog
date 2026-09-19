@@ -12,6 +12,7 @@ import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } fr
 import { Experiment } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
+import type { ExperimentRefreshObservation } from 'products/experiments/frontend/experimentRefreshJourney'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsMetricsRecalculationCreate,
@@ -286,7 +287,11 @@ export interface experimentMetricsLogicActions {
     setSecondaryMetricsResultsErrors: (errors: (unknown | null)[]) => {
         errors: unknown[]
     }
-    triggerRecalculation: (trigger?: ExperimentMetricsRecalculationTriggerEnumApi) => {
+    triggerRecalculation: (
+        trigger?: ExperimentMetricsRecalculationTriggerEnumApi,
+        observation?: ExperimentRefreshObservation
+    ) => {
+        observation: ExperimentRefreshObservation | undefined
         trigger: ExperimentMetricsRecalculationTriggerEnumApi
     }
 }
@@ -335,7 +340,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     actions({
         setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => ({ recalculation }),
         loadLatestRecalculation: true,
-        triggerRecalculation: (trigger: ExperimentMetricsRecalculationTriggerEnumApi = 'manual') => ({ trigger }),
+        triggerRecalculation: (
+            trigger: ExperimentMetricsRecalculationTriggerEnumApi = 'manual',
+            observation?: ExperimentRefreshObservation
+        ) => ({ trigger, observation }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
@@ -765,7 +773,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.loadLatestRecalculation()
                 }
             },
-            triggerRecalculation: async ({ trigger }) => {
+            triggerRecalculation: async ({ trigger, observation }) => {
+                cache.refreshObservation = observation
+                cache.refreshObservationRunId = undefined
+
                 /**
                  * bail if feature not enabled
                  */
@@ -850,6 +861,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * re-checks this id after its fetch and bails if a newer run took over.
                      */
                     cache.activeRecalculationId = recalculation.id
+                    if (cache.refreshObservation === observation) {
+                        cache.refreshObservationRunId = recalculation.id
+                        observation?.bindRun(recalculation.id)
+                    }
                     /**
                      * Lifecycle clock + poll count for the terminal-state analytics event. Reset on every
                      * trigger so duration_ms / poll_count are anchored to THIS run.
@@ -874,6 +889,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                          * request and response). Load its results directly rather than polling.
                          */
                         applyResults(recalculation)
+                        if (cache.refreshObservation === observation) {
+                            observation?.results(recalculation)
+                        }
                         emitTerminalEvent(recalculation)
                         // Terminal-on-create arms no poll, so drain any rerun queued during this create here,
                         // the way the poll's terminal branch does. Otherwise a config change made mid-create
@@ -898,6 +916,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * Re-enable the reload button: the run never started, so nothing else will clear loading.
                      */
                     actions.setRecalculationLoading(false)
+                    if (cache.refreshObservation === observation) {
+                        observation?.fail('failed', 'load_error')
+                    }
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
                 } finally {
                     cache.createInFlight = false
@@ -912,6 +933,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
              * results without dispatching pollRecalculation, so cache.activeRecalculationId covers that case.
              */
             pollRecalculation: async ({ recalculationId }, breakpoint) => {
+                const observation = (
+                    cache.refreshObservationRunId === recalculationId ? cache.refreshObservation : undefined
+                ) as ExperimentRefreshObservation | undefined
+
                 if (!flagEnabled()) {
                     return
                 }
@@ -935,6 +960,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 if (Date.now() - (cache.recalcStartMs ?? Date.now()) > MAX_POLL_DURATION_MS) {
                     actions.setRecalculatingMetricUuids([])
                     actions.setQueuedRerun(null)
+                    observation?.fail('timed_out', 'timeout')
                     lemonToast.error('Recalculation appears stuck. Please reload to try again.')
                     return
                 }
@@ -958,6 +984,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     cache.pollRetryCount = (cache.pollRetryCount ?? 0) + 1
                     if (cache.pollRetryCount >= MAX_POLL_RETRIES) {
                         actions.setQueuedRerun(null)
+                        if (cache.refreshObservation === observation) {
+                            observation?.fail('failed', 'load_error')
+                        }
                         lemonToast.error('Failed to load recalculation results. Please reload to try again.')
                         return
                     }
@@ -1012,6 +1041,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
 
                 // Successful metrics load, failed metrics surface their error in-row.
                 applyResults(recalculation)
+                if (cache.refreshObservation === observation) {
+                    observation?.results(recalculation)
+                }
                 emitTerminalEvent(recalculation)
                 if (recalculation.failed_metrics > 0) {
                     lemonToast.error(

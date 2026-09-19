@@ -13,6 +13,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { DisposablesManager } from 'kea-disposables'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
@@ -34,6 +35,8 @@ import {
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { CustomerJourney } from 'lib/customerJourneys/createCustomerJourney'
+import { startCustomerJourney } from 'lib/customerJourneys/startCustomerJourney'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { findLastIndex } from 'lib/utils/arrays'
@@ -56,6 +59,11 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
 import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
+import { observeReplayOpenReadiness } from 'products/session_replay/frontend/player/replayOpenReadiness'
+import {
+    canPresentReplayFrame,
+    observeReplayPresentation,
+} from 'products/session_replay/frontend/player/replayPresentation'
 import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
@@ -177,6 +185,97 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     // The experiment whose recordings list the player was opened from. Its first in-session exposure
     // becomes a target for the initial skip, alongside any filtered events.
     exposureSkipExperimentId?: number
+}
+
+interface ReplayOpenObservationCache {
+    disposables: DisposablesManager
+    replayOpenJourney?: CustomerJourney | null
+    replayOpenReadiness?: ReturnType<typeof observeReplayOpenReadiness>
+}
+
+function failReplayOpenObservation(
+    cache: ReplayOpenObservationCache,
+    errorType: 'load_error' | 'playback_error'
+): void {
+    cache.replayOpenReadiness?.dispose()
+    cache.replayOpenJourney?.finish('failed', { error_type: errorType })
+}
+
+function watchReplayPresentation(
+    cache: ReplayOpenObservationCache,
+    props: SessionRecordingPlayerLogicProps,
+    values: sessionRecordingPlayerLogicValues
+): void {
+    cache.disposables.dispose('replayOpenPresentation')
+    const readiness = cache.replayOpenReadiness
+    const root = values.rootFrame
+    const iframe = values.player?.replayer.iframe
+    const host = props.playerRef?.current
+    if (readiness && root && iframe && host) {
+        cache.disposables.add(
+            () => observeReplayPresentation(root, iframe, host, () => readiness.presentationChanged()),
+            'replayOpenPresentation',
+            { pauseOnPageHidden: false }
+        )
+        readiness.presentationChanged()
+    }
+}
+
+function startReplayOpenObservation(
+    cache: ReplayOpenObservationCache,
+    props: SessionRecordingPlayerLogicProps,
+    values: sessionRecordingPlayerLogicValues,
+    trigger: 'initial_load' | 'retry'
+): void {
+    cache.replayOpenReadiness?.dispose()
+    cache.disposables.dispose('replayOpenPresentation')
+    cache.replayOpenReadiness = undefined
+    cache.replayOpenJourney?.dispose('superseded')
+    cache.replayOpenJourney = null
+    if ((props.mode ?? SessionRecordingPlayerMode.Standard) !== SessionRecordingPlayerMode.Standard) {
+        return
+    }
+    const journey = startCustomerJourney({
+        journey_name: 'replay_open',
+        resource_type: 'session_recording',
+        resource_id: props.sessionRecordingId,
+        trigger,
+        readiness_contract_version: 1,
+        readiness_scope: 'player_mount_to_first_frame',
+    })
+    cache.replayOpenJourney = journey
+    if (journey) {
+        const readiness = observeReplayOpenReadiness(
+            {
+                ...journey,
+                finish: (outcome, summary) => {
+                    cache.disposables.dispose('replayOpenPresentation')
+                    cache.replayOpenReadiness = undefined
+                    journey.finish(outcome, summary)
+                },
+            },
+            () => ({
+                player: values.player?.replayer ?? null,
+                canPresent: !!(
+                    !document.hidden &&
+                    canPresentReplayFrame(values.rootFrame, values.player?.replayer.iframe, props.playerRef?.current) &&
+                    !values.isBuffering &&
+                    !values.playerError &&
+                    !values.playerFrameDocumentFailed &&
+                    !values.recordingTooLargeToPlay
+                ),
+            })
+        )
+        cache.replayOpenReadiness = {
+            ...readiness,
+            dispose: () => {
+                readiness.dispose()
+                cache.disposables.dispose('replayOpenPresentation')
+                cache.replayOpenReadiness = undefined
+            },
+        }
+        watchReplayPresentation(cache, props, values)
+    }
 }
 
 export type MatchingEventSkipTarget = 'filtered-event' | 'experiment-exposure'
@@ -730,6 +829,13 @@ export interface sessionRecordingPlayerLogicActions {
     loadRecordingData: () => {
         value: true
     } // sessionRecordingDataCoordinatorLogic
+    loadRecordingMetaFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // sessionRecordingDataCoordinatorLogic
     loadRecordingMetaSuccess: (
         sessionPlayerMetaData: SessionRecordingType | null,
         payload?:
@@ -1250,7 +1356,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'setPlayerActive',
             ],
             sessionRecordingDataCoordinatorLogic(props),
-            ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
+            ['loadRecordingData', 'loadRecordingMetaSuccess', 'loadRecordingMetaFailure', 'snapshotProcessingFailed'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
             sessionRecordingEventUsageLogic,
@@ -2380,6 +2486,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 { pauseOnPageHidden: false }
             )
         },
+        stopRetryingPlayerFrameLoad: () => {
+            failReplayOpenObservation(cache as ReplayOpenObservationCache, 'load_error')
+        },
         playerErrorSeen: ({ error }) => {
             const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
             if (values.reportedReplayerErrors.has(fingerprint)) {
@@ -2406,7 +2515,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             })
         },
         setRootFrame: () => {
+            watchReplayPresentation(cache as ReplayOpenObservationCache, props, values)
             actions.tryInitReplayer()
+        },
+        loadRecordingMetaFailure: () => {
+            failReplayOpenObservation(cache as ReplayOpenObservationCache, 'load_error')
         },
         tryInitReplayer: () => {
             // Tries to initialize a new player
@@ -2506,6 +2619,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         const iframeCleanups: (() => void)[] = []
 
                         replayer.on('fullsnapshot-rebuilded', () => {
+                            cache.replayOpenReadiness?.rebuilt(replayer)
                             const iframeContentWindow = replayer.iframe.contentWindow
                             const iframeFetch = iframeContentWindow?.fetch
 
@@ -2605,6 +2719,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             )
         },
         setPlayer: ({ player }) => {
+            cache.replayOpenReadiness?.reset()
+            watchReplayPresentation(cache as ReplayOpenObservationCache, props, values)
             if (player) {
                 if (values.currentTimestamp !== undefined) {
                     actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
@@ -2752,6 +2868,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // rrweb throws synchronously on malformed events it replays through — surface an error
             // state rather than letting the throw escape the listener and wedge the state machine.
+            const positionedReplayer = values.player?.replayer
             try {
                 if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
                     // NOTE: when we show a preview pane, this branch runs
@@ -2764,6 +2881,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 cache.replayerRecoveryAttempts = 0
                 actions.clearPlayerError()
+                if (positionedReplayer) {
+                    cache.replayOpenReadiness?.positioned(positionedReplayer)
+                }
             } catch (error) {
                 // The same failure can still slip through mid-play — recover rather than report it.
                 if (recoverStaleReplayer()) {
@@ -2937,6 +3057,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setPlayerError('snapshotProcessingFailed')
         },
         retryLoadingSnapshots: () => {
+            startReplayOpenObservation(cache as ReplayOpenObservationCache, props, values, 'retry')
             actions.clearPlayerError()
             actions.retrySnapshotLoading()
         },
@@ -3022,9 +3143,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         startBuffer: () => {
             actions.stopAnimation()
         },
-        setPlayerError: () => {
+        setPlayerError: ({ reason }) => {
             actions.incrementErrorCount()
             actions.stopAnimation()
+            // Source requests retry independently. Only definitive give-ups end an open attempt.
+            if (
+                [
+                    'replayerInitFailure',
+                    'replayerPlaybackFailure',
+                    'noPlayableFullSnapshot',
+                    'recordingTooLarge',
+                    'snapshotUnauthorized',
+                    'snapshotSourceLoadExhausted',
+                    'snapshotProcessingFailed',
+                ].includes(reason)
+            ) {
+                failReplayOpenObservation(cache as ReplayOpenObservationCache, 'playback_error')
+            }
         },
         startScrub: () => {
             actions.stopAnimation()
@@ -3665,6 +3800,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     beforeUnmount(({ values, actions, cache, props }) => {
+        cache.replayOpenReadiness?.dispose()
+        cache.replayOpenJourney?.dispose('observation_stopped')
         actions.stopAnimation()
 
         // Note: Disposables (timers, event listeners) are automatically cleaned up
@@ -3710,11 +3847,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         )
     }),
 
-    afterMount(({ props, actions, cache }) => {
+    afterMount(({ props, actions, cache, values }) => {
         if (props.mode === SessionRecordingPlayerMode.Preview || props.sessionRecordingId.trim() === '') {
             return
         }
 
+        startReplayOpenObservation(cache as ReplayOpenObservationCache, props, values, 'initial_load')
         cache.pausedMediaElements = []
         cache.disposables.add(() => {
             const fullScreenListener = (): void => {

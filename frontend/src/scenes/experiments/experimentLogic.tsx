@@ -83,6 +83,10 @@ import {
     NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
     MetricInsightId,
 } from 'products/experiments/frontend/constants'
+import {
+    ExperimentRefreshJourneyController,
+    type ExperimentRefreshReady,
+} from 'products/experiments/frontend/experimentRefreshJourney'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     legacyExpectedRunningTime,
@@ -432,6 +436,15 @@ const loadMetrics = async ({
     return { successfulCount, erroredCount, cachedCount }
 }
 
+function supersedeExperimentRefresh(cache: {
+    activeResultsRefreshId?: string
+    refreshJourney?: ExperimentRefreshJourneyController
+}): void {
+    // Configuration edits invalidate old callbacks before persistence or direct reloads finish.
+    cache.activeResultsRefreshId = undefined
+    cache.refreshJourney?.dispose('superseded')
+}
+
 export function isNewExperimentResponse(
     response: CachedExperimentQueryResponse
 ): response is CachedNewExperimentQueryResponse {
@@ -542,6 +555,7 @@ export interface experimentLogicValues {
     experimentId: Experiment['id']
     experimentLoading: boolean
     experimentMissing: boolean
+    experimentRefreshReady: ExperimentRefreshReady | null
     experimentUpdate: Experiment | null
     experimentUpdateLoading: boolean
     experimentWarning: ExperimentWarning | null
@@ -884,6 +898,9 @@ export interface experimentLogicActions {
         repository: string | null
         setRepositoryAsTeamDefault: boolean
     }
+    experimentRefreshCommitted: (refreshId: string) => {
+        refreshId: string
+    }
     finishExperiment: ({
         selectedVariantKey,
         releaseToEveryone,
@@ -990,9 +1007,11 @@ export interface experimentLogicActions {
     refreshExperimentResults: (
         forceRefresh?: boolean,
         triggeredBy?: ExperimentTriggeredBy,
-        refreshIfStale?: boolean
+        refreshIfStale?: boolean,
+        intent?: 'full_results_refresh'
     ) => {
         forceRefresh: boolean | undefined
+        intent: 'full_results_refresh' | undefined
         refreshIfStale: boolean
         triggeredBy: ExperimentTriggeredBy
     }
@@ -1061,6 +1080,12 @@ export interface experimentLogicActions {
     }
     setExperimentMissing: () => {
         value: true
+    }
+    setExperimentRefreshReady: (ready: ExperimentRefreshReady | null) => {
+        ready: ExperimentRefreshReady | null
+    }
+    setExperimentResultsObserved: (observed: boolean) => {
+        observed: boolean
     }
     setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => {
         exposureCriteria: ExperimentExposureCriteria
@@ -1471,6 +1496,9 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     })),
     actions({
+        setExperimentResultsObserved: (observed: boolean) => ({ observed }),
+        setExperimentRefreshReady: (ready: ExperimentRefreshReady | null) => ({ ready }),
+        experimentRefreshCommitted: (refreshId: string) => ({ refreshId }),
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1479,11 +1507,13 @@ export const experimentLogic = kea<experimentLogicType>([
         refreshExperimentResults: (
             forceRefresh?: boolean,
             triggeredBy?: ExperimentTriggeredBy,
-            refreshIfStale?: boolean
+            refreshIfStale?: boolean,
+            intent?: 'full_results_refresh'
         ) => ({
             forceRefresh,
             triggeredBy: triggeredBy ?? 'manual',
             refreshIfStale: !!refreshIfStale,
+            intent,
         }),
         refreshStaleResultsOnReentry: true,
         markRefreshStarted: (refreshId: string, triggeredBy: ExperimentTriggeredBy) => ({
@@ -1706,6 +1736,10 @@ export const experimentLogic = kea<experimentLogicType>([
         setVariantExcluded: (variantKey: string, excluded: boolean) => ({ variantKey, excluded }),
     }),
     reducers({
+        experimentRefreshReady: [
+            null as ExperimentRefreshReady | null,
+            { setExperimentRefreshReady: (_, { ready }) => ready },
+        ],
         showDebugPanel: [
             false,
             {
@@ -2346,7 +2380,18 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
     listeners(({ values, actions, asyncActions, cache, props }) => ({
+        setExposureCriteria: () => supersedeExperimentRefresh(cache),
+        setExperimentResultsObserved: ({ observed }) => {
+            const controller = (cache.refreshJourney ??= new ExperimentRefreshJourneyController(
+                actions.setExperimentRefreshReady
+            )) as ExperimentRefreshJourneyController
+            controller.observe(observed)
+        },
+        experimentRefreshCommitted: ({ refreshId }) => {
+            ;(cache.refreshJourney as ExperimentRefreshJourneyController | undefined)?.committed(refreshId)
+        },
         beforeUnmount: () => {
+            ;(cache.refreshJourney as ExperimentRefreshJourneyController | undefined)?.observe(false)
             actions.stopAutoRefreshInterval()
             clearTimeout(cache.notificationOfferTimer)
         },
@@ -2413,12 +2458,14 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         changeExperimentStartDate: async ({ startDate }) => {
+            supersedeExperimentRefresh(cache)
             await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
+            supersedeExperimentRefresh(cache)
             await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
@@ -2540,20 +2587,53 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to unarchive experiment')
             }
         },
-        refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
+        refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale, intent }) => {
             // The refresh branches on the recalculation flag. Choosing a branch before the flag has
             // resolved reads it as off and runs the legacy loaders, which fail for a recalculation
             // experiment. Defer the refresh until flags arrive; setFeatureFlags replays it once.
             if (!values.receivedFeatureFlags) {
-                cache.deferredRefresh = { forceRefresh, triggeredBy, refreshIfStale }
+                cache.deferredRefresh = { forceRefresh, triggeredBy, refreshIfStale, intent }
                 return
             }
 
             // The setFeatureFlags listener re-runs this refresh if a later flag update contradicts this value.
             cache.branchFlagValue = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
-            cache.lastRefreshArgs = { forceRefresh, triggeredBy, refreshIfStale }
+            cache.lastRefreshArgs = { forceRefresh, triggeredBy, refreshIfStale, intent }
 
             const refreshId = generateRefreshId()
+            cache.activeResultsRefreshId = refreshId
+            const journey = cache.refreshJourney as ExperimentRefreshJourneyController | undefined
+            journey?.dispose('superseded')
+            const groups = {
+                primary: [
+                    ...(values.experiment?.metrics ?? []),
+                    ...sharedMetricsToExperimentMetrics(
+                        (values.experiment?.saved_metrics as ExperimentSavedMetric[]) ?? [],
+                        'primary'
+                    ),
+                ].map((metric) => metric.uuid ?? ''),
+                secondary: [
+                    ...(values.experiment?.metrics_secondary ?? []),
+                    ...sharedMetricsToExperimentMetrics(
+                        (values.experiment?.saved_metrics as ExperimentSavedMetric[]) ?? [],
+                        'secondary'
+                    ),
+                ].map((metric) => metric.uuid ?? ''),
+            }
+            const isExplicitManualRefresh = intent === 'full_results_refresh' && triggeredBy === 'manual'
+            const observation =
+                isExplicitManualRefresh &&
+                typeof values.experimentId === 'number' &&
+                !isLegacyExperiment(values.experiment)
+                    ? journey?.start(
+                          values.experimentId,
+                          refreshId,
+                          groups,
+                          values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+                              ? 'recalculation'
+                              : 'per_metric'
+                      )
+                    : null
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
             cache.refreshSummariesById = cache.refreshSummariesById ?? {}
@@ -2567,17 +2647,19 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setShowNotificationOffer(true)
             }, 10_000)
 
+            cache.pendingExposureJourneyId = refreshId
             let caughtError = false
             try {
                 const recalculationFlow = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
                 if (recalculationFlow) {
                     /**
-                     * Config changes and auto-refresh both re-run metrics, tagged with their cause; page loads
-                     * and manual reloads are handled elsewhere. Concurrent triggers coalesce onto one active run.
+                     * Config changes, auto-refresh and the explicit full-results control re-run metrics.
+                     * Page loads are handled by the metrics view. Concurrent triggers coalesce onto one active run.
                      */
-                    if (isRecalculationTrigger(triggeredBy) && values.experiment) {
+                    if ((isRecalculationTrigger(triggeredBy) || isExplicitManualRefresh) && values.experiment) {
                         experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
-                            triggeredBy
+                            triggeredBy,
+                            observation ?? undefined
                         )
                     }
                     // Metric results come from experimentMetricsLogic (mounted by the metrics view);
@@ -2592,6 +2674,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             } catch (error) {
                 caughtError = true
+                journey?.fail(refreshId, 'failed', 'load_error')
                 throw error
             } finally {
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
@@ -2709,7 +2792,12 @@ export const experimentLogic = kea<experimentLogicType>([
             const deferred = cache.deferredRefresh
             if (deferred) {
                 cache.deferredRefresh = undefined
-                actions.refreshExperimentResults(deferred.forceRefresh, deferred.triggeredBy, deferred.refreshIfStale)
+                actions.refreshExperimentResults(
+                    deferred.forceRefresh,
+                    deferred.triggeredBy,
+                    deferred.refreshIfStale,
+                    deferred.intent
+                )
                 return
             }
             /**
@@ -2721,10 +2809,16 @@ export const experimentLogic = kea<experimentLogicType>([
             const flagValue = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
             const lastArgs = cache.lastRefreshArgs
             if (lastArgs && cache.branchFlagValue !== undefined && flagValue !== cache.branchFlagValue) {
-                actions.refreshExperimentResults(lastArgs.forceRefresh, lastArgs.triggeredBy, lastArgs.refreshIfStale)
+                actions.refreshExperimentResults(
+                    lastArgs.forceRefresh,
+                    lastArgs.triggeredBy,
+                    lastArgs.refreshIfStale,
+                    lastArgs.intent
+                )
             }
         },
         updateExperimentMetrics: async () => {
+            supersedeExperimentRefresh(cache)
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
@@ -2760,6 +2854,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(true, 'metric_config_change')
         },
         updateExposureCriteria: async () => {
+            supersedeExperimentRefresh(cache)
             actions.updateExperiment({
                 exposure_criteria: {
                     ...values.experiment.exposure_criteria,
@@ -2769,6 +2864,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         updateExperimentSettings: async ({ update }) => {
+            supersedeExperimentRefresh(cache)
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
             await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
@@ -2956,6 +3052,7 @@ export const experimentLogic = kea<experimentLogicType>([
             })
         },
         addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
+            supersedeExperimentRefresh(cache)
             const existingMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
                 id: sharedMetric.saved_metric,
                 metadata: sharedMetric.metadata,
@@ -2997,6 +3094,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
+            supersedeExperimentRefresh(cache)
             const sharedMetricsIds = values.experiment.saved_metrics
                 .filter((sharedMetric) => sharedMetric.saved_metric !== sharedMetricId)
                 .map((sharedMetric) => ({
@@ -3151,6 +3249,11 @@ export const experimentLogic = kea<experimentLogicType>([
             const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
 
             const resolvedRefreshId = refreshId || generateRefreshId()
+            let journeyResults: CachedNewExperimentQueryResponse[] = []
+            let journeyErrors: unknown[] = []
+            const generation = {}
+            cache.primaryResultsGeneration = generation
+            const acceptsResults = (): boolean => cache.primaryResultsGeneration === generation
             const summary = await loadMetrics({
                 metrics,
                 experimentId: values.experimentId,
@@ -3162,10 +3265,31 @@ export const experimentLogic = kea<experimentLogicType>([
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
                 featureFlags: values.featureFlags,
-                onSetResults: actions.setPrimaryMetricsResults,
-                onSetErrors: actions.setPrimaryMetricsResultsErrors,
+                onSetResults: (results) => {
+                    journeyResults = results
+                    if (acceptsResults()) {
+                        actions.setPrimaryMetricsResults(results)
+                    }
+                },
+                onSetErrors: (errors) => {
+                    journeyErrors = errors
+                    if (acceptsResults()) {
+                        actions.setPrimaryMetricsResultsErrors(errors)
+                    }
+                },
             })
 
+            if (!acceptsResults()) {
+                return
+            }
+            if (cache.activeResultsRefreshId === resolvedRefreshId) {
+                ;(cache.refreshJourney as ExperimentRefreshJourneyController | undefined)?.group(
+                    resolvedRefreshId,
+                    'primary',
+                    journeyResults,
+                    journeyErrors
+                )
+            }
             const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
             if (refreshSummaries) {
                 refreshSummaries.push(summary)
@@ -3190,6 +3314,11 @@ export const experimentLogic = kea<experimentLogicType>([
             const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
 
             const resolvedRefreshId = refreshId || generateRefreshId()
+            let journeyResults: CachedNewExperimentQueryResponse[] = []
+            let journeyErrors: unknown[] = []
+            const generation = {}
+            cache.secondaryResultsGeneration = generation
+            const acceptsResults = (): boolean => cache.secondaryResultsGeneration === generation
             const summary = await loadMetrics({
                 metrics: secondaryMetrics,
                 experimentId: values.experimentId,
@@ -3201,10 +3330,31 @@ export const experimentLogic = kea<experimentLogicType>([
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
                 featureFlags: values.featureFlags,
-                onSetResults: actions.setSecondaryMetricsResults,
-                onSetErrors: actions.setSecondaryMetricsResultsErrors,
+                onSetResults: (results) => {
+                    journeyResults = results
+                    if (acceptsResults()) {
+                        actions.setSecondaryMetricsResults(results)
+                    }
+                },
+                onSetErrors: (errors) => {
+                    journeyErrors = errors
+                    if (acceptsResults()) {
+                        actions.setSecondaryMetricsResultsErrors(errors)
+                    }
+                },
             })
 
+            if (!acceptsResults()) {
+                return
+            }
+            if (cache.activeResultsRefreshId === resolvedRefreshId) {
+                ;(cache.refreshJourney as ExperimentRefreshJourneyController | undefined)?.group(
+                    resolvedRefreshId,
+                    'secondary',
+                    journeyResults,
+                    journeyErrors
+                )
+            }
             const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
             if (refreshSummaries) {
                 refreshSummaries.push(summary)
@@ -3311,6 +3461,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         removeMetric: ({ uuid, context }) => {
+            supersedeExperimentRefresh(cache)
             const isPrimary = context === 'primary'
             const field = isPrimary ? 'metrics' : 'metrics_secondary'
             const currentMetrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[] =
@@ -3364,6 +3515,9 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         moveMetricsBetweenSections: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
+            if (removedUuids.length || movedUuids.length) {
+                supersedeExperimentRefresh(cache)
+            }
             const removed = new Set(removedUuids)
             const moved = new Set(movedUuids)
             const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
@@ -3474,6 +3628,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
+            supersedeExperimentRefresh(cache)
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
 
             actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
@@ -3510,6 +3665,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
+            supersedeExperimentRefresh(cache)
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
 
             actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
@@ -3546,6 +3702,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricBreakdownAttribution: async ({ uuid }) => {
+            supersedeExperimentRefresh(cache)
             /**
              * build the experiment payload with all experiment metrics
              */
@@ -3591,6 +3748,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricBreakdownLimit: async ({ uuid }) => {
+            supersedeExperimentRefresh(cache)
             /**
              * build the update payload with all experiment metrics
              */
@@ -3635,6 +3793,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         setVariantExcluded: async ({ variantKey, excluded }, _breakpoint) => {
+            supersedeExperimentRefresh(cache)
             const current = values.excludedVariants
             const next = excluded
                 ? Array.from(new Set([...current, variantKey]))
@@ -3830,6 +3989,9 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
+                    const journeyId = cache.pendingExposureJourneyId as string | undefined
+                    delete cache.pendingExposureJourneyId
+                    const journey = cache.refreshJourney as ExperimentRefreshJourneyController | undefined
                     const { experiment, usesNewQueryRunner } = values
 
                     if (!usesNewQueryRunner) {
@@ -3849,7 +4011,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     })
                     // Show the cached exposures immediately when the backend is recomputing in the
                     // background, instead of hanging on the spinner until the recompute finishes.
-                    return await performQuery(
+                    const response = await performQuery(
                         query,
                         undefined,
                         getExperimentRefreshMode(values.featureFlags, refresh),
@@ -3860,7 +4022,16 @@ export const experimentLogic = kea<experimentLogicType>([
                         false, // pollOnly
                         undefined, // limitContext
                         true // acceptStaleCache
-                    )
+                    ).catch((error) => {
+                        if (journeyId) {
+                            journey?.fail(journeyId, 'failed', 'load_error')
+                        }
+                        throw error
+                    })
+                    if (journeyId) {
+                        journey?.exposures(journeyId, response)
+                    }
+                    return response
                 },
             },
         ],
