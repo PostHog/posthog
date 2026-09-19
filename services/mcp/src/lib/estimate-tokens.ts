@@ -1,3 +1,6 @@
+/** Characters per token in the heuristic below, so a token budget converts to a character one. */
+export const CHARS_PER_TOKEN = 4
+
 /**
  * Approximate token count for a tool call's input or output, using the
  * ~4-chars-per-token heuristic the MCP performance dashboard tracks. The server
@@ -20,5 +23,5 @@ export function estimateTokens(value: unknown): number {
             return 0
         }
     }
-    return Math.ceil(text.length / 4)
+    return Math.ceil(text.length / CHARS_PER_TOKEN)
 }

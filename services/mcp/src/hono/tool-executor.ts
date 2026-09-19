@@ -1,11 +1,6 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
-import {
-    buildToolResultPayload,
-    estimateResponseTokens,
-    isToolCallPayload,
-    type ToolResultPayload,
-} from '@/lib/build-tool-result'
+import { buildToolResultPayload, isToolCallPayload, type ToolResultPayload } from '@/lib/build-tool-result'
 import {
     ExecCommandError,
     handleToolError,
@@ -20,6 +15,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
+import { capResponseToClientBudget } from '@/lib/response-budget'
 import {
     createExecTool,
     describeApiValidationError,
@@ -348,15 +344,15 @@ export class ToolExecutor {
 
             const duration = Date.now() - startMs
 
-            let response: ToolResultPayload
+            let built: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
-                response = handlerResult
+                built = handlerResult
             } else {
                 const hasUiResource = !!tool._meta?.ui?.resourceUri
                 const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
                 const distinctId = needsDistinctId ? state.distinctId : undefined
 
-                response = buildToolResultPayload({
+                built = buildToolResultPayload({
                     handlerResult,
                     toolMeta: tool._meta,
                     toolName: tool.name,
@@ -371,6 +367,11 @@ export class ToolExecutor {
                 })
             }
 
+            const { response, outputTokens, overflowTokens } = capResponseToClientBudget(
+                built,
+                state.clientProfile.capabilities.maxResponseTokens
+            )
+
             void trackToolCall(
                 tool.name,
                 duration,
@@ -379,7 +380,8 @@ export class ToolExecutor {
                 {
                     ...skillShape,
                     input_tokens: estimateTokens(validation.data),
-                    output_tokens: estimateResponseTokens(response),
+                    output_tokens: outputTokens,
+                    ...(overflowTokens === undefined ? {} : { response_overflow_tokens: overflowTokens }),
                 },
                 analyticsMeta,
                 this.servedToolDescription(tool.name)
@@ -513,7 +515,7 @@ export class ToolExecutor {
             const handlerResult = await resolved.handler(state.context, validation.data)
             const duration = Date.now() - startMs
 
-            const response = isToolCallPayload(handlerResult)
+            const built = isToolCallPayload(handlerResult)
                 ? handlerResult
                 : buildToolResultPayload({
                       handlerResult,
@@ -533,6 +535,11 @@ export class ToolExecutor {
                 ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
                 : undefined
 
+            const { response, outputTokens, overflowTokens } = capResponseToClientBudget(
+                built,
+                state.clientProfile.capabilities.maxResponseTokens
+            )
+
             void trackToolCall(
                 execToolName(),
                 duration,
@@ -545,7 +552,8 @@ export class ToolExecutor {
                         ? skillLookupMissProperties(execMetrics.skillLookupMissKind)
                         : {}),
                     input_tokens: estimateTokens(validation.data),
-                    output_tokens: estimateResponseTokens(response),
+                    output_tokens: outputTokens,
+                    ...(overflowTokens === undefined ? {} : { response_overflow_tokens: overflowTokens }),
                     ...execMetrics.commandMeta,
                 },
                 analyticsMeta,
