@@ -11,7 +11,17 @@ CONTINUATION_BYTES = b"\xff\xff\xff\xff"
 
 
 class InvalidMessageFormat(Exception):
-    pass
+    """Raised when the stream is not an encapsulated IPC message.
+
+    `unparsed` carries the bytes that failed to parse. A server that aborts a query
+    mid-response writes the reason into the stream it was already sending, so these
+    bytes are often an error message rather than corruption. Only the caller knows
+    whose message it is, so hand them over instead of describing them.
+    """
+
+    def __init__(self, message: str, unparsed: bytes = b""):
+        super().__init__(message)
+        self.unparsed = unparsed
 
 
 class AsyncMessageReader:
@@ -45,8 +55,10 @@ class AsyncMessageReader:
         await self.read_until(4)
 
         if self._buffer[:4] != CONTINUATION_BYTES:
+            unparsed = await self.drain()
             raise InvalidMessageFormat(
-                f"Encapsulated IPC message format must begin with continuation bytes, received: '{self._buffer[:4]}'"
+                f"Encapsulated IPC message format must begin with continuation bytes, received: {unparsed[:4]!r}",
+                unparsed=unparsed,
             )
 
         await self.read_until(8)
@@ -76,6 +88,19 @@ class AsyncMessageReader:
         self._bytes_consumed += total_message_size
 
         return msg
+
+    async def drain(self, limit: int = 8192) -> bytes:
+        """Return the buffer plus whatever else the stream still holds, up to `limit`.
+
+        Called on the way out of a failed parse, so a stream that breaks again while
+        draining must not replace the message being built: keep what was read.
+        """
+        try:
+            while len(self._buffer) < limit:
+                self._buffer.extend(await anext(self._bytes))
+        except Exception:
+            pass
+        return bytes(self._buffer[:limit])
 
     async def read_until(self, n: int) -> None:
         """Read from self._bytes until there are at least n bytes in self._buffer."""
