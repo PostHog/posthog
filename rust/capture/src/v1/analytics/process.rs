@@ -905,10 +905,8 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
 
     metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "misrouted_event").increment(dropped);
     // DEBUG, not WARN: a client sending the wrong event name is not an operator
-    // problem, and under the `allowlist` predicate the SDKs route on the `$ai_`
-    // prefix while this gate is narrower, so it is expected to fire at client
-    // volume. The counter above carries the alerting signal and the warning
-    // below tells the project owner.
+    // problem and fires at client volume. The counter above carries the alerting
+    // signal and the warning below tells the project owner.
     crate::ctx_log!(
         Level::DEBUG,
         context,
@@ -4567,10 +4565,8 @@ mod tests {
         });
     }
 
-    /// The gate follows the deployment's predicate: under `Allowlist` an
-    /// `$ai_`-prefixed name off the list is dropped like any other non-AI event
-    /// (the AI pipeline of that era would DLQ it); under `Prefix` it is admitted.
-    /// Non-AI names drop in both modes.
+    /// Under `Allowlist` an unlisted `$ai_*` name drops like any non-AI event; under
+    /// `Prefix` it is admitted. Non-AI names drop in both modes.
     #[rstest::rstest]
     #[case::allowlisted("$ai_generation", EventResult::Ok, EventResult::Ok)]
     #[case::allowlisted_span("$ai_span", EventResult::Ok, EventResult::Ok)]

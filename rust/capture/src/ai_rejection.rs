@@ -18,9 +18,9 @@ use std::fmt;
 use crate::api::CaptureError;
 use crate::v0_request::AI_LANE_NAME_PREFIX;
 
-/// Event names the endpoint accepts under `AiLanePredicate::Allowlist`. Under
-/// `Prefix` any `$ai_*` name is accepted instead. Anything else is a client
-/// sending ordinary analytics to the AI path.
+/// Event names the endpoint accepts under `AiLanePredicate::Allowlist`; under
+/// `Prefix` any `$ai_*` name is accepted. Anything else is ordinary analytics
+/// sent to the AI path.
 pub const ALLOWED_AI_EVENTS: [&str; 6] = [
     "$ai_generation",
     "$ai_trace",
@@ -83,9 +83,8 @@ pub enum AiRejection {
     EventUuidRequired,
     EventUuidInvalid(String),
 
-    // AI-specific validation. Which name rejection fires depends on the
-    // deployment's `AiLanePredicate`: `EventNameNotAllowed` under `Allowlist`,
-    // `EventNameNotAiPrefixed` under `Prefix`.
+    // AI-specific validation. The name rejection follows the deployment's
+    // `AiLanePredicate`: `EventNameNotAllowed` or `EventNameNotAiPrefixed`.
     EventNameNotAllowed(String),
     EventNameNotAiPrefixed(String),
     AiModelMissing,

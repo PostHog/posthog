@@ -361,11 +361,9 @@ pub struct Config {
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 
-    /// How this deployment decides an event name belongs to the AI lane:
-    /// `allowlist` (exact `AI_EVENT_NAMES`) or `prefix` (any `$ai_*` name).
-    /// Flip to `prefix` only after the environment's AI ingestion pipeline
-    /// admits by prefix, or every prefixed-but-unlisted name it diverts is
-    /// DLQed downstream.
+    /// AI lane membership: `allowlist` (exact `AI_EVENT_NAMES`) or `prefix` (any `$ai_*`).
+    /// Set `prefix` only once the environment's AI ingestion pipeline admits by prefix,
+    /// or it DLQs every unlisted `$ai_*` name capture diverts.
     #[envconfig(from = "CAPTURE_AI_LANE_PREDICATE", default = "allowlist")]
     pub ai_lane_predicate: AiLanePredicate,
 
@@ -672,8 +670,7 @@ mod tests {
 
     #[test]
     fn ai_lane_predicate_binds_to_its_env_var_and_defaults_to_allowlist() {
-        // The charts flip sets CAPTURE_AI_LANE_PREDICATE=prefix; an unset var must
-        // keep master's behavior so the toggle is a no-op until each env opts in.
+        // Unset must mean `allowlist` so the toggle is a no-op until an env opts in.
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
         assert_eq!(config.ai_lane_predicate, AiLanePredicate::Allowlist);

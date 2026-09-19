@@ -191,17 +191,12 @@ pub enum DataType {
     AiEvents,
 }
 
-/// Every event whose name starts with this belongs to the AI lane once
-/// [`AiLanePredicate::Prefix`] is active. The ingestion AI pipeline admits by
-/// the same prefix (`isAiEventName` in
-/// `nodejs/src/ingestion/common/ai-event-types.ts`).
+/// AI lane membership under [`AiLanePredicate::Prefix`]. The ingestion AI pipeline
+/// admits by the same prefix (`isAiEventName` in `nodejs/src/ingestion/common/ai-event-types.ts`).
 pub const AI_LANE_NAME_PREFIX: &str = "$ai_";
 
-/// Event names diverted to the dedicated AI lane under
-/// [`AiLanePredicate::Allowlist`]. Kept while the prefix predicate rolls out
-/// per environment; a deployment whose downstream AI pipeline still admits by
-/// exact name must stay on this list or it DLQs every prefixed-but-unlisted
-/// name (e.g. `$ai_call`) it diverts.
+/// AI lane membership under [`AiLanePredicate::Allowlist`]. Remove once every
+/// environment runs [`AiLanePredicate::Prefix`].
 pub const AI_EVENT_NAMES: &[&str] = &[
     "$ai_generation",
     "$ai_embedding",
@@ -216,10 +211,9 @@ pub const AI_EVENT_NAMES: &[&str] = &[
     "$ai_evaluation_report",
 ];
 
-/// How a deployment decides that an event name belongs to the AI lane. Set by
-/// `CAPTURE_AI_LANE_PREDICATE`; every routing, gating, and size-limit site
-/// that asks "is this an AI event" goes through [`AiLanePredicate::is_ai_event`]
-/// so one deployment never mixes the two answers.
+/// How a deployment decides an event name is on the AI lane (`CAPTURE_AI_LANE_PREDICATE`).
+/// Every "is this an AI event" check goes through [`AiLanePredicate::is_ai_event`] so
+/// one deployment never mixes the two answers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum AiLanePredicate {
     /// Exact membership in [`AI_EVENT_NAMES`].
