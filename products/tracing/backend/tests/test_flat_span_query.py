@@ -14,6 +14,7 @@ DATE_TO = "2026-06-02T09:00:00Z"
 
 ROOT_SVC = "web"
 CHILD_SVC = "flags"
+WORKER_SVC = "worker"
 ROOT_NAME = "GET /api"
 CHILD_NAME = "match_flags"
 FILEPATH = "feature-flags/src/flags/flag_matching.rs"
@@ -90,6 +91,9 @@ class TestFlatSpanQuery(ClickhouseTestMixin, APIBaseTest):
         return res.json()
 
     _CODE_FILTER = {"key": "code.filepath", "type": "span_attribute", "operator": "exact", "value": FILEPATH}
+    # What the facet rail's Service facet writes into the filterGroup.
+    _SERVICE_EXACT_FILTER = {"key": "service_name", "type": "span", "operator": "exact", "value": [CHILD_SVC]}
+    _SERVICE_IS_NOT_FILTER = {"key": "service_name", "type": "span", "operator": "is_not", "value": [ROOT_SVC]}
 
     @parameterized.expand(
         [
@@ -108,6 +112,56 @@ class TestFlatSpanQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(all(r["service_name"] == CHILD_SVC for r in results))
         # Every returned row matched the filter.
         self.assertTrue(all(r["matched_filter"] for r in results))
+
+    def _insert_worker_span(self) -> str:
+        worker_uuid = "019e8754-0000-0000-0000-000000000007"
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, "
+            "resource_attributes) VALUES "
+            f"('{worker_uuid}', {self.team.id}, '{_b64((4).to_bytes(16, 'big'))}', "
+            f"'{_b64((41).to_bytes(8, 'big'))}', '', 'process_jobs', 2, '2026-06-02 08:00:40.000000', "
+            f"'2026-06-02 08:00:40.002000', '2026-06-02 08:00:40.000000', 0, '{WORKER_SVC}', map(), map())"
+        )
+        # CLASS_DATA_LEVEL_SETUP makes the fixture class-level and ClickHouse writes are not rolled
+        # back between tests, so the span is registered for removal whatever this test's outcome.
+        self.addCleanup(self._delete_span, worker_uuid)
+        return worker_uuid
+
+    def _delete_span(self, uuid: str) -> None:
+        # ALTER TABLE DELETE runs synchronously in tests (mutations_sync=1 under settings.TEST).
+        # Registered via addCleanup, so a failure here is reported separately by unittest and
+        # never masks the test body's own failure. The count assertion proves the row is gone.
+        sync_execute(f"ALTER TABLE trace_spans DELETE WHERE uuid = toUUID('{uuid}')")
+        remaining = sync_execute(f"SELECT count() FROM trace_spans WHERE uuid = toUUID('{uuid}')")[0][0]
+        self.assertEqual(remaining, 0, f"span cleanup left {remaining} row(s) in trace_spans")
+
+    def test_span_cleanup_restores_the_shared_fixture(self):
+        # Pass-path proof for the cleanup below: the span exists after insert, the helper removes it.
+        worker_uuid = self._insert_worker_span()
+        present = sync_execute(f"SELECT count() FROM trace_spans WHERE uuid = toUUID('{worker_uuid}')")[0][0]
+        self.assertEqual(present, 1)
+        self._delete_span(worker_uuid)
+
+    def test_flat_service_name_span_filters_distinguish_include_and_exclude(self):
+        # The shared fixture has only two services, so is_not "web" and exact "flags" return the same
+        # rows - a filter compiled with the wrong polarity would still pass. A third-service span makes
+        # the two shapes distinguishable: exclusion must keep it, inclusion must not.
+        self._insert_worker_span()
+
+        excluded = self._query(flatSpans=True, limit=100, filterGroup=[self._SERVICE_IS_NOT_FILTER])["results"]
+        self.assertEqual(len(excluded), 4)
+        self.assertTrue(all(r["service_name"] != ROOT_SVC for r in excluded))
+        self.assertEqual(
+            [r["service_name"] for r in excluded].count(WORKER_SVC),
+            1,
+            "excluding the root service must keep the third service's spans",
+        )
+        self.assertTrue(all(r["matched_filter"] for r in excluded))
+
+        included = self._query(flatSpans=True, limit=100, filterGroup=[self._SERVICE_EXACT_FILTER])["results"]
+        self.assertEqual(len(included), 3)
+        self.assertTrue(all(r["service_name"] == CHILD_SVC for r in included))
 
     def test_default_traces_view_hides_child_only_match(self):
         # The bug this fixes: with the default (Traces) view, a child-only attribute filter matches no

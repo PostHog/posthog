@@ -168,7 +168,7 @@ describe('facets', () => {
                 operator === PropertyOperator.Exact
                     ? { included: ['1'], excluded: [] }
                     : { included: [], excluded: ['1'] }
-            expect(facetSelection(legacy, null, STATUS_SOURCE)).toEqual(expected)
+            expect(facetSelection(legacy, STATUS_SOURCE)).toEqual(expected)
         })
 
         it('completes a pre-fold Unset-only group when a different row is toggled', () => {
@@ -183,13 +183,49 @@ describe('facets', () => {
     })
 
     describe('facetSelection', () => {
-        it('drops empty service names from external state so they cannot inject a blank row', () => {
-            // The service facet reads the dedicated serviceNames field, not the filterGroup — a URL or
-            // saved view carrying serviceNames: [''] must not surface a blank selected service row.
-            expect(facetSelection(undefined, ['api', ''], SERVICE_SOURCE)).toEqual({
-                included: ['api'],
-                excluded: [],
-            })
+        it('reads the service selection from its exact and is_not span filters', () => {
+            const group = groupWith([
+                {
+                    key: 'service_name',
+                    type: PropertyFilterType.Span,
+                    operator: PropertyOperator.Exact,
+                    value: ['api'],
+                },
+                {
+                    key: 'service_name',
+                    type: PropertyFilterType.Span,
+                    operator: PropertyOperator.IsNot,
+                    value: ['worker'],
+                },
+            ])
+            expect(facetSelection(group, SERVICE_SOURCE)).toEqual({ included: ['api'], excluded: ['worker'] })
+        })
+
+        it('drops empty service values from external state so they cannot inject a blank row', () => {
+            // A URL or saved view can carry an empty string; selecting it would surface a blank,
+            // label-less row that cannot be toggled off.
+            const group = groupWith([
+                {
+                    key: 'service_name',
+                    type: PropertyFilterType.Span,
+                    operator: PropertyOperator.Exact,
+                    value: ['api', ''],
+                },
+            ])
+            expect(facetSelection(group, SERVICE_SOURCE)).toEqual({ included: ['api'], excluded: [] })
+        })
+    })
+
+    describe('service facet cycling', () => {
+        it('cycles a service value included → excluded → cleared like any other facet', () => {
+            const included = cycleFacetFilter(undefined, SERVICE_SOURCE, 'api')
+            expect(facetFilterSelection(included, SERVICE_SOURCE)).toEqual({ included: ['api'], excluded: [] })
+
+            const excluded = cycleFacetFilter(included, SERVICE_SOURCE, 'api')
+            expect(facetFilterSelection(excluded, SERVICE_SOURCE)).toEqual({ included: [], excluded: ['api'] })
+
+            const cleared = cycleFacetFilter(excluded, SERVICE_SOURCE, 'api')
+            expect((cleared.values[0] as UniversalFiltersGroup).values).toEqual([])
         })
     })
 

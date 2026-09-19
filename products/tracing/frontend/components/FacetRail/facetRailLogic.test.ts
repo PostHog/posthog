@@ -5,9 +5,9 @@ import { UniversalFiltersGroup } from '~/types'
 
 import { tracingFiltersLogic } from '../../tracingFiltersLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetSelection, FacetSource, FilterGroupFacetSource, facetFilterSelection } from './facets'
+import { FacetSelection, FilterGroupFacetSource, facetFilterSelection } from './facets'
 
-const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name' }
+const SERVICE_SOURCE: FilterGroupFacetSource = { type: 'column', column: 'service_name' }
 const STATUS_SOURCE: FilterGroupFacetSource = { type: 'column', column: 'status_code' }
 const NAMESPACE_SOURCE: FilterGroupFacetSource = { type: 'resourceAttribute', key: 'k8s.namespace.name' }
 
@@ -29,25 +29,22 @@ describe('facetRailLogic', () => {
     })
 
     describe('service toggling', () => {
-        it('routes to the dedicated serviceNames field, never the filterGroup', async () => {
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
-            expect(filtersLogic.values.serviceNames).toEqual(['api'])
-            // The span queries read serviceNames — a filterGroup entry would silently not filter.
-            expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
-
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
-            expect(filtersLogic.values.serviceNames).toEqual([])
-        })
-
-        it('toggles relative to services already selected outside the rail', async () => {
+        it('writes span filters to the filterGroup and leaves the dedicated serviceNames field untouched', async () => {
+            // The filter bar's Services dropdown keeps reading serviceNames; the rail's service facet
+            // now scopes the query through a filterGroup span filter like every other facet.
             filtersLogic.actions.setServiceNames(['worker'])
 
             await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
-            expect(filtersLogic.values.serviceNames).toEqual(['worker', 'api'])
+            expect(facetFilterSelection(filtersLogic.values.filterGroup, SERVICE_SOURCE)).toEqual({
+                included: ['api'],
+                excluded: [],
+            })
+            expect(filtersLogic.values.serviceNames).toEqual(['worker'])
         })
     })
 
     describe.each<[string, FilterGroupFacetSource]>([
+        ['service column facet', SERVICE_SOURCE],
         ['status column facet', STATUS_SOURCE],
         ['resource-attribute facet', NAMESPACE_SOURCE],
     ])('%s cycling', (_, source) => {

@@ -29,8 +29,8 @@ export type FacetColumn = 'service_name' | 'status_code'
 /**
  * Where a facet's field lives, which determines both how it's queried and how its selection is stored.
  *
- * - `column`: an allowlisted top-level span column, queried with breakdownType `span`. `service_name`'s
- *   selection lives in the dedicated `serviceNames` filter field; `status_code`'s in a span property filter.
+ * - `column`: an allowlisted top-level span column, queried with breakdownType `span`. Both columns'
+ *   selections live in span property filters (`exact` to include, `is_not` to exclude).
  * - `resourceAttribute`: a `resource_attributes` map key (e.g. k8s.namespace.name), queried with
  *   breakdownType `span_resource_attribute`. Selection is a span_resource_attribute property filter.
  * - `attribute`: a plain (non-resource) span attribute key, queried with breakdownType `span_attribute`.
@@ -42,12 +42,12 @@ export type FacetSource =
     | { type: 'attribute'; key: string }
 
 /**
- * The sources whose selection lives in the filterGroup. `service_name` is deliberately excluded:
- * its selection belongs in `tracingFiltersLogic.serviceNames` (the field the span queries read) —
- * writing it as a filterGroup property filter would silently not scope the trace list.
+ * The sources whose selection lives in the filterGroup. This covers every source, `service_name`
+ * included: the span queries compile a `service_name` span filter straight to the column, so the
+ * rail no longer needs the dedicated include-only `serviceNames` field to exclude a service.
  */
 export type FilterGroupFacetSource =
-    | { type: 'column'; column: Exclude<FacetColumn, 'service_name'> }
+    | { type: 'column'; column: FacetColumn }
     | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
     | { type: 'attribute'; key: string }
 
@@ -138,8 +138,7 @@ function filterValues(filter: SpanFacetFilter): string[] {
 }
 
 /**
- * Selection for a facet whose state lives in the filterGroup (status_code and resource attributes —
- * service_name reads the dedicated serviceNames field instead), read from its exact (include) and
+ * Selection for a facet whose state lives in the filterGroup, read from its exact (include) and
  * is_not (exclude) filters.
  */
 export function facetFilterSelection(
@@ -154,21 +153,12 @@ export function facetFilterSelection(
 }
 
 /**
- * Selection for any facet — routes the service facet to the dedicated serviceNames field
- * (include-only, so nothing is ever excluded there) and everything else to its filterGroup filters.
- * Column selections are reported against the rows the rail renders, so a folded-away value
- * (status_code "0") shows up as its group's row instead of as a selection with no row to click.
+ * Selection for any facet, read from its filterGroup filters. Column selections are reported
+ * against the rows the rail renders, so a folded-away value (status_code "0") shows up as its
+ * group's row instead of as a selection with no row to click.
  */
-export function facetSelection(
-    group: UniversalFiltersGroup | undefined,
-    serviceNames: string[] | undefined | null,
-    source: FacetSource
-): FacetSelection {
+export function facetSelection(group: UniversalFiltersGroup | undefined, source: FacetSource): FacetSelection {
     if (source.type === 'column') {
-        if (source.column === 'service_name') {
-            // Empty strings from external state (URL, saved view) would select a value with no visible row.
-            return { included: (serviceNames ?? []).filter((v) => v !== ''), excluded: [] }
-        }
         return facetRowSelection(source, facetFilterSelection(group, { type: 'column', column: source.column }))
     }
     return facetFilterSelection(group, source)
