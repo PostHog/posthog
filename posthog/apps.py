@@ -97,7 +97,7 @@ class PostHogConfig(AppConfig):
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"  # ty: ignore[invalid-assignment]
             posthoganalytics.personal_api_key = None
-        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
+        elif settings.TEST or settings.OPT_OUT_CAPTURE:
             posthoganalytics.disabled = True  # ty: ignore[invalid-assignment]
         elif settings.DEBUG:
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
