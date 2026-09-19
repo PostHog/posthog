@@ -332,6 +332,17 @@ _CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
     "schedule."
 )
 
+# What a customer reads when their database reports a damaged page rather than a damaged row
+# length. The driver text is raw Postgres internals (a TOAST chunk number, a block number), so it
+# reads like a PostHog defect and names no next action.
+_SOURCE_PAGE_CORRUPTION_ERROR = (
+    "PostHog couldn't read one of the tables you're syncing because your database reported "
+    "damaged data on disk. PostHog only reads from your source, so this has to be repaired on "
+    "your database. Check your database server logs, run a consistency check on the table (for "
+    "example pg_amcheck), reindex it if an index is damaged, or restore the affected data from a "
+    "backup. Then re-enable the sync."
+)
+
 _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
     "Your read replica kept canceling PostHog's reads because it had to apply changes from the "
     "primary that removed rows the sync was still reading, and the conflict outlasted every retry. "
@@ -1029,6 +1040,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "problem with the sync. Check this table for data corruption (for example with "
                 "pg_amcheck), then repair or remove the affected rows and re-enable the sync."
             ),
+            # The same damage reported through the wordings that name the page instead of the
+            # allocation: a TOAST row whose out-of-line chunks are gone, an index page that reads
+            # back as zeroes, and a heap or index page the server could not read at all. We only
+            # ever run `SELECT ... FROM <relation>`, so each one is damage on the customer's side,
+            # fixed to the affected page, and every retry re-reads that page into the same error.
+            # The volatile chunk and block numbers and relation names are excluded from the match.
+            "missing chunk number": _SOURCE_PAGE_CORRUPTION_ERROR,
+            "unexpected zero page": _SOURCE_PAGE_CORRUPTION_ERROR,
+            "could not read block": _SOURCE_PAGE_CORRUPTION_ERROR,
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely

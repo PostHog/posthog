@@ -888,6 +888,29 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg messages (what the activity-level check sees via str(e)). The chunk and
+            # block numbers and the relation names are volatile.
+            "missing chunk number 0 for toast value 90210 in pg_toast_16384",
+            'index "orders_pkey" contains unexpected zero page at block 42',
+            'could not read block 7 in file "base/16384/16385": read only 0 of 8192 bytes',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InternalError_: missing chunk number 0 for toast value 90210 in pg_toast_16384",
+        ],
+    )
+    def test_damaged_source_page_is_non_retryable(self, source, error_msg):
+        # The sibling wordings of the allocation-size failure above name the page rather than the
+        # row length, so none of them match that key and each would otherwise retry to exhaustion.
+        non_retryable = source.get_non_retryable_errors()
+        assert error_message_matches(error_msg, non_retryable.keys()), (
+            f"Damaged source page should be non-retryable: {error_msg}"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Damaged source page should surface an actionable message"
+        assert "damaged data on disk" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong.',
             'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  The password that was provided for the role posthog_readonly is wrong.',
         ],
