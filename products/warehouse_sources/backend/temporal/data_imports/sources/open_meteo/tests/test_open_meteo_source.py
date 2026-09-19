@@ -147,13 +147,18 @@ class TestOpenMeteoSource:
             "HTTPSConnectionPool(host='customer-api.open-meteo.com', port=443): "
             "Max retries exceeded with url: /v1/forecast (Caused by "
             "NewConnectionError('Failed to establish a new connection'))",
+            # `_fetch`'s `raise_for_status()` fallback fires once the tracked session's own 429/5xx
+            # retries are exhausted; its message carries the request URL rather than urllib3's
+            # connection-pool wording.
+            "500 Server Error: Internal Server Error for url: https://api.open-meteo.com/v1/forecast",
         ],
     )
     def test_transport_connection_errors_match_the_retryable_patterns(self, raised_message: str) -> None:
         # `_get_with_redacted_errors` has no retry loop of its own once urllib3's own retry budget
-        # is exhausted, so a plain read-timeout or connection failure against Open-Meteo's own
-        # fixed hosts must be recognized here — otherwise it escapes unclassified and gets reported
-        # to error tracking as a bug instead of a transient, self-recovering blip.
+        # is exhausted, so a plain read-timeout, connection failure, or exhausted-retry HTTP error
+        # against Open-Meteo's own fixed hosts must be recognized here — otherwise it escapes
+        # unclassified and gets reported to error tracking as a bug instead of a transient,
+        # self-recovering blip.
         assert error_message_matches(raised_message, self.source.get_retryable_errors())
 
     def test_resumable_manager_is_namespaced_per_schema(self) -> None:
