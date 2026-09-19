@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sync_failure_events import produce_sync_failed_events
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
 )
@@ -100,6 +101,10 @@ def mark_cdc_broken(
         if create_visibility_jobs:
             _create_failure_visibility_jobs(source, newly_broken, message, log)
         _schedule_failure_digest(source, log)
+        # Re-read: the locked merge above wrote the cdc_broken marker, which sync_paused reads, only to the database.
+        produce_sync_failed_events(
+            source, ExternalDataSchema.objects.filter(id__in=[schema.id for schema in newly_broken]), message
+        )
 
     _notify(source, message, log)
     _capture(source, reason, paused=pause, log=log)
