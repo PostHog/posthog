@@ -41,7 +41,7 @@ export function LemonTableLink({
         />
     ) : null
 
-    if (!props.to) {
+    if (!props.to && !props.onClick) {
         return (
             <div className={clsx('flex flex-col py-1', truncateTitle && 'min-w-0')}>
                 {titleRow}
@@ -63,6 +63,9 @@ export function LemonTableLink({
         )
     }
 
+    // `Link` already renders a plain (but still clickable) `<button>` when `to` is
+    // absent, so `onClick`-only usage (e.g. to open a modal instead of navigating)
+    // works the same way as `to`-based navigation instead of being silently inert.
     return (
         <Link subtle {...props} className={clsx(props.className, truncateTitle && 'block min-w-0')}>
             <div className={clsx('flex flex-col py-1', truncateTitle && 'min-w-0')}>
