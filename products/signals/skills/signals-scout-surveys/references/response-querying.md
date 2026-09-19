@@ -50,7 +50,7 @@ Daily average score for one rating question, both key schemes coalesced:
 ```sql
 SELECT
     toDate(timestamp) AS day,
-    avg(toFloat64OrNull(coalesce(
+    avg(toFloatOrNull(coalesce(
         nullIf(JSONExtractString(properties, '$survey_response_<question_id>'), ''),  -- id-based (modern)
         nullIf(JSONExtractString(properties, '<index_based_key>'), '')                -- '$survey_response' (index 0) or '$survey_response_<n>'
     ))) AS avg_score,
