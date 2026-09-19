@@ -51,7 +51,10 @@ import {
 } from "../machine-auth";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
-import { loadUserClaudeJsonMcpServers } from "./mcp-config";
+import {
+  loadUserClaudeJsonMcpServers,
+  loopbackMcpjsonServerNames,
+} from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
@@ -585,14 +588,42 @@ function buildSpawnWrapper(
   };
 }
 
-function ensureLocalSettings(cwd: string): void {
+function ensureLocalSettings(
+  cwd: string,
+  disabledMcpjsonServers: string[] = [],
+): void {
   const claudeDir = path.join(cwd, ".claude");
   const localSettingsPath = path.join(claudeDir, "settings.local.json");
   try {
-    if (!fs.existsSync(localSettingsPath)) {
-      fs.mkdirSync(claudeDir, { recursive: true });
-      fs.writeFileSync(localSettingsPath, "{}\n", { flag: "wx" });
+    const existed = fs.existsSync(localSettingsPath);
+    let settings: Record<string, unknown> = {};
+    if (existed) {
+      const parsed = JSON.parse(fs.readFileSync(localSettingsPath, "utf8"));
+      // A hand-edited file we can't read as an object stays untouched.
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        return;
+      }
+      settings = parsed as Record<string, unknown>;
     }
+
+    const disabled = Array.isArray(settings.disabledMcpjsonServers)
+      ? settings.disabledMcpjsonServers.filter(
+          (name): name is string => typeof name === "string",
+        )
+      : [];
+    const merged = [...new Set([...disabled, ...disabledMcpjsonServers])];
+    if (existed && merged.length === disabled.length) return;
+    if (merged.length > 0) settings.disabledMcpjsonServers = merged;
+
+    fs.mkdirSync(claudeDir, { recursive: true });
+    fs.writeFileSync(
+      localSettingsPath,
+      `${JSON.stringify(settings, null, 2)}\n`,
+    );
   } catch {
     // Best-effort — don't fail session creation if we can't write
   }
@@ -604,7 +635,16 @@ function isLegacyJavaScriptClaudeExecutable(executablePath: string): boolean {
 }
 
 export function buildSessionOptions(params: BuildOptionsParams): Options {
-  ensureLocalSettings(params.cwd);
+  // A cloud sandbox can never reach a loopback MCP server, so a dev-only entry
+  // in the repo's checked-in `.mcp.json` only ever produces a connection
+  // failure — one the agent then sees quoted on unrelated tool searches. Turn
+  // those servers off by name for the run instead of letting them fail.
+  ensureLocalSettings(
+    params.cwd,
+    params.cloudMode
+      ? loopbackMcpjsonServerNames(params.cwd, params.logger)
+      : [],
+  );
 
   // Gateway sessions get the traceparent hook (see session/traceparent-hook.ts)
   // so each turn's gateway trace id reaches the session as a `hook_response`.

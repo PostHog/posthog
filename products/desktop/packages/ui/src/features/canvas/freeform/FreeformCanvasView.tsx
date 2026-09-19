@@ -690,8 +690,32 @@ export function FreeformCanvasView({
       if (agentRequestPromiseRef.current === pending) {
         setAgentRequest(null);
         agentRequestPromiseRef.current = null;
+        // Retry sends the same prompt again without reopening the approval
+        // dialog: the user approved this exact request moments ago, and asking
+        // twice for one failed submission is friction, not consent.
+        const { dashboardId: retryId, prompt: retryPrompt } = agentRequest;
         toast.error("Couldn't start the agent run", {
           description: error instanceof Error ? error.message : String(error),
+          action: {
+            label: "Retry",
+            onClick: () =>
+              requestAgent.mutate(
+                { id: retryId, prompt: retryPrompt },
+                {
+                  onSuccess: (result) =>
+                    toast.success(
+                      AGENT_REQUEST_OUTCOME_TOASTS[result.requestOutcome],
+                    ),
+                  onError: (retryError) =>
+                    toast.error("Couldn't start the agent run", {
+                      description:
+                        retryError instanceof Error
+                          ? retryError.message
+                          : String(retryError),
+                    }),
+                },
+              ),
+          },
         });
       }
     }

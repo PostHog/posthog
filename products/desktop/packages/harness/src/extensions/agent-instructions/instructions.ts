@@ -33,6 +33,10 @@ const MCP_TOOLS = `
 If an MCP tool call is explicitly denied with a message, relay that denial message to the user exactly as given. Do NOT suggest checking "Claude Code settings."
 
 If an MCP tool call returns an error, treat it as a normal tool error — troubleshoot, retry, or inform the user about the specific error. Do NOT assume it is a permissions issue and do NOT direct the user to any settings page.
+
+PostHog's own capabilities (canvases, insights, flags, tasks, and the rest) are inner tools of the \`mcp__posthog__exec\` dispatcher, not tools of their own. A tool search for an inner tool name such as \`canvas-source-retrieve\` therefore matches nothing while the capability is fully available. Find these tools with \`mcp__posthog__exec\` (\`search\`, then \`info\`), never with a tool search.
+
+A tool search result can name an MCP server that failed to connect. That note covers only the tools of that server. Do NOT read it as the reason an unrelated search returned no match, and do NOT report a capability as unavailable before you try the server that provides it.
 `;
 
 const DATA_HANDLING = `

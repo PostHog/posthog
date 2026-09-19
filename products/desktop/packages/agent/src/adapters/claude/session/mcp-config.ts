@@ -228,3 +228,69 @@ export function parseMcpServers(
 
   return mcpServers;
 }
+
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "0.0.0.0", "[::1]"]);
+
+// The WHATWG URL parser canonicalises IPv4 hosts to dotted-quad form, so a
+// prefix check covers all of 127.0.0.0/8.
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return (
+      LOOPBACK_HOSTNAMES.has(hostname) || /^127\.\d+\.\d+\.\d+$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Names of the repo's checked-in `.mcp.json` HTTP/SSE servers that address the
+ * loopback interface — a developer's own machine.
+ *
+ * A cloud sandbox has no such process, so every one of these servers fails to
+ * connect there, and the failure is reported on tool searches that have nothing
+ * to do with the server (see the ToolSearch note in the MCP Tool Access
+ * instructions). Cloud sessions disable them by name instead, so a dev-only
+ * entry in a shared `.mcp.json` costs a cloud run nothing.
+ */
+export function loopbackMcpjsonServerNames(
+  cwd: string,
+  logger?: Logger,
+): string[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8");
+  } catch {
+    return [];
+  }
+
+  let cfg: unknown;
+  try {
+    cfg = JSON.parse(raw);
+  } catch (err) {
+    logger?.warn("Failed to parse .mcp.json", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+
+  if (!isPlainObject(cfg) || !isPlainObject(cfg.mcpServers)) return [];
+
+  const names: string[] = [];
+  for (const [name, config] of Object.entries(cfg.mcpServers)) {
+    if (!isPlainObject(config)) continue;
+    const transport = parseClaudeJsonTransport(config as McpServerConfig);
+    if (
+      (transport.kind === "http" || transport.kind === "sse") &&
+      isLoopbackUrl(transport.url)
+    ) {
+      names.push(name);
+    }
+  }
+  return names;
+}

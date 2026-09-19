@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   loadUserClaudeJsonMcpServerEntries,
   loadUserClaudeJsonMcpServers,
+  loopbackMcpjsonServerNames,
 } from "./mcp-config";
 
 describe("loadUserClaudeJsonMcpServers", () => {
@@ -185,5 +186,61 @@ describe("loadUserClaudeJsonMcpServerEntries", () => {
     expect(
       loadUserClaudeJsonMcpServerEntries("/cwd", undefined, tmpHome),
     ).toEqual([]);
+  });
+});
+
+describe("loopbackMcpjsonServerNames", () => {
+  let tmpCwd: string;
+
+  beforeEach(() => {
+    tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-json-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  });
+
+  it("names only the servers a cloud sandbox can never reach", () => {
+    fs.writeFileSync(
+      path.join(tmpCwd, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          local: { type: "http", url: "http://localhost:8787/mcp" },
+          loopbackIp: { url: "http://127.0.0.1:9000/mcp" },
+          loopbackRange: { type: "sse", url: "http://127.0.0.2:9001/sse" },
+          notLoopback: { type: "http", url: "http://127.example.com/mcp" },
+          nullEntry: null,
+          arrayEntry: [],
+          remote: { type: "http", url: "https://mcp.example.com/mcp" },
+          stdio: { command: "uv", args: ["run", "server.py"] },
+        },
+      }),
+    );
+
+    expect(loopbackMcpjsonServerNames(tmpCwd).sort()).toEqual([
+      "local",
+      "loopbackIp",
+      "loopbackRange",
+    ]);
+  });
+
+  it.each([
+    { name: ".mcp.json is missing", contents: undefined },
+    { name: ".mcp.json contains invalid JSON", contents: "not json" },
+    { name: ".mcp.json is null", contents: "null" },
+    { name: ".mcp.json is an array", contents: "[]" },
+    {
+      name: "mcpServers is null",
+      contents: JSON.stringify({ mcpServers: null }),
+    },
+    {
+      name: "mcpServers is an array",
+      contents: JSON.stringify({ mcpServers: [] }),
+    },
+  ])("returns empty when $name", ({ contents }) => {
+    if (contents !== undefined) {
+      fs.writeFileSync(path.join(tmpCwd, ".mcp.json"), contents);
+    }
+    expect(loopbackMcpjsonServerNames(tmpCwd)).toEqual([]);
   });
 });

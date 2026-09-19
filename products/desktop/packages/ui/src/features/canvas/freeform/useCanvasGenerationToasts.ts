@@ -14,18 +14,61 @@ import { useCanvasGenerationTrackerStore } from "@posthog/ui/features/canvas/sto
 import { NotificationBus } from "@posthog/ui/features/notifications/notifications";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef } from "react";
+import { toast } from "@posthog/ui/primitives/toast";
+import { logger } from "@posthog/ui/shell/logger";
+import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 // Poll cadence for the run status of a tracked generation task. Matches the
 // canvas record poll in FreeformCanvasView so the toast and the in-view state
 // land together.
 const POLL_MS = 4000;
 
+const log = logger.scope("canvas-generation-toasts");
+
 interface TrackedCanvasEntry {
   channelId: string;
   dashboardId: string;
   name: string;
+  instruction?: string;
+}
+
+// Sends the failed run's request to the canvas again. The new run is tracked
+// like the first one, so it announces its own outcome — including a second
+// failure, which stays retryable.
+function useRetryCanvasGeneration(): (entry: TrackedCanvasEntry) => void {
+  const trpc = useHostTRPC();
+  const requestAgent = useMutation(
+    trpc.dashboards.requestAgent.mutationOptions(),
+  );
+  return useCallback(
+    (entry: TrackedCanvasEntry) => {
+      const instruction = entry.instruction;
+      if (!instruction) return;
+      requestAgent.mutate(
+        { id: entry.dashboardId, prompt: instruction },
+        {
+          onSuccess: (result) => {
+            useCanvasGenerationTrackerStore
+              .getState()
+              .track({ ...entry, instruction, taskId: result.taskId });
+            toast.success("Retrying the request");
+          },
+          onError: (error) => {
+            log.error("Failed to retry canvas request", {
+              dashboardId: entry.dashboardId,
+              error,
+            });
+            toast.error("Couldn't retry the request", {
+              description:
+                error instanceof Error ? error.message : String(error),
+            });
+          },
+        },
+      );
+    },
+    [requestAgent],
+  );
 }
 
 // Whether a finished generation actually produced a live canvas: the newest
@@ -53,6 +96,7 @@ function emitCanvasGenerationNotification(
   entry: TrackedCanvasEntry,
   status: CanvasTerminalStatus,
   buildHealthy: boolean,
+  onRetry?: () => void,
 ): void {
   const name = entry.name.trim() || "Canvas";
   const target = {
@@ -85,11 +129,14 @@ function emitCanvasGenerationNotification(
       });
     }
   } else if (status === "failed") {
+    // Retry replaces the "View canvas" link here: the canvas has nothing new
+    // to show, and sending the request again is what the user wants next.
     bus.notify({
       reason: "canvas_generation",
       debug: { status, buildHealthy },
       body: `${name} generation failed`,
       target,
+      action: onRetry ? { label: "Retry", onClick: onRetry } : undefined,
       toast: {
         level: "error",
         description: "The agent couldn't finish building this canvas.",
@@ -123,6 +170,9 @@ function useCanvasGenerationToasts(): void {
 
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
+  const retryGeneration = useRetryCanvasGeneration();
+  const retryRef = useRef(retryGeneration);
+  retryRef.current = retryGeneration;
 
   const taskIds = useMemo(() => Object.keys(tracked), [tracked]);
 
@@ -218,7 +268,13 @@ function useCanvasGenerationToasts(): void {
               emitCanvasGenerationNotification(bus, entry, status, true),
             );
         } else {
-          emitCanvasGenerationNotification(bus, entry, status, true);
+          emitCanvasGenerationNotification(
+            bus,
+            entry,
+            status,
+            true,
+            entry.instruction ? () => retryRef.current(entry) : undefined,
+          );
         }
       }
       // Stop tracking (and polling) this task now that it's done.
