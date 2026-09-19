@@ -53,6 +53,8 @@ This prototype adds a TypeSafe template to Transformations.
 It uses Jev to classify an event and saves the category in an event property.
 Use it locally with invented events.
 The experimental banner includes a link to contact support if you find an issue.
+For TypeSafe, it also explains which event data leaves PostHog and that TypeSafe is not a listed PostHog subprocessor.
+It states that the customer's agreements with PostHog, including any DPA, BAA, or MSA, do not cover TypeSafe's processing.
 The `typesafe-transformation` feature flag controls template access and creation for each project.
 It defaults to off when the flag is missing or cannot be evaluated.
 Enable it only for test projects before release.

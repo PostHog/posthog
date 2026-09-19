@@ -157,6 +157,14 @@ export function HogFunctionConfiguration({
                   hogFunction?.template?.status === 'alpha' ? (
                     <div>
                         <LemonBanner type="warning">
+                            {(templateId ?? hogFunction?.template?.id) === 'native-typesafe' ? (
+                                <p>
+                                    This transformation sends event names and properties to TypeSafe, except for
+                                    properties you exclude. TypeSafe is not on PostHog's list of subprocessors. Your
+                                    agreements with PostHog, including any DPA, BAA, or MSA, do not cover TypeSafe's
+                                    processing of this data. Only send data you are allowed to share with TypeSafe.
+                                </p>
+                            ) : null}
                             <p>
                                 This {humanizeHogFunctionType(type)} is experimental and may behave unexpectedly.{' '}
                                 <Link
