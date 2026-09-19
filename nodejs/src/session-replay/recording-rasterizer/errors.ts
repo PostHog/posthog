@@ -57,15 +57,18 @@ export class RasterizationError extends Error {
 // Match on the error name first: puppeteer raises every one of these as TargetCloseError but words
 // the message six different ways ("Target closed", "Session closed. Most likely the ... has been
 // closed.", "Page closed!", "Frame detached."). Matching one wording is what let the earlier
-// variants through. The message checks stay as a fallback for a wrapped or re-thrown rejection that
-// lost the prototype.
+// variants through. The message checks catch a wrapped or re-thrown rejection that lost the prototype,
+// and `page.goto` rejecting with a plain Error when the target dies during the player navigation
+// ("Navigating frame was detached").
+const TARGET_DEATH_MESSAGES = ['Target closed', 'Session closed', 'Frame detached', 'frame was detached']
+
 export function asRasterizationError(err: unknown): RasterizationError | null {
     if (err instanceof RasterizationError) {
         return err
     }
     const name = err instanceof Error ? err.name : ''
     const message = err instanceof Error ? err.message : String(err)
-    if (name === 'TargetCloseError' || message.includes('Target closed') || message.includes('Session closed')) {
+    if (name === 'TargetCloseError' || TARGET_DEATH_MESSAGES.some((wording) => message.includes(wording))) {
         return new RasterizationError('chrome target closed mid-render', true, 'TARGET_CLOSED', err)
     }
     return null
