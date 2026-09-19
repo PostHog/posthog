@@ -7,12 +7,7 @@ from django.conf import settings
 
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.metrics import (
-    METRICS2_AGG_TABLE_SQL,
-    METRICS2_FLAT_INDEXED_VIEW_SQL,
-    METRICS2_FLAT_VIEW_SQL,
-    METRICS2_INPUT_TO_METRICS_AGG_MV,
-)
+from posthog.clickhouse.metrics import METRICS2_AGG_TABLE_SQL, METRICS2_FLAT_VIEW_SQL, METRICS2_INPUT_TO_METRICS_AGG_MV
 
 from products.metrics.backend.facade.contracts import METRICS_FUNDAMENTALS_FEATURE_FLAG
 
@@ -37,10 +32,5 @@ def create_metrics_array_view_schema() -> None:
     # Create them here when the readers are switched to a flat view.
     if not settings.METRICS_ARRAY_VIEW:
         return
-    for sql in (
-        METRICS2_AGG_TABLE_SQL(),
-        METRICS2_INPUT_TO_METRICS_AGG_MV(),
-        METRICS2_FLAT_VIEW_SQL(),
-        METRICS2_FLAT_INDEXED_VIEW_SQL(),
-    ):
+    for sql in (METRICS2_AGG_TABLE_SQL(), METRICS2_INPUT_TO_METRICS_AGG_MV(), METRICS2_FLAT_VIEW_SQL()):
         sync_execute(sql)

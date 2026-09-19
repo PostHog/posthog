@@ -6,9 +6,9 @@ point of one series in one hour, as parallel arrays (`timestamp_arr`,
 `value_arr`, ...). `metrics2_input_to_metrics_agg` fills it from the same
 `metrics2_input` rows that feed `metrics2`, so both tables hold the same points.
 `metrics2_flat` is a VIEW that ARRAY JOINs the arrays back into the `metrics2`
-column layout, so the existing readers run against it unchanged. `metrics2_flat_idx`
-does the same with one `arrayJoin(arrayEnumerate(...))` index and `arr[idx]`
-element reads, so a query that needs two arrays does not read all twelve.
+column layout, so the existing readers run against it unchanged in tests. The
+view reads every array column for every query, so it is a correctness harness,
+not a query path.
 
 Why the parallel arrays stay aligned: inside one insert block, every
 `groupArray(col)` for one key sees the same rows in the same order, so index
@@ -19,8 +19,9 @@ readers must not assume time order. `ARRAY JOIN` over several arrays throws when
 their lengths differ, so misalignment fails loudly instead of silently.
 
 This module is a spike: it is not part of `schema.py`, the migrations, or the
-HCL layer. `products/metrics/scripts/metrics_agg_bench.py` benchmarks it and the
-metrics pytest suite can run against a view via `METRICS_ARRAY_VIEW`.
+HCL layer. `products/metrics/scripts/metrics_agg_bench.py` benchmarks the table
+with snuffle's queries, and the metrics pytest suite can run against the view
+via `METRICS_ARRAY_VIEW`.
 """
 
 from django.conf import settings
@@ -32,7 +33,6 @@ from .metrics2 import METRICS2_INPUT_TABLE_NAME
 METRICS2_AGG_TABLE_NAME = "metrics2_agg"
 METRICS2_AGG_MV_NAME = f"{METRICS2_INPUT_TABLE_NAME}_to_metrics_agg"
 METRICS2_FLAT_VIEW_NAME = "metrics2_flat"
-METRICS2_FLAT_INDEXED_VIEW_NAME = "metrics2_flat_idx"
 
 # (metrics2 column, element type) for every per-point column that becomes an array.
 POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -74,7 +74,9 @@ def _array_column_defs(codecs: dict[str, str]) -> str:
     return ",\n".join(lines)
 
 
-def METRICS2_AGG_TABLE_SQL(codecs: dict[str, str] | None = None) -> str:
+def METRICS2_AGG_TABLE_SQL(codecs: dict[str, str] | None = None, index_granularity: int = 128) -> str:
+    # One row holds a full hour of one series, so a granule of 8192 rows would
+    # span every series of an insert and the key filter could not skip any of it.
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_AGG_TABLE_NAME}
 (
@@ -101,7 +103,7 @@ PARTITION BY original_expiry_date
 ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
 TTL original_expiry_date
 SETTINGS
-    index_granularity = 8192,
+    index_granularity = {index_granularity},
     ttl_only_drop_parts = 1
 """
 
@@ -164,16 +166,4 @@ AS SELECT{_FLAT_SERIES_COLUMNS},
 FROM {db}.{METRICS2_AGG_TABLE_NAME}
 ARRAY JOIN
 {array_join}
-"""
-
-
-def METRICS2_FLAT_INDEXED_VIEW_SQL() -> str:
-    db = _db()
-    point_columns = ",\n".join(f"    {name}_arr[idx] AS {name}" for name, _ in POINT_ARRAY_COLUMNS)
-    return f"""
-CREATE VIEW IF NOT EXISTS {db}.{METRICS2_FLAT_INDEXED_VIEW_NAME}
-AS SELECT{_FLAT_SERIES_COLUMNS},
-    arrayJoin(arrayEnumerate(timestamp_arr)) AS idx,
-{point_columns}
-FROM {db}.{METRICS2_AGG_TABLE_NAME}
 """
