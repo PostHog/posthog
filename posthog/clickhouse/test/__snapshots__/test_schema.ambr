@@ -4500,8 +4500,7 @@
       `attributes` Map(LowCardinality(String), String),
       `_partition` UInt32,
       `_topic` String,
-      `_offset` UInt64,
-      `retention_days_explicit` Int32 DEFAULT 0
+      `_offset` UInt64
   )
   ENGINE = Null
   
@@ -4707,7 +4706,7 @@
           team_id AS team_id,
           metric_name AS metric_name,
           toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-          toStartOfInterval(timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))), toIntervalHour(1)) AS original_expiry_time_bucket,
+          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
           service_name AS service_name,
           mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
           arrayJoin(filtered_attributes) AS attribute,
@@ -4743,9 +4742,9 @@
       team_id,
       metric_name,
       toStartOfHour(timestamp) AS time_bucket,
-      toStartOfHour(timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))) AS original_expiry_time_bucket,
-      maxSimpleState(timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))) AS original_expiry_timestamp
-  FROM posthog_test.metrics2_input
+      toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
+      maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+  FROM posthog_test.metrics2_input AS input
   WHERE has_labels
   GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket
   
@@ -4782,7 +4781,7 @@
           team_id AS team_id,
           metric_name AS metric_name,
           toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-          toStartOfInterval(timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))), toIntervalHour(1)) AS original_expiry_time_bucket,
+          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
           service_name AS service_name,
           resource_attributes AS filtered_attributes,
           arrayJoin(filtered_attributes) AS attribute,
@@ -4812,7 +4811,7 @@
       metric_name,
       toDateTime(toStartOfHour(timestamp)) AS time_bucket,
       series_fingerprint,
-      toDate32(timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))) AS original_expiry_date,
+      toDate32(original_expiry_timestamp) AS original_expiry_date,
       any(resource_fingerprint) AS resource_fingerprint,
       any(service_name) AS service_name,
       any(metric_type) AS metric_type,
@@ -4860,7 +4859,7 @@
       resource_attributes,
       attributes,
       timestamp,
-      timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))) AS original_expiry_timestamp
+      original_expiry_timestamp
   FROM posthog_test.metrics2_input
   WHERE has_labels
   
@@ -12113,8 +12112,7 @@
       `attributes` Map(LowCardinality(String), String),
       `_partition` UInt32,
       `_topic` String,
-      `_offset` UInt64,
-      `retention_days_explicit` Int32 DEFAULT 0
+      `_offset` UInt64
   )
   ENGINE = Null
   

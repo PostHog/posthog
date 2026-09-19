@@ -498,8 +498,7 @@ CREATE TABLE posthog.metrics2_input (
   attributes Map(LowCardinality(String), String),
   _partition UInt32,
   _topic String,
-  _offset UInt64,
-  retention_days_explicit Int32 DEFAULT 0
+  _offset UInt64
 ) ENGINE = Null();
 CREATE TABLE posthog.metrics4_attributes (
   team_id Int32,
@@ -918,7 +917,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_kafka_metrics_mv TO posthog.log
 FROM posthog.logs34
 GROUP BY
   _partition, _topic;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64, retention_days_explicit Int32) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
   uuid,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   ifNull(metric_name, '') AS metric_name,
@@ -926,7 +925,16 @@ CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_inpu
   cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
   timestamp,
   observed_timestamp,
-  timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(90))) AS original_expiry_timestamp,
+  timestamp
+  + toIntervalDay(
+    assumeNotNull(
+      if(
+        (retention_days IS NOT NULL) AND (retention_days > 0),
+        retention_days,
+        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))
+      )
+    )
+  ) AS original_expiry_timestamp,
   ifNull(service_name, '') AS service_name,
   ifNull(metric_type, '') AS metric_type,
   ifNull(value, 0) AS value,
@@ -953,14 +961,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_inpu
   ) AS attributes,
   _partition,
   _topic,
-  _offset,
-  assumeNotNull(
-    if(
-      (retention_days IS NOT NULL) AND (retention_days > 0),
-      retention_days,
-      toInt32OrZero(_headers.value[indexOf(_headers.name, 'retention-days')])
-    )
-  ) AS retention_days_explicit
+  _offset
 FROM posthog.kafka_metrics_avro2
 WHERE kafka_metrics_avro2.series_fingerprint IS NOT NULL
 SETTINGS
@@ -1198,11 +1199,7 @@ FROM
       team_id AS team_id,
       metric_name AS metric_name,
       toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(
-        timestamp
-        + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))),
-        toIntervalHour(1)
-      ) AS original_expiry_time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
       service_name AS service_name,
       mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
       arrayJoin(filtered_attributes) AS attribute,
@@ -1219,13 +1216,9 @@ CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics4_names TO posthog.met
   team_id,
   metric_name,
   toStartOfHour(timestamp) AS time_bucket,
-  toStartOfHour(
-    timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))
-  ) AS original_expiry_time_bucket,
-  maxSimpleState(
-    timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))
-  ) AS original_expiry_timestamp
-FROM posthog.metrics2_input
+  toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
+  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+FROM posthog.metrics2_input AS input
 WHERE has_labels
 GROUP BY
   team_id, time_bucket, metric_name, original_expiry_time_bucket;
@@ -1245,11 +1238,7 @@ FROM
       team_id AS team_id,
       metric_name AS metric_name,
       toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(
-        timestamp
-        + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))),
-        toIntervalHour(1)
-      ) AS original_expiry_time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
       service_name AS service_name,
       resource_attributes AS filtered_attributes,
       arrayJoin(filtered_attributes) AS attribute,
@@ -1267,9 +1256,7 @@ CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics4_samples TO posthog.m
   metric_name,
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
-  toDate32(
-    timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))
-  ) AS original_expiry_date,
+  toDate32(original_expiry_timestamp) AS original_expiry_date,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
   any(metric_type) AS metric_type,
@@ -1306,7 +1293,7 @@ CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics4_series TO posthog.me
   resource_attributes,
   attributes,
   timestamp,
-  timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))) AS original_expiry_timestamp
+  original_expiry_timestamp
 FROM posthog.metrics2_input
 WHERE has_labels;
 CREATE MATERIALIZED VIEW posthog.metrics2_input_to_resource_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT

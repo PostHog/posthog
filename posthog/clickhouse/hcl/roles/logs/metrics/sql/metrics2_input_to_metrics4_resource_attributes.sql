@@ -14,11 +14,7 @@ FROM
       team_id AS team_id,
       metric_name AS metric_name,
       toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(
-        timestamp
-        + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))),
-        toIntervalHour(1)
-      ) AS original_expiry_time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
       service_name AS service_name,
       resource_attributes AS filtered_attributes,
       arrayJoin(filtered_attributes) AS attribute,

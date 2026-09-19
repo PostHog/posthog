@@ -495,9 +495,6 @@ SQL
     column "_offset" {
       type = "UInt64"
     }
-    column "retention_days_explicit" {
-      type = "Int32"
-    }
   }
   table "metrics2_input" {
     column "uuid" {
@@ -580,10 +577,6 @@ SQL
     }
     column "_offset" {
       type = "UInt64"
-    }
-    column "retention_days_explicit" {
-      type    = "Int32"
-      default = "0"
     }
     engine "null" {}
   }

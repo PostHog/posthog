@@ -3,9 +3,7 @@ SELECT
   metric_name,
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
-  toDate32(
-    timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30)))
-  ) AS original_expiry_date,
+  toDate32(original_expiry_timestamp) AS original_expiry_date,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
   any(metric_type) AS metric_type,

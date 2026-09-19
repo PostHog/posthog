@@ -9,10 +9,8 @@
 - `metrics4_names` and `metrics4_attributes` are the hourly name and attribute
   rollups behind the pickers.
 
-Retention counts from the sample timestamp with a 30-day default. The Kafka view
-passes the retention a producer asked for through `retention_days_explicit`
-(0 when none), so an explicit retention still applies here while `metrics2`
-keeps its own 90-day default.
+The tables share `original_expiry_timestamp` with the rest of the chain: the
+Kafka view counts retention from the sample timestamp, with a 30-day default.
 
 Why the parallel arrays of `metrics4_samples` stay aligned: inside one insert
 block every `groupArray(col)` of one key sees the same rows in the same order,
@@ -33,14 +31,6 @@ METRICS4_SAMPLES_TABLE_NAME = "metrics4_samples"
 METRICS4_SERIES_TABLE_NAME = "metrics4_series"
 METRICS4_NAMES_TABLE_NAME = "metrics4_names"
 METRICS4_ATTRIBUTES_TABLE_NAME = "metrics4_attributes"
-
-METRICS4_DEFAULT_RETENTION_DAYS = 30
-
-# The expiry of one `metrics2_input` row for the metrics4 tables.
-METRICS4_EXPIRY_EXPR = (
-    "timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, "
-    f"toInt32({METRICS4_DEFAULT_RETENTION_DAYS})))"
-)
 
 # (metrics2 column, element type) for every per-point column that becomes an array.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -207,7 +197,7 @@ AS SELECT
     metric_name,
     toDateTime(toStartOfHour(timestamp)) AS time_bucket,
     series_fingerprint,
-    toDate32({METRICS4_EXPIRY_EXPR}) AS original_expiry_date,
+    toDate32(original_expiry_timestamp) AS original_expiry_date,
     any(resource_fingerprint) AS resource_fingerprint,
     any(service_name) AS service_name,
     any(metric_type) AS metric_type,
@@ -246,7 +236,7 @@ AS SELECT
     resource_attributes,
     attributes,
     timestamp,
-    {METRICS4_EXPIRY_EXPR} AS original_expiry_timestamp
+    original_expiry_timestamp
 FROM {db}.{METRICS2_INPUT_TABLE_NAME}
 WHERE has_labels
 """
@@ -267,9 +257,9 @@ AS SELECT
     team_id,
     metric_name,
     toStartOfHour(timestamp) AS time_bucket,
-    toStartOfHour({METRICS4_EXPIRY_EXPR}) AS original_expiry_time_bucket,
-    maxSimpleState({METRICS4_EXPIRY_EXPR}) AS original_expiry_timestamp
-FROM {db}.{METRICS2_INPUT_TABLE_NAME}
+    toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
+    maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+FROM {db}.{METRICS2_INPUT_TABLE_NAME} AS input
 WHERE has_labels
 GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket
 """
@@ -311,7 +301,7 @@ FROM
         team_id AS team_id,
         metric_name AS metric_name,
         toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-        toStartOfInterval({METRICS4_EXPIRY_EXPR}, toIntervalHour(1)) AS original_expiry_time_bucket,
+        toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
         service_name AS service_name,
         {attributes_expr} AS filtered_attributes,
         arrayJoin(filtered_attributes) AS attribute,
