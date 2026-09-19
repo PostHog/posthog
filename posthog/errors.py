@@ -87,6 +87,13 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
+DELIMITED_ROW_SPLIT_MISMATCH_MESSAGE = (
+    "A row in a file backing this table didn't split into the expected columns, so the query "
+    "couldn't read the file. This usually means the quoting in the file doesn't match the CSV "
+    "quote handling option this table was set up with. Set the table up again with the other "
+    "quote option, or correct the file and upload it again."
+)
+
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
     "This usually means the file wasn't written correctly during import. Re-sync the source (or "
@@ -103,6 +110,42 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
         "upload new files and delete old ones instead.",
         code=err.code,
         code_name="s3_file_changed_during_read",
+    )
+
+
+# The head of the per-column dump a row input format prints when a row mis-splits: the row marker
+# and the first column line under it. Matching that structure, rather than the words in it, keeps a
+# file whose own content repeats those words from reading as a dump. ClickHouse echoes the text it
+# stopped on back into the same message, and the echo carries no row marker of its own.
+ROW_DUMP_PATTERN = re.compile(r"^Row \d+:\r?\nColumn \d+,\s+name: .+?,\s+type: .+?,\s+parsed text:", re.MULTILINE)
+
+# The diagnostic ClickHouse prints for the failing column when the row did split correctly and one
+# value does not fit the column type. Both wordings name the type: "is not like" for a value a
+# number or date column reads as empty, "garbage after" for a value it reads only in part. A row
+# that really did mis-split names the delimiter or the line ending instead, so this marker tells a
+# file whose quoting is wrong from a file whose value is wrong.
+TYPED_VALUE_MISMATCH_PATTERN = re.compile(
+    r"^(?:Column \d+,.*)?ERROR: (?:text .* is not like |garbage after )", re.MULTILINE
+)
+
+
+def _is_delimited_row_split_mismatch(message: str) -> bool:
+    """Tell a mis-split row of a warehouse file from the other causes of code 27.
+
+    The same code covers a value that fails to convert inside a query, and a JSON file whose
+    structure the reader rejects. Only a row input format prints the per-column dump, so that dump
+    is the marker. It is also why the message stays fixed: it repeats whole rows of the customer's
+    file.
+
+    The dump on its own is not enough. ClickHouse prints the row above the failing one in full, so
+    a file that split into the right number of columns and only holds a value of the wrong type
+    carries a dump of parsed text too. The failing column's own diagnostic separates the two, and
+    only a mis-split gets the quote advice.
+    """
+    return (
+        "Cannot parse input:" in message
+        and ROW_DUMP_PATTERN.search(message) is not None
+        and TYPED_VALUE_MISMATCH_PATTERN.search(message) is None
     )
 
 
@@ -159,6 +202,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         # into an actionable message instead of leaking the internals.
         return CHQueryErrorCorruptedParquetMetadata(
             CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code, code_name="corrupted_parquet_metadata"
+        )
+    elif name == "CANNOT_PARSE_INPUT_ASSERTION_FAILED" and _is_delimited_row_split_mismatch(err.message):
+        return CHQueryErrorDelimitedRowSplitMismatch(
+            DELIMITED_ROW_SPLIT_MISMATCH_MESSAGE, code=err.code, code_name="delimited_row_split_mismatch"
         )
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
@@ -218,6 +265,11 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    # Code 27 covers both a file the customer owns and a genuine fault, so the code alone cannot
+    # decide. Only the wrapper above separates them, and a bad file is not a platform failure.
+    if isinstance(e, CHQueryErrorDelimitedRowSplitMismatch):
+        return QueryErrorCategory.USER_ERROR
+
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
@@ -260,6 +312,12 @@ class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
 
 
 class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorDelimitedRowSplitMismatch(ExposedCHQueryError):
+    """A row of a CSV or TSV file backing a warehouse table split into the wrong columns."""
+
     pass
 
 
