@@ -1,4 +1,6 @@
+import json
 import time
+import base64
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -7,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -67,6 +70,30 @@ def _create_user_integration(user: User, **overrides) -> UserIntegration:
     }
     defaults.update(overrides)
     return UserIntegration.objects.create(user=user, **defaults)
+
+
+def _codex_jwt(claims: dict[str, Any]) -> str:
+    def segment(value: dict[str, Any]) -> str:
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
+    return f"{segment({'alg': 'RS256'})}.{segment(claims)}.c2lnbmF0dXJl"
+
+
+def _codex_access_token() -> str:
+    return _codex_jwt(
+        {
+            "exp": int(time.time()) + 3600,
+            "https://api.openai.com/auth": {"chatgpt_account_id": "acct_1", "chatgpt_plan_type": "plus"},
+        }
+    )
+
+
+def _codex_refresh_body(refresh_token: str) -> dict[str, Any]:
+    return {
+        "access_token": _codex_access_token(),
+        "refresh_token": refresh_token,
+        "id_token": _codex_jwt({"email": "dev@example.com"}),
+    }
 
 
 class TestUserIntegrationEndpoints(APIBaseTest):
@@ -1577,3 +1604,89 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
                 format="json",
             )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestUserIntegrationCodexEndpoints(APIBaseTest):
+    def _openai_response(self, status_code: int, body: dict[str, Any]) -> requests.Response:
+        response = requests.Response()
+        response.status_code = status_code
+        response._content = json.dumps(body).encode()
+        return response
+
+    def _connect(self) -> Any:
+        with patch("requests.request", return_value=self._openai_response(200, _codex_refresh_body("rt_rotated"))):
+            return self.client.post(
+                "/api/users/@me/integrations/codex/",
+                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
+                format="json",
+            )
+
+    def test_codex_status_is_not_connected_before_connect(self):
+        response = self.client.get("/api/users/@me/integrations/codex/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"status": "not_connected", "plan_type": None, "email": None, "connected_at": None}
+
+    def test_connect_stores_the_chain_and_never_returns_a_token(self):
+        response = self._connect()
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["status"] == "connected"
+        assert body["plan_type"] == "plus"
+        assert "rt_" not in response.content.decode()
+        assert "eyJ" not in response.content.decode()
+        row = UserIntegration.objects.get(user=self.user, kind="codex")
+        assert row.sensitive_config["refresh_token"] == "rt_rotated"
+        assert self.client.get("/api/users/@me/integrations/codex/").json()["status"] == "connected"
+
+    @parameterized.expand(
+        [
+            ("api_key_file", {"auth_mode": "apikey", "OPENAI_API_KEY": "sk-test"}, None),
+            ("rejected_by_openai", None, (400, {"error": "invalid_grant"})),
+        ]
+    )
+    def test_connect_rejects_an_unusable_credential_and_stores_nothing(self, _name, body, openai):
+        payload = body or {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_dead"}}
+        with patch("requests.request", return_value=self._openai_response(*openai) if openai else None):
+            response = self.client.post("/api/users/@me/integrations/codex/", payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "tokens"
+        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+
+    def test_connect_reports_an_unreachable_openai_as_a_gateway_error(self):
+        with patch("requests.request", side_effect=requests.ConnectionError("down")):
+            response = self.client.post(
+                "/api/users/@me/integrations/codex/",
+                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+
+    def test_destroy_revokes_and_forgets_the_account(self):
+        self._connect()
+
+        with patch("requests.request", return_value=self._openai_response(200, {})) as request:
+            response = self.client.delete("/api/users/@me/integrations/codex/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert request.call_args.kwargs["data"]["token"] == "rt_rotated"
+        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+        assert self.client.delete("/api/users/@me/integrations/codex/").status_code == status.HTTP_204_NO_CONTENT
+
+    def test_another_user_cannot_read_or_remove_the_connection(self):
+        self._connect()
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        self.client.force_login(other)
+
+        assert (
+            self.client.get(f"/api/users/{self.user.uuid}/integrations/codex/").status_code == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            self.client.delete(f"/api/users/{self.user.uuid}/integrations/codex/").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists()

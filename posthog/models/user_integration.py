@@ -31,6 +31,10 @@ _GITHUB_UNRECOVERABLE_REFRESH_ERRORS = {
 }
 
 
+def user_integration_kind_choices() -> list[tuple[str, str]]:
+    return UserIntegration.IntegrationKind.choices
+
+
 class UserIntegration(UUIDModel):
     """User-scoped integration with an external service.
 
@@ -62,6 +66,15 @@ class UserIntegration(UUIDModel):
       the most-recently-linked accessible row and warns when it sees more
       than one match — see `find_linked_posthog_user`.
 
+    Contents for Codex (ChatGPT plan for cloud tasks):
+    - `integration_id` holds the ChatGPT account id from the access token claims
+    - `config` holds {plan_type, email, status, connected_at}; `status` is
+      "connected" or "reauth_required"
+    - `sensitive_config` holds {access_token, refresh_token, id_token,
+      access_token_expires_at}. The refresh token is single use, so every refresh
+      stores the rotated token under a row lock. See `posthog.models.integration.codex`.
+    - One row per user: Desktop replaces it on reconnect.
+
     The `unique_together = ("user", "kind", "integration_id")` constraint only
     forbids the same PostHog user linking the same Slack workspace identity
     twice (which would have to be a re-OAuth that `update_or_create` already
@@ -73,13 +86,14 @@ class UserIntegration(UUIDModel):
     class IntegrationKind(models.TextChoices):
         GITHUB = "github"
         SLACK = "slack"
+        CODEX = "codex"
 
     user = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="integrations",
     )
-    kind = models.CharField(max_length=32, choices=IntegrationKind.choices)
+    kind = models.CharField(max_length=32, choices=user_integration_kind_choices)
     # The ID of the integration in the external system, same as on Integration
     integration_id = models.TextField()
     config = models.JSONField(default=dict)

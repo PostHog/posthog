@@ -522,6 +522,8 @@ export interface SessionServiceDeps {
     claudeModelAccess?: ModelAccess;
     claudeCloudSubscriptionOn?: boolean;
     claudeCloudSubscriptionEnabled?: boolean;
+    codexCloudSubscriptionOn?: boolean;
+    codexCloudSubscriptionEnabled?: boolean;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -5397,7 +5399,11 @@ export class SessionService {
       });
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
-      if (previousState.claude_model_access === "own-subscription") {
+      const resumeOnClaudePlan =
+        previousState.claude_model_access === "own-subscription";
+      const resumeOnCodexPlan =
+        previousState.codex_model_access === "own-subscription";
+      if (resumeOnClaudePlan || resumeOnCodexPlan) {
         if (session.isTaskAuthor === false) {
           const task = await authCredentials.client.getTask(session.taskId);
           if (task.channel) {
@@ -5406,7 +5412,9 @@ export class SessionService {
             );
           }
         }
-        await this.resolveClaudeCloudModelAccess("own-subscription");
+        await (resumeOnClaudePlan
+          ? this.resolveClaudeCloudModelAccess("own-subscription")
+          : this.resolveCodexCloudModelAccess("own-subscription"));
       }
       const artifactIds = await this.d.h.uploadTaskStagedAttachments(
         authCredentials.client,
@@ -5427,10 +5435,12 @@ export class SessionService {
             reasoningLevel: runtimeOptions.reasoningLevel,
             initialPermissionMode: runtimeOptions.initialPermissionMode,
             resumeFromRunId: session.taskRunId,
-            claudeModelAccess:
-              previousState.claude_model_access === "own-subscription"
-                ? "own-subscription"
-                : undefined,
+            claudeModelAccess: resumeOnClaudePlan
+              ? "own-subscription"
+              : undefined,
+            codexModelAccess: resumeOnCodexPlan
+              ? "own-subscription"
+              : undefined,
             pendingUserMessage: transport.messageText,
             pendingUserArtifactIds:
               artifactIds.length > 0 ? artifactIds : undefined,
@@ -5444,10 +5454,7 @@ export class SessionService {
                 : undefined,
           },
         );
-        if (
-          previousState.claude_model_access === "own-subscription" &&
-          updatedTask.latest_run?.id
-        ) {
+        if (resumeOnClaudePlan && updatedTask.latest_run?.id) {
           try {
             await this.designateClaudeSubscription(
               session.taskId,
@@ -6629,6 +6636,38 @@ export class SessionService {
     return access;
   }
 
+  async resolveCodexCloudModelAccess(
+    requested?: ModelAccess,
+  ): Promise<ModelAccess> {
+    const access =
+      requested ??
+      (this.d.settings.codexCloudSubscriptionOn
+        ? "own-subscription"
+        : "posthog-gateway");
+    if (access !== "own-subscription") return access;
+    if (!this.d.settings.codexCloudSubscriptionEnabled) {
+      throw new Error(
+        "ChatGPT plan billing is unavailable for cloud tasks. Try again later.",
+      );
+    }
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Authentication required for cloud commands");
+    }
+    const integration = await authStatus.auth.client.getCodexUserIntegration();
+    if (integration.status === "reauth_required") {
+      throw new Error(
+        "Your ChatGPT account needs a new login. Connect it again in Settings > Harness before you start or resume this task.",
+      );
+    }
+    if (integration.status !== "connected") {
+      throw new Error(
+        "Connect your ChatGPT account in Settings > Harness before you start or resume this task.",
+      );
+    }
+    return access;
+  }
+
   async designateClaudeSubscription(
     taskId: string,
     runId: string,
@@ -6669,8 +6708,18 @@ export class SessionService {
       runState?.claude_model_access === "posthog-gateway"
         ? runState.claude_model_access
         : undefined;
-    if (claudeModelAccess && watchedSession?.taskRunId === taskRunId) {
-      this.d.store.updateSession(taskRunId, { claudeModelAccess });
+    const codexModelAccess =
+      runState?.codex_model_access === "own-subscription" ||
+      runState?.codex_model_access === "posthog-gateway"
+        ? runState.codex_model_access
+        : undefined;
+    if (watchedSession?.taskRunId === taskRunId) {
+      if (claudeModelAccess) {
+        this.d.store.updateSession(taskRunId, { claudeModelAccess });
+      }
+      if (codexModelAccess) {
+        this.d.store.updateSession(taskRunId, { codexModelAccess });
+      }
     }
     const persistedConfigOptions = this.d.getPersistedConfigOptions(taskRunId);
     const persistedAdapter = this.d.adapterStore.getAdapter(taskRunId);
@@ -8831,14 +8880,27 @@ export class SessionService {
           params?: { initializationPhase?: string; message?: string };
         };
         if (
-          notification.method === POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED &&
-          notification.params?.initializationPhase === "credential_relay"
+          notification.method !== POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED
         ) {
+          continue;
+        }
+        if (notification.params?.initializationPhase === "credential_relay") {
           this.d.store.updateSession(taskRunId, {
             status: "error",
             errorTitle: "Claude token unavailable",
             errorMessage:
               "Open Desktop and check your Claude token in Settings > Harness. Then start the task again.",
+            errorRetryable: false,
+            isPromptPending: false,
+          });
+        } else if (
+          notification.params?.initializationPhase === "subscription_token"
+        ) {
+          this.d.store.updateSession(taskRunId, {
+            status: "error",
+            errorTitle: "ChatGPT account unavailable",
+            errorMessage:
+              "Connect your ChatGPT account again in Settings > Harness. Then start the task again.",
             errorRetryable: false,
             isPromptPending: false,
           });

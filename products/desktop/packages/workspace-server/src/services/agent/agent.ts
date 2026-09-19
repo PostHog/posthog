@@ -107,6 +107,7 @@ import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import {
   cleanupCodexHome,
+  getCodexCloudAuthFilePath,
   getCodexHomeDir,
   prepareCodexHome,
 } from "./codex-home";
@@ -131,8 +132,10 @@ import {
   type AgentServiceEvents,
   type ClaudeAuthTerminal,
   type ClaudeSubscriptionStatus,
+  type CodexCloudAuthTokens,
   type CodexSubscriptionStatus,
   type Credentials,
+  codexCloudAuthTokensOutput,
   type EffortLevel,
   type InterruptReason,
   type PromptOutput,
@@ -613,6 +616,46 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     await signOutCodexChatgpt({
       binaryPath: this.getCodexBinaryPath(),
     });
+  }
+
+  /**
+   * Reads the `auth.json` that `CODEX_HOME=~/.codex-posthog codex login` wrote,
+   * so the user can hand its tokens to PostHog. Only the Desktop-only home is
+   * read: the user's own `~/.codex` login stays on this machine.
+   */
+  async readCodexCloudAuthFile(): Promise<CodexCloudAuthTokens> {
+    const authPath = getCodexCloudAuthFilePath();
+    let raw: string;
+    try {
+      raw = await fs.promises.readFile(authPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(
+          `No ChatGPT login found at ${authPath}. Run the login command first.`,
+        );
+      }
+      throw error;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`The file at ${authPath} is not valid JSON.`);
+    }
+    const tokens = codexCloudAuthTokensOutput.safeParse(
+      (parsed as { tokens?: unknown } | null)?.tokens,
+    );
+    if (!tokens.success) {
+      throw new Error(
+        `The file at ${authPath} has no ChatGPT tokens. Log in with ChatGPT, not with an API key.`,
+      );
+    }
+    return tokens.data;
+  }
+
+  /** PostHog rotated the refresh token on connect, so the local copy is stale and only a liability. */
+  async removeCodexCloudAuthFile(): Promise<void> {
+    await fs.promises.rm(getCodexCloudAuthFilePath(), { force: true });
   }
 
   private async prepareCodexAccountChange(): Promise<void> {

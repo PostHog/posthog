@@ -12,6 +12,7 @@ import {
   claudeAuthTerminalInput,
   claudeAuthTerminalOutput,
   claudeSubscriptionStatusOutput,
+  codexCloudAuthTokensOutput,
   codexSubscriptionLoginOutput,
   codexSubscriptionStatusOutput,
   getPiModelCatalogInput,
@@ -121,6 +122,16 @@ export const agentRouter = router({
         .get<AgentService>(AGENT_SERVICE)
         .startCodexSubscriptionLogin(),
     ),
+
+  codexCloudAuthFileRead: publicProcedure
+    .output(codexCloudAuthTokensOutput)
+    .query(({ ctx }) =>
+      ctx.container.get<AgentService>(AGENT_SERVICE).readCodexCloudAuthFile(),
+    ),
+
+  codexCloudAuthFileRemove: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).removeCodexCloudAuthFile(),
+  ),
 
   codexSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>
     ctx.container.get<AgentService>(AGENT_SERVICE).signOutCodexSubscription(),

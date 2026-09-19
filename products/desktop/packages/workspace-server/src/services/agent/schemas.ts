@@ -289,6 +289,18 @@ export const codexSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
 });
 
+/**
+ * The `tokens` object of the `auth.json` that `codex login` writes into the
+ * Desktop-only `~/.codex-posthog` home. Never the user's own `~/.codex`.
+ */
+export const codexCloudAuthTokensOutput = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  id_token: z.string().nullable().optional(),
+});
+
+export type CodexCloudAuthTokens = z.infer<typeof codexCloudAuthTokensOutput>;
+
 // Set config option input (for Codex reasoning level, etc.)
 export const setConfigOptionInput = z.object({
   sessionId: z.string(),

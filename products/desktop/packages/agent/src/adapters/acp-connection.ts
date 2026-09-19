@@ -241,6 +241,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
         apiKey: codexOptions.apiKey,
         codexHome: codexOptions.codexHome,
         useMachineAuth: codexOptions.useMachineAuth,
+        useChatgptAuthTokens: Boolean(codexOptions.chatgptAuthTokens),
         developerInstructions: codexOptions.developerInstructions,
         httpHeaders: codexOptions.httpHeaders,
         configOverrides: codexOptions.configOverrides,
@@ -252,6 +253,8 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
       gatewayModels: config.codexModels,
       processCallbacks: config.processCallbacks,
       onStructuredOutput: config.onStructuredOutput,
+      chatgptAuthTokens: codexOptions.chatgptAuthTokens,
+      refreshChatgptAuthTokens: codexOptions.refreshChatgptAuthTokens,
       logger: config.logger?.child("CodexAppServerAgent"),
     });
     return agent;

@@ -24,6 +24,30 @@ export interface TaskSessionStorageAccess {
   content_sha256: string | null;
 }
 
+export interface CodexSubscriptionAccessGrant {
+  access_token: string;
+  account_id: string;
+  plan_type: string | null;
+  expires_at: string;
+}
+
+export type CodexSubscriptionTokenErrorCode =
+  | "reauth_required"
+  | "openai_unavailable"
+  | "forbidden"
+  | "request_failed";
+
+export class CodexSubscriptionTokenError extends Error {
+  constructor(
+    readonly code: CodexSubscriptionTokenErrorCode,
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CodexSubscriptionTokenError";
+  }
+}
+
 export class PostHogAPIError extends Error {
   constructor(
     message: string,
@@ -289,6 +313,52 @@ export class PostHogAPIClient {
     }
     const result = (await response.json()) as { content_sha256: string };
     return result.content_sha256;
+  }
+
+  /**
+   * A short-lived ChatGPT access token for a run on the owner's own plan. The
+   * run token from fd 3 proves the caller is this run's agent-server; the
+   * refresh token never leaves the server. `force` asks for a new token even
+   * when the stored one has not expired, for when Codex rejected the last one.
+   */
+  async requestCodexSubscriptionToken(
+    taskId: string,
+    runId: string,
+    runToken: string,
+    force: boolean,
+    timeoutMs: number,
+  ): Promise<CodexSubscriptionAccessGrant> {
+    const teamId = this.getTeamId();
+    const response = await this.performRequestWithRetry(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/subscription_token/`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Task-Run-Token": runToken,
+        },
+        body: JSON.stringify({ force }),
+        signal: AbortSignal.timeout(timeoutMs),
+      },
+    );
+    if (response.ok) {
+      return (await response.json()) as CodexSubscriptionAccessGrant;
+    }
+    const body = (await response.json().catch(() => ({}))) as {
+      code?: string;
+      error?: string;
+    };
+    const code: CodexSubscriptionTokenErrorCode =
+      body.code === "reauth_required" || body.code === "openai_unavailable"
+        ? body.code
+        : response.status === 403 || response.status === 404
+          ? "forbidden"
+          : "request_failed";
+    throw new CodexSubscriptionTokenError(
+      code,
+      response.status,
+      `Failed to get a ChatGPT token: [${response.status}] ${body.error ?? response.statusText}`,
+    );
   }
 
   async appendTaskRunLog(

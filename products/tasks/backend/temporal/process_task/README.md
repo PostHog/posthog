@@ -176,6 +176,31 @@ The PID check applies only when the PID file exists, so servers launched before 
 Continuation inherits the selected billing mode unless the caller explicitly changes it.
 Subscription runs do not reuse prewarmed sessions, because those processes have already selected their credentials.
 
+### ChatGPT subscription access tokens
+
+A run created with `codex_model_access: "own-subscription"` uses the user's ChatGPT plan for model usage.
+The `posthog-code-codex-own-subscription-cloud` flag controls rollout, and the run must use the Codex runtime.
+Owner recording and the owner check on `/command/` match the Claude path.
+No token travels through Desktop or the credential relay.
+
+The user connects a ChatGPT account once: they run `codex login --device-auth` with a separate `CODEX_HOME`, and Desktop submits the resulting `auth.json` to `POST /api/users/@me/integrations/codex/`.
+The server refreshes the chain once, stores the rotated refresh token in a `UserIntegration` row (`kind="codex"`), and never returns it.
+`get_task_processing_context` fails the run early when the plan owner has no connected account or the account needs a new login.
+
+At launch the activity mints a run-scoped JWT (audience `posthog:sandbox_codex_subscription`, bound to the run and the sandbox id).
+The launcher writes it to a `chmod 600` file and the launch shell opens that file on fd 3 and deletes it before the agent-server starts, so the token is never in the environment or the command line.
+The agent-server reads fd 3 once at boot and closes it, so processes it starts never see the token.
+The launcher also sets `kernel.yama.ptrace_scope=1` on a best-effort basis, so a child process cannot read the agent-server's memory.
+
+The agent-server calls `POST /runs/{run_id}/subscription_token/` with its sandbox OAuth token and the run token in `X-Task-Run-Token`.
+The endpoint accepts only the run's own sandbox identity plus a valid run token for the same run and sandbox, and it returns a short-lived access token, the account id, the plan type, and the expiry.
+When Codex reports the token as rejected, the agent-server asks again with `force: true`, and the server refreshes under a row lock so two runs of one user never race the single-use refresh token.
+A dead chain answers `409 reauth_required`; the run stops with a message that names the settings page.
+
+Codex in the sandbox signs in with `chatgptAuthTokens`, which forces ephemeral storage and writes no auth file.
+Subscription runs require the `--codexSubscription` startup option, and the launcher checks support before it starts the process.
+Cloud usage and local usage share one plan allowance, so a run can stop at a plan rate limit that no PostHog quota controls.
+
 Keep the flag off while deploying the backend and publishing the sandbox agent build, then enable it for the intended users.
 Desktop and backend use the same flag; a stale client cannot bypass the backend check.
 

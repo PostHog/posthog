@@ -21,6 +21,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
@@ -29,7 +30,10 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxMissingRepositoryError,
 )
-from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.logic.services.connection_token import (
+    create_codex_subscription_run_token,
+    create_sandbox_event_ingest_token,
+)
 from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
@@ -361,6 +365,7 @@ class _LaunchParams:
     protected_base_branch: str | None
     event_ingest_token: str | None = field(repr=False)
     task_run_session_token: str | None = field(repr=False)
+    codex_run_token: str | None = field(repr=False)
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
 
@@ -440,6 +445,9 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             event_ingest_token = run_token
         if task.runtime == Task.Runtime.PI:
             task_run_session_token = run_token
+    codex_run_token: str | None = None
+    if ctx.codex_model_access == "own-subscription":
+        codex_run_token = create_codex_subscription_run_token(task_run, sandbox_id=sandbox_id)
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
@@ -526,6 +534,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
         task_run_session_token=task_run_session_token,
+        codex_run_token=codex_run_token,
         event_ingest_url=event_ingest_url,
         event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
@@ -540,7 +549,7 @@ def _invoke_start_agent_server(
     wait_for_health: bool = False,
 ) -> int | None:
     try:
-        _enforce_claude_subscription_support(sandbox, ctx)
+        _enforce_subscription_support(sandbox, ctx)
         health_duration_ms = sandbox.start_agent_server(
             repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
@@ -572,6 +581,8 @@ def _invoke_start_agent_server(
             benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
             claude_model_access=ctx.claude_model_access,
+            codex_model_access=ctx.codex_model_access,
+            codex_run_token=params.codex_run_token,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
@@ -598,21 +609,35 @@ def _invoke_start_agent_server(
         )
 
 
-def _enforce_claude_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
-    if ctx.claude_model_access != "own-subscription":
-        return
-    result = sandbox.execute(
-        "grep -q -- --claudeSubscription /scripts/node_modules/.bin/agent-server",
-        timeout_seconds=10,
-    )
-    if result.exit_code != 0:
-        raise ProcessTaskFatalError(
-            "This sandbox build cannot use your Claude plan yet. Start a new task. "
-            'To use PostHog credits instead, turn off "Use your Claude plan for cloud tasks".',
-            {"task_id": ctx.task_id, "run_id": ctx.run_id},
-            cause=RuntimeError("agent-server lacks --claudeSubscription"),
-            capture=False,
-        )
+_SUBSCRIPTION_CLI_FLAGS = {"claude": "--claudeSubscription", "codex": "--codexSubscription"}
+
+
+def _own_subscription_adapters(ctx: TaskProcessingContext) -> list[str]:
+    return [
+        adapter
+        for adapter, access in (("claude", ctx.claude_model_access), ("codex", ctx.codex_model_access))
+        if access == "own-subscription"
+    ]
+
+
+def _subscription_health_kwargs(ctx: TaskProcessingContext) -> dict[str, str]:
+    """The sandbox waits for a Claude token from Desktop, so health takes longer. Codex gets its token from the API."""
+    return {"claude_model_access": "own-subscription"} if ctx.claude_model_access == "own-subscription" else {}
+
+
+def _enforce_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
+    for adapter in _own_subscription_adapters(ctx):
+        plan_name = SUBSCRIPTION_PLAN_NAMES[adapter]
+        flag = _SUBSCRIPTION_CLI_FLAGS[adapter]
+        result = sandbox.execute(f"grep -q -- {flag} /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        if result.exit_code != 0:
+            raise ProcessTaskFatalError(
+                f"This sandbox build cannot use your {plan_name} yet. Start a new task. "
+                f'To use PostHog credits instead, turn off "Use your {plan_name} for cloud tasks".',
+                {"task_id": ctx.task_id, "run_id": ctx.run_id},
+                cause=RuntimeError(f"agent-server lacks {flag}"),
+                capture=False,
+            )
 
 
 def _record_agent_server_launch(sandbox: SandboxBase, ctx: TaskProcessingContext, params: _LaunchParams) -> None:
@@ -775,11 +800,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 ) as health_timer:
                     sandbox.wait_for_agent_server_ready(
                         params.agentsh_domains,
-                        **(
-                            {"claude_model_access": ctx.claude_model_access}
-                            if ctx.claude_model_access == "own-subscription"
-                            else {}
-                        ),
+                        **_subscription_health_kwargs(ctx),
                     )
                 invoke_ms = invoke_timer.elapsed_ms
                 health_poll_ms = health_timer.elapsed_ms
@@ -915,11 +936,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     ) as health_timer:
                         sandbox.wait_for_agent_server_ready(
                             agentsh_domains,
-                            **(
-                                {"claude_model_access": ctx.claude_model_access}
-                                if ctx.claude_model_access == "own-subscription"
-                                else {}
-                            ),
+                            **_subscription_health_kwargs(ctx),
                         )
                 else:
                     logger.warning(
@@ -954,11 +971,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     ) as health_timer:
                         sandbox.wait_for_agent_server_ready(
                             agentsh_domains,
-                            **(
-                                {"claude_model_access": ctx.claude_model_access}
-                                if ctx.claude_model_access == "own-subscription"
-                                else {}
-                            ),
+                            **_subscription_health_kwargs(ctx),
                         )
                     _record_agent_server_launch(sandbox, ctx, params)
         except Exception as error:
