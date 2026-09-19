@@ -354,7 +354,7 @@ class TestInsightModel(BaseTest):
                     "dateRange": {"date_from": "-7d"},
                     "filterTestAccounts": True,
                     "breakdownFilter": {"breakdown_type": "event"},
-                    "trendsFilter": {"formula": "A+B"},
+                    "trendsFilter": {"formula": "A+B", "display": "Metric"},
                 },
             },
         )
@@ -368,6 +368,7 @@ class TestInsightModel(BaseTest):
             "filter_test_accounts": True,
             "breakdown_type": "event",
             "has_formula": True,
+            "display": "Metric",
             "date_from": "-7d",
         }
 

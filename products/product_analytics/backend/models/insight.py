@@ -202,8 +202,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         """
         Directly-readable query fields for analytics, mirroring the safe subset of the frontend
         `sanitizeQuery`. Gated to insight-style queries (like the frontend), so HogQL/SQL/table queries
-        return ``{}``. Deliberately omits fields that depend on frontend default logic (``display``,
-        ``interval``) to avoid web↔backend value drift.
+        return ``{}``. It omits fields that depend on frontend default logic, such as ``interval``.
         """
         query = self.query if isinstance(self.query, dict) else None
         if not query:
@@ -237,6 +236,8 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         trends_filter = source.get("trendsFilter")
         if isinstance(trends_filter, dict):
             metadata["has_formula"] = bool(trends_filter.get("formula") or trends_filter.get("formulas"))
+            if display := trends_filter.get("display"):
+                metadata["display"] = display
         funnels_filter = source.get("funnelsFilter")
         if isinstance(funnels_filter, dict):
             if funnels_filter.get("funnelVizType"):
