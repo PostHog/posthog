@@ -18,7 +18,9 @@ export interface SlackNotificationUpdates {
 
 /**
  * Mutations that write to the per-user Self-driving autonomy config:
- * Slack notification preferences. Reads come from `useSignalUserAutonomyConfig`.
+ * Slack notification preferences, and whether pull requests for reports that
+ * suggest this user open ready for review. Reads come from
+ * `useSignalUserAutonomyConfig`.
  */
 export function useSignalUserAutonomyMutations() {
   const client = useAuthenticatedClient();
@@ -93,7 +95,53 @@ export function useSignalUserAutonomyMutations() {
     [client, queryClient],
   );
 
+  const handleUpdateOpenPullRequestReady = useCallback(
+    async (ready: boolean | null) => {
+      if (!client) return;
+
+      const previous =
+        queryClient.getQueryData<SignalUserAutonomyConfig | null>(
+          USER_AUTONOMY_QUERY_KEY,
+        );
+
+      // Built from the previous snapshot so unrelated fields survive the write.
+      const optimisticNext: SignalUserAutonomyConfig = {
+        ...(previous ??
+          ({ autostart_priority: null } as SignalUserAutonomyConfig)),
+        github_open_pull_request_ready: ready,
+      };
+      queryClient.setQueryData<SignalUserAutonomyConfig | null>(
+        USER_AUTONOMY_QUERY_KEY,
+        optimisticNext,
+      );
+
+      try {
+        // `null` is a value here, not an omission: it clears the override so the
+        // project default applies again.
+        const fresh = await client.updateSignalUserAutonomyConfig({
+          github_open_pull_request_ready: ready,
+        });
+        queryClient.setQueryData<SignalUserAutonomyConfig | null>(
+          USER_AUTONOMY_QUERY_KEY,
+          fresh,
+        );
+      } catch (error: unknown) {
+        queryClient.setQueryData<SignalUserAutonomyConfig | null>(
+          USER_AUTONOMY_QUERY_KEY,
+          previous ?? null,
+        );
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to update pull request state";
+        toast.error(message);
+      }
+    },
+    [client, queryClient],
+  );
+
   return {
     handleUpdateSlackNotifications,
+    handleUpdateOpenPullRequestReady,
   };
 }

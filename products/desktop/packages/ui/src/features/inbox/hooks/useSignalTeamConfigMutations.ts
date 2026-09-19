@@ -9,8 +9,9 @@ const TEAM_CONFIG_QUERY_KEY = signalsConfigKeys.teamConfig;
 
 /**
  * Mutations that write to the per-team Self-driving config:
- * default autostart priority, default Slack channel, and the per-repo
- * autostart base-branch map. Reads come from `useSignalTeamConfig`.
+ * default autostart priority, default Slack channel, the per-repo
+ * autostart base-branch map, the daily report cap, and the state
+ * self-driving pull requests open in. Reads come from `useSignalTeamConfig`.
  */
 export function useSignalTeamConfigMutations() {
   const client = useAuthenticatedClient();
@@ -128,10 +129,56 @@ export function useSignalTeamConfigMutations() {
     [client, queryClient],
   );
 
+  const handleUpdateDefaultOpenPullRequestReady = useCallback(
+    async (ready: boolean) => {
+      if (!client) return;
+
+      const previous = queryClient.getQueryData<SignalTeamConfig | null>(
+        TEAM_CONFIG_QUERY_KEY,
+      );
+
+      if (previous) {
+        const optimistic: SignalTeamConfig = {
+          ...previous,
+          default_open_pull_request_ready: ready,
+        };
+        queryClient.setQueryData<SignalTeamConfig | null>(
+          TEAM_CONFIG_QUERY_KEY,
+          optimistic,
+        );
+      }
+
+      try {
+        const fresh = await client.updateSignalTeamConfig({
+          default_open_pull_request_ready: ready,
+        });
+        // The desktop client refetches this query on window focus, so cancel any
+        // in-flight GET before writing the fresh config back.
+        await queryClient.cancelQueries({ queryKey: TEAM_CONFIG_QUERY_KEY });
+        queryClient.setQueryData<SignalTeamConfig | null>(
+          TEAM_CONFIG_QUERY_KEY,
+          fresh,
+        );
+      } catch (error: unknown) {
+        queryClient.setQueryData<SignalTeamConfig | null>(
+          TEAM_CONFIG_QUERY_KEY,
+          previous ?? null,
+        );
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to update pull request state";
+        toast.error(message);
+      }
+    },
+    [client, queryClient],
+  );
+
   return {
     handleUpdateAutostartPriority,
     handleUpdateTeamSlackChannel,
     handleUpdateAutostartBaseBranches,
     handleUpdateMaxReportsPerDay,
+    handleUpdateDefaultOpenPullRequestReady,
   };
 }
