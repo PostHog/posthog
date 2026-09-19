@@ -1,6 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getShopifyInstallSteps } from '../product-analytics/shopify'
+import { getShopifyInstallSteps, getShopifyPerformanceStep } from '../product-analytics/shopify'
 import { StepDefinition } from '../steps'
 
 export const getShopifySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -9,6 +9,7 @@ export const getShopifySteps = (ctx: OnboardingComponentsContext): StepDefinitio
 
     return [
         ...getShopifyInstallSteps(ctx),
+        getShopifyPerformanceStep(ctx),
         {
             title: 'Send events',
             badge: 'recommended' as const,
