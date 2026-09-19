@@ -315,6 +315,7 @@ describe('RequestContext', () => {
                 $mcp_source: 'posthog_mcp_analytics',
                 $mcp_server_name: 'PostHog',
                 $mcp_server_version: '1.0.0',
+                $mcp_server_build: 'dev',
                 $mcp_client_name: 'claude-code',
                 $mcp_client_version: '2.0',
                 $mcp_protocol_version: '2025-03-26',

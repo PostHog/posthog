@@ -470,7 +470,7 @@ export class ToolExecutor {
                 return { content: [{ type: 'text', text: lookupMiss.message }] }
             }
 
-            const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+            const sessionUuid = await sessionUuidForError(state)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
         }
     }
@@ -518,11 +518,49 @@ export class ToolExecutor {
         const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+
+        // Which verb ran and which tool it targeted. Stamped on every exec event —
+        // success and failure alike — so the discovery verbs stop collapsing into
+        // one opaque `exec` bucket and an `info <tool>` can be linked to the
+        // `call <tool>` that follows it. Read from the raw arguments so a rejected
+        // wrapper records what it carried; the wrapper schema has no transform, so a
+        // valid `command` is the same string either way.
+        const execShape = execCommandAnalyticsProperties(toolArgs, state)
+        // The inner tool's argument keys and any alias among them, read from the
+        // command string the same way the dispatcher does. Only a `call` carries
+        // arguments; the schema comes from this connection's catalog when the
+        // target resolved to a tool in it.
+        const execInputShape = execInputShapeAnalyticsProperties(toolArgs, execShape, state)
+        const sessionShape = this.observeToolCallSession(state, {
+            verb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
+            targetTool: recordedTargetTool(execShape),
+            schemaRequiresRead: true,
+        })
+
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
+            const message = formatInputValidationError(resolved.name, validation.error)
+            const rejection = new ToolInputValidationError(
+                message,
+                describeValidationError(validation.error, toolArgs, resolved.schema)
+            )
+            const sessionProperties = await sessionShape
+            void trackToolCall(
+                'exec',
+                0,
+                true,
+                state,
+                {
+                    ...execShape,
+                    ...execInputShape,
+                    ...sessionProperties,
+                    ...errorAnalyticsProperties(classifyToolError(rejection, 'exec'), rejection),
+                },
+                analyticsMeta
+            )
             return {
-                content: [{ type: 'text', text: formatInputValidationError(resolved.name, validation.error) }],
+                content: [{ type: 'text', text: message }],
                 isError: true,
             }
         }
@@ -539,21 +577,6 @@ export class ToolExecutor {
         // attributed to `exec`.
         const execToolName = (): string => execMetrics.innerToolName ?? 'exec'
 
-        // Which verb ran and which tool it targeted. Stamped on every exec event —
-        // success and failure alike — so the discovery verbs stop collapsing into
-        // one opaque `exec` bucket and an `info <tool>` can be linked to the
-        // `call <tool>` that follows it.
-        const execShape = execCommandAnalyticsProperties(validation.data, state)
-        // The inner tool's argument keys and any alias among them, read from the
-        // command string the same way the dispatcher does. Only a `call` carries
-        // arguments; the schema comes from this connection's catalog when the
-        // target resolved to a tool in it.
-        const execInputShape = execInputShapeAnalyticsProperties(validation.data, execShape, state)
-        const sessionShape = this.observeToolCallSession(state, {
-            verb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
-            targetTool: recordedTargetTool(execShape),
-            schemaRequiresRead: true,
-        })
         // Which stored skill an exec-routed read returned. Success only, unlike the
         // verb above: that records what the agent attempted, this records what it got.
         const execSkillShape = execSkillAnalyticsProperties(validation.data)
@@ -631,7 +654,7 @@ export class ToolExecutor {
                 this.servedToolDescription(metricTool)
             )
 
-            const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+            const sessionUuid = await sessionUuidForError(state)
             // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
             // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
             // exception fingerprint point at the real source instead of collapsing every
@@ -786,12 +809,6 @@ export class ToolExecutor {
         }
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const validation = renderUiTool.schema.safeParse(toolArgs)
-        if (!validation.success) {
-            toolCallsTotal.inc({ tool: 'render-ui', status: 'validation_error' })
-            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
-        }
-
         // Same shape and session properties as every other tool call, so this event
         // does not read as a call that sent no arguments.
         const inputShape = inputShapeAnalyticsProperties(toolArgs, renderUiTool.schema)
@@ -800,6 +817,30 @@ export class ToolExecutor {
             targetTool: 'render-ui',
             schemaRequiresRead: false,
         })
+
+        const validation = renderUiTool.schema.safeParse(toolArgs)
+        if (!validation.success) {
+            toolCallsTotal.inc({ tool: 'render-ui', status: 'validation_error' })
+            // The agent keeps zod's own message; the event gets the value-free one `callTool` records.
+            const rejection = new ToolInputValidationError(
+                formatInputValidationError('render-ui', validation.error),
+                describeValidationError(validation.error, toolArgs, renderUiTool.schema)
+            )
+            const sessionProperties = await sessionShape
+            void trackToolCall(
+                'render-ui',
+                0,
+                true,
+                state,
+                {
+                    ...inputShape,
+                    ...sessionProperties,
+                    ...errorAnalyticsProperties(classifyToolError(rejection, 'render-ui'), rejection),
+                },
+                analyticsMeta
+            )
+            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+        }
 
         const stop = toolCallDurationSeconds.startTimer({ tool: 'render-ui' })
         const startMs = Date.now()
@@ -831,7 +872,7 @@ export class ToolExecutor {
                 { ...inputShape, ...sessionProperties, ...errorAnalyticsProperties(classification, error) },
                 analyticsMeta
             )
-            const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+            const sessionUuid = await sessionUuidForError(state)
             return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
         }
     }
@@ -1025,6 +1066,15 @@ const INJECTED_ARG_KEYS = new Set(['context', 'llm_model'])
 
 /** How long a tool result waits for the session record; a healthy Redis answers in about a millisecond. */
 const SESSION_OBSERVE_TIMEOUT_MS = 100
+
+/** The session lookup reads and writes Redis; an outage there must not replace the structured tool error. */
+async function sessionUuidForError(state: ResolvedState): Promise<string | undefined> {
+    try {
+        return await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+    } catch {
+        return undefined
+    }
+}
 
 /**
  * `$mcp_input_keys`: the top-level argument names the caller sent, on every event,

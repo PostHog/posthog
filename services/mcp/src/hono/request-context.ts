@@ -1,5 +1,5 @@
 import { ApiClient } from '@/api/client'
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_BUILD, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
@@ -264,6 +264,7 @@ export class RequestContext {
             $mcp_source: MCP_ANALYTICS_SOURCE,
             $mcp_server_name: MCP_SERVER_NAME,
             $mcp_server_version: MCP_SERVER_VERSION,
+            $mcp_server_build: MCP_SERVER_BUILD,
             $mcp_client_name: clientIdentity.mcpClientName,
             $mcp_client_version: clientIdentity.mcpClientVersion,
             $mcp_client_user_agent: requestContext.clientUserAgent,

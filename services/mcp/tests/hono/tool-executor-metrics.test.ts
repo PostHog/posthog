@@ -50,6 +50,7 @@ import {
     ToolInputValidationError,
     wrapError,
 } from '@/lib/errors'
+import { URI_MAP } from '@/resources/ui-apps.generated'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 
 import { toolFromPreBuilt } from '../shared/test-utils'
@@ -626,6 +627,20 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
+        it('returns the structured tool error when the session lookup fails', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('failing-tool', async () => {
+                    throw new Error('boom')
+                }) as any
+            )
+            const state = makeState([{ name: 'failing-tool' }])
+            vi.mocked(state.reqCtx.getEffectiveSessionUuid).mockRejectedValue(new Error('redis down'))
+
+            const result = await executor.handleToolCall({ name: 'failing-tool', arguments: {} }, state)
+
+            expect((result as any).isError).toBe(true)
+        })
+
         it('records error for unknown tool', async () => {
             await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
 
@@ -834,6 +849,21 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
+        it('emits an errored event when the exec wrapper schema rejects the arguments', async () => {
+            const result = await executor.handleToolCall({ name: 'exec', arguments: { cmd: 'tools' } }, execState())
+
+            expect((result as any).isError).toBe(true)
+            expect(callsFor(mockToolCallsInc, 'exec')).toEqual([{ tool: 'exec', status: 'validation_error' }])
+            const call = mockTrackToolCall.mock.calls.find((c) => c[0] === 'exec')
+            expect(call?.[1]).toBe(0)
+            expect(call?.[2]).toBe(true)
+            expect(call?.[4]).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_validation_input_keys: ['cmd'],
+            })
+            expect(call?.[4]).not.toHaveProperty('$mcp_exec_verb')
+        })
+
         // Reading a stored skill is one of the most common tool calls, and nearly all of
         // them arrive here, as JSON inside a command string rather than as tool arguments.
         // Without this the event records that *a* skill was read but never which one.
@@ -987,6 +1017,32 @@ describe('ToolExecutor metrics', () => {
                 )
 
                 expect(trackToolCallExtras('skill-get')).toMatchObject({ $mcp_skill_name: 'conductor' })
+            })
+        })
+    })
+
+    describe('render-ui', () => {
+        const uiAppTool = {
+            name: 'survey-get',
+            annotations: { readOnlyHint: true },
+            _meta: { ui: { resourceUri: URI_MAP['survey'] } },
+        }
+
+        it('emits an errored event when the wrapper schema rejects the arguments', async () => {
+            const result = await executor.handleToolCall(
+                { name: 'render-ui', arguments: { toolName: 'survey-get' } },
+                makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+            )
+
+            expect((result as any).isError).toBe(true)
+            expect(callsFor(mockToolCallsInc, 'render-ui')).toEqual([{ tool: 'render-ui', status: 'validation_error' }])
+            const call = mockTrackToolCall.mock.calls.find((c) => c[0] === 'render-ui')
+            expect(call?.[1]).toBe(0)
+            expect(call?.[2]).toBe(true)
+            expect(call?.[4]).toMatchObject({
+                $mcp_input_keys: ['toolName'],
+                $mcp_error_type: 'validation',
+                $mcp_validation_input_keys: ['toolName'],
             })
         })
     })

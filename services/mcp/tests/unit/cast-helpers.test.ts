@@ -106,6 +106,14 @@ describe('readParamAliases', () => {
         expect(readParamAliases(outer)).toEqual({ id: ['experimentId'], key: ['flagKey'] })
     })
 
+    it('keeps the aliases of every layer that declares the same canonical, outer first', () => {
+        const inner = z.preprocess(normalizeParamAliases({ id: ['experiment_id'] }), z.object({ id: z.number() }))
+        const outer = z.preprocess(normalizeParamAliases({ id: ['experimentId'] }), inner)
+
+        expect(readParamAliases(outer)).toEqual({ id: ['experimentId', 'experiment_id'] })
+        expect(describeAliasesUsed(readParamAliases(outer), { experiment_id: 1 })).toEqual(['experiment_id->id'])
+    })
+
     it('returns undefined for a schema that declares no aliases', () => {
         expect(readParamAliases(z.object({ id: z.number() }))).toBeUndefined()
         // A preprocess that is not an alias normaliser is not mistaken for one.
