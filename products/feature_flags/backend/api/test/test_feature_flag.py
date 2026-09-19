@@ -37,6 +37,7 @@ from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -53,6 +54,7 @@ from posthog.test.persons import (
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_error_message
@@ -4515,7 +4517,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        with self.assertNumQueries(FuzzyInt(20, 21)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4531,7 +4533,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ).json()
 
         # Query count should stay constant regardless of flag count (no N+1)
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        with self.assertNumQueries(FuzzyInt(20, 21)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4555,7 +4557,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        with self.assertNumQueries(FuzzyInt(20, 21)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -4594,7 +4596,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Capture query count with 5 flags
-        with self.assertNumQueries(FuzzyInt(17, 22)):
+        with self.assertNumQueries(FuzzyInt(18, 23)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 5)
@@ -4618,7 +4620,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Query count should remain similar (not scale linearly with flag count)
-        with self.assertNumQueries(FuzzyInt(17, 24)):
+        with self.assertNumQueries(FuzzyInt(18, 25)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 30)
@@ -4669,7 +4671,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Should not cause extra queries for the targeting flags
-        with self.assertNumQueries(FuzzyInt(15, 22)):
+        with self.assertNumQueries(FuzzyInt(16, 23)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should include main_flag but not targeting flags (they're filtered out)
@@ -15293,6 +15295,106 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         sibling_team.refresh_from_db()
         assert sibling_team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
         assert sibling_team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == "replay-gate-v2"
+
+
+class TestScoutFeatureFlagWrites(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        application = OAuthApplication.objects.create(
+            name="Flag scout test",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_flag_scout_test",
+            scope="signal_scout_internal:write feature_flag:read feature_flag:write",
+            expires=now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+    @parameterized.expand([(True, None), (True, False), (False, True)])
+    def test_scout_cannot_delete_an_active_flag(self, active: bool, requested_active: bool | None) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="active-flag", active=active)
+        payload = {"deleted": True}
+        if requested_active is not None:
+            payload["active"] = requested_active
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "deleted"
+        flag.refresh_from_db()
+        assert not flag.deleted
+        assert flag.active == active
+
+    def test_scout_can_delete_a_disabled_flag(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="disabled-flag", active=False)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.deleted
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_pending_disable_approval_does_not_allow_deletion(self, _mock_enabled: MagicMock) -> None:
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        flag = FeatureFlag.objects.create(team=self.team, key="approval-flag", active=True)
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
+
+        response = self.client.patch(url, {"active": False}, format="json")
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert response.json()["code"] == "approval_required"
+        assert ChangeRequest.objects.filter(team=self.team, state=ChangeRequestState.PENDING).count() == 1
+        response = self.client.patch(url, {"deleted": True}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        flag.refresh_from_db()
+        assert flag.active
+        assert not flag.deleted
+
+    @parameterized.expand(["ids", "filters"])
+    def test_scout_bulk_delete_preserves_active_flags(self, selection: str) -> None:
+        active_flag = FeatureFlag.objects.create(team=self.team, key="active-flag", active=True)
+        disabled_flag = FeatureFlag.objects.create(team=self.team, key="disabled-flag", active=False)
+        payload = {"ids": [active_flag.id, disabled_flag.id]} if selection == "ids" else {"filters": {"search": "flag"}}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/bulk_delete/", payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        active_flag.refresh_from_db()
+        disabled_flag.refresh_from_db()
+        assert not active_flag.deleted
+        assert disabled_flag.deleted
+        assert response.json()["errors"][0]["id"] == active_flag.id
+
+    def test_definition_exposes_linked_product_tours(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="tour-flag")
+        tour = ProductTour.objects.create(team=self.team, name="Welcome tour", linked_flag=flag)
+        ProductTour.all_objects.create(team=self.team, name="Archived tour", linked_flag=flag, archived=True)
+        ProductTour.objects.create(team=self.team, name="Other tour")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["product_tours"] == [{"id": str(tour.id), "name": tour.name}]
 
 
 class TestFeatureFlagServerOwnedTimestamps(APIBaseTest):

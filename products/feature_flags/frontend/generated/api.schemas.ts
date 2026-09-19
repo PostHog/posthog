@@ -495,6 +495,11 @@ export interface FeatureFlagExperimentSetMetadataApi {
     is_running: boolean
 }
 
+export interface FeatureFlagLinkedProductTourApi {
+    readonly id: string
+    readonly name: string
+}
+
 /**
  * * `feature_flags` - feature_flags
  * * `experiments` - experiments
@@ -571,6 +576,7 @@ export interface FeatureFlagApi {
     readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataApi[]
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
+    readonly product_tours: readonly FeatureFlagLinkedProductTourApi[]
     readonly can_edit: boolean
     tags?: unknown[]
     evaluation_contexts?: unknown[]

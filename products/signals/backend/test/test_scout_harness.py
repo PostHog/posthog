@@ -807,6 +807,14 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # from the prompt, not from a refused call.
         assert "Scanners spend credits" not in granted
         assert "Scanners spend credits" in _prompt(write_scopes=["replay_scanner:write"])
+        assert "this is the grant to use least" not in granted
+        flag_granted = _prompt(write_scopes=["feature_flag:write"])
+        assert "this is the grant to use least" in flag_granted
+        assert "scheduled-changes-list" not in granted
+        assert 'model_name="FeatureFlag"' in flag_granted
+        assert "Read all pages" in flag_granted
+        assert "leave the flag and its schedules unchanged" in flag_granted
+        assert "wait for any required approval" in flag_granted
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
@@ -1638,7 +1646,7 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
             team_id=ateam.id,
             skill_name="signals-scout-errors",
             emit=emit,
-            write_scopes=["dashboard:write", "feature_flag:write"],
+            write_scopes=["dashboard:write", "cohort:write"],
         )
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()

@@ -163,6 +163,9 @@ class TestResolveScopes(SimpleTestCase):
             # The scanner grant's exclusions live in the scanner API, so the token still has to
             # carry the whole scope object for the rest of that surface to work.
             ("scanner_grant", "signals_scout", "replay_scanner:write", "alert:write"),
+            # The flag grant reaches production behavior, and `experiment:write` is ungrantable
+            # on purpose: a flag grant must not drag it in through the posture.
+            ("flag_grant", "signals_scout", "feature_flag:write", "experiment:write"),
         ]
     )
     def test_scout_posture_adds_only_the_granted_write_scopes(
@@ -203,7 +206,7 @@ class TestResolveScopes(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("write_scope_outside_the_allowlist", "feature_flag:write"),
+            ("write_scope_outside_the_allowlist", "cohort:write"),
             # A scout run acts as its skill's author, so a scout holding this could widen its own
             # `write_scopes` through the scout config endpoint. It is kept out of the allowlist
             # until that self-widening has its own gate.
@@ -258,7 +261,7 @@ class TestResolveScopes(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("ungrantable_scope", ["dashboard:write", "feature_flag:write"], ["dashboard:write"]),
+            ("ungrantable_scope", ["dashboard:write", "cohort:write"], ["dashboard:write"]),
             # A hand-edited column can hold an object. `list()` on it yields its keys, which would
             # turn a value that grants nothing into a grant of everything it names.
             ("json_object", {"dashboard:write": False}, []),
