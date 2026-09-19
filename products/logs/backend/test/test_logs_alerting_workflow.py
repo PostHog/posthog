@@ -6,8 +6,10 @@ the sandbox doesn't trip on Django imports inside `activities.py`.
 """
 
 import uuid
+import asyncio
 
 import pytest
+from unittest.mock import patch
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -24,10 +26,90 @@ from products.logs.backend.temporal.activities import (
     EmitAlertSignalsInput,
     EvaluateCohortBatchInput,
     EvaluateCohortBatchOutput,
+    discover_cohorts_activity,
+    evaluate_cohort_batch_activity,
 )
 from products.logs.backend.temporal.workflow import LogsAlertCheckWorkflow
 
 TASK_QUEUE = "logs-alerting-test"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "workflow_input,error",
+    [
+        (CheckAlertsInput(max_alerts_per_run=0), "max_alerts_per_run"),
+        (CheckAlertsInput(max_concurrent_batches=0), "max_concurrent_batches"),
+    ],
+)
+async def test_workflow_rejects_non_positive_coordinator_bounds(workflow_input: CheckAlertsInput, error: str) -> None:
+    with pytest.raises(ValueError, match=error):
+        await LogsAlertCheckWorkflow().run(workflow_input)
+
+
+@pytest.mark.asyncio
+async def test_workflow_limits_batch_activity_concurrency() -> None:
+    manifests = [
+        CohortManifest(
+            team_id=1,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:05:00+00:00",
+            alert_ids=[f"alert-{index}"],
+        )
+        for index in range(6)
+    ]
+    active = 0
+    max_active = 0
+
+    async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
+        nonlocal active, max_active
+        if activity_fn is discover_cohorts_activity:
+            return DiscoverCohortsOutput(manifests=manifests, batch_size=1)
+        if activity_fn is evaluate_cohort_batch_activity:
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+            return EvaluateCohortBatchOutput(
+                alerts_checked=len(activity_input.manifests),
+                alerts_fired=0,
+                alerts_resolved=0,
+                alerts_errored=0,
+            )
+        raise AssertionError(f"Unexpected activity: {activity_fn}")
+
+    workflow_input = CheckAlertsInput(max_alerts_per_run=300, max_concurrent_batches=2)
+
+    with (
+        patch(
+            "products.logs.backend.temporal.workflow.workflow.execute_activity",
+            side_effect=fake_execute_activity,
+        ),
+        patch("products.logs.backend.temporal.workflow.workflow.patched", return_value=True),
+    ):
+        result = await LogsAlertCheckWorkflow().run(workflow_input)
+
+    assert result.alerts_checked == 6
+    assert max_active == 2
+
+
+@pytest.mark.asyncio
+async def test_workflow_preserves_empty_discovery_payload_for_legacy_replay() -> None:
+    async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
+        assert activity_fn is discover_cohorts_activity
+        assert activity_input == {}
+        return DiscoverCohortsOutput(manifests=[], batch_size=20)
+
+    with (
+        patch(
+            "products.logs.backend.temporal.workflow.workflow.execute_activity",
+            side_effect=fake_execute_activity,
+        ),
+        patch("products.logs.backend.temporal.workflow.workflow.patched", return_value=False),
+    ):
+        result = await LogsAlertCheckWorkflow().run(CheckAlertsInput())
+
+    assert result.alerts_checked == 0
 
 
 @pytest.mark.asyncio

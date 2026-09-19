@@ -3,7 +3,38 @@ import datetime as dt
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.logs.backend.temporal.metrics import ExecutionTimeRecorder, record_checkpoint_lag
+from products.logs.backend.temporal.metrics import ExecutionTimeRecorder, record_checkpoint_lag, record_coordinator_poll
+
+
+def test_record_coordinator_poll_exposes_saturation_and_freshness() -> None:
+    meter = MagicMock()
+    counters: dict[str, MagicMock] = {}
+    gauges: dict[str, MagicMock] = {}
+    meter.create_counter.side_effect = lambda name, _description: counters.setdefault(name, MagicMock())
+    meter.create_gauge.side_effect = lambda name, _description: gauges.setdefault(name, MagicMock())
+    oldest_due_at = dt.datetime(2026, 9, 11, 10, 0, tzinfo=dt.UTC)
+
+    with (
+        patch("products.logs.backend.temporal.metrics.get_metric_meter", return_value=meter) as get_meter,
+        patch("products.logs.backend.temporal.metrics.time.time", return_value=1_789_128_000.0),
+        patch("products.logs.backend.temporal.metrics.dt.datetime", wraps=dt.datetime) as datetime_mock,
+    ):
+        datetime_mock.now.return_value = oldest_due_at + dt.timedelta(hours=1)
+        record_coordinator_poll(
+            selected_count=300,
+            max_alerts_per_run=300,
+            has_more=True,
+            oldest_due_at=oldest_due_at,
+        )
+
+    assert get_meter.call_args_list[0].args[0] == {"outcome": "saturated"}
+    counters["logs_alerting_coordinator_polls_total"].add.assert_called_once_with(1)
+    counters["logs_alerting_coordinator_selected_total"].add.assert_called_once_with(300)
+    gauges["logs_alerting_coordinator_max_alerts_per_run"].set.assert_called_once_with(300)
+    gauges["logs_alerting_coordinator_oldest_due_age_seconds"].set.assert_called_once_with(3600)
+    gauges["logs_alerting_coordinator_last_successful_poll_timestamp_seconds"].set.assert_called_once_with(
+        1_789_128_000.0
+    )
 
 
 class TestRecordCheckpointLag:

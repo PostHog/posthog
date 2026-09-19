@@ -1,7 +1,9 @@
 """Temporal workflow for logs alert checking — two-phase fan-out."""
 
+import json
 import asyncio
 from itertools import batched
+from typing import cast
 
 import temporalio
 from temporalio import workflow
@@ -42,20 +44,33 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
 
     Workflows can't do I/O; the discovery activity owns the Postgres query and
     returns serialisable manifests recorded in workflow history. The workflow
-    then deterministically chunks the manifests into batches and dispatches one
-    activity per batch via `asyncio.gather` — Temporal spreads them across
+    then deterministically chunks the manifests into batches and dispatches a
+    bounded window of activities at a time. Temporal spreads each window across
     available worker pods.
     """
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> CheckAlertsInput:
-        return CheckAlertsInput()
+        if not inputs:
+            return CheckAlertsInput()
+        return CheckAlertsInput(**json.loads(inputs[0]))
 
     @temporalio.workflow.run
     async def run(self, input: CheckAlertsInput) -> CheckAlertsOutput:
+        if input.max_alerts_per_run <= 0:
+            raise ValueError("max_alerts_per_run must be greater than zero")
+        if input.max_concurrent_batches <= 0:
+            raise ValueError("max_concurrent_batches must be greater than zero")
+
+        bounded_coordinator = workflow.patched("logs-alert-coordinator-bounds-2026-09")
+        discovery_input = (
+            DiscoverCohortsInput(max_alerts_per_run=input.max_alerts_per_run)
+            if bounded_coordinator
+            else cast(DiscoverCohortsInput, {})
+        )
         discovery: DiscoverCohortsOutput = await workflow.execute_activity(
             discover_cohorts_activity,
-            DiscoverCohortsInput(),
+            discovery_input,
             start_to_close_timeout=ACTIVITY_TIMEOUT,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
@@ -70,44 +85,46 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
             for chunk in batched(discovery.manifests, discovery.batch_size, strict=False)
         ]
 
-        # `return_exceptions=True` isolates per-batch retry-exhaustion: one
-        # batch's `ActivityError` doesn't abort the cycle.
-        results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
-            *(
-                workflow.execute_activity(
-                    evaluate_cohort_batch_activity,
-                    batch,
-                    start_to_close_timeout=ACTIVITY_TIMEOUT,
-                    retry_policy=ACTIVITY_RETRY_POLICY,
-                )
-                for batch in batches
-            ),
-            return_exceptions=True,
-        )
-
         alerts_checked = 0
         alerts_fired = 0
         alerts_resolved = 0
         alerts_errored = 0
         notified: list[NotifiedAlert] = []
-        for batch, result in zip(batches, results):
-            if isinstance(result, ActivityError):
-                # Batch's retries exhausted — count its alerts as errored, keep going.
-                workflow.logger.warning(
-                    "Cohort batch activity failed; counting batch alerts as errored",
-                    extra={"cohort_count": len(batch.manifests)},
-                )
-                alerts_errored += sum(len(m.alert_ids) for m in batch.manifests)
-            elif isinstance(result, BaseException):
-                # Unexpected exception type — re-raise so the workflow fails loudly
-                # rather than silently masking a bug.
-                raise result
-            else:
-                alerts_checked += result.alerts_checked
-                alerts_fired += result.alerts_fired
-                alerts_resolved += result.alerts_resolved
-                alerts_errored += result.alerts_errored
-                notified.extend(result.notified)
+        batch_window_size = input.max_concurrent_batches if bounded_coordinator else max(1, len(batches))
+        for batch_window in batched(batches, batch_window_size, strict=False):
+            # `return_exceptions=True` isolates per-batch retry-exhaustion: one
+            # batch's `ActivityError` doesn't abort the cycle.
+            results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
+                *(
+                    workflow.execute_activity(
+                        evaluate_cohort_batch_activity,
+                        batch,
+                        start_to_close_timeout=ACTIVITY_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
+                    for batch in batch_window
+                ),
+                return_exceptions=True,
+            )
+
+            for batch, result in zip(batch_window, results):
+                if isinstance(result, ActivityError):
+                    # Batch's retries exhausted — count its alerts as errored, keep going.
+                    workflow.logger.warning(
+                        "Cohort batch activity failed; counting batch alerts as errored",
+                        extra={"cohort_count": len(batch.manifests)},
+                    )
+                    alerts_errored += sum(len(m.alert_ids) for m in batch.manifests)
+                elif isinstance(result, BaseException):
+                    # Unexpected exception type — re-raise so the workflow fails loudly
+                    # rather than silently masking a bug.
+                    raise result
+                else:
+                    alerts_checked += result.alerts_checked
+                    alerts_fired += result.alerts_fired
+                    alerts_resolved += result.alerts_resolved
+                    alerts_errored += result.alerts_errored
+                    notified.extend(result.notified)
 
         # Off the eval critical path. Best-effort: signal emission must never fail
         # the alert cycle, so retry-exhaustion is swallowed. Chunked because the
