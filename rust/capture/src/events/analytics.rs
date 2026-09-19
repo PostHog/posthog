@@ -172,6 +172,10 @@ pub fn process_single_event(
     // is the device's own clock reading, so it carries that device's clock error and not
     // the request's delivery delay: the gap between two of these from one device is the
     // real interval between the events, which the stored timestamp cannot promise.
+    // Dropped first so a client cannot supply its own value and have it read as ours on
+    // the events where nothing derives one. v1 needs no equivalent: it appends its
+    // injections after the client's keys, and every event it publishes carries this one.
+    event.properties.remove(CLIENT_CAPTURE_PROPERTY);
     if let Some(captured_at) = parsed_timestamp.client_capture {
         event.properties.insert(
             CLIENT_CAPTURE_PROPERTY.to_string(),
@@ -825,6 +829,47 @@ mod tests {
         let uuid_millis = processed.event.uuid.as_u128() >> 80;
         assert_eq!(uuid_millis, expected_millis);
         assert!(now.timestamp_millis() as u128 - uuid_millis > 60_000_000_000);
+    }
+
+    #[test]
+    fn a_client_supplied_capture_property_never_survives() {
+        // The property is read as capture's own. A client that sends one of its own must
+        // not have it trusted, including when nothing derives a value to replace it with.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:30Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let mut properties = HashMap::new();
+        properties.insert(
+            CLIENT_CAPTURE_PROPERTY.to_string(),
+            Value::String("1999-12-31T23:59:59Z".to_string()),
+        );
+        let mut event = RawEvent {
+            uuid: None,
+            distinct_id: Some(Value::String("d1".to_string())),
+            event: "$pageview".to_string(),
+            properties,
+            // No timestamp, no sent_at and no offset, so nothing derives a capture instant.
+            timestamp: None,
+            offset: None,
+            set: None,
+            set_once: None,
+            token: Some("test_token".to_string()),
+        };
+
+        let processed = process_single_event(
+            &mut event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap();
+
+        assert!(
+            !processed.event.data.contains("1999-12-31"),
+            "client value survived: {}",
+            processed.event.data
+        );
+        assert!(!processed.event.data.contains(CLIENT_CAPTURE_PROPERTY));
     }
 
     #[test]
