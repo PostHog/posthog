@@ -43,7 +43,7 @@ from posthog.utils import generate_short_id, get_trusted_client_ip, relative_dat
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session
+from ee.billing.billing_manager import BillingManager, BillingServiceUnavailable, http_session
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -105,6 +105,18 @@ class BillingServiceError(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_code = "billing_service_error"
     default_detail = "Billing could not answer this request. Try again in a moment."
+
+
+class BillingUnavailable(APIException):
+    """Billing did not answer the overview request, and a retry can clear it.
+
+    A 503 rather than a 500, because nothing is wrong with the request: billing timed out or was
+    unreachable. The page offers a retry on this instead of a bug report.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "billing_service_unavailable"
+    default_detail = "Billing is taking longer than usual to answer. Try again in a moment."
 
 
 class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -723,7 +735,15 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query = {}
         if "include_forecasting" in request.query_params:
             query["include_forecasting"] = request.query_params.get("include_forecasting")
-        response = billing_manager.get_billing(org, query)
+        try:
+            response = billing_manager.get_billing(org, query)
+        except BillingServiceUnavailable as error:
+            logger.warning(
+                "billing_overview_unavailable",
+                organization_id=str(org.id) if org else None,
+                reason=error.reason,
+            )
+            raise BillingUnavailable() from error
 
         vercel_integration = OrganizationIntegration.objects.filter(
             organization=org,
