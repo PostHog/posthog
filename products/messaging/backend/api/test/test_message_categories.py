@@ -40,7 +40,7 @@ class TestMessageCategoryAPI(APIBaseTest):
         # Postgres can then return those rows differently for each page request.
         MessageCategory.objects.filter(team=self.team).update(created_at=timezone.now())
 
-        paged_keys = []
+        paged_keys: list[str] = []
         for offset in range(0, len(categories), 2):
             response = self.client.get(
                 f"/api/environments/{self.team.id}/messaging_categories/?limit=2&offset={offset}"
