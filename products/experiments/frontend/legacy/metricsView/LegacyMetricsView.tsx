@@ -6,6 +6,8 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { getExperimentIntervalLevelPercentage } from '~/scenes/experiments/MetricsView/shared/utils'
+import { ExperimentStatsMethod } from '~/types'
 
 import {
     legacyCredibleIntervalForVariant,
@@ -72,6 +74,7 @@ export function LegacyMetricsView({ isSecondary }: { isSecondary?: boolean }): J
     const chartBound = maxAbsValue + padding
 
     const commonTickValues = legacyGetNiceTickValues(chartBound)
+    const intervalLevel = getExperimentIntervalLevelPercentage(experiment, ExperimentStatsMethod.Bayesian)
 
     return (
         <div className="mb-4 -mt-2">
@@ -101,9 +104,9 @@ export function LegacyMetricsView({ isSecondary }: { isSecondary?: boolean }): J
                                             <p className="mb-4">
                                                 Each bar shows how a variant is performing compared to the control (the
                                                 gray bar) for this metric, using a{' '}
-                                                <strong>95% credible interval.</strong> That means there's a 95% chance
-                                                the true difference for that variant falls within this range. The
-                                                vertical "0%" line is your baseline:
+                                                <strong>{intervalLevel} credible interval.</strong> That means there's a{' '}
+                                                {intervalLevel} chance the true difference for that variant falls within
+                                                this range. The vertical "0%" line is your baseline:
                                             </p>
                                             <ul className="mb-4 list-disc pl-4">
                                                 <li>

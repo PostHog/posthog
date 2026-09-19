@@ -9,8 +9,15 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery, isExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { getExperimentIntervalLevelPercentage } from '~/scenes/experiments/MetricsView/shared/utils'
 import { getViewRecordingFiltersLegacy } from '~/scenes/experiments/utils'
-import { FilterLogicalOperator, InsightType, RecordingUniversalFilters, TrendExperimentVariant } from '~/types'
+import {
+    ExperimentStatsMethod,
+    FilterLogicalOperator,
+    InsightType,
+    RecordingUniversalFilters,
+    TrendExperimentVariant,
+} from '~/types'
 
 import {
     legacyCalculateDelta,
@@ -58,6 +65,7 @@ export function LegacySummaryTable({
     )
 
     const winningVariant = legacyGetHighestProbabilityVariant(result)
+    const intervalLevel = getExperimentIntervalLevelPercentage(experiment, ExperimentStatsMethod.Bayesian)
 
     const columns: LemonTableColumns<any> = [
         {
@@ -171,8 +179,10 @@ export function LegacySummaryTable({
             key: 'credibleInterval',
             title: (
                 <div className="inline-flex items-center deprecated-space-x-1">
-                    <div className="">Credible interval (95%)</div>
-                    <Tooltip title="A credible interval estimates the percentage change in the mean, indicating with 95% probability how much higher or lower the test variant's mean is compared to the control.">
+                    <div className="">Credible interval ({intervalLevel})</div>
+                    <Tooltip
+                        title={`A credible interval estimates the percentage change in the mean, indicating with ${intervalLevel} probability how much higher or lower the test variant's mean is compared to the control.`}
+                    >
                         <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>
@@ -248,8 +258,10 @@ export function LegacySummaryTable({
             key: 'credibleInterval',
             title: (
                 <div className="inline-flex items-center deprecated-space-x-1">
-                    <div className="">Credible interval (95%)</div>
-                    <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
+                    <div className="">Credible interval ({intervalLevel})</div>
+                    <Tooltip
+                        title={`A credible interval estimates the percentage change in the conversion rate, indicating with ${intervalLevel} probability how much higher or lower the test variant's conversion rate is compared to the control.`}
+                    >
                         <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>
