@@ -55,6 +55,7 @@ from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.scoping import team_scope
 
+from products.experiments.backend.hogql_queries.experiment_lazy_precompute import CANARY_TRIGGER
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -394,7 +395,7 @@ def _execute_canary_run(
     # materialized-columns cache refresh) inherit these tags, and sync_execute rejects a client_query_id
     # that arrives without a team_id. Web requests tag team_id at request start; temporal workers don't,
     # so tag it here.
-    with tags_context(client_query_id=query_id, team_id=experiment.team_id, trigger="experiment_precompute_canary"):
+    with tags_context(client_query_id=query_id, team_id=experiment.team_id, trigger=CANARY_TRIGGER):
         response = runner.calculate()
 
     stats_entries = [*([response.baseline] if response.baseline else []), *(response.variant_results or [])]

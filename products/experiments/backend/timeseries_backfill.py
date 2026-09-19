@@ -15,7 +15,9 @@ import structlog
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, tags_context
 
+from products.experiments.backend.hogql_queries.experiment_lazy_precompute import TIMESERIES_BACKFILL_TRIGGER
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.models.experiment import ExperimentMetricResult, ExperimentTimeseriesRecalculation
@@ -92,7 +94,15 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
                 # Backfilling historical points is not user-visible pain — no terminal error event.
                 error_event_context=None,
             )
-            result = query_runner._calculate()
+            # Marks the backfill as a refresher, so its precompute ensures take no serve-stale grace.
+            # Served its own stale rows it would store them as a day's timeseries point and never
+            # recompute them.
+            with tags_context(
+                trigger=TIMESERIES_BACKFILL_TRIGGER,
+                feature=Feature.CACHE_WARMUP,
+                team_id=experiment.team_id,
+            ):
+                result = query_runner._calculate()
 
             ExperimentMetricResult.objects.update_or_create(
                 experiment_id=experiment.id,

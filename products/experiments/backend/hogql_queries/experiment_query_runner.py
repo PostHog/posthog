@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
@@ -36,17 +37,18 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.ph_client import ph_scoped_capture
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
     TtlSchedule,
-    ensure_precomputed,
     parse_ttl_schedule,
 )
 from products.cohorts.backend.models.cohort import Cohort
@@ -59,6 +61,10 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
 )
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
+from products.experiments.backend.hogql_queries.experiment_lazy_precompute import (
+    experiment_ensure_precomputed,
+    handle_stale_served,
+)
 from products.experiments.backend.hogql_queries.experiment_metric_values import get_conversion_window_seconds
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -265,7 +271,7 @@ def ensure_exposures_precomputed(
     """Ensure lazy-computed exposure data exists for the window, and return its job_ids."""
     query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
-    return ensure_precomputed(
+    return experiment_ensure_precomputed(
         team=team,
         insert_query=query_string,
         time_range_start=time_range_start,
@@ -281,18 +287,27 @@ def ensure_exposures_precomputed(
     )
 
 
+# One warming cadence (24h) plus two hours of grace. The timeseries warming workflows
+# (posthog/temporal/experiments/) recompute every running experiment's metrics once a day, at the
+# team's configured hour, and each run writes the result cache. At exactly 24 hours the cache
+# expires just before the warm that would replace it: two runs a day apart are never a day apart
+# to the minute, and a run that retries lands later still. Whoever reads in that gap pays a full
+# recompute. Same reasoning as the exposure TTL band, which is deliberately under the same cadence.
+RESULT_CACHE_MAX_AGE = timedelta(hours=26)
+
+
 class ExperimentResultsCacheMixin:
-    """24-hour result cache, shared by the experiment query runners."""
+    """Daily result cache, shared by the experiment query runners."""
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
-        return last_refresh + timedelta(hours=24)
+        return last_refresh + RESULT_CACHE_MAX_AGE
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         if not last_refresh:
             return True
-        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)
+        return (datetime.now(UTC) - last_refresh) > RESULT_CACHE_MAX_AGE
 
 
 class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
@@ -396,6 +411,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.hogql: str | None = None
         self._is_precomputed: bool = False  # exposures precompute
         self._metric_events_precomputed: bool = False
+        self._precompute_stale: bool = False
 
     def _get_breakdowns_for_builder(self) -> list | None:
         """Extract and validate breakdowns from metric configuration."""
@@ -446,7 +462,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if extension_seconds > 0:
             date_to = date_to + timedelta(seconds=extension_seconds)
 
-        return ensure_precomputed(
+        return experiment_ensure_precomputed(
             team=self.team,
             insert_query=query_string,
             time_range_start=date_from,
@@ -601,6 +617,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 if result.ready:
                     exposure_job_ids = [str(job_id) for job_id in result.job_ids]
                     self._is_precomputed = True
+                    if result.stale:
+                        self._precompute_stale = True
+                        handle_stale_served(team=self.team, experiment_id=self.experiment.id, table="exposures")
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
             except Exception as e:
@@ -630,6 +649,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                     if metric_result.ready:
                         metric_events_job_ids = [str(job_id) for job_id in metric_result.job_ids]
                         self._metric_events_precomputed = True
+                        if metric_result.stale:
+                            self._precompute_stale = True
+                            handle_stale_served(team=self.team, experiment_id=self.experiment.id, table="metric_events")
                     else:
                         logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
                 except Exception as e:
@@ -739,6 +761,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
+        started_at = time.perf_counter()
+
         # Prepare variant data
         variant_results = self._prepare_variant_results()
 
@@ -760,7 +784,48 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         result.hogql = self.hogql
         result.is_precomputed = self._is_precomputed
 
+        self._capture_results_computed_event(round((time.perf_counter() - started_at) * 1000))
+
         return result
+
+    def _capture_results_computed_event(self, duration_ms: int) -> None:
+        """Emit `experiment results computed` for a read that found nothing fresh in the result cache.
+
+        The runner only runs when the cache missed or went stale, so every emit is somebody waiting,
+        and the precompute properties say whether they waited on a rebuild. Without it the cost of a
+        cold read is visible only as Prometheus counters, which cannot be tied back to a team.
+
+        Internal callers (warming, recalculation, canary, backfills) stay silent: they own their own
+        telemetry, and counting them would hide how often a person waits. Telemetry must never fail
+        the read, so any capture error is swallowed.
+        """
+        if not self.user_facing or not self.error_event_context:
+            return
+        try:
+            distinct_id = self.user.distinct_id if self.user and self.user.distinct_id else f"team_{self.team.id}"
+            with ph_scoped_capture() as capture:
+                capture(
+                    distinct_id=distinct_id,
+                    event="experiment results computed",
+                    properties={
+                        "experiment_id": self.experiment.id,
+                        "team_id": self.team.id,
+                        "metric_uuid": self.metric.uuid,
+                        "metric_kind": self.metric.metric_type,
+                        "duration_ms": duration_ms,
+                        "exposures_path": "precomputed" if self._is_precomputed else "direct_scan",
+                        "metric_events_path": self.metric_events_path,
+                        "precompute_stale": self._precompute_stale,
+                        "context": self.error_event_context,
+                    },
+                    groups=groups(organization=self.team.organization, team=self.team),
+                )
+        except Exception:
+            logger.warning(
+                "experiment_results_computed_event_capture_failed",
+                experiment_id=self.experiment.id,
+                exc_info=True,
+            )
 
     def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
         """Fetch and prepare variant results with missing variants added."""

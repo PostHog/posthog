@@ -31,6 +31,7 @@ from products.experiments.backend.analysis_health import evaluate_bias_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
+from products.experiments.backend.hogql_queries.experiment_lazy_precompute import handle_stale_served
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -168,6 +169,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                     result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
                     job_ids = [str(job_id) for job_id in result.job_ids]
+                    if result.stale:
+                        handle_stale_served(team=self.team, experiment_id=self.experiment.id, table="exposures")
                     tag_queries(experiment_exposures_path="precomputed")
                     return builder.get_daily_exposures_from_precomputed(job_ids)
                 else:

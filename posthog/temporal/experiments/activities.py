@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import close_old_connections
@@ -8,10 +8,10 @@ from django.db.models import Q
 import structlog
 import temporalio.activity
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
+from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -27,6 +27,7 @@ from posthog.temporal.experiments.utils import DEFAULT_EXPERIMENT_RECALCULATION_
 from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import capture_experiment_metric_error_event
+from products.experiments.backend.hogql_queries.experiment_lazy_precompute import TIMESERIES_WARMING_TRIGGER
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
@@ -34,6 +35,7 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
 )
+from products.experiments.backend.temporal.metric_resolution import METRIC_BUILDERS, build_metric
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
@@ -156,14 +158,7 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     metric_type = metric_dict.get("metric_type")
-    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-    if metric_type == "mean":
-        metric_obj = ExperimentMeanMetric(**metric_dict)
-    elif metric_type == "funnel":
-        metric_obj = ExperimentFunnelMetric(**metric_dict)
-    elif metric_type == "ratio":
-        metric_obj = ExperimentRatioMetric(**metric_dict)
-    else:
+    if metric_type not in METRIC_BUILDERS:
         return ExperimentRegularMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -171,6 +166,7 @@ def _calculate_experiment_regular_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
+    metric_obj = build_metric(metric_dict)
 
     if not experiment.start_date:
         return ExperimentRegularMetricResult(
@@ -206,8 +202,9 @@ def _calculate_experiment_regular_metric_sync(
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
-        # the events as "used by this team."
-        tag_queries(trigger="warming/experiment_timeseries")
+        # the events as "used by this team." Both tags also mark this run as a refresher, so its
+        # precompute ensures take no serve-stale grace and rebuild what they read.
+        tag_queries(trigger=TIMESERIES_WARMING_TRIGGER, feature=Feature.CACHE_WARMUP)
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
@@ -462,14 +459,7 @@ def _calculate_experiment_saved_metric_sync(
         "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
-    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-    if metric_type == "mean":
-        metric_obj = ExperimentMeanMetric(**query)
-    elif metric_type == "funnel":
-        metric_obj = ExperimentFunnelMetric(**query)
-    elif metric_type == "ratio":
-        metric_obj = ExperimentRatioMetric(**query)
-    else:
+    if metric_type not in METRIC_BUILDERS:
         return ExperimentSavedMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -477,6 +467,7 @@ def _calculate_experiment_saved_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
+    metric_obj = build_metric(query)
 
     if not experiment.start_date:
         return ExperimentSavedMetricResult(
@@ -512,8 +503,9 @@ def _calculate_experiment_saved_metric_sync(
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
-        # the events as "used by this team."
-        tag_queries(trigger="warming/experiment_timeseries")
+        # the events as "used by this team." Both tags also mark this run as a refresher, so its
+        # precompute ensures take no serve-stale grace and rebuild what they read.
+        tag_queries(trigger=TIMESERIES_WARMING_TRIGGER, feature=Feature.CACHE_WARMUP)
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 

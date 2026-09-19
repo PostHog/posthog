@@ -8,7 +8,15 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import override_settings
 
-from posthog.schema import CachedExperimentQueryResponse, EventsNode, ExperimentMeanMetric, ExperimentQuery
+from posthog.schema import (
+    CachedExperimentQueryResponse,
+    EventsNode,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
+    StartHandling,
+)
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.temporal.experiments.activities import (
@@ -98,6 +106,40 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert mock_runner_class.call_args.kwargs["as_of"] == expected_query_to
         result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
         assert result_row.query_to == expected_query_to
+
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
+    def test_regular_metric_activity_warms_a_retention_metric(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 5, 0, 0, 0),
+        )
+        metric = ExperimentRetentionMetric(
+            uuid=str(uuid4()),
+            start_event=EventsNode(event="signed_up"),
+            completion_event=EventsNode(event="purchase"),
+            retention_window_start=0,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+        metric_dict = metric.model_dump(mode="json")
+        experiment.metrics = [metric_dict]
+        experiment.save()
+
+        with (
+            patch("posthog.temporal.experiments.activities.close_old_connections"),
+            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
+        ):
+            mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
+
+            activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
+                experiment.id, metric_dict["uuid"], "fingerprint"
+            )
+
+        self.assertTrue(activity_result.success, msg=activity_result.error_message)
+        assert mock_runner_class.call_args.kwargs["query"].metric.metric_type == "retention"
 
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_temporal_activity_warms_query_cache(self):
