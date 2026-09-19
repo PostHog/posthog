@@ -19,7 +19,7 @@ use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::outputs::{Output, OutputRegistry};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
-    is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
+    is_exception_event, is_llm_event, is_mobile_recording_event, is_survey_event, CaptureQuotaLimiter,
 };
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
@@ -218,11 +218,17 @@ pub async fn build_components(
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
     // global billing limiter applied here to every event batch. You must supply the
     // QuotaResource type and a predicate function that will match events to be limited
-    let quota_limiter =
+    let mut quota_limiter =
         CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
             .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
             .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
             .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
+    // The mobile replay quota resource only exists on the recordings capture path;
+    // registering the scoped limiter in events mode would make every events pod query a
+    // zset nothing ever populates.
+    if config.capture_mode == CaptureMode::Recordings {
+        quota_limiter = quota_limiter.add_scoped_limiter(QuotaResource::MobileRecordings, is_mobile_recording_event);
+    }
 
     // TODO: remove this once we have a billing limiter
     let token_dropper = config

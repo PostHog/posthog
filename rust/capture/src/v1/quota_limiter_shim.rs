@@ -63,6 +63,9 @@ pub async fn apply_quota_limits(
             let info = EventInfo {
                 name: ev.event_name(),
                 has_product_tour_id: ev.has_property("product_tour_id"),
+                // v1 batches carry analytics events, never recording snapshots,
+                // so the mobile replay meter can never match here.
+                is_mobile_recording: false,
             };
             if predicate(info) {
                 ev.result = EventResult::Drop;

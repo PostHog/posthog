@@ -315,6 +315,41 @@ class TestRemoteConfig(_RemoteConfigBase):
 
         list_limited_team_attributes.clear_cache()
 
+    def test_build_config_reports_mobile_recordings_limit_independently(self):
+        """A mobile-only limit surfaces `quotaLimited: ["mobile_recordings"]` and switches off
+        recording, while a web-only limit reports only `recordings`: the two meters are
+        independent, so a web limit must not report mobile (and vice versa)."""
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            list_limited_team_attributes,
+            replace_limited_team_tokens,
+        )
+
+        future_ts = int(timezone.now().timestamp()) + 10_000
+        replace_limited_team_tokens(
+            QuotaResource.MOBILE_RECORDINGS,
+            {self.team.api_token: future_ts},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        mobile_only_config = self.remote_config.build_config(bypass_recordings_quota_cache=True)
+        assert mobile_only_config["quotaLimited"] == ["mobile_recordings"]
+        assert mobile_only_config["sessionRecording"] is False
+
+        replace_limited_team_tokens(QuotaResource.MOBILE_RECORDINGS, {}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {self.team.api_token: future_ts},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        web_only_config = self.remote_config.build_config(bypass_recordings_quota_cache=True)
+        assert web_only_config["quotaLimited"] == ["recordings"]
+        assert web_only_config["sessionRecording"] is False
+
+        list_limited_team_attributes.clear_cache()
+
     def test_site_functions_query_failure_degrades_to_empty_list(self):
         with patch(
             "products.cdp.backend.models.hog_functions.hog_function.HogFunction.objects.select_related",

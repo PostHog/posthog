@@ -236,6 +236,20 @@ impl HasEventName for RawRecording {
     fn event_name(&self) -> &str {
         &self.event
     }
+
+    // The quota limiter probes "$snapshot_source_mobile", a sentinel key rather than the
+    // real "$snapshot_source" property, so a plain `has_property` here can answer the
+    // mobile-source question without deserializing the value twice.
+    fn has_property(&self, key: &str) -> bool {
+        if key == "$snapshot_source_mobile" {
+            return self
+                .properties
+                .snapshot_source
+                .as_ref()
+                .is_some_and(|v| v.as_str() == Some("mobile"));
+        }
+        false
+    }
 }
 
 /// Process recording (session replay) events with optimized serialization.
