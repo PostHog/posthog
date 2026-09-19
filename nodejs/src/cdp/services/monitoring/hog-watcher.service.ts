@@ -16,6 +16,7 @@ import {
 } from '../../types'
 
 export interface HogWatcherConfig {
+    costError: number
     hogCostTimingLowerMs: number
     hogCostTimingUpperMs: number
     hogCostTiming: number
@@ -481,6 +482,29 @@ export class HogWatcherService {
             const ratio =
                 Math.max(totalDurationMs - costConfig.lowerBound, 0) / (costConfig.upperBound - costConfig.lowerBound)
             functionCost.cost += Math.round(costConfig.cost * ratio)
+            functionCosts[hogFunction.id] = functionCost
+        }
+
+        await this.applyCostsAndTransitionStates(Object.values(functionCosts))
+    }
+
+    /**
+     * Charges the error cost for functions that failed before any invocation existed.
+     *
+     * A function whose inputs throw produces no invocation and therefore no
+     * CyclotronJobInvocationResult, so `observeResults` never sees it. Without this it stays
+     * healthy while it drops every event.
+     */
+    public async observeFailures(hogFunctions: HogFunctionType[]): Promise<void> {
+        const functionCosts: Record<string, FunctionCostEntry> = {}
+
+        for (const hogFunction of hogFunctions) {
+            const functionCost = functionCosts[hogFunction.id] ?? {
+                functionId: hogFunction.id,
+                cost: 0,
+                hogFunction,
+            }
+            functionCost.cost += this.config.costError
             functionCosts[hogFunction.id] = functionCost
         }
 

@@ -242,6 +242,7 @@ describe('Invocation utils', () => {
             const results = await buildHogFunctionInvocations(hogInputsService, [broken, healthy], pageviewGlobals())
 
             expect(results.invocations.map((i) => i.functionId)).toEqual([healthy.id])
+            expect(results.inputsFailed.map((f) => f.id)).toEqual([broken.id])
             expect(results.metrics).toMatchObject([
                 { app_source_id: broken.id, metric_kind: 'failure', metric_name: 'inputs_failed', count: 1 },
             ])

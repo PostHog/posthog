@@ -15,7 +15,7 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
-import { dualRead } from '../utils/dual-store'
+import { dualRead, dualWrite } from '../utils/dual-store'
 import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
@@ -74,6 +74,28 @@ export class HogFunctionInvocationPipeline {
         this.hogRateLimiterMirror = new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
     }
 
+    /**
+     * Reports functions that threw while building their inputs to the watcher.
+     *
+     * Never rethrows: a watcher problem must not drop a batch that has good invocations in it.
+     */
+    private async observeInputFailures(inputsFailed: HogFunctionType[]): Promise<void> {
+        if (inputsFailed.length === 0) {
+            return
+        }
+
+        try {
+            await dualWrite(
+                'hog-watcher.observeFailures',
+                () => this.deps.hogWatcher.observeFailures(inputsFailed),
+                () => this.deps.hogWatcherMirror.observeFailures(inputsFailed)
+            )
+        } catch (e) {
+            captureException(e)
+            logger.error('🔴', 'Error observing hog function input failures', { err: e })
+        }
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFunctions')
     public async buildInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[],
@@ -86,6 +108,8 @@ export class HogFunctionInvocationPipeline {
             opts.filterFn
         )
 
+        const allInputsFailed: HogFunctionType[] = []
+
         const possibleInvocations = (
             await Promise.all(
                 invocationGlobals.map(async (globals) => {
@@ -93,7 +117,7 @@ export class HogFunctionInvocationPipeline {
                         ? hogFunctionsByTeam[globals.project.id].filter((fn) => opts.invocationFilterFn!(fn, globals))
                         : hogFunctionsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = await buildHogFunctionInvocations(
+                    const { invocations, metrics, logs, inputsFailed } = await buildHogFunctionInvocations(
                         this.deps.hogInputsService,
                         teamHogFunctions,
                         globals
@@ -101,11 +125,14 @@ export class HogFunctionInvocationPipeline {
 
                     this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
                     this.deps.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
+                    allInputsFailed.push(...inputsFailed)
 
                     return invocations
                 })
             )
         ).flat()
+
+        await this.observeInputFailures(allInputsFailed)
 
         const hogFunctionIds = possibleInvocations.map((x) => x.hogFunction.id)
         const states = await dualRead(

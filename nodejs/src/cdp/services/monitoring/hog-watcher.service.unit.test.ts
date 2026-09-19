@@ -12,6 +12,7 @@ import {
 } from './hog-watcher.service'
 
 const WATCHER_CONFIG: HogWatcherConfig = {
+    costError: 100,
     hogCostTimingLowerMs: 50,
     hogCostTimingUpperMs: 550,
     hogCostTiming: 100,
