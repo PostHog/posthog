@@ -13,6 +13,7 @@ so a person's title cannot steer the question.
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import field
 from typing import Literal
 
 from django.conf import settings
@@ -34,6 +35,9 @@ SUGGESTIONS_FLAG = "product-analytics-typesafe-suggestions"
 EGRESS_SOURCE = "product_analytics_suggestions"
 
 Subject = Literal["insight", "dashboard"]
+ActorWords = tuple[str, str]
+GroupNames = Mapping[int, ActorWords]
+PERSON_WORDS: ActorWords = ("user", "users")
 MetadataQuery = InsightVizNode | ActorsQuery | EventsQuery | GroupsQuery
 
 # A tag with a lower probability is more likely wrong than right for the person to have to remove.
@@ -54,6 +58,8 @@ class SubjectContext:
     description: str = ""
     query: MetadataQuery | None = None
     tile_names: tuple[str, ...] = ()
+    # Group type index to (singular, plural), so "unique users" becomes "unique organizations".
+    group_type_names: GroupNames = field(default_factory=dict)
 
 
 @frozen
@@ -137,22 +143,71 @@ _EVENT_LABELS: dict[str, str] = {
     "$feature_flag_called": "feature flag calls",
 }
 
-_MATH_LABELS: dict[str, str] = {
-    "dau": "unique users",
-    "weekly_active": "weekly active users",
-    "monthly_active": "monthly active users",
-    "unique_session": "unique sessions",
-    "first_time_for_user": "first-time users",
-    "avg_count_per_actor": "average per user",
-    "median_count_per_actor": "median per user",
-    "avg": "average",
-    "sum": "sum",
-    "min": "minimum",
-    "max": "maximum",
-    "median": "median",
-    "p90": "p90",
-    "p95": "p95",
-    "p99": "p99",
+
+@frozen
+class MathReading:
+    """One series' math in words. ``title_base`` is None only for a plain event count, because a
+    plain count is the default a reader assumes."""
+
+    title_base: str | None
+    summary: str
+    distinct_label: str
+    per_unit: str | None
+
+
+# Every math a series can carry, in the order (title base, summary, label that tells the series apart
+# from a sibling on the same event, unit for "X per unit" formulas). Placeholders: {label} is the
+# event, {actor}/{actors} the person or group counted, {prop} the math property, {hogql} the expression.
+# ``test_every_math_reads_in_a_title`` fails when a schema math value has no row here.
+_MATH_READINGS: dict[str, tuple[str | None, str, str, str | None]] = {
+    "total": (None, "total count", "total {label}", None),
+    "dau": ("Unique {actors} with {label}", "unique {actors}", "unique {actors} for {label}", "{actor}"),
+    "weekly_active": (
+        "Weekly active {actors} with {label}",
+        "weekly active {actors}",
+        "weekly active {actors} for {label}",
+        "weekly active {actor}",
+    ),
+    "monthly_active": (
+        "Monthly active {actors} with {label}",
+        "monthly active {actors}",
+        "monthly active {actors} for {label}",
+        "monthly active {actor}",
+    ),
+    "unique_session": ("Sessions with {label}", "unique sessions", "unique sessions with {label}", "session"),
+    "unique_group": ("Unique {actors} with {label}", "unique {actors}", "unique {actors} for {label}", "{actor}"),
+    "first_time_for_user": (
+        "First-ever {label} per {actor}",
+        "first-ever occurrence per {actor}",
+        "first-ever {label} per {actor}",
+        "new {actor}",
+    ),
+    "first_time_for_user_with_filters": (
+        "First-ever {label} per {actor}",
+        "first-ever occurrence per {actor}",
+        "first-ever {label} per {actor}",
+        "new {actor}",
+    ),
+    "first_matching_event_for_user": (
+        "First matching {label} per {actor}",
+        "first matching event per {actor}",
+        "first matching {label} per {actor}",
+        None,
+    ),
+    "hogql": ("{hogql} for {label}", "custom expression {hogql}", "{hogql} for {label}", None),
+    "avg_count_per_actor": ("Average {label} per {actor}", "average per {actor}", "average {label} per {actor}", None),
+    "median_count_per_actor": ("Median {label} per {actor}", "median per {actor}", "median {label} per {actor}", None),
+    "min_count_per_actor": ("Minimum {label} per {actor}", "minimum per {actor}", "minimum {label} per {actor}", None),
+    "max_count_per_actor": ("Maximum {label} per {actor}", "maximum per {actor}", "maximum {label} per {actor}", None),
+    "avg": ("Average {prop} for {label}", "average of {prop}", "average {prop} for {label}", None),
+    "sum": ("Total {prop} for {label}", "sum of {prop}", "total {prop} for {label}", None),
+    "min": ("Minimum {prop} for {label}", "minimum of {prop}", "minimum {prop} for {label}", None),
+    "max": ("Maximum {prop} for {label}", "maximum of {prop}", "maximum {prop} for {label}", None),
+    "median": ("Median {prop} for {label}", "median of {prop}", "median {prop} for {label}", None),
+    "p75": ("75th percentile {prop} for {label}", "p75 of {prop}", "p75 {prop} for {label}", None),
+    "p90": ("90th percentile {prop} for {label}", "p90 of {prop}", "p90 {prop} for {label}", None),
+    "p95": ("95th percentile {prop} for {label}", "p95 of {prop}", "p95 {prop} for {label}", None),
+    "p99": ("99th percentile {prop} for {label}", "p99 of {prop}", "p99 {prop} for {label}", None),
 }
 
 _INTERVAL_ADJECTIVES: dict[str, str] = {
@@ -193,21 +248,6 @@ _PROPERTY_LABELS: dict[str, str] = {
     "$session_duration": "session duration",
 }
 
-# How a single series reads in a title when its math is more than a plain count. The math is the
-# point of such an insight, so it belongs in the base label that breakdowns and ranges attach to.
-_MATH_TITLE_PHRASES: dict[str, str] = {
-    "dau": "Unique users with {label}",
-    "weekly_active": "Weekly active users with {label}",
-    "monthly_active": "Monthly active users with {label}",
-    "unique_session": "Sessions with {label}",
-    "first_time_for_user": "First-ever {label} per user",
-    "first_time_for_user_with_filters": "First-ever {label} per user",
-    "avg_count_per_actor": "Average {label} per user",
-    "median_count_per_actor": "Median {label} per user",
-    "min_count_per_actor": "Minimum {label} per user",
-    "max_count_per_actor": "Maximum {label} per user",
-}
-
 
 def humanize_property(key: str) -> str:
     if key in _PROPERTY_LABELS:
@@ -216,21 +256,46 @@ def humanize_property(key: str) -> str:
     return re.sub(r"\b(url|id|utm|os|ip)\b", lambda m: m.group(0).upper(), words) or key
 
 
-def _math_title_base(item: object, label: str) -> str | None:
-    """A title base that carries the math, or None when the math is a plain count."""
-    math = getattr(item, "math", None)
-    if not math or str(math) == "total":
-        return None
-    phrase = _MATH_TITLE_PHRASES.get(str(math))
-    if phrase:
-        return phrase.format(label=label)
-    math_label = _MATH_LABELS.get(str(math))
+def _actor_words(source: object, item: object, group_names: GroupNames) -> ActorWords:
+    """Who a series counts: a person, or the group type the series or the whole query aggregates by."""
+    math = str(getattr(item, "math", None) or "")
+    group_index = getattr(item, "math_group_type_index", None) if math == "unique_group" else None
+    if group_index is None:
+        group_index = getattr(source, "aggregation_group_type_index", None)
+    if group_index is not None:
+        try:
+            return group_names.get(int(group_index), ("group", "groups"))
+        except (TypeError, ValueError):
+            return ("group", "groups")
+    return PERSON_WORDS
+
+
+def math_reading(item: object, label: str, actors: ActorWords = PERSON_WORDS) -> MathReading:
+    math = str(getattr(item, "math", None) or "total")
+    row = _MATH_READINGS.get(math)
+    if row is None:
+        # A math the table does not know still gets words, so the title never silently drops it.
+        row = (
+            f"{sentence_case(humanize_property(math))} for {{label}}",
+            humanize_property(math),
+            f"{humanize_property(math)} {{label}}",
+            None,
+        )
     math_property = getattr(item, "math_property", None)
-    if math_label and math_property:
-        return f"{sentence_case(math_label)} {humanize_property(str(math_property))} for {label}"
-    if math_label:
-        return f"{sentence_case(math_label)} for {label}"
-    return None
+    words = {
+        "label": label,
+        "actor": actors[0],
+        "actors": actors[1],
+        "prop": humanize_property(str(math_property)) if math_property else "value",
+        "hogql": str(getattr(item, "math_hogql", None) or "custom expression"),
+    }
+    title_base, summary, distinct, per_unit = row
+    return MathReading(
+        title_base=title_base.format(**words) if title_base else None,
+        summary=summary.format(**words),
+        distinct_label=distinct.format(**words),
+        per_unit=per_unit.format(**words) if per_unit else None,
+    )
 
 
 def humanize_event(name: str) -> str:
@@ -277,40 +342,10 @@ def _series_label(item: object) -> str:
     return "all events"
 
 
-def _series_math(item: object) -> str | None:
-    math = getattr(item, "math", None)
-    if not math:
-        return None
-    label = _MATH_LABELS.get(str(math))
-    math_property = getattr(item, "math_property", None)
-    if label and math_property:
-        return f"{label} of {math_property}"
-    return label
-
-
-# How a series reads when its math has to be spelled out to tell it apart from a sibling series.
-_MATH_PHRASES: dict[str, str] = {
-    "total": "total {label}",
-    "dau": "unique users for {label}",
-    "weekly_active": "weekly active users for {label}",
-    "monthly_active": "monthly active users for {label}",
-    "unique_session": "unique sessions with {label}",
-    "first_time_for_user": "first-time users for {label}",
-}
-
-# What one unit of a series is called when another series is divided by it.
-_PER_UNITS: dict[str, str] = {
-    "dau": "user",
-    "weekly_active": "weekly active user",
-    "monthly_active": "monthly active user",
-    "unique_session": "session",
-    "first_time_for_user": "new user",
-}
-
 _BINARY_FORMULA = re.compile(r"^\s*([A-Z])\s*([/*+\-])\s*([A-Z])\s*(\*\s*100)?\s*$")
 
 
-def _series_labels(source: object) -> list[str]:
+def _series_labels(source: object, group_names: GroupNames) -> list[str]:
     """Labels for every series. Two series on the same event get their math spelled out so a title
     never reads 'pageviews and pageviews'."""
     items = list(getattr(source, "series", None) or [])
@@ -318,18 +353,12 @@ def _series_labels(source: object) -> list[str]:
     duplicates = {label for label in labels if labels.count(label) > 1}
     if not duplicates:
         return labels
-    distinct: list[str] = []
-    for item, label in zip(items, labels):
-        if label in duplicates:
-            math = str(getattr(item, "math", None) or "total")
-            phrase = _MATH_PHRASES.get(math)
-            math_label = _series_math(item)
-            if phrase:
-                label = phrase.format(label=label)
-            elif math_label:
-                label = f"{math_label} of {label}"
-        distinct.append(label)
-    return distinct
+    return [
+        math_reading(item, label, _actor_words(source, item, group_names)).distinct_label
+        if label in duplicates
+        else label
+        for item, label in zip(items, labels)
+    ]
 
 
 @frozen
@@ -357,7 +386,9 @@ def _formulas(source: object) -> list[tuple[str, str | None]]:
     return found
 
 
-def _read_formula(source: object, formula: str, custom_name: str | None, range_text: str | None) -> FormulaReading:
+def _read_formula(
+    source: object, formula: str, custom_name: str | None, range_text: str | None, group_names: GroupNames
+) -> FormulaReading:
     items = list(getattr(source, "series", None) or [])
     labels = [_series_label(item) for item in items]
     over_range = f" over {range_text}" if range_text else ""
@@ -369,8 +400,8 @@ def _read_formula(source: object, formula: str, custom_name: str | None, range_t
         left_index, right_index = ord(left) - ord("A"), ord(right) - ord("A")
         if 0 <= left_index < len(items) and 0 <= right_index < len(items):
             x, y = labels[left_index], labels[right_index]
-            y_math = str(getattr(items[right_index], "math", None) or "total")
-            unit = _PER_UNITS.get(y_math)
+            right_item = items[right_index]
+            unit = math_reading(right_item, y, _actor_words(source, right_item, group_names)).per_unit
             if operator == "/" and percent:
                 titles += [f"{sentence_case(x)} as a percentage of {y}", f"{sentence_case(x)} rate"]
                 descriptions += [f"Shows {x} as a percentage of {y}{over_range}."]
@@ -438,10 +469,10 @@ def _dedupe(candidates: Iterable[str | None], limit: int = MAX_TEXT_CANDIDATES) 
 # ---------------------------------------------------------------------------
 
 
-def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
+def _viz_title_candidates(query: InsightVizNode, group_names: GroupNames) -> list[str | None]:
     source = query.source
     kind = source.kind
-    series = _series_labels(source)
+    series = _series_labels(source, group_names)
     breakdown = _breakdown_label(source)
     date_range = getattr(source, "dateRange", None)
     range_text = humanize_date_range(getattr(date_range, "date_from", None)) if date_range else None
@@ -495,10 +526,14 @@ def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
         formula_titles = [
             title
             for formula, custom_name in _formulas(source)
-            for title in _read_formula(source, formula, custom_name, range_text).titles
+            for title in _read_formula(source, formula, custom_name, range_text, group_names).titles
         ]
         items = list(getattr(source, "series", None) or [])
-        math_base = _math_title_base(items[0], series[0]) if len(items) == 1 else None
+        math_base = (
+            math_reading(items[0], series[0], _actor_words(source, items[0], group_names)).title_base
+            if len(items) == 1
+            else None
+        )
         base = math_base or sentence_case(joined)
         return [
             *formula_titles,
@@ -516,11 +551,10 @@ def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
     return [sentence_case(kind.replace("Query", "")) + " insight"]
 
 
-def _viz_description_candidates(query: InsightVizNode) -> list[str | None]:
+def _viz_description_candidates(query: InsightVizNode, group_names: GroupNames) -> list[str | None]:
     source = query.source
     kind = source.kind
-    series = _series_labels(source)
-    maths = [_series_math(item) for item in getattr(source, "series", None) or []]
+    series = _series_labels(source, group_names)
     breakdown = _breakdown_label(source)
     date_range = getattr(source, "dateRange", None)
     range_text = humanize_date_range(getattr(date_range, "date_from", None)) if date_range else None
@@ -565,21 +599,23 @@ def _viz_description_candidates(query: InsightVizNode) -> list[str | None]:
             "Shows the most common routes users take through the product.",
         ]
     if series:
-        notable_math = join_words([math for math in maths if math])
         adverb = f" {str(interval)} by {str(interval)}" if interval else ""
         formula_descriptions = [
             description
             for formula, custom_name in _formulas(source)
-            for description in _read_formula(source, formula, custom_name, range_text).descriptions
+            for description in _read_formula(source, formula, custom_name, range_text, group_names).descriptions
         ]
         items = list(getattr(source, "series", None) or [])
-        math_base = _math_title_base(items[0], series[0]) if len(items) == 1 else None
+        reading = (
+            math_reading(items[0], series[0], _actor_words(source, items[0], group_names)) if len(items) == 1 else None
+        )
+        math_base = reading.title_base if reading else None
         return [
             *formula_descriptions,
             f"Shows {math_base[0].lower() + math_base[1:]}{adverb}{over_range}{by_breakdown}." if math_base else None,
             f"Shows {joined}{adverb}{over_range}{by_breakdown}.",
             f"Tracks how {joined} changes over time{f' for each {breakdown}' if breakdown else ''}.",
-            f"Counts {notable_math} for {joined}{by_breakdown}." if notable_math and len(series) == 1 else None,
+            f"Counts {reading.summary} for {joined}{by_breakdown}." if reading and math_base else None,
             f"Compares {joined} across {breakdown}." if breakdown and len(series) == 1 else None,
         ]
     return [f"A {kind.replace('Query', '').lower()} insight."]
@@ -643,7 +679,7 @@ def title_candidates(context: SubjectContext) -> tuple[str, ...]:
     if context.subject == "dashboard":
         generated = _dashboard_title_candidates(context)
     elif isinstance(context.query, InsightVizNode):
-        generated = _viz_title_candidates(context.query)
+        generated = _viz_title_candidates(context.query, context.group_type_names)
     elif context.query is not None:
         generated = _table_title_candidates(context.query)
     else:
@@ -655,7 +691,7 @@ def description_candidates(context: SubjectContext) -> tuple[str, ...]:
     if context.subject == "dashboard":
         generated = _dashboard_description_candidates(context)
     elif isinstance(context.query, InsightVizNode):
-        generated = _viz_description_candidates(context.query)
+        generated = _viz_description_candidates(context.query, context.group_type_names)
     elif context.query is not None:
         generated = _table_description_candidates(context.query)
     else:
@@ -693,7 +729,7 @@ def _filter_keys(properties: object) -> list[str]:
     return keys
 
 
-def _query_summary(query: MetadataQuery) -> list[str]:
+def _query_summary(query: MetadataQuery, group_names: GroupNames) -> list[str]:
     """Plain-language lines about the query. This is all Jev sees of the query: the raw JSON stays
     in PostHog because it carries filter values, HogQL and identifiers a person typed."""
     if not isinstance(query, InsightVizNode):
@@ -705,19 +741,19 @@ def _query_summary(query: MetadataQuery) -> list[str]:
     source = query.source
     lines = [f"Type: {source.kind.replace('Query', '')}"]
     items = list(getattr(source, "series", None) or [])
-    labels = _series_labels(source)
+    labels = _series_labels(source, group_names)
     step_word = "Step" if source.kind == "FunnelsQuery" else "Series"
     for index, (item, label) in enumerate(zip(items, labels)):
-        math = _series_math(item) or ("total count" if getattr(item, "math", None) in (None, "total") else None)
+        math = math_reading(item, label, _actor_words(source, item, group_names)).summary
         item_filters = _filter_keys(getattr(item, "properties", None))
         line = f"{step_word} {chr(ord('A') + index)}: {label}"
-        if math and source.kind not in ("FunnelsQuery", "PathsQuery"):
+        if source.kind not in ("FunnelsQuery", "PathsQuery"):
             line += f" ({math})"
         if item_filters:
             line += f", filtered on {join_words(item_filters)}"
         lines.append(line)
     for formula, custom_name in _formulas(source):
-        reading = _read_formula(source, formula, custom_name, None)
+        reading = _read_formula(source, formula, custom_name, None, group_names)
         lines.append(f"Formula: {formula}, which means {reading.titles[0].lower()}. Only the formula is plotted.")
     funnels_filter = getattr(source, "funnelsFilter", None)
     if funnels_filter is not None and getattr(funnels_filter, "funnelWindowInterval", None):
@@ -744,7 +780,8 @@ def _query_summary(query: MetadataQuery) -> list[str]:
         lines.append(f"Broken down by: {breakdown}")
     group_index = getattr(source, "aggregation_group_type_index", None)
     if group_index is not None:
-        lines.append(f"Counted per group (group type {group_index}), not per person")
+        plural = group_names.get(int(group_index), ("group", "groups"))[1]
+        lines.append(f"Counted per {plural[:-1] if plural.endswith('s') else plural}, not per person")
     keys = _filter_keys(getattr(source, "properties", None))
     if keys:
         lines.append(f"Filtered on: {join_words(keys)}")
@@ -767,7 +804,7 @@ def _query_summary(query: MetadataQuery) -> list[str]:
 def _state(context: SubjectContext) -> dict[str, object]:
     subject: dict[str, object] = {"kind": context.subject, "name": context.name, "description": context.description}
     if context.query is not None:
-        subject["summary"] = _query_summary(context.query)
+        subject["summary"] = _query_summary(context.query, context.group_type_names)
     if context.tile_names:
         subject["tiles"] = list(context.tile_names)
     return {"subject": subject}

@@ -17,6 +17,7 @@ from posthog.egress.typesafe.transport import TypesafeEgressBudgetExhausted
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Tag, User
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
@@ -174,7 +175,16 @@ class TypesafeSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             description=cast(str, data.get("description") or ""),
             query=query,
             tile_names=tuple(cast(list[str], data.get("tile_names") or [])),
+            group_type_names=self._group_type_names() if query is not None else {},
         )
+
+    def _group_type_names(self) -> dict[int, tuple[str, str]]:
+        names: dict[int, tuple[str, str]] = {}
+        for mapping in get_group_types_for_project(self.team.project_id):
+            singular = mapping.get("name_singular") or mapping["group_type"]
+            plural = mapping.get("name_plural") or f"{singular}s"
+            names[int(mapping["group_type_index"])] = (str(singular), str(plural))
+        return names
 
     def _report(self, kind: str, context: SubjectContext, confidence: float) -> None:
         report_user_action(
