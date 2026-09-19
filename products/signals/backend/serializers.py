@@ -20,7 +20,14 @@ from posthog.models.integration import Integration, is_supported_external_issue_
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
-from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
+from products.signals.backend.contracts import (
+    DEFAULT_NOT_ACTIONABLE_KEY,
+    LINEAR_TEAM_IDS_KEY,
+    LINEAR_TEAM_IDS_MAX_COUNT,
+    SCOPE_ID_MAX_LENGTH,
+    STEERING_KEY,
+    STEERING_MAX_LENGTH,
+)
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
@@ -145,7 +152,11 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "Other sources store these keys without reading them yet; future pipeline stages will consume "
     "the same steering text. "
     "Some sources read additional keys, for example `recording_filters` and `sample_rate` for "
-    "session analysis."
+    "session analysis. "
+    "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
+    "`linear_team_ids` (list of Linear team id strings, max 100): only issues from those Linear "
+    "teams are read from the warehouse sync. Omit the key or pass an empty list to read every "
+    "team. Get the ids from the Linear integration's teams endpoint."
 )
 
 
@@ -248,6 +259,26 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     )
             if DEFAULT_NOT_ACTIONABLE_KEY in config and not isinstance(config[DEFAULT_NOT_ACTIONABLE_KEY], bool):
                 raise serializers.ValidationError({"config": "default_not_actionable must be a boolean"})
+            if LINEAR_TEAM_IDS_KEY in config:
+                team_ids = config[LINEAR_TEAM_IDS_KEY]
+                if not isinstance(team_ids, list) or not all(
+                    isinstance(team_id, str) and team_id.strip() for team_id in team_ids
+                ):
+                    raise serializers.ValidationError(
+                        {"config": f"{LINEAR_TEAM_IDS_KEY} must be a list of non-empty strings"}
+                    )
+                # Stored stripped: emission matches these ids exactly, so a pasted id with a
+                # stray space would select a team and then read nothing.
+                team_ids = [team_id.strip() for team_id in team_ids]
+                config[LINEAR_TEAM_IDS_KEY] = team_ids
+                if len(team_ids) > LINEAR_TEAM_IDS_MAX_COUNT:
+                    raise serializers.ValidationError(
+                        {"config": f"{LINEAR_TEAM_IDS_KEY} must have at most {LINEAR_TEAM_IDS_MAX_COUNT} entries"}
+                    )
+                if any(len(team_id) > SCOPE_ID_MAX_LENGTH for team_id in team_ids):
+                    raise serializers.ValidationError(
+                        {"config": f"each {LINEAR_TEAM_IDS_KEY} entry must be at most {SCOPE_ID_MAX_LENGTH} characters"}
+                    )
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):

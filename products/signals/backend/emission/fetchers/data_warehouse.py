@@ -10,6 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 
+from products.signals.backend.contracts import SCOPE_ID_MAX_LENGTH
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
 logger = structlog.get_logger(__name__)
@@ -26,6 +27,19 @@ def escape_table_name(table_name: str) -> str:
     return ".".join(escape_hogql_identifier(part) for part in table_name.split("."))
 
 
+def scope_ids_from_source_config(config: SignalSourceTableConfig, source_config: Any) -> list[str]:
+    """Allowlisted scope ids, or an empty list. A malformed value in the API-writable config blob
+    degrades to reading everything rather than breaking emission."""
+    if config.scope_config_key is None or not isinstance(source_config, dict):
+        return []
+    raw = source_config.get(config.scope_config_key)
+    if not isinstance(raw, list):
+        return []
+    # Stripped and bounded like the steering key: these ids go into an exact `IN` match, so a stray
+    # space matches no record. Bounding an oversized id rather than dropping it keeps the scope narrow.
+    return [scope_id for value in raw if isinstance(value, str) and (scope_id := value.strip()[:SCOPE_ID_MAX_LENGTH])]
+
+
 def data_warehouse_record_fetcher(
     team: Team,
     config: SignalSourceTableConfig,
@@ -35,6 +49,7 @@ def data_warehouse_record_fetcher(
     table_name: str = context["table_name"]
     last_synced_at: str | None = context.get("last_synced_at")
     extra: dict[str, Any] = context.get("extra", {})
+    scope_ids = scope_ids_from_source_config(config, context.get("source_config"))
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
     partition_expr = (
@@ -51,6 +66,10 @@ def data_warehouse_record_fetcher(
         where_parts.append(f"{partition_expr} > now() - interval {config.first_sync_lookback_days} day")
     if config.where_clause:
         where_parts.append(config.where_clause)
+    # Filtered in the query rather than in Python so the LIMIT below counts only allowlisted records.
+    if scope_ids:
+        where_parts.append(f"{config.scope_field} IN {{scope_ids}}")
+        placeholders["scope_ids"] = ast.Tuple(exprs=[ast.Constant(value=scope_id) for scope_id in scope_ids])
     where_sql = " AND ".join(where_parts)
     fields_sql = ", ".join(config.fields)
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
@@ -67,6 +86,7 @@ def data_warehouse_record_fetcher(
         lookback_days=config.first_sync_lookback_days if last_synced_at is None else None,
         table_name=table_name,
         where_clause=where_sql,
+        scope_ids_count=len(scope_ids),
         max_records=config.max_records,
         signals_type="data-import-signals",
         **extra,

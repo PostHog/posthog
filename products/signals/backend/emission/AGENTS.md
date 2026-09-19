@@ -51,7 +51,9 @@ The registry key is a plain string pair — external sources use `ExternalDataSo
 Each source defines how to fetch records via its `record_fetcher` on the config:
 
 - **Data warehouse fetcher** (`fetchers/data_warehouse.py`) — queries HogQL on warehouse tables.
-  Receives `table_name` and `last_synced_at` via the runtime context dict.
+  Receives `table_name`, `last_synced_at` and the team's `source_config` blob via the runtime context dict.
+  A source that declares `scope_field` (a HogQL expression yielding a record's scope id) and `scope_config_key` (a list of allowed ids on `SignalSourceConfig.config`) gets an `IN` clause added to its query, so a team narrows a workspace-wide warehouse sync without changing what the warehouse imports.
+  An absent or empty list means no narrowing. `linear_issues.py` uses this for Linear team ids (`contracts.LINEAR_TEAM_IDS_KEY`).
 - **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
   Records emission in `SignalEmissionRecord` optimistically at fetch time.
 

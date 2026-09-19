@@ -3,6 +3,7 @@ from typing import Any
 
 from structlog import get_logger
 
+from products.signals.backend.contracts import LINEAR_TEAM_IDS_KEY
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 
@@ -139,6 +140,9 @@ LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,
     where_clause=f"JSONExtractString(state, 'type') NOT IN ({', '.join(repr(s) for s in LINEAR_IGNORED_STATE_TYPES)})",
+    # Every Linear issue belongs to exactly one team, so a team allowlist covers the whole workspace.
+    scope_field="JSONExtractString(team, 'id')",
+    scope_config_key=LINEAR_TEAM_IDS_KEY,
     max_records=1000,
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=LINEAR_ACTIONABILITY_PROMPT,
