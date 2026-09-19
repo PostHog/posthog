@@ -488,3 +488,36 @@ class TestInsertUsersListWithBatchingPersonhog(BaseTest):
 
         cohort.refresh_from_db()
         assert cohort.errors_calculating == (0 if raise_on_error else 1)
+
+
+class TestPersonHogCallErrorReporting(BaseTest):
+    @parameterized.expand(
+        [
+            ("missing_client", None, "not_configured", False),
+            ("real_failure", RuntimeError("boom"), "grpc_error", True),
+        ]
+    )
+    def test_tells_a_missing_client_apart_from_a_real_failure(
+        self, _name, client_failure, expected_error_type, logs_traceback
+    ):
+        from unittest.mock import MagicMock
+
+        from products.cohorts.backend.models.util import check_cohort_membership
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+
+        client = None
+        if client_failure is not None:
+            client = MagicMock()
+            client.check_cohort_membership.side_effect = client_failure
+
+        with (
+            patch("posthog.personhog_client.client.get_personhog_client", return_value=client),
+            patch("posthog.personhog_client.metrics.PERSONHOG_ROUTING_ERRORS_TOTAL") as mock_counter,
+            patch("posthog.personhog_client.client.logger") as mock_logger,
+            self.assertRaises(RuntimeError),
+        ):
+            check_cohort_membership(self.team.id, 1, [cohort.id])
+
+        assert mock_counter.labels.call_args.kwargs["error_type"] == expected_error_type
+        assert mock_logger.warning.call_args.kwargs.get("exc_info", False) is logs_traceback

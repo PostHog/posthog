@@ -24,6 +24,7 @@ from posthog.models.group_type_mapping import (
     project_has_group_types_authoritatively,
     update_group_type_mapping_fields,
 )
+from posthog.personhog_client.client import PersonHogNotConfigured, is_personhog_not_configured
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 
@@ -857,6 +858,21 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
         assert second_kwargs["exception_captured"] is False
         assert second_kwargs["capture_throttled"] is True
 
+    @patch("posthog.models.group_type_mapping.GROUP_TYPES_FETCH_FAILURES")
+    @patch("posthog.utils.capture_exception")
+    def test_unconfigured_client_is_counted_but_never_captured(self, mock_capture, mock_counter):
+        from django.db import DatabaseError
+
+        exc = DatabaseError("personhog get_group_types_for_projects failed")
+        exc.__cause__ = PersonHogNotConfigured("personhog client not configured")
+
+        _record_group_types_fetch_failure(
+            operation=self.operation, log_event="persons_db_group_types_for_projects_failure", exc=exc, project_ids=[1]
+        )
+
+        mock_capture.assert_not_called()
+        assert mock_counter.labels.call_args.kwargs["error_type"] == "not_configured"
+
 
 class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
     _PROJECT_IDS = (123, 777, 888)
@@ -955,6 +971,14 @@ class TestUnconfiguredClientDegradesGracefully(SimpleTestCase):
     def test_project_has_group_types_fails_closed(self):
         # Unconfirmable state must not be treated as "safe to empty" — fail closed to True.
         assert project_has_group_types_authoritatively(self.project_id) is True
+
+    def test_batch_path_reports_the_missing_client_as_the_cause(self):
+        # The flag-cache rebuild reads this cause to tell an unconfigured deployment
+        # apart from a personhog outage, and only reports the outage.
+        with self.assertRaises(GroupTypesUnavailable) as ctx:
+            get_group_types_for_projects([self.project_id])
+
+        assert is_personhog_not_configured(ctx.exception)
 
 
 class TestDictToGroupTypeMappingModel(SimpleTestCase):
