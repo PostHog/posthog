@@ -87,6 +87,18 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
+# Anchored on the decode failure text, because ClickHouse also echoes the query scope into an
+# INCORRECT_DATA message: a bare function name matches an unrelated failure in a query that
+# holds a valid decode call.
+INVALID_BASE_ENCODED_VALUE_PATTERN = re.compile(r"\bInvalid (?:base64URL|base64|base58)Decode value \(")
+
+INVALID_BASE_ENCODED_VALUE_MESSAGE = (
+    "A value in this query isn't valid base64 or base58, so it can't be decoded. "
+    "Use tryBase64Decode or tryBase58Decode to get an empty string instead of an error. "
+    "If the value comes from extractURLParameter, wrap it in decodeURLComponent first, "
+    "because URL parameters keep their percent-encoding and base64 padding arrives as %3D."
+)
+
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
     "This usually means the file wasn't written correctly during import. Re-sync the source (or "
@@ -152,6 +164,12 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
+    elif name == "INCORRECT_DATA" and INVALID_BASE_ENCODED_VALUE_PATTERN.search(err.message):
+        # The ClickHouse message embeds the value that failed to decode, and that value can come
+        # from stored data on a publicly shared insight, so send a fixed message instead.
+        return CHQueryErrorInvalidBaseEncodedValue(
+            INVALID_BASE_ENCODED_VALUE_MESSAGE, code=err.code, code_name="invalid_base_encoded_value"
+        )
     elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
         # A Parquet file with corrupted or oversized thrift metadata (e.g.
         # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
@@ -218,6 +236,11 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    # A failed base64 or base58 decode is the person's own query value, but INCORRECT_DATA covers
+    # causes that are not, so this one classifies by class before the shared code below.
+    if isinstance(e, CHQueryErrorInvalidBaseEncodedValue):
+        return QueryErrorCategory.USER_ERROR
+
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
@@ -265,6 +288,12 @@ class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
 
 class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
     """A Parquet file backing a warehouse table has corrupted or oversized thrift metadata."""
+
+    pass
+
+
+class CHQueryErrorInvalidBaseEncodedValue(ExposedCHQueryError):
+    """A query asked ClickHouse to decode a value that is not valid base64 or base58."""
 
     pass
 
