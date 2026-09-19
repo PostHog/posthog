@@ -111,7 +111,7 @@ export function SpaceSelect({
                 aria-label="Space"
                 title={current?.name}
                 className={cn(
-                  "inline-flex max-w-full items-center gap-1.5 rounded-sm border-border border-b-2 border-dashed text-foreground transition-colors hover:border-foreground disabled:opacity-60",
+                  "inline-flex max-w-full items-center gap-1.5 border-border border-b-2 border-dashed text-foreground transition-colors hover:border-foreground disabled:opacity-60",
                   !current && "text-muted-foreground",
                 )}
               >

@@ -130,7 +130,10 @@ export function SpaceTabbedPage({
   useSetHeaderContent(
     useMemo(
       () => (
-        <div className="flex min-w-0 items-center gap-1.5">
+        // Only this page's own title: the bar insets for a leading control,
+        // and this page wants its name over its tab strip. Widening the bar
+        // itself would move every other screen's title with it.
+        <div className="flex min-w-0 items-center gap-1.5 pl-5">
           <span className="shrink-0 text-muted-foreground">
             {channelGlyph(channel?.name, {
               size: 14,
