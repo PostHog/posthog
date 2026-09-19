@@ -15,7 +15,7 @@ const HedgehogReporter = pngHoggie(reporterPng)
 
 export const userInterviewsEmptyState: SceneProductEmptyState = {
     statusLogic: userInterviewsSetupLogic,
-    // The whole product is behind this flag (nav-gated); flag-off users never reach the scene.
+    // The scene shows its own "not enabled" screen without the flag, so leave that case to it.
     featureFlag: FEATURE_FLAGS.USER_INTERVIEWS,
     config: {
         productKey: ProductKey.USER_INTERVIEWS,
