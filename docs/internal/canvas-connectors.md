@@ -34,6 +34,7 @@ The returned run status is a snapshot, not live progress.
 Canvases without task syncing should show the thread link without storing or displaying that status.
 Keep manual board columns separate from thread state.
 On drag-only boards, the card's column shows its status; omit a separate column dropdown.
+Move cards without a success banner. Clear any prior success notice after a move, but keep save errors visible.
 For large boards, keep column headers outside independently scrolling card lists.
 Fold card details to reduce height without hiding start buttons, thread counts, or save errors.
 Bound long descriptions and thread lists with their own scroll areas, and keep folding separate from saved task state.
