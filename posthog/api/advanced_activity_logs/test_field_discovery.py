@@ -1,6 +1,10 @@
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -110,3 +114,14 @@ class FieldDiscoveryTest(BaseTest):
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+    @patch("posthog.api.advanced_activity_logs.field_discovery.SMALL_ORG_THRESHOLD", 2)
+    def test_record_count_stops_one_row_past_the_threshold(self):
+        for _ in range(4):
+            self._create_activity_log("Dashboard", {"field": "value"})
+
+        with CaptureQueriesContext(connection) as queries:
+            count = self.discovery._get_capped_org_record_count()
+
+        self.assertEqual(count, 3)
+        self.assertIn("LIMIT 3", queries.captured_queries[-1]["sql"])
