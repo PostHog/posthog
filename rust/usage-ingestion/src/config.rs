@@ -41,6 +41,9 @@ pub struct Config {
     /// Empty keeps the Redis projection disabled, which is the safe default for existing deployments.
     #[envconfig(from = "USAGE_INGESTION_REDIS_URL", default = "")]
     pub redis_url: String,
+    /// Comma-separated secrets accepted by the usage-counter read endpoints during rotation.
+    #[envconfig(from = "USAGE_INGESTION_COUNTERS_API_SECRET", default = "")]
+    pub usage_counters_api_secret: String,
     #[envconfig(from = "USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS", default = "15")]
     pub redis_flush_interval_seconds: u64,
     #[envconfig(from = "USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY", default = "16")]
@@ -136,6 +139,7 @@ mod tests {
             kafka_producer_linger_ms: 100,
             max_batch_size: 500,
             redis_url: String::new(),
+            usage_counters_api_secret: String::new(),
             redis_flush_interval_seconds: 15,
             redis_flush_concurrency: 16,
             topic: "clickhouse_billing_usage_records".to_string(),
