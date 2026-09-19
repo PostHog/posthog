@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -9,7 +10,9 @@ import type { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { productEnablementCreate } from '~/generated/core/api'
 import { ExternalDataSource, ExternalDataSourceSchema, TeamPublicType, TeamType } from '~/types'
@@ -141,6 +144,22 @@ export const WAREHOUSE_SOURCE_SETUP: Record<
         requiredTables: ['workflow_runs', 'pull_requests', 'workflow_jobs'],
         completion: { kind: 'ci_signals_bundle' },
     },
+}
+
+/**
+ * Names the source whose setup flow reopens when the inbox is loaded. Connecting a source can
+ * leave PostHog for an OAuth round trip, and the open-flow state doesn't survive that, so the
+ * return URL carries it.
+ */
+const DATA_SOURCE_SETUP_PARAM = 'connect_source'
+
+/** Where a source's OAuth round trip returns to: the inbox settings, with its setup flow reopened. */
+export function dataSourceSetupReturnUrl(source: WarehouseBackedSource): string {
+    return combineUrl(urls.inbox('settings'), { [DATA_SOURCE_SETUP_PARAM]: source }).url
+}
+
+function readSetupSourceParam(value: unknown): WarehouseBackedSource | null {
+    return typeof value === 'string' && value in WAREHOUSE_SOURCE_SETUP ? (value as WarehouseBackedSource) : null
 }
 
 /** Values subset used by data-warehouse source helpers */
@@ -1359,6 +1378,24 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
         }
     }),
+
+    urlToAction(({ actions, values }) => ({
+        // Any inbox tab, because the two inbox layouts name this tab differently and redirect
+        // between them — the redirect keeps the search params, so the param is the reliable part.
+        [urls.inbox(':tab')]: (_, searchParams, hashParams) => {
+            const source = readSetupSourceParam(searchParams[DATA_SOURCE_SETUP_PARAM])
+            if (source === null) {
+                return
+            }
+            if (values.dataSourceSetupSource !== source) {
+                actions.openDataSourceSetup(source)
+            }
+            // Drop the param once it's consumed, so a later reload doesn't reopen setup for a
+            // source that is connected by then.
+            const { [DATA_SOURCE_SETUP_PARAM]: _consumed, ...rest } = searchParams
+            router.actions.replace(removeProjectIdIfPresent(router.values.location.pathname), rest, hashParams)
+        },
+    })),
 
     events(({ actions, values }) => ({
         afterMount: () => {

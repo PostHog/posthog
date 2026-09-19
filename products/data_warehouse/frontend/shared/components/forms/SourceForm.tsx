@@ -343,9 +343,11 @@ export const sourceFieldToElement = (
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
                 {({ value, onChange }) =>
-                    // SourceIntegrationChoice is wizard-bound (mounts sourceWizardLogic and redirects the
-                    // OAuth flow back to the wizard) — hosts like the connect page override the redirect.
-                    oauthRedirectUrl ? (
+                    // SourceIntegrationChoice is wizard-bound (it mounts sourceWizardLogic to save the
+                    // form state across the redirect), so hosts that don't run the wizard — the connect
+                    // page, which sets its own value setter — get the plain picker instead. Both honour
+                    // the host's return URL.
+                    setSourceConnectionDetailsValue ? (
                         <IntegrationChoice
                             key={field.name}
                             value={value}
@@ -361,6 +363,7 @@ export const sourceFieldToElement = (
                             value={value}
                             onChange={onChange}
                             integration={field.kind}
+                            redirectUrl={oauthRedirectUrl}
                             schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
                         />
                     )
