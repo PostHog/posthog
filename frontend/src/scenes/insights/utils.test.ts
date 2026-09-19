@@ -8,6 +8,7 @@ import {
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
     getTrendDatasetKey,
+    insightUrlForEvent,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -895,5 +896,61 @@ describe('compareTopLevelSections()', () => {
             compareInsightTopLevelSections({ kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode, null as any)
         ).toEqual(['Insight type'])
         expect(compareInsightTopLevelSections(null as any, null as any)).toEqual([])
+    })
+})
+
+describe('insightUrlForEvent()', () => {
+    const querySourceFromUrl = (url: string | undefined): any => {
+        const query = new URLSearchParams(url?.split('#')[1]).get('q')
+        return JSON.parse(query as string).source
+    }
+
+    it('narrows an exception to its issue, so the chart is not a project-wide count', () => {
+        const source = querySourceFromUrl(
+            insightUrlForEvent({
+                event: '$exception',
+                timestamp: '2026-09-10T12:00:00.000Z',
+                properties: { $exception_issue_id: 'issue-abc' },
+            } as any)
+        )
+
+        expect(source.series[0].properties).toEqual([
+            { key: '$exception_issue_id', value: 'issue-abc', type: 'event', operator: 'exact' },
+        ])
+    })
+
+    it('anchors the date range on the event, so an older session still shows it', () => {
+        const source = querySourceFromUrl(
+            insightUrlForEvent({
+                event: 'purchase',
+                timestamp: '2026-09-10T12:00:00.000Z',
+                properties: {},
+            } as any)
+        )
+
+        expect(source.dateRange).toEqual({
+            date_from: '2026-09-03T12:00:00.000Z',
+            date_to: '2026-09-10T12:00:00.000Z',
+        })
+    })
+
+    it('keeps the pageview URL filter', () => {
+        const source = querySourceFromUrl(
+            insightUrlForEvent({
+                event: '$pageview',
+                timestamp: '2026-09-10T12:00:00.000Z',
+                properties: { $current_url: 'https://example.com/pricing' },
+            } as any)
+        )
+
+        expect(source.series[0].properties).toEqual([
+            { key: '$current_url', value: 'https://example.com/pricing', type: 'event', operator: 'exact' },
+        ])
+    })
+
+    it('has no insight to offer for an autocapture event', () => {
+        expect(
+            insightUrlForEvent({ event: '$autocapture', timestamp: '2026-09-10T12:00:00.000Z', properties: {} } as any)
+        ).toBeUndefined()
     })
 })
