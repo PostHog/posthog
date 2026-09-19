@@ -15,14 +15,6 @@ from products.feature_flags.backend.presentation.request_usage import FeatureFla
 
 
 class TestFeatureFlagRequestUsage(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        feature_flag_patcher = patch(
-            "products.feature_flags.backend.presentation.request_usage.feature_enabled_or_false", return_value=True
-        )
-        feature_flag_patcher.start()
-        self.addCleanup(feature_flag_patcher.stop)
-
     def tearDown(self) -> None:
         cache.clear()
         super().tearDown()
@@ -94,21 +86,6 @@ class TestFeatureFlagRequestUsage(APIBaseTest):
             "billing_units": 120,
         }
         assert mock_get_usage.call_args.kwargs["team_id"] == self.team.id
-
-    def test_returns_not_found_when_request_usage_flag_is_disabled(self) -> None:
-        with patch(
-            "products.feature_flags.backend.presentation.request_usage.feature_enabled_or_false", return_value=False
-        ):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/feature_flag_request_usage/",
-                {
-                    "date_from": "2026-08-20T00:00:00Z",
-                    "date_to": "2026-08-21T00:00:00Z",
-                    "time_interval": "hour",
-                },
-            )
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False)
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
