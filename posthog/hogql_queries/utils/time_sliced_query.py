@@ -1,11 +1,28 @@
+import math
+import time
+import random
 import datetime as dt
 from collections.abc import Callable, Generator
-from typing import Any, Protocol, runtime_checkable
+from dataclasses import field
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from posthog.schema import DateRange
 
+from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+
+# One request walks up to four slices, so this budget has to be shared rather than granted per
+# slice. A per-slice grant lets one request spend four times this much ClickHouse time and run past
+# the gateway timeout. The value matches HogQLGlobalSettings.max_execution_time.
+DEFAULT_BUDGET_SECONDS = 60.0
+
+# ClickHouse refuses a query over its concurrency limit in tens of milliseconds, before it reads
+# anything, so the slice can be re-sent cheaply. The retry only has to outlast a burst of concurrent
+# queries, and the budget caps it either way.
+CAPACITY_RETRY_ATTEMPTS = 3
+CAPACITY_RETRY_BASE_DELAY = 0.25
 
 
 class _HasResults(Protocol):
@@ -22,7 +39,37 @@ class TimeSliceableRunner(Protocol):
     @property
     def query(self) -> Any: ...
 
+    def set_execution_time_budget(self, seconds: int) -> None: ...
+
     def run(self, execution_mode: ExecutionMode, **kwargs: Any) -> _HasResults: ...
+
+
+# Why the ladder stopped early. A truncated response is a normal 200, so without this label a
+# partial page is indistinguishable from an ordinary one and the cause cannot be measured.
+TruncationReason = Literal["budget_spent", "timeout", "capacity"]
+
+
+@frozen(frozen=False)
+class TimeSliceBudget:
+    """The wall-clock time one request may spend across all of its slices.
+
+    `truncation_reason` reports why the ladder stopped before it read the whole date range, so the
+    caller can tell the client there is more to page through and can report what cut the page short.
+    """
+
+    seconds: float = DEFAULT_BUDGET_SECONDS
+    truncation_reason: TruncationReason | None = None
+    started_at: float = field(init=False, default=0.0)
+
+    @property
+    def truncated(self) -> bool:
+        return self.truncation_reason is not None
+
+    def __post_init__(self) -> None:
+        self.started_at = time.monotonic()
+
+    def remaining(self) -> float:
+        return self.seconds - (time.monotonic() - self.started_at)
 
 
 def time_sliced_results(
@@ -30,6 +77,7 @@ def time_sliced_results(
     order_by_earliest: bool,
     make_runner: Callable[[DateRange], TimeSliceableRunner],
     analytics_props: Any = None,
+    budget: TimeSliceBudget | None = None,
 ) -> Generator[Any]:
     """
     A generator that yields results by splitting the query into progressive time slices.
@@ -42,10 +90,15 @@ def time_sliced_results(
 
     Most queries hit the limit within the first 3 minutes, avoiding a full scan.
     The limit is read from runner.query.limit.
+
+    Every slice draws on one shared `budget`. When it runs out, the generator stops and marks the
+    budget truncated rather than starting another slice.
     """
     limit = runner.query.limit or 0
     qdr = runner.query_date_range
     date_range_length = qdr.date_to() - qdr.date_from()
+    budget = budget if budget is not None else TimeSliceBudget()
+    produced_any = False
 
     def runner_slice(
         current_runner: TimeSliceableRunner, slice_length: dt.timedelta
@@ -76,32 +129,59 @@ def time_sliced_results(
 
         return make_runner(slice_date_range), make_runner(remainder_date_range)
 
-    if date_range_length > dt.timedelta(minutes=20):
-        recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3))
-        response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
+    def give_up(error: Exception, reason: TruncationReason) -> None:
+        """Rows already yielded beat the rest of the range, so keep them and let the cursor go on.
+
+        With nothing yielded there is nothing to keep, and the caller must still see the error.
+        """
+        if not produced_any:
+            raise error
+        budget.truncation_reason = reason
+
+    def run_slice(slice_runner: TimeSliceableRunner) -> _HasResults | None:
+        """Runs one slice inside the shared budget, or returns None once the budget is spent."""
+        for attempt in range(CAPACITY_RETRY_ATTEMPTS):
+            # Floor the remainder so a slice cannot run past the shared budget. ClickHouse reads
+            # max_execution_time=0 as unlimited, so a sub-second remainder ends the ladder instead
+            # of starting a slice that has no time to finish in.
+            slice_seconds = math.floor(budget.remaining())
+            if slice_seconds <= 0:
+                give_up(ClickHouseQueryTimeOut(), "budget_spent")
+                return None
+            slice_runner.set_execution_time_budget(slice_seconds)
+            try:
+                return slice_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
+            except ClickHouseQueryTimeOut as error:
+                # The slice spent the budget, so a retry has nothing left to run in.
+                give_up(error, "timeout")
+                return None
+            except ClickHouseAtCapacity as error:
+                if attempt == CAPACITY_RETRY_ATTEMPTS - 1:
+                    give_up(error, "capacity")
+                    return None
+                delay = CAPACITY_RETRY_BASE_DELAY * 2**attempt * random.uniform(0.5, 1.5)
+                time.sleep(max(0.0, min(delay, budget.remaining())))
+        return None
+
+    for threshold, slice_length in (
+        (dt.timedelta(minutes=20), dt.timedelta(minutes=3)),
+        (dt.timedelta(hours=4), dt.timedelta(minutes=60)),
+        (dt.timedelta(hours=24), dt.timedelta(hours=6)),
+    ):
+        if date_range_length <= threshold:
+            continue
+        recent_runner, runner = runner_slice(runner, slice_length)
+        response = run_slice(recent_runner)
+        if response is None:
+            return
         limit -= len(response.results)
+        produced_any = produced_any or bool(response.results)
         yield from response.results
         if limit <= 0:
             return
         runner.query.limit = limit
 
-    if date_range_length > dt.timedelta(hours=4):
-        recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=60))
-        response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-        limit -= len(response.results)
-        yield from response.results
-        if limit <= 0:
-            return
-        runner.query.limit = limit
-
-    if date_range_length > dt.timedelta(hours=24):
-        recent_runner, runner = runner_slice(runner, dt.timedelta(hours=6))
-        response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-        limit -= len(response.results)
-        yield from response.results
-        if limit <= 0:
-            return
-        runner.query.limit = limit
-
-    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
+    response = run_slice(runner)
+    if response is None:
+        return
     yield from response.results
