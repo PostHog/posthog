@@ -113,6 +113,17 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
             "Open-Meteo rejected the request": "Open-Meteo rejected the request. Check the locations and historical start date on this source, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_with_redacted_errors` has no retry loop of its own — it relies on the tracked
+        # session's urllib3 adapter to retry a connection failure, read timeout, or 429/5xx
+        # response. Once that budget is exhausted, the raw `requests` exception escapes with the
+        # host baked into urllib3's own message (`HTTPSConnectionPool(host='...', port=443): ...`),
+        # and Temporal retries the whole activity from the saved window/location checkpoint, so
+        # this is transient and self-recovering rather than a bug. Every Open-Meteo host is one of
+        # our own fixed hosts (never user input), so matching on the domain can't swallow an
+        # unrelated failure.
+        return {"open-meteo.com', port=443)"}
+
     def get_schemas(
         self,
         config: OpenMeteoSourceConfig,
