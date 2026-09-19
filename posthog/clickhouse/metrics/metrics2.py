@@ -22,7 +22,7 @@ METRIC_SERIES_DISTRIBUTED_TABLE_NAME = "metric_series_distributed"
 METRIC_ATTRIBUTES2_TABLE_NAME = "metric_attributes2"
 METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME = "metric_attributes_distributed"
 
-DEFAULT_RETENTION_DAYS = 90
+DEFAULT_RETENTION_DAYS = 30
 
 
 def _db() -> str:
@@ -251,14 +251,15 @@ def METRIC_ATTRIBUTES2_DISTRIBUTED_TABLE_SQL() -> str:
     return _distributed_sql(METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME, METRIC_ATTRIBUTES2_TABLE_NAME)
 
 
-def KAFKA_METRICS_AVRO2_MV() -> str:
+def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     db = _db()
     sorted_resource_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))"
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
     labelled = "toBool(ifNull(has_labels, 1))"
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{METRICS2_INPUT_TABLE_NAME}
-AS SELECT
+    # Use the sample timestamp so a late sample expires with its series.
+    # Capture replaces a timestamp when it differs from the ingest time by more than 24 hours.
+    # Thus, this view does not need another clock check.
+    return f"""SELECT
     uuid,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
     ifNull(metric_name, '') AS metric_name,
@@ -266,7 +267,7 @@ AS SELECT
     cityHash64({sorted_resource_attributes}) AS resource_fingerprint,
     timestamp,
     observed_timestamp,
-    observed_timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32({DEFAULT_RETENTION_DAYS}))))) AS original_expiry_timestamp,
+    timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32({DEFAULT_RETENTION_DAYS}))))) AS original_expiry_timestamp,
     ifNull(service_name, '') AS service_name,
     ifNull(metric_type, '') AS metric_type,
     ifNull(value, 0) AS value,
@@ -290,7 +291,14 @@ FROM {db}.{KAFKA_TABLE_NAME}
 WHERE {KAFKA_TABLE_NAME}.series_fingerprint IS NOT NULL
 SETTINGS
     min_insert_block_size_rows = 0,
-    min_insert_block_size_bytes = 0
+    min_insert_block_size_bytes = 0"""
+
+
+def KAFKA_METRICS_AVRO2_MV() -> str:
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{METRICS2_INPUT_TABLE_NAME}
+AS {KAFKA_METRICS_AVRO2_MV_SELECT()}
 """
 
 
