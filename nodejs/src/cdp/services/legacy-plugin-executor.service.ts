@@ -17,7 +17,7 @@ import {
 } from '../legacy-plugins/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, destinationE2eLagMsSummary, isLegacyPluginHogFunction } from '../utils'
-import { cdpTrackedFetch } from '../utils/cdp-fetch'
+import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 
 const pluginExecutionDuration = new Histogram({
@@ -51,7 +51,10 @@ export class LegacyPluginExecutorService {
 
     constructor(
         private postgres: PostgresRouter,
-        private geoipService: GeoIPService
+        private geoipService: GeoIPService,
+        // Only destination invocations run as cyclotron jobs, so only the consumers that execute
+        // them supply the retry settings. Transformations run inline in ingestion.
+        private fetchConfig?: CdpFetchConfig
     ) {}
 
     private legacyStorage(teamId: number, pluginConfigId?: number | string): Pick<StorageExtension, 'get' | 'set'> {
@@ -113,6 +116,39 @@ export class LegacyPluginExecutorService {
             get,
             set,
         }
+    }
+
+    /**
+     * A plugin raises RetryError for a failure a later attempt could clear, such as a 5xx or a
+     * timeout. Put the invocation back on the cyclotron queue with the same capped backoff hog and
+     * native destinations use, so a transient failure delays the event instead of dropping it.
+     */
+    private scheduleRetry(
+        invocation: CyclotronJobInvocationHogFunction,
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+    ): boolean {
+        if (!this.fetchConfig || invocation.hogFunction.type !== 'destination') {
+            return false
+        }
+
+        const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
+        metadata.tries = metadata.tries + 1
+        result.invocation.queueMetadata = metadata
+
+        if (metadata.tries >= this.fetchConfig.CDP_FETCH_RETRIES) {
+            return false
+        }
+
+        result.finished = false
+        result.invocation.queue = 'hog'
+        result.invocation.queuePriority = metadata.tries
+        result.invocation.queueScheduledAt = getNextRetryTime(
+            this.fetchConfig.CDP_FETCH_BACKOFF_BASE_MS,
+            this.fetchConfig.CDP_FETCH_BACKOFF_MAX_MS,
+            metadata.tries
+        )
+
+        return true
     }
 
     public async execute(
@@ -283,7 +319,10 @@ export class LegacyPluginExecutorService {
                     ...event,
                     ip: null, // convertToOnEventPayload removes this so we should too
                     // NOTE: We want to improve validation of these properties but for now for legacy plugins we just cast
-                    properties: event.properties as ProcessedPluginEvent['properties'],
+                    // A destination plugin can mutate the properties it is given: the Customer.io plugin
+                    // deletes `$set` and `$set_once` before it sends anything. The result carries the same
+                    // globals object that goes back on the queue, so a retry must not see those edits.
+                    properties: { ...event.properties } as ProcessedPluginEvent['properties'],
                     $set: event.$set as ProcessedPluginEvent['$set'],
                     $set_once: event.$set_once as ProcessedPluginEvent['$set_once'],
                 }
@@ -334,8 +373,9 @@ export class LegacyPluginExecutorService {
                 }
             }
         } catch (e) {
-            if (e instanceof RetryError) {
-                // NOTE: Schedule as a retry to cyclotron?
+            if (e instanceof RetryError && this.scheduleRetry(invocation, result)) {
+                addLog('warn', `Plugin execution failed, retrying: ${e.message}`)
+                return result
             }
 
             result.error = e

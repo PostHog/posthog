@@ -1,5 +1,6 @@
 import { ProcessedPluginEvent, RetryError } from '~/plugin-scaffold'
 
+import { isRetriableRequestError } from '../../../utils/cdp-fetch'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export interface ReplicatorMetaInput {
@@ -78,7 +79,6 @@ export const onEvent = async (
             method: 'POST',
             body: JSON.stringify(batch),
             headers: { 'Content-Type': 'application/json' },
-            // TODO: add a timeout signal to make sure we retry if capture is slow, instead of failing the export
         }).then(
             (res) => {
                 if (res.status >= 200 && res.status < 300) {
@@ -96,9 +96,8 @@ export const onEvent = async (
                 }
             },
             (err) => {
-                if (err.name === 'AbortError' || err.name === 'FetchError') {
+                if (isRetriableRequestError(err)) {
                     // Network / timeout error, retry the batch later
-                    // See https://github.com/node-fetch/node-fetch/blob/2.x/ERROR-HANDLING.md
                     logger.error(`Failed to submit ${batchDescription} to ${config.host} due to network error`, err)
                     throw new RetryError(`Target is unreachable: ${(err as Error).message}`)
                 }

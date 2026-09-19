@@ -308,5 +308,27 @@ describe('Replicator: onEvent', () => {
                 'Failed to submit 1 event to localhost:8000 due to server error: 500'
             )
         })
+
+        const namedError = (name: string): Error => Object.assign(new Error(`failed: ${name}`), { name })
+        const codedError = (code: string): Error => Object.assign(new Error(`failed: ${code}`), { code })
+
+        it.each([
+            // `AbortSignal.timeout` in the shared fetch rejects with this, not with `AbortError`
+            ['a request timeout', namedError('TimeoutError')],
+            ['an aborted request', namedError('AbortError')],
+            ['a reset connection', codedError('ECONNRESET')],
+            ['a refused connection', codedError('ECONNREFUSED')],
+            ['an undici socket error', codedError('UND_ERR_SOCKET')],
+            ['a host whose every address failed', new AggregateError([codedError('ECONNREFUSED')])],
+        ])('throws RetryError on %s', async (_description, error) => {
+            fetchMock.mockRejectedValue(error)
+            await expect(onEvent(mockEvent, { config, fetch: fetchMock, logger } as any)).rejects.toThrow(RetryError)
+        })
+
+        it('rethrows a request the SSRF guard refused, which cannot succeed on a retry', async () => {
+            const error = namedError('SecureRequestError')
+            fetchMock.mockRejectedValue(error)
+            await expect(onEvent(mockEvent, { config, fetch: fetchMock, logger } as any)).rejects.toThrow(error)
+        })
     })
 })
