@@ -86,6 +86,9 @@ export const TaxonomicBreakdownPopover = ({
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
             TaxonomicFilterGroupType.EventMetadata,
+            // Element breakdowns read the autocapture elements chain, which only trends knows
+            // how to break down. Funnels raise for breakdown types outside their own list.
+            ...(isTrends ? [TaxonomicFilterGroupType.Elements] : []),
             ...groupsTaxonomicTypes,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
             ...(includeSessions ? [TaxonomicFilterGroupType.SessionProperties] : []),
@@ -93,6 +96,15 @@ export const TaxonomicBreakdownPopover = ({
             TaxonomicFilterGroupType.DataWarehouseProperties,
             TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ]
+    }
+
+    // A selector filter is a regex over the whole elements chain, so no per-event breakdown
+    // value can agree with it. Hide it in breakdowns only; property filters still offer it.
+    // Outside trends, element breakdowns are not supported at all, so hide every element
+    // property, including the suggested rows, or the click applies a breakdown the backend
+    // then rejects.
+    const excludedElementBreakdownProperties = {
+        [TaxonomicFilterGroupType.Elements]: isTrends ? ['selector'] : ['selector', 'text', 'href', 'tag_name'],
     }
 
     return (
@@ -123,6 +135,7 @@ export const TaxonomicBreakdownPopover = ({
                     }}
                     eventNames={allEventNames}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    excludedProperties={excludedElementBreakdownProperties}
                     metadataSource={
                         // Without this the SQL expression editor validates against the events table
                         // and marks every warehouse column as unknown.
