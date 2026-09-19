@@ -311,6 +311,15 @@ export class HogExecutorAsyncService {
             { finished: false }
         )
 
+        // `routingOnlyReschedule` suppresses the Resuming / pause pair around this hand-off
+        // (see actions/hog_function.ts), so without this line a run parked on an undrained
+        // email queue logs nothing at all and reads exactly like a healthy send.
+        result.logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: 'Email queued for sending',
+        })
+
         result.metrics.push({
             team_id: invocation.teamId,
             app_source_id: invocation.parentRunId ?? invocation.functionId,

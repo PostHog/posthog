@@ -81,6 +81,16 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+// This measures queue latency, not worker liveness. The oldest ready job also ages while
+// workers are healthy: the SES token bucket throttles the email queue, and strict priority
+// holds a low-priority job behind higher-priority ones. Read cdp_cyclotron_jobs_processed
+// to see whether a worker still dequeues.
+const queueOldestAvailableGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_queue_oldest_available_seconds',
+    help: 'Age in seconds of the oldest job that is ready to run per queue. Queue latency, not worker liveness.',
+    labelNames: ['queue'],
+})
+
 interface PoisonRow {
     id: string
     team_id: number
@@ -525,8 +535,10 @@ export class CyclotronV2Janitor {
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {
-        const result = await this.pool.query<{ queue_name: string; count: string }>(
-            `SELECT queue_name, COUNT(*) as count
+        const result = await this.pool.query<{ queue_name: string; count: string; oldest_seconds: string }>(
+            `SELECT queue_name,
+                    COUNT(*) as count,
+                    EXTRACT(EPOCH FROM (NOW() - MIN(scheduled))) as oldest_seconds
              FROM cyclotron_jobs
              WHERE status = 'available' AND scheduled <= NOW()
              GROUP BY queue_name`
@@ -538,6 +550,7 @@ export class CyclotronV2Janitor {
             depths.set(row.queue_name, count)
             this.seenQueues.add(row.queue_name)
             queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+            queueOldestAvailableGauge.labels({ queue: row.queue_name }).set(parseFloat(row.oldest_seconds))
         }
 
         // GROUP BY returns no row for a queue that is empty. Without the write below,
@@ -548,6 +561,7 @@ export class CyclotronV2Janitor {
         for (const queue of this.seenQueues) {
             if (!depths.has(queue)) {
                 queueDepthGauge.labels({ queue }).set(0)
+                queueOldestAvailableGauge.labels({ queue }).set(0)
             }
         }
 
