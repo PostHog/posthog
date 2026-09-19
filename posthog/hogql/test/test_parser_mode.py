@@ -234,10 +234,18 @@ class TestParserMode(BaseTest):
         self.assertEqual(props["hogql_parser_primary_version"], parser_module._BACKEND_VERSION["cpp-json"])
         self.assertEqual(props["hogql_parser_shadow_version"], parser_module._BACKEND_VERSION["rust-py"])
 
-    def test_shadow_treats_nan_constant_as_agreement_not_divergence(self):
+    @parameterized.expand(
+        [
+            # `nan` defeats dataclass `==`, leaving `repr` as the only gate, so an
+            # operator in the same expression used to report a structural mismatch.
+            ("nan_alone", "nan", ast.Constant),
+            ("nan_with_operator", "nullIf(a, nan) > 0", ast.CompareOperation),
+        ]
+    )
+    def test_shadow_treats_nan_expression_as_agreement_not_divergence(self, _name, expr, expected_type):
         with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
-            node = parse_expr("nan", parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
-        self.assertIsInstance(node, ast.Constant)
+            node = parse_expr(expr, parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
+        self.assertIsInstance(node, expected_type)
         self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["agree"])
 
     def test_parser_version_falls_back_to_unknown_for_missing_dist(self):

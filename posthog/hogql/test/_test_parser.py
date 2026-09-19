@@ -864,6 +864,14 @@ def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
                 ),
             )
 
+        def test_operator_fields_are_enum_members(self):
+            # `StrEnum` members compare equal to their own value, so every `assertEqual`
+            # above passes on a plain string too. Only the type check catches a backend
+            # that skips the coercion, and `repr` consumers such as the shadow parity
+            # check depend on it.
+            self.assertIsInstance(self._expr("1 + 2").op, ast.ArithmeticOperationOp)
+            self.assertIsInstance(self._expr("1 > 2").op, ast.CompareOperationOp)
+
         def test_math_comparison_operations(self):
             self.assertEqual(
                 self._expr("1 = 2"),
