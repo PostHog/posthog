@@ -526,6 +526,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 current_organization_id = self.project.organization_id
             elif user:
                 current_organization_id = user.current_organization_id
+                if not current_organization_id:
+                    # An organization member can still have no current organization, because the
+                    # field is cleared when the member leaves an organization or one is deleted.
+                    # Fall back to a membership the same way `User.organization` does, so that
+                    # root listings stay readable. Without the fallback `GET /api/organizations/`
+                    # answers 404, and that is the endpoint which tells a caller what
+                    # organizations exist for them, so the 404 leaves no way to recover.
+                    organization = user.organization
+                    current_organization_id = organization.id if organization else None
 
             if not current_organization_id:
                 raise NotFound("You need to belong to an organization.")
