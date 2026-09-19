@@ -38,6 +38,14 @@ _OUTER_COLUMNS = """
     latest_sent_at
 """.strip()
 
+# Batch sends give many rows the same `sent_at`, and ClickHouse does not order ties
+# stably, so a page boundary inside a tie can repeat a row or drop one. The group
+# keys are the tiebreak, because they are unique per row.
+_ORDER_AND_PAGE = """
+    ORDER BY latest_sent_at DESC, invocation_id DESC, action_id DESC
+    LIMIT %(limit)s OFFSET %(offset)s
+""".strip()
+
 
 @dataclasses.dataclass(frozen=True)
 class MessageAsset:
@@ -252,8 +260,7 @@ def fetch_message_assets(
             GROUP BY invocation_id, action_id
         )
         WHERE latest_is_deleted = 0
-        ORDER BY latest_sent_at DESC
-        LIMIT %(limit)s OFFSET %(offset)s
+        {_ORDER_AND_PAGE}
     """
 
     results = cast(list, sync_execute(query, kwargs))
@@ -303,8 +310,7 @@ def fetch_message_assets_for_person(
             GROUP BY invocation_id, action_id
         )
         WHERE latest_is_deleted = 0
-        ORDER BY latest_sent_at DESC
-        LIMIT %(limit)s OFFSET %(offset)s
+        {_ORDER_AND_PAGE}
     """
 
     results = cast(list, sync_execute(query, kwargs))
