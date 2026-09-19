@@ -1571,15 +1571,13 @@ class WorkflowJobAggregate:
 
 @dataclass(frozen=True)
 class PathOwnership:
-    """Which team owns each of a set of repository paths, plus the repo's Slack registry.
+    """Which team owns each repository path, plus the repo's Slack registry from the root ``owners.yaml``.
+    The registry rides along because the caller that asks who owns a path usually has to reach that
+    team next, and the root file answers both questions in one read.
 
-    The registry rides along because the caller that asks who owns a path usually has to reach
-    that team next, and the root ``owners.yaml`` answers both questions in one read.
-
-    ``resolved`` is false when the ownership files could not be read, which leaves every path
-    ``UNOWNED_TEAM`` and the registry empty. A caller that says so beats one that reads the blind
-    answer as "nobody owns this".
-    """
+    ``resolved`` is false when the ownership files could not be read; every path is then
+    ``UNOWNED_TEAM`` and the registry is empty. A caller that says so beats one that reads the blind
+    answer as "nobody owns this"."""
 
     team_by_path: Mapping[str, str]
     registry: Mapping[str, TeamEntry]
@@ -1762,12 +1760,9 @@ class DeliveryComparison:
 
 
 class PRTimelineSegmentKind(StrEnum):
-    """What a pull request was waiting on during one stretch of its timeline, most specific first.
-
-    CI and queue states win over review states: a red check blocks a merge whatever the review
-    says. The red variants name what turned the check green, which is evidence about the cause,
-    not proof of it.
-    """
+    """What a pull request was waiting on during one stretch of its timeline. The red variants name
+    what turned the check green, which is evidence about the cause, not proof of it.
+    ``logic/pr_timeline.py`` defines the precedence."""
 
     DRAFT = "draft"
     WAITING_FOR_REVIEW = "waiting_for_review"
