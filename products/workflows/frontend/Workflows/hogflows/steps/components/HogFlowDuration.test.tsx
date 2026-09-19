@@ -18,8 +18,13 @@ describe('HogFlowDuration', () => {
         expect(onChange).toHaveBeenCalledWith('d')
     })
 
-    it('renders an empty field instead of a default number when the value has no number', () => {
-        render(<HogFlowDuration value="d" onChange={jest.fn()} />)
+    it.each([
+        ['the value has no number', 'd'],
+        // A wait step saved through the API can hold no duration at all. Reading a match off it used
+        // to throw, and the error boundary then blanked the whole step configuration panel.
+        ['there is no value at all', undefined],
+    ])('renders an empty field instead of a default number when %s', (_name, value) => {
+        render(<HogFlowDuration value={value} onChange={jest.fn()} />)
         expect(screen.getByRole('spinbutton')).toHaveValue(null)
     })
 

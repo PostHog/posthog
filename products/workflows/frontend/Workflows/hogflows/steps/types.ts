@@ -19,7 +19,7 @@ const ActionFiltersSchema = z.object({
     actions: z.array(z.any()).optional(),
 })
 
-const DURATION_STRING = z.string().superRefine((v, ctx) => {
+const DURATION_STRING = z.string({ error: 'Please enter a duration' }).superRefine((v, ctx) => {
     if (!/\d/.test(v)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
         return

@@ -91,7 +91,7 @@ export function StepWaitUntilConditionConfiguration({
             <div className="flex flex-col gap-1">
                 <LemonLabel>Max time to wait</LemonLabel>
                 <HogFlowDuration
-                    value={max_wait_duration}
+                    value={max_wait_duration ?? ''}
                     onChange={(value) => {
                         partialSetWorkflowActionConfig(action.id, { max_wait_duration: value })
                     }}
