@@ -4,10 +4,10 @@ import { forwardRef } from 'react'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { AccessControlLevel, AccessControlResourceType, ExporterFormat, OnlineExportContext } from '~/types'
+import { ExporterFormat, OnlineExportContext } from '~/types'
 
+import { getExportAccessReasons } from './exportAccess'
 import { TriggerExportProps } from './exporter'
 
 export interface ExportButtonItem {
@@ -16,6 +16,10 @@ export interface ExportButtonItem {
     export_context?: TriggerExportProps['export_context']
     dashboard?: number
     insight?: number
+    /** Produce the file in the browser instead of asking the server to render an export. */
+    onClick?: () => void
+    /** Reason this one format cannot be produced right now. */
+    disabledReason?: string
 }
 
 export interface ExportButtonProps extends Pick<
@@ -36,18 +40,14 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
             actions.startExport(triggerExportProps)
         }
 
-        // Creating an export requires editor access to the export resource.
-        const accessControlDisabledReason = getAccessControlDisabledReason(
-            AccessControlResourceType.Export,
-            AccessControlLevel.Editor
-        )
+        const exportAccess = getExportAccessReasons(items)
 
         return (
             <LemonButtonWithDropdown
                 ref={ref}
                 data-attr="export-button"
                 {...buttonProps}
-                disabledReason={buttonProps.disabledReason ?? accessControlDisabledReason ?? undefined}
+                disabledReason={buttonProps.disabledReason ?? exportAccess.menu ?? undefined}
                 dropdown={{
                     actionable: true,
                     placement: 'right-start',
@@ -56,7 +56,8 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                         <>
                             <h5>File type</h5>
                             <LemonDivider />
-                            {items.map(({ title, ...triggerExportProps }, i) => {
+                            {items.map(({ title, onClick, disabledReason, ...triggerExportProps }, i) => {
+                                const rendersInBrowser = !!onClick
                                 const exportFormatExtension = (
                                     Object.keys(ExporterFormat).find(
                                         (key) =>
@@ -84,11 +85,14 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                                     <LemonButton
                                         key={i}
                                         fullWidth
-                                        onClick={() => void onExportClick(triggerExportProps)}
+                                        onClick={() => (onClick ? onClick() : void onExportClick(triggerExportProps))}
+                                        disabledReason={
+                                            disabledReason ?? exportAccess.forItem({ onClick }) ?? undefined
+                                        }
                                         data-attr={`export-button-${exportFormatExtension}`}
-                                        data-ph-capture-attribute-export-target={target}
+                                        data-ph-capture-attribute-export-target={rendersInBrowser ? null : target}
                                         data-ph-capture-attribute-export-body={
-                                            exportBody.length ? JSON.stringify(exportBody) : null
+                                            !rendersInBrowser && exportBody.length ? JSON.stringify(exportBody) : null
                                         }
                                     >
                                         {title ? title : `.${exportFormatExtension}`}

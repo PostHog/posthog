@@ -11,18 +11,12 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ExportContext,
-    ExporterFormat,
-    OnlineExportContext,
-} from '~/types'
+import { ExportContext, ExporterFormat, OnlineExportContext } from '~/types'
 
 import { SubscriptionBaseProps } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
+import { getExportAccessReasons } from '../../ExportButton/exportAccess'
 import { TriggerExportProps } from '../../ExportButton/exporter'
 import { exportsLogic } from '../../ExportButton/exportsLogic'
 
@@ -53,17 +47,10 @@ export function SceneExportDropdownMenu({
         startExport(triggerExportProps)
     }
 
-    // Creating an export requires editor access to the export resource. It is applied per format rather
-    // than to the whole menu, because a format produced in the browser creates no export asset: it
-    // rasterizes what the person is already looking at, which they can screenshot anyway.
-    const accessControlDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.Export,
-        AccessControlLevel.Editor
-    )
-    const hasBrowserRenderedFormat = dropdownMenuItems.some((item) => !!item.onClick)
+    const exportAccess = getExportAccessReasons(dropdownMenuItems)
     const resolvedDisabledReasons: DisabledReasonsObject = {
         ...disabledReasons,
-        ...(!hasBrowserRenderedFormat && accessControlDisabledReason ? { [accessControlDisabledReason]: true } : {}),
+        ...(exportAccess.menu ? { [exportAccess.menu]: true } : {}),
     }
 
     const isDisabled = Object.values(resolvedDisabledReasons).some(Boolean)
@@ -81,11 +68,10 @@ export function SceneExportDropdownMenu({
                 <DropdownMenuGroup>
                     {dropdownMenuItems.map((item, index) => {
                         const rendersInBrowser = !!item.onClick
+                        const itemAccessReason = exportAccess.forItem(item)
                         const itemDisabledReasons: DisabledReasonsObject = {
                             ...item.disabledReasons,
-                            ...(!rendersInBrowser && accessControlDisabledReason
-                                ? { [accessControlDisabledReason]: true }
-                                : {}),
+                            ...(itemAccessReason ? { [itemAccessReason]: true } : {}),
                         }
                         const itemDisabled = Object.values(itemDisabledReasons).some(Boolean)
                         const exportFormatExtension = Object.keys(ExporterFormat)

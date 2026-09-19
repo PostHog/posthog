@@ -50,7 +50,7 @@ import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/querySca
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
+import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -188,7 +188,7 @@ export function InsightMeta({
         dashboard_tiles: insight.dashboard_tiles,
     }
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
-    const { copyImage } = useActions(captureImageLogic)
+    const { copyImage, downloadImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
@@ -365,11 +365,15 @@ export function InsightMeta({
 
     // A browser capture takes whatever is on screen, so a tile captured mid-load makes a valid PNG of an
     // empty card.
-    const copyImageDisabledReason = isCapturingImage
-        ? 'Copying…'
+    const captureImageDisabledReason = isCapturingImage
+        ? 'Capturing…'
         : tileRefreshing
           ? 'Wait for the insight to finish loading'
           : undefined
+    const captureTarget = insightCardCaptureTarget(insight, tile, dashboardId)
+    // Only a chart tile is drawn here. A table tile can hold hundreds of rows, which the browser
+    // capture walks node by node, so those keep the server-side render.
+    const canCaptureImage = isInsightVizNode(insight.query)
 
     // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
     // dashboards, matching the "⋯" menu (which is already gated there).
@@ -661,6 +665,14 @@ export function InsightMeta({
                                             insight: insight.id,
                                             dashboard: insightLogicProps.dashboardId,
                                             export_context: exportContext,
+                                            // The tile is already on screen, so the PNG is drawn here
+                                            // instead of waiting for a queued server-side render.
+                                            ...(canCaptureImage
+                                                ? {
+                                                      onClick: () => downloadImage(captureTarget),
+                                                      disabledReason: captureImageDisabledReason,
+                                                  }
+                                                : {}),
                                         },
                                         {
                                             export_format: ExporterFormat.CSV,
@@ -675,8 +687,8 @@ export function InsightMeta({
                             </>
                         ) : null}
                         <LemonButton
-                            onClick={() => copyImage(insightCardCaptureTarget(insight, tile, dashboardId))}
-                            disabledReason={copyImageDisabledReason}
+                            onClick={() => copyImage(captureTarget)}
+                            disabledReason={captureImageDisabledReason}
                             tooltip="Copy the tile to your clipboard as a PNG"
                             fullWidth
                             data-attr="insight-card-copy-image"
