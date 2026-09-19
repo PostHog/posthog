@@ -1365,15 +1365,21 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["implementation_pr_url"] is None
         assert row["implementation_pr_state"] is None
 
-    def test_implementation_pr_url_null_when_assignment_url_is_empty(self):
+    @parameterized.expand([("identity_cleared", False), ("identity_kept", True)])
+    def test_implementation_pr_url_null_when_assignment_url_is_empty(self, _name, keep_identity):
         report = self._create_report()
-        self._create_assignment(report, pr_url="")
+        assignment = self._create_assignment(report, pr_url="")
+        if keep_identity:
+            SignalReportAssignment.all_teams.filter(pk=assignment.pk).update(repository="org/repo", pr_number=42)
 
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] is None
         assert row["implementation_pr_state"] is None
+        assert str(report.id) not in {
+            item["id"] for item in self.client.get(self._list_url(has_implementation_pr="true")).json()["results"]
+        }
 
     def test_fetches_implementation_pr_urls_for_current_report_page(self):
         report_with_pr = self._create_report(title="Report with PR")
