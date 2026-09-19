@@ -29,6 +29,8 @@ import type {
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingDurationHistogramRequestApi,
+    _TracingErrorCountsRequestApi,
+    _TracingErrorCountsResponseApi,
     _TracingLatencyHeatmapRequestApi,
     _TracingLatencyHeatmapResponseApi,
     _TracingQueryRequestApi,
@@ -194,6 +196,29 @@ export const tracingSpansDurationHistogramCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingDurationHistogramRequestApi),
+    })
+}
+
+export const getTracingSpansErrorCountsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/error-counts/`
+}
+
+/**
+ * Count the exceptions the spans in view hit, by trace, by span and by session, for the
+ * span list's error badges.
+ *
+ * A caller asks about the id kinds it has, and each kind is a separate lookup.
+ */
+export const tracingSpansErrorCountsCreate = async (
+    projectId: string,
+    _tracingErrorCountsRequestApi: _TracingErrorCountsRequestApi,
+    options?: RequestInit
+): Promise<_TracingErrorCountsResponseApi> => {
+    return apiMutator<_TracingErrorCountsResponseApi>(getTracingSpansErrorCountsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingErrorCountsRequestApi),
     })
 }
 

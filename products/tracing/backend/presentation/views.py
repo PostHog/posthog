@@ -15,11 +15,11 @@ import base64
 
 from django.db import models
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -37,7 +37,7 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.mixins import PydanticModelMixin
+from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManyBytes
@@ -48,7 +48,11 @@ from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 
 from ..facade.api import (
     FACET_COLUMNS,
+    MAX_IDS_PER_LOOKUP,
     annotate_self_time,
+    count_session_exceptions,
+    count_span_exceptions,
+    count_trace_exceptions,
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
@@ -324,6 +328,83 @@ class _TracingServiceNamesQuerySerializer(serializers.Serializer):
     dateRange = serializers.CharField(
         required=False,
         help_text='JSON-encoded date range, e.g. \'{"date_from": "-1h"}\'.',
+    )
+
+
+def _error_count_rows(counts: dict[str, int], key: str) -> list[dict[str, object]]:
+    return [{key: value, "exceptions": count} for value, count in counts.items()]
+
+
+class _TracingErrorCountsRequestSerializer(serializers.Serializer):
+    traceIds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        max_length=MAX_IDS_PER_LOOKUP,
+        help_text=(
+            f"Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` "
+            f"property. Case insensitive. At most {MAX_IDS_PER_LOOKUP} per request."
+        ),
+    )
+    spanIds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        max_length=MAX_IDS_PER_LOOKUP,
+        help_text=(
+            f"Hex span IDs to count exceptions for, matched against the exception's `$span_id` "
+            f"property. Only counted within the requested traces, so `traceIds` is required "
+            f"alongside. At most {MAX_IDS_PER_LOOKUP} per request."
+        ),
+    )
+    sessionIds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        max_length=MAX_IDS_PER_LOOKUP,
+        help_text=(
+            f"Session IDs to count exceptions for. The fallback for exceptions that carry no "
+            f"trace ID. At most {MAX_IDS_PER_LOOKUP} per request."
+        ),
+    )
+    dateFrom = serializers.DateTimeField(help_text="Start of the window the exceptions must fall in. ISO 8601.")
+    dateTo = serializers.DateTimeField(help_text="End of the window the exceptions must fall in. ISO 8601.")
+
+    def validate(self, attrs: dict) -> dict:
+        if not any(attrs.get(key) for key in ("traceIds", "spanIds", "sessionIds")):
+            raise serializers.ValidationError("Pass at least one of traceIds, spanIds or sessionIds.")
+        if attrs.get("spanIds") and not attrs.get("traceIds"):
+            raise serializers.ValidationError("spanIds needs traceIds, because a span ID is only unique in its trace.")
+        return attrs
+
+
+class _TracingErrorCountSerializer(serializers.Serializer):
+    exceptions = serializers.IntegerField(
+        help_text="Exception events in the window that error tracking linked to an issue."
+    )
+
+
+class _TracingTraceErrorCountSerializer(_TracingErrorCountSerializer):
+    trace_id = serializers.CharField(help_text="The trace the exceptions belong to, lowercase hex.")
+
+
+class _TracingSpanErrorCountSerializer(_TracingErrorCountSerializer):
+    span_id = serializers.CharField(help_text="The span the exceptions belong to, lowercase hex.")
+
+
+class _TracingSessionErrorCountSerializer(_TracingErrorCountSerializer):
+    session_id = serializers.CharField(help_text="The session the exceptions belong to.")
+
+
+class _TracingErrorCountsResponseSerializer(serializers.Serializer):
+    traceResults = _TracingTraceErrorCountSerializer(
+        many=True,
+        help_text="One entry per requested trace that had exceptions. Traces with none are omitted.",
+    )
+    spanResults = _TracingSpanErrorCountSerializer(
+        many=True,
+        help_text="One entry per requested span that had exceptions. Spans with none are omitted.",
+    )
+    sessionResults = _TracingSessionErrorCountSerializer(
+        many=True,
+        help_text="One entry per requested session that had exceptions. Sessions with none are omitted.",
     )
 
 
@@ -786,6 +867,51 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if not compare_data:
             return None
         return self.get_model(compare_data, CompareFilter)
+
+    @validated_request(
+        _TracingErrorCountsRequestSerializer,
+        responses={200: OpenApiResponse(response=_TracingErrorCountsResponseSerializer)},
+    )
+    # Both scopes: the response is Error Tracking data, so a token scoped to tracing alone must
+    # not reach it. Scopes gate the token; the access-control check below gates the user.
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="error-counts",
+        required_scopes=["tracing:read", "error_tracking:read"],
+    )
+    def error_counts(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        """Count the exceptions the spans in view hit, by trace, by span and by session, for the
+        span list's error badges.
+
+        A caller asks about the id kinds it has, and each kind is a separate lookup.
+        """
+        if not self.user_access_control.check_access_level_for_resource("error_tracking", "viewer"):
+            raise PermissionDenied("You do not have access to error tracking.")
+
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        data = request.validated_data
+        trace_ids = data.get("traceIds") or []
+        span_ids = data.get("spanIds") or []
+        session_ids = data.get("sessionIds") or []
+        window = {"date_from": data["dateFrom"], "date_to": data["dateTo"]}
+
+        # Through the response serializer, not a bare dict: `api-response-must-match-schema` keeps
+        # the wire shape tied to the declaration the generated types are built from.
+        response = _TracingErrorCountsResponseSerializer(
+            instance={
+                "traceResults": _error_count_rows(
+                    count_trace_exceptions(team=self.team, trace_ids=trace_ids, **window), "trace_id"
+                ),
+                "spanResults": _error_count_rows(
+                    count_span_exceptions(team=self.team, span_ids=span_ids, trace_ids=trace_ids, **window), "span_id"
+                ),
+                "sessionResults": _error_count_rows(
+                    count_session_exceptions(team=self.team, session_ids=session_ids, **window), "session_id"
+                ),
+            }
+        )
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
