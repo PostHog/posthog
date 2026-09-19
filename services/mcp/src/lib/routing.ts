@@ -1,13 +1,11 @@
 import { env } from '@/lib/env'
 import type { CloudRegion } from '@/tools/types'
 
-// Resolve the public-facing URL for a request, as advertised in the well-known/RFC-9728 metadata.
-// In production `request.url` already carries the host the client connected to: Cloudflare sets
-// it for the worker, and the Node server builds it from the Host header, which the ingress only
-// accepts for configured hostnames. X-Forwarded-Host is a client-supplied header there, so it is
-// only read when MCP_TRUST_FORWARDED_HOST is set — for local dev behind ngrok/cloudflared, where
-// `request.url` shows http://localhost. X-Forwarded-Proto always applies, because the Node server
-// sits behind a TLS-terminating load balancer and sees http.
+// In production `request.url` already names the host the client connected to, and nothing in front
+// of the worker or the Node server sets X-Forwarded-Host, so any value comes from the client. Only a
+// local tunnel (ngrok, cloudflared) needs the header, so it is read only when MCP_TRUST_FORWARDED_HOST
+// is set. X-Forwarded-Proto always applies, because the Node server sees http behind a TLS-terminating
+// load balancer, and Cloudflare and the load balancer replace any value the client sends.
 export function getPublicUrl(request: Request): URL {
     const url = new URL(request.url)
 
