@@ -176,6 +176,16 @@ class TestGetRows:
         assert urlparse(requests[1]["url"]).path == "/apis/v1/analytics/docs/doc1/pages"
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_folders_is_a_top_level_endpoint(self, MockSession):
+        requests = _wire(MockSession.return_value, [_response([{"id": "folder-1", "name": "Team"}])])
+
+        rows = _rows("folders")
+
+        # Folders has no parent, so a single request against /folders yields its rows directly.
+        assert [f["id"] for f in rows] == ["folder-1"]
+        assert urlparse(requests[0]["url"]).path == "/apis/v1/folders"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_table_without_id_fails_fast_in_rows(self, MockSession):
         _wire(
             MockSession.return_value,
