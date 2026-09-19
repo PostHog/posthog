@@ -28,7 +28,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
 from posthog.models import EventProperty, Team
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
 from posthog.session_recordings.queries.utils import (
@@ -44,6 +44,7 @@ from posthog.session_recordings.queries.utils import (
     is_person_property,
 )
 from posthog.types import AnyPropertyFilter
+from posthog.utils import get_instance_region
 
 ENTITY_TYPES_ACCEPTED_BY_LEGACY_ENTITY = frozenset(
     {TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS}
@@ -60,6 +61,7 @@ REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
 
 # Allow for the delay between an event and the recorder's first or last snapshot.
 RECORDING_MATCH_MARGIN_MINUTES = 1
+COMBINED_RECORDING_FILTERS_FLAG = "replay-recording-window-combined-filters"
 
 # Modes where events.person_id is resolved through person_distinct_id_overrides, so it follows
 # a person merge instead of reporting whoever the event was attributed to at ingest.
@@ -132,6 +134,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
         self.emitted_sampled_subquery = False
+        self.event_filter_count = 0
+        self.combined_query_eligible = False
+        self.used_combined_query = False
 
     def _events_join(self, sample: bool = True, scope_session_ids: list[str] | None = None) -> ast.JoinExpr:
         join = ast.JoinExpr(table=ast.Field(chain=["events"]))
@@ -516,15 +521,50 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             )
         )
 
+    def _can_combine_session_filters(self, filter_count: int) -> bool:
+        if (
+            self._query.event_match_scope != EventMatchScope.RECORDING
+            or filter_count < 2
+            or self._sample_factor is not None
+            or self._events_timestamp_floor is not None
+            or self._query.actions
+            or any(not isinstance(entity, EventsNode) for entity in self.entities)
+            or self.negated_entities
+            or self.person_properties
+            or self.group_properties
+            or self.cohort_properties
+        ):
+            return False
+
+        properties = self.event_properties + [p for entity in self.entities for p in entity.properties or []]
+        return all(isinstance(prop, EventPropertyFilter) and not is_negative_prop(prop) for prop in properties)
+
+    def _combined_session_query(self, predicates: list[ast.Expr]) -> ast.SelectQuery:
+        return ast.SelectQuery(
+            select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
+            select_from=self._events_join(),
+            where=self._where_predicates(ast.Or(exprs=predicates)),
+            group_by=[_event_session_id_field()],
+            having=self.wrapped_with_query_operand(
+                exprs=[
+                    parse_expr("max(ifNull({predicate}, false))", placeholders={"predicate": predicate})
+                    for predicate in predicates
+                ]
+            ),
+            # This caps the combined result, not each filter's set; capped results can differ.
+            limit=ast.Constant(value=1_000_000),
+        )
+
     def _get_queries_for_matching(
-        self, select_expr: ast.Expr, group_by: list[ast.Expr], union_entities: bool = False
+        self,
+        select_expr: ast.Expr,
+        group_by: list[ast.Expr],
+        union_entities: bool = False,
+        allow_combined_filters: bool = False,
     ) -> list[ast.SelectQuery]:
         """
-        takes each filter in the query that can be queried from the events table
-        and makes a separate query for each
-        this might be slower than the previous approach of having one huge event query
-        but that approach is horribly complex, and we keep getting bug reports
-        that are avoidable with a simpler approach
+        Keep unsupported filters separate so their exclusion and grouping rules stay isolated.
+        Session-list callers can combine eligible positive filters behind a release flag.
 
         `union_entities` merges the event/action filters into a single subquery, for callers that
         intersect the subqueries by event id rather than by session id (see
@@ -610,6 +650,24 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     continue
                 gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
 
+        self.event_filter_count = len(gathered_exprs)
+        self.combined_query_eligible = allow_combined_filters and self._can_combine_session_filters(
+            self.event_filter_count
+        )
+        self.used_combined_query = (
+            self.combined_query_eligible
+            and get_feature_flag_or_none(
+                COMBINED_RECORDING_FILTERS_FLAG,
+                str(self._team.pk),
+                person_properties={"region": get_instance_region()},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+        if self.used_combined_query:
+            return [self._combined_session_query(gathered_exprs)]
+
         queries: list[ast.SelectQuery] = []
 
         # Add hybrid query first if we used it for person properties
@@ -626,10 +684,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return queries
 
-    def get_queries_for_session_id_matching(self) -> list[ast.SelectQuery]:
+    def get_queries_for_session_id_matching(self, allow_combined_filters: bool = False) -> list[ast.SelectQuery]:
         return self._get_queries_for_matching(
             select_expr=ast.Alias(alias="session_id", expr=_event_session_id_field()),
             group_by=[_event_session_id_field()],
+            allow_combined_filters=allow_combined_filters,
         )
 
     def get_negative_blocklist_query(self) -> ast.SelectQuery | None:
