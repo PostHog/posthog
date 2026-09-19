@@ -71,8 +71,8 @@ export interface observationsDockLogicActions {
         scannerId: string,
         forSummary?: boolean
     ) => {
-        scannerId: string
         forSummary: boolean
+        scannerId: string
     }
     observeFailure: () => {
         value: true
@@ -159,7 +159,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservationApi[]) => ({ observations }),
         loadObservationsFailure: true,
-        observe: (scannerId: string, forSummary = false) => ({ scannerId, forSummary }),
+        observe: (scannerId: string, forSummary: boolean = false) => ({ scannerId, forSummary }),
         observeSuccess: true,
         observeFailure: true,
         retryObservation: (observationId: string) => ({ observationId }),
