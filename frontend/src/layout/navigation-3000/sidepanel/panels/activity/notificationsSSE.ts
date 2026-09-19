@@ -50,7 +50,13 @@ export function connectToNotificationsSSE(
                 throw new DOMException('Aborted', 'AbortError')
             }
             hooks.onError?.(error)
-            throw new Error('SSE disconnected')
+            // Rethrow the real cause so an auth failure stays distinguishable from a network
+            // drop. An AbortError from any other source is wrapped, because retryWithBackoff
+            // reads that name as a clean shutdown and would stop retrying.
+            if (error instanceof Error && error.name !== 'AbortError') {
+                throw error
+            }
+            throw new Error('SSE disconnected', { cause: error })
         },
     })
 }

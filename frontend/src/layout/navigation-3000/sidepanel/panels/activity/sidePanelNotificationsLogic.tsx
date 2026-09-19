@@ -14,7 +14,7 @@ import { lazyLoaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog, { JsonRecord } from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { describerFor, ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { showCriticalNotificationToast } from 'lib/components/NotificationsMenu/notificationToasts'
@@ -879,6 +879,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                                 url,
                                                 error_name: (error as Error | undefined)?.name,
                                                 error_message: (error as Error | undefined)?.message,
+                                                // Numeric, so alerts do not have to parse error_message.
+                                                status: error instanceof ApiError ? error.status : undefined,
                                             })
                                         },
                                     }
@@ -900,6 +902,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             posthog.capture('livestream_sse_max_errors', {
                                 url,
                                 max_attempts: SSE_RETRY_ATTEMPTS,
+                                error_name: (error as Error | undefined)?.name,
+                                error_message: (error as Error | undefined)?.message,
+                                status: error instanceof ApiError ? error.status : undefined,
                             })
                             // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
                             // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
