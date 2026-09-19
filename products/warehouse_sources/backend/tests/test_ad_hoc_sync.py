@@ -1,10 +1,12 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
-from products.warehouse_sources.backend.ad_hoc_sync import WorkflowStartError, trigger_ad_hoc_sync
+from products.warehouse_sources.backend.ad_hoc_sync import SchedulePauseError, WorkflowStartError, trigger_ad_hoc_sync
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -81,3 +83,33 @@ def test_failed_start_restores_staged_reset_state(schema):
     assert schema.sync_type_config["cdc_mode"] == "streaming"
     assert schema.sync_type_config["cdc_last_log_position"] == "0/ABC"
     assert schema.initial_sync_complete is True
+
+
+@pytest.mark.parametrize(
+    "describe_error,starts_run",
+    [
+        (RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b""), True),
+        (RPCError("temporal unavailable", RPCStatusCode.UNAVAILABLE, b""), False),
+        (RuntimeError("connection reset"), False),
+    ],
+)
+def test_a_run_starts_after_a_describe_failure_only_when_there_is_no_schedule(schema, describe_error, starts_run):
+    client = MagicMock()
+    client.get_schedule_handle.return_value.describe = AsyncMock(side_effect=describe_error)
+
+    with (
+        patch(f"{MODULE}.pause_external_data_schedule") as mock_pause,
+        patch(f"{MODULE}.start_external_data_workflow") as mock_start,
+    ):
+        if starts_run:
+            trigger_ad_hoc_sync(client, schema, billable=False, reset_pipeline=True, workflow_id_prefix="test")
+        else:
+            # An unknown schedule state is not proof that the scheduled run cannot race this one,
+            # and Temporal's "OnlyOne" policy does not cover a schedule plus an ad-hoc workflow.
+            with pytest.raises(SchedulePauseError):
+                trigger_ad_hoc_sync(client, schema, billable=False, reset_pipeline=True, workflow_id_prefix="test")
+
+    assert mock_pause.called is starts_run
+    assert mock_start.called is starts_run
+    schema.refresh_from_db()
+    assert ("reset_pipeline" in schema.sync_type_config) is starts_run

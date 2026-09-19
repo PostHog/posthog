@@ -293,7 +293,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             messages.error(request, f"Failed to connect to Temporal: {e}.")
             return redirect(_change_url(schema.id))
 
-        was_paused = _is_schedule_paused(client, str(schema.id))
+        try:
+            was_paused = _is_schedule_paused(client, str(schema.id))
+        except SchedulePauseError as e:
+            messages.error(request, f"Failed to read schedule state before resync: {e}.")
+            return redirect(_change_url(schema.id))
+
         admin_paused_now = False
         if not was_paused:
             try:
