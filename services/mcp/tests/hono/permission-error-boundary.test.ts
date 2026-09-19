@@ -27,7 +27,11 @@ const props = { userHash: 'abc123', transport: 'streamable-http' } as RequestPro
 
 describe('handleCatchError permission boundary', () => {
     it('maps a wrapped permission error to a 403 insufficient_scope challenge', async () => {
-        const response = handleCatchError(buildWrappedPermissionError(), props)
+        const response = handleCatchError(
+            buildWrappedPermissionError(),
+            props,
+            new Request('https://mcp.posthog.com/mcp', { method: 'POST' })
+        )
 
         expect(response.status).toBe(403)
 
