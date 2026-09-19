@@ -1,6 +1,5 @@
 import uuid
 import asyncio
-import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -8,6 +7,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone as django_timezone
 
+import structlog
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -38,7 +38,7 @@ from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMes
 if TYPE_CHECKING:
     pass
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
 
@@ -68,10 +68,8 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
             if task_run.status not in _PRE_START_STATUSES:
                 logger.info(
                     "task_processing_start_failure_not_terminalized",
-                    extra={
-                        "run_id": run_id,
-                        "status": task_run.status,
-                    },
+                    run_id=run_id,
+                    status=task_run.status,
                 )
                 return False
 
@@ -80,7 +78,7 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
             task_run.completed_at = django_timezone.now()
             task_run.save(update_fields=["status", "error_message", "completed_at"])
     except TaskRun.DoesNotExist:
-        logger.warning("task_processing_start_failure_task_run_missing", extra={"run_id": run_id})
+        logger.warning("task_processing_start_failure_task_run_missing", run_id=run_id)
         return False
 
     task_run.publish_stream_state_event()
@@ -103,7 +101,7 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
     try:
         handle_loop_run_terminal(task_run)
     except Exception:
-        logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
+        logger.warning("task_processing_start_failure_loop_bookkeeping_failed", run_id=run_id, exc_info=True)
     resume_workflow_step_for_run(task_run)
     return True
 
@@ -126,8 +124,13 @@ def _capture_run_feature_flags(run_id: str) -> None:
     """
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
+    except TaskRun.DoesNotExist:
+        logger.warning("run_feature_flag_capture_run_missing", run_id=run_id)
+        return
     except Exception:
-        logger.exception("run_feature_flag_capture_run_missing", extra={"run_id": run_id})
+        # Keep this apart from DoesNotExist. A dropped database connection is an infrastructure
+        # fault, and reporting it as "run missing" points triage at the data instead.
+        logger.exception("run_feature_flag_capture_failed", run_id=run_id)
         return
 
     state = task_run.state or {}
@@ -158,7 +161,9 @@ def _capture_run_feature_flags(run_id: str) -> None:
         except Exception as e:
             logger.warning(
                 "sandbox_event_ingest_capture_flag_failed",
-                extra={"run_id": run_id, "task_id": str(task.id), "error": str(e)},
+                run_id=run_id,
+                task_id=str(task.id),
+                error=str(e),
             )
     otel_telemetry_enabled = need_otel_telemetry and is_agent_otel_telemetry_enabled(
         distinct_id=distinct_id, organization_id=organization_id
@@ -177,12 +182,10 @@ def _capture_run_feature_flags(run_id: str) -> None:
         ).inc()
     logger.info(
         "run_feature_flags_captured",
-        extra={
-            "run_id": run_id,
-            "task_id": str(task.id),
-            "sandbox_event_ingest_enabled": captured_state.get("sandbox_event_ingest_enabled"),
-            "agent_otel_telemetry_enabled": captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY),
-        },
+        run_id=run_id,
+        task_id=str(task.id),
+        sandbox_event_ingest_enabled=captured_state.get("sandbox_event_ingest_enabled"),
+        agent_otel_telemetry_enabled=captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY),
     )
 
 
@@ -216,7 +219,8 @@ async def execute_task_processing_workflow_async(
     """
     logger.info(
         "execute_task_processing_workflow_async_called",
-        extra={"task_id": task_id, "run_id": run_id},
+        task_id=task_id,
+        run_id=run_id,
     )
     # Keep the metrics lookups inside the try: if either raises, the except clauses must still
     # terminalize the run. When they ran before the try, an exception here aborted the dispatch
@@ -245,7 +249,9 @@ async def execute_task_processing_workflow_async(
 
         logger.info(
             "task_processing_starting_workflow",
-            extra={"workflow_id": workflow_id, "task_id": task_id, "run_id": run_id},
+            workflow_id=workflow_id,
+            task_id=task_id,
+            run_id=run_id,
         )
 
         client = await async_connect()
@@ -258,14 +264,16 @@ async def execute_task_processing_workflow_async(
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        logger.info("task_processing_workflow_started", task_id=task_id, run_id=run_id)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
     except Team.DoesNotExist as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="permission_validation")
         logger.exception(
             "task_processing_permission_validation_failed",
-            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+            task_id=task_id,
+            run_id=run_id,
+            error=str(e),
         )
         await _terminalize_unstarted_task_run_async(
             run_id,
@@ -275,13 +283,16 @@ async def execute_task_processing_workflow_async(
         observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
         logger.info(
             "task_processing_workflow_already_running",
-            extra={"task_id": task_id, "run_id": run_id},
+            task_id=task_id,
+            run_id=run_id,
         )
     except Exception as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
         logger.exception(
             "task_processing_workflow_start_failed",
-            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+            task_id=task_id,
+            run_id=run_id,
+            error=str(e),
         )
         if durable_dispatch:
             return
@@ -320,7 +331,10 @@ def execute_task_processing_workflow(
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         logger.info(
             "execute_task_processing_workflow_called",
-            extra={"task_id": task_id, "run_id": run_id, "team_id": team_id, "user_id": user_id},
+            task_id=task_id,
+            run_id=run_id,
+            team_id=team_id,
+            user_id=user_id,
         )
 
         Team.objects.get(id=team_id)
@@ -342,14 +356,17 @@ def execute_task_processing_workflow(
 
         logger.info(
             "task_processing_connecting_temporal",
-            extra={"task_id": task_id, "task_queue": settings.TASKS_TASK_QUEUE},
+            task_id=task_id,
+            task_queue=settings.TASKS_TASK_QUEUE,
         )
 
         client = sync_connect()
 
         logger.info(
             "task_processing_temporal_connected",
-            extra={"workflow_id": workflow_id, "task_id": task_id, "run_id": run_id},
+            workflow_id=workflow_id,
+            task_id=task_id,
+            run_id=run_id,
         )
 
         asyncio.run(
@@ -363,14 +380,16 @@ def execute_task_processing_workflow(
             )
         )
 
-        logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        logger.info("task_processing_workflow_started", task_id=task_id, run_id=run_id)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
     except Team.DoesNotExist as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="permission_validation")
         logger.exception(
             "task_processing_permission_validation_failed",
-            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+            task_id=task_id,
+            run_id=run_id,
+            error=str(e),
         )
         _terminalize_unstarted_task_run(
             run_id,
@@ -380,13 +399,16 @@ def execute_task_processing_workflow(
         observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
         logger.info(
             "task_processing_workflow_already_running",
-            extra={"task_id": task_id, "run_id": run_id},
+            task_id=task_id,
+            run_id=run_id,
         )
     except Exception as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
         logger.exception(
             "task_processing_workflow_start_failed",
-            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+            task_id=task_id,
+            run_id=run_id,
+            error=str(e),
         )
         if durable_dispatch:
             return
@@ -520,12 +542,14 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         observe_task_run_workflow_start(task_run, outcome="failed", reason="reconcile_error")
         logger.warning(
             "task_run_reconcile_dispatch_failed",
-            extra={"run_id": run_id, "task_id": task_id, "error": str(e)},
+            run_id=run_id,
+            task_id=task_id,
+            error=str(e),
         )
         return "error"
 
     observe_task_run_workflow_start(task_run, outcome="started", reason="reconcile")
-    logger.info("task_run_reconcile_dispatch_started", extra={"run_id": run_id, "task_id": task_id})
+    logger.info("task_run_reconcile_dispatch_started", run_id=run_id, task_id=task_id)
     return "recovered"
 
 
@@ -613,7 +637,7 @@ def signal_task_followup_message(
             except Exception:
                 logger.info(
                     "task_followup_steering_capability_unavailable",
-                    extra={"workflow_id": workflow_id},
+                    workflow_id=workflow_id,
                     exc_info=True,
                 )
             else:
