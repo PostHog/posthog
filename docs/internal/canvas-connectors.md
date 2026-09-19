@@ -13,6 +13,8 @@ Do not use `tasks.create_and_run` for a repository override: that action inherit
 
 `tasks.create_and_run` requires a title. Its description is optional and can be blank.
 Card forms can accept a title alone; do not require a description to save a card or start its task.
+For compact boards, put the card form in a dialog opened by the board's add button.
+Keep the dialog closed on load and close it after a successful save.
 The action also accepts optional `model` and `reasoning_effort` fields for one Cloud task.
 Use the identifiers and supported efforts from the task model catalogue.
 The selected model determines the runtime adapter; reasoning effort requires an explicit model.
