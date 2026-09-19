@@ -679,13 +679,17 @@ class SnowflakeImplementation(
                 # The keyset column checkpoints and resumes a mid-job retry. Both shapes need the
                 # merge-on-primary-key dedup downstream, so neither activates without a key: an
                 # incremental scan checkpoints its (already ordered) incremental field, a full
-                # refresh orders by a single-column primary key. A multi-column key or keyless
-                # table keeps today's restart-from-zero behavior.
+                # refresh orders by a single-column primary key. Snowflake declares but does not
+                # enforce primary keys, and the full refresh resumes with a strict `>` — duplicate
+                # boundary values spanning batches would be skipped — so the full-refresh shape
+                # additionally requires the key a full probe proved unique. The incremental resume
+                # is inclusive and needs only the merge, so the declared key is enough there. A
+                # multi-column, unverified, or missing key keeps today's restart-from-zero behavior.
                 order_column: str | None = None
                 if resumable_source_manager is not None and primary_keys:
                     if should_use_incremental_field:
                         order_column = incremental_field
-                    elif len(primary_keys) == 1:
+                    elif len(primary_keys) == 1 and inputs.verified_primary_keys == primary_keys:
                         order_column = primary_keys[0]
                 order_by_key = order_column if not should_use_incremental_field else None
 
@@ -719,7 +723,9 @@ class SnowflakeImplementation(
                     # The count is a progress estimate; re-counting the full table is the other
                     # half of the "every retry re-issues the same queries" cost, so a resumed
                     # attempt skips it.
-                    logger.debug(f"Resuming Snowflake scan past {order_column}={resume_value}, skipping COUNT(*)")
+                    # The checkpoint value is customer data (it can be an email or an id), so only
+                    # the column and the resume decision are logged.
+                    logger.debug(f"Resuming Snowflake scan from a checkpoint on {order_column}, skipping COUNT(*)")
                     rows_to_sync = None
                 else:
                     rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_params, logger)

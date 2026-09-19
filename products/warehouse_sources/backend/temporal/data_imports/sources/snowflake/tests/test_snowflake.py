@@ -747,8 +747,6 @@ class TestBuildPipeline:
 
 
 class TestResumableStreaming:
-    """Mid-job retries resume the scan from the last persisted batch instead of row zero."""
-
     def _metadata_cursor(self):
         metadata_cursor = MagicMock()
         metadata_cursor.__enter__.return_value = metadata_cursor
@@ -783,7 +781,9 @@ class TestResumableStreaming:
         manager.can_resume.return_value = False
         connection = self._connection(self._metadata_cursor(), streaming_cursor)
         with patch("snowflake.connector.connect", return_value=connection):
-            response = impl.build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
+            response = impl.build_pipeline(
+                _make_config(), _make_inputs(verified_primary_keys=["ID"]), resumable_source_manager=manager
+            )
             iterator = iter(response.items())
             next(iterator)
             # The first batch was yielded but not yet persisted, so nothing may be checkpointed.
@@ -804,7 +804,9 @@ class TestResumableStreaming:
         manager.can_resume.return_value = True
         manager.load_state.return_value = SnowflakeResumeState(order_column="ID", last_value=4)
         with patch("snowflake.connector.connect", return_value=self._connection(metadata_cursor, streaming_cursor)):
-            response = impl.build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
+            response = impl.build_pipeline(
+                _make_config(), _make_inputs(verified_primary_keys=["ID"]), resumable_source_manager=manager
+            )
             list(response.items())
         # No COUNT(*) re-issued on a resumed attempt: the metadata cursor only ran SHOW PRIMARY KEYS.
         assert response.rows_to_sync is None
@@ -824,10 +826,31 @@ class TestResumableStreaming:
         manager.can_resume.return_value = True
         manager.load_state.return_value = SnowflakeResumeState(order_column="OLD_ID", last_value=4)
         with patch("snowflake.connector.connect", return_value=self._connection(metadata_cursor, streaming_cursor)):
-            response = impl.build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
+            response = impl.build_pipeline(
+                _make_config(), _make_inputs(verified_primary_keys=["ID"]), resumable_source_manager=manager
+            )
             list(response.items())
         assert response.rows_to_sync == 5
         assert streaming_cursor.execute.call_args.args[1] == ("DB.PUBLIC.messages",)
+
+    def test_unverified_key_keeps_restart_from_zero(self):
+        # Snowflake declares but does not enforce primary keys. A strict `>` resume on a key with
+        # duplicate boundary values spanning batches would skip rows, so an unverified key must not
+        # order the scan, checkpoint, or bound a resume.
+        impl = SnowflakeImplementation()
+        metadata_cursor = self._metadata_cursor()
+        streaming_cursor = self._streaming_cursor([pa.RecordBatch.from_pydict({"ID": [1, 2]})])
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = SnowflakeResumeState(order_column="ID", last_value=4)
+        with patch("snowflake.connector.connect", return_value=self._connection(metadata_cursor, streaming_cursor)):
+            response = impl.build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
+            list(response.items())
+        assert response.rows_to_sync == 5
+        query = streaming_cursor.execute.call_args.args[0]
+        assert "ORDER BY" not in query
+        assert streaming_cursor.execute.call_args.args[1] == ("DB.PUBLIC.messages",)
+        manager.save_state.assert_not_called()
 
 
 def test_snowflake_source_is_resumable():
