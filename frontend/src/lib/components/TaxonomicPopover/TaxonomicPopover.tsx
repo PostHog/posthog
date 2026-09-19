@@ -122,6 +122,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     const taxonomicFilterLogicKey = `taxonomic-popover-${generatedKey}`
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
+    const [hasOpened, setHasOpened] = useState(false)
 
     const isClearButtonShown = allowClear && !!localValue
 
@@ -134,6 +135,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     buttonPropsFinal.onClick = () => {
         if (!visible) {
             onOpen?.()
+            setHasOpened(true)
         }
         setVisible(!visible)
     }
@@ -153,34 +155,36 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     const legacyEl = (
         <LemonDropdown
             overlay={
-                <TaxonomicFilter
-                    taxonomicFilterLogicKey={taxonomicFilterLogicKey}
-                    groupType={groupType}
-                    value={value}
-                    filter={filter}
-                    onChange={({ type }, payload, item) => {
-                        onChange?.(payload as ValueType, type, item)
-                        if (closeOnChange) {
-                            setVisible(false)
-                        }
-                    }}
-                    taxonomicGroupTypes={groupTypes ?? [groupType]}
-                    eventNames={eventNames}
-                    schemaColumns={schemaColumns}
-                    metadataSource={metadataSource}
-                    excludedProperties={excludedProperties}
-                    includeHiddenEvents={includeHiddenEvents}
-                    selectedProperties={selectedProperties}
-                    showNumericalPropsOnly={showNumericalPropsOnly}
-                    dataWarehousePopoverFields={dataWarehousePopoverFields}
-                    maxContextOptions={maxContextOptions}
-                    allowNonCapturedEvents={allowNonCapturedEvents}
-                    definitionPopoverRenderer={definitionPopoverRenderer}
-                    suggestedFiltersLabel={suggestedFiltersLabel}
-                    enableKeywordShortcuts={enableKeywordShortcuts}
-                    selectingKeyOnly={selectingKeyOnly}
-                    width={width}
-                />
+                hasOpened ? (
+                    <TaxonomicFilter
+                        taxonomicFilterLogicKey={taxonomicFilterLogicKey}
+                        groupType={groupType}
+                        value={value}
+                        filter={filter}
+                        onChange={({ type }, payload, item) => {
+                            onChange?.(payload as ValueType, type, item)
+                            if (closeOnChange) {
+                                setVisible(false)
+                            }
+                        }}
+                        taxonomicGroupTypes={groupTypes ?? [groupType]}
+                        eventNames={eventNames}
+                        schemaColumns={schemaColumns}
+                        metadataSource={metadataSource}
+                        excludedProperties={excludedProperties}
+                        includeHiddenEvents={includeHiddenEvents}
+                        selectedProperties={selectedProperties}
+                        showNumericalPropsOnly={showNumericalPropsOnly}
+                        dataWarehousePopoverFields={dataWarehousePopoverFields}
+                        maxContextOptions={maxContextOptions}
+                        allowNonCapturedEvents={allowNonCapturedEvents}
+                        definitionPopoverRenderer={definitionPopoverRenderer}
+                        suggestedFiltersLabel={suggestedFiltersLabel}
+                        enableKeywordShortcuts={enableKeywordShortcuts}
+                        selectingKeyOnly={selectingKeyOnly}
+                        width={width}
+                    />
+                ) : null
             }
             matchWidth={false}
             actionable
