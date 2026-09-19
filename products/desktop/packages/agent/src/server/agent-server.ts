@@ -5694,10 +5694,14 @@ export class AgentServer {
 
     this.pendingPermissions.delete(requestId);
 
-    this.persistPermissionLifecycle(POSTHOG_NOTIFICATIONS.PERMISSION_RESOLVED, {
-      requestId,
-      toolCallId: pending.toolCallId,
-      optionId,
+    this.broadcastAndPersistNotification({
+      jsonrpc: "2.0",
+      method: POSTHOG_NOTIFICATIONS.PERMISSION_RESOLVED,
+      params: {
+        requestId,
+        toolCallId: pending.toolCallId,
+        optionId,
+      },
     });
 
     const meta: Record<string, unknown> = {};
