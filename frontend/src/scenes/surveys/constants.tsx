@@ -77,7 +77,7 @@ export const defaultSurveyAppearance = {
     ratingButtonColor: 'white',
     ratingButtonActiveColor: 'black',
     borderColor: '#c9c6c6',
-    placeholder: 'Start typing...',
+    // No placeholder default: a default here saves English text into every survey the editor creates.
     whiteLabel: false,
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
