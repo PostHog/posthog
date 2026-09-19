@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 
@@ -105,6 +105,10 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         db_table = "posthog_hogfunction"
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
+            # Both the pipeline list endpoint and the Node CDP loader filter on
+            # team + deleted=False without pinning `type`, so the index above
+            # (leading on `type`) can't serve them. This partial index does.
+            models.Index(fields=["team"], condition=Q(deleted=False), name="hog_func_team_active_idx"),
         ]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
