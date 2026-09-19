@@ -194,12 +194,16 @@ def _time_entry_map(row: dict[str, Any]) -> dict[str, Any]:
     return _rename_time_entry_parents(_flatten_time_entry(row))
 
 
-def _approval_request_map(row: dict[str, Any]) -> dict[str, Any]:
+def _approval_request_map(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    # Clockify documents `approvalRequest` as nullable. Such a row carries no id at all, so writing
+    # it would seed a null primary key that every later merge multi-matches; drop it instead.
+    if not isinstance(row.get("approvalRequest"), dict):
+        return []
     return _rename_workspace(_flatten_approval_request(row))
 
 
 # Workspace children that need more than the parent-id rename.
-_WORKSPACE_CHILD_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+_WORKSPACE_CHILD_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
     "approval_requests": _approval_request_map,
 }
 

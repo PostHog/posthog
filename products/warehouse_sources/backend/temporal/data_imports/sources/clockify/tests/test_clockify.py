@@ -490,6 +490,23 @@ class TestApprovalRequestsEndpoint:
         # across page boundaries.
         assert params == {"page": 1, "page-size": 1000, "sort-column": "ID", "sort-order": "ASCENDING"}
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_row_without_an_approval_request_is_dropped(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Clockify documents the nested request as nullable; such a row has no id, and writing it
+        # would seed a null primary key.
+        _wire(
+            session,
+            [
+                _response([{"id": "W1"}]),
+                _response([{"approvalRequest": None}, {"approvalRequest": {"id": "AR1"}}]),
+            ],
+        )
+
+        rows = _rows(_source("approval_requests", _make_manager()))
+
+        assert [row["approval_request_id"] for row in rows] == ["AR1"]
+
 
 class TestUserGroupsEndpoint:
     @mock.patch(CLIENT_SESSION_PATCH)
