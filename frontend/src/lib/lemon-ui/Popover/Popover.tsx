@@ -282,14 +282,22 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     const dismiss = useDismiss(context, {
         enabled: visible,
-        // useDismiss only treats the floating + reference elements as "inside". Three things
-        // need explicit exemption: elements opting out via CLICK_OUTSIDE_BLOCK_CLASS,
+        // useDismiss only treats the floating + reference elements as "inside", and it only knows
+        // the reference when it was registered through `setReference` — the `children` path
+        // attaches it as a plain ref, so it is invisible here. Four things need explicit
+        // exemption: that reference, elements opting out via CLICK_OUTSIDE_BLOCK_CLASS,
         // additionalRefs (consumer-registered companion elements), and deeper-nested popovers
         // (portaled, so DOM-siblings rather than descendants).
         outsidePress: (event) => {
             const target = event.target as Node | null
             if (!target) {
                 return true
+            }
+            // Without this, pressing an open popover's own trigger dismisses it here and the
+            // trigger's toggle handler then reopens it — the popover never closes.
+            const reference = referenceRef.current
+            if (reference && 'contains' in reference && reference.contains(target)) {
+                return false
             }
             // Honor the block class on the floating-ui dismiss path too, not just onClickInside —
             // a nested menu in a parent popover's *reference* subtree (e.g. the TaxonomicFilter
