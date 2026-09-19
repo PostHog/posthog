@@ -166,6 +166,13 @@ class ResolveProfileTest(TestCase):
             profile = kafka_settings._resolve_profile("cyclotron")
         self.assertEqual(profile.hosts, ["kafka:9092"])
 
+    def test_hosts_configured_marks_the_dev_fallback(self):
+        """Callers must be able to tell the fallback host from a configured one."""
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(kafka_settings._resolve_profile("cyclotron").hosts_configured)
+        with patch.dict("os.environ", {"KAFKA_CYCLOTRON_HOSTS": "broker:9092"}, clear=True):
+            self.assertTrue(kafka_settings._resolve_profile("cyclotron").hosts_configured)
+
     def test_resolves_full_profile_settings(self):
         with patch.dict(
             "os.environ",
