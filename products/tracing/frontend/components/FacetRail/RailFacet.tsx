@@ -34,7 +34,7 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
         facetValuesLogic(logicProps)
     )
     const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
-    const { serviceNames, filters } = useValues(tracingFiltersLogic({ id }))
+    const { filters } = useValues(tracingFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
     const { removeCustomFacet } = useActions(customFacetsLogic)
     const { entriesLoading } = useValues(customFacetsLogic)
@@ -45,9 +45,7 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
     }
 
     const { source } = facet
-    // Selection: the service facet reads the dedicated serviceNames field (include-only);
-    // everything else reads its property filters out of the group, both polarities.
-    const { included: selected, excluded } = facetSelection(filters.filterGroup, serviceNames, source)
+    const { included: selected, excluded } = facetSelection(filters.filterGroup, source)
     // Drop the empty-value bucket (spans missing the attribute): it renders as a blank, label-less row
     // that the selection reader can't track, so it would become a stuck, un-toggleable filter.
     const fetched: FacetOption[] = facetValues
