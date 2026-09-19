@@ -1,5 +1,7 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
+import { useMocks } from '~/mocks/jest'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
@@ -81,4 +83,51 @@ describe('DataTableVisualization', () => {
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
         }
     )
+
+    // Verbatim from ClickHouseQueryMemoryLimitExceeded, minus its docs link
+    const MEMORY_LIMIT_DETAIL =
+        "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters."
+
+    it('classifies a failed query and offers a retry', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': () => [513, { detail: MEMORY_LIMIT_DETAIL }],
+            },
+        })
+
+        render(
+            <DataTableVisualization uniqueKey="data-visualization-error" query={query} setQuery={jest.fn()} readOnly />
+        )
+
+        await waitFor(() => {
+            expect(screen.getByText("This query couldn't finish")).toBeTruthy()
+        })
+        expect(screen.getByText(MEMORY_LIMIT_DETAIL)).toBeTruthy()
+        expect(screen.getByText('Try again')).toBeTruthy()
+    })
+
+    it('re-runs the query when the retry button is clicked', async () => {
+        let shouldFail = true
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': () =>
+                    shouldFail ? [513, { detail: MEMORY_LIMIT_DETAIL }] : [200, cachedResults],
+            },
+        })
+
+        render(
+            <DataTableVisualization uniqueKey="data-visualization-retry" query={query} setQuery={jest.fn()} readOnly />
+        )
+
+        await waitFor(() => {
+            expect(screen.getByText("This query couldn't finish")).toBeTruthy()
+        })
+
+        shouldFail = false
+        await userEvent.click(screen.getByText('Try again'))
+
+        await waitFor(() => {
+            expect(screen.queryByText("This query couldn't finish")).toBeNull()
+        })
+    })
 })
