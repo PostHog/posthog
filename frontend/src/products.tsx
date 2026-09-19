@@ -95,6 +95,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
     '/alerts': ['Alerts', 'alerts'],
+    '/debug/precompute': ['PrecomputeDebug', 'precomputeDebug'],
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
@@ -141,6 +142,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'DataWarehouseSourceSchema',
         'dataWarehouseSourceSchema',
     ],
+    '/data-management/warehouse-destinations': ['WarehouseDestinations', 'warehouseDestinations'],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
@@ -573,6 +575,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
+    PrecomputeDebug: {
+        projectBased: true,
+        name: 'Precompute debug',
+        description: 'Staff-only view of stored precompute hashes, buckets, and TTLs.',
+        layout: 'app-container',
+        iconType: 'web_analytics',
+    },
     Annotations: {
         name: 'Annotations',
         projectBased: true,
@@ -688,6 +697,12 @@ export const productConfiguration: Record<string, any> = {
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     DataWarehouseSourceConnect: { projectBased: true, name: 'Connect data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
+    WarehouseDestinations: {
+        projectBased: true,
+        name: 'Warehouse destinations',
+        description: 'Manage where your warehouse sources write the rows they sync.',
+        iconType: 'data_warehouse',
+    },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -1157,6 +1172,7 @@ export const productUrls = {
         `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
     alerts: (): string => '/alerts',
+    precomputeDebug: (): string => `/debug/precompute`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     businessKnowledge: (): string => '/business-knowledge',
@@ -1255,6 +1271,7 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
+    warehouseDestinations: (): string => '/data-management/warehouse-destinations',
     dataWarehouseSourceConnect: (kind?: string): string =>
         `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
@@ -2147,6 +2164,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
+            'WarehouseDestinations',
         ],
     },
     {
@@ -2876,6 +2894,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
+            'WarehouseDestinations',
         ],
     },
     {
@@ -2930,6 +2949,15 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.transformations(),
         sceneKey: 'Transformations',
         sceneKeys: ['Transformations'],
+    },
+    {
+        path: 'Warehouse destinations',
+        category: 'Pipeline',
+        iconType: 'data_warehouse',
+        href: urls.warehouseDestinations(),
+        flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
+        sceneKey: 'WarehouseDestinations',
+        sceneKeys: ['WarehouseDestinations'],
     },
     {
         path: 'Warehouse properties',

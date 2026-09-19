@@ -515,6 +515,12 @@ export interface SessionRecordingPlaylistLogicProps {
      */
     onRecordingsLoaded?: (recordings: SessionRecordingType[], isFirstPage: boolean) => void
     /**
+     * Called when a list load fails, with whether it was a first-page load. A load that a newer one
+     * supersedes, or that the viewer leaves behind, stops at a breakpoint and is not a failure, so
+     * it is not reported here.
+     */
+    onRecordingsLoadFailed?: (error: { status: number | null; detail: string }, isFirstPage: boolean) => void
+    /**
      * Called once each time the recording the player shows changes — clicked, played next,
      * picked via the URL, or the implicit autoplay fallback to the top of the list (on first
      * load, and again when a reload changes which recording is at the top). Re-selecting the
@@ -1116,6 +1122,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters, forceRefetch }, breakpoint) => {
+                    // kea-loaders builds the failure action from the error alone, so the failure
+                    // listener cannot see which load it belongs to. Recorded here, where the load
+                    // that is about to run still carries it.
+                    cache.loadDirection = direction
                     // Captured before the awaits: `values` reads throw if this logic unmounts
                     // mid-flight, and the fetch report must carry the filters the request was
                     // built from, not whatever they are once the response lands.
@@ -1186,7 +1196,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     if (memoizedResponse) {
                         response = memoizedResponse
                     } else if (requestInFlight) {
-                        response = await requestInFlight
+                        try {
+                            response = await requestInFlight
+                        } catch (e) {
+                            // One rejection comes back through every load waiting on the shared
+                            // read, so without this each of them reports the same failure. The
+                            // breakpoint leaves only the newest load to answer for it.
+                            breakpoint()
+                            throw e
+                        }
                     } else {
                         await breakpoint(400) // Debounce for lots of quick filter changes
 
@@ -1207,6 +1225,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             if (cache.listRequest === request) {
                                 cache.listRequest = undefined
                             }
+                            // A failure reaches this catch ahead of the breakpoint below, so a load
+                            // the viewer left behind used to raise the error banner over the rows
+                            // that replaced it. Failing at the breakpoint instead drops it, the
+                            // same as a superseded success.
+                            breakpoint()
                             throw e
                         }
                         // The response is here, so nothing can wait on this request any more. The
@@ -1427,7 +1450,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             false,
             {
                 loadSessionRecordingsFailure: () => true,
-                loadSessionRecordingSuccess: () => false,
+                loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
@@ -1756,6 +1779,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 props.onRecordingsLoaded?.(sessionRecordingsResponse.results, !payload?.direction)
                 pruneSelectedRecordingsIds()
                 notifyRecordingSelected()
+            },
+
+            loadSessionRecordingsFailure: ({ error, errorObject }) => {
+                // The status rides alongside the message so a host page can tell a refusal the
+                // backend states on purpose from a transport failure. What it offers for either is
+                // its own decision, and the two differ: the shelf on the experiment recordings tab
+                // shows a 400 as a plain answer, while the list there keeps the retry, because the
+                // refusals it can still reach pass once the exposures finish computing.
+                props.onRecordingsLoadFailed?.(
+                    {
+                        status: typeof errorObject?.status === 'number' ? errorObject.status : null,
+                        detail: errorObject?.detail || error,
+                    },
+                    !cache.loadDirection
+                )
             },
 
             loadPinnedRecordingsSuccess: () => {

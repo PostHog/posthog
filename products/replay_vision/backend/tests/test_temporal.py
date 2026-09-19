@@ -79,6 +79,7 @@ from products.replay_vision.backend.temporal.activities.emit_observation_event i
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
     SIGNAL_WEIGHT,
     emit_observation_signal_activity,
+    emit_observation_signals_activity,
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
@@ -3804,7 +3805,7 @@ class TestEmitObservationSignalActivity:
             patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
             patch(_LOAD_LLM_INPUTS_PATCH, return_value=self._llm_inputs(observation)),
         ):
-            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+            assert emit_observation_signals_activity(self._inputs(observation)) == ["bug"]
 
         assert mock_emit.await_args is not None
         kwargs = mock_emit.await_args.kwargs
@@ -3853,7 +3854,7 @@ class TestEmitObservationSignalActivity:
             patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
             patch(_LOAD_LLM_INPUTS_PATCH, return_value=None),
         ):
-            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+            assert emit_observation_signals_activity(self._inputs(observation)) == ["bug"]
 
         assert mock_emit.await_args is not None
         extra = mock_emit.await_args.kwargs["extra"]
@@ -3870,7 +3871,7 @@ class TestEmitObservationSignalActivity:
             patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
             patch(_LOAD_LLM_INPUTS_PATCH, side_effect=Exception("redis down")),
         ):
-            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+            assert emit_observation_signals_activity(self._inputs(observation)) == ["bug"]
 
         assert mock_emit.await_args is not None
         extra = mock_emit.await_args.kwargs["extra"]
@@ -3888,7 +3889,7 @@ class TestEmitObservationSignalActivity:
             patch(_LOAD_LLM_INPUTS_PATCH, return_value=None),
         ):
             # Two emitted; the 0.2-confidence finding is below the floor and skipped.
-            assert emit_observation_signal_activity(self._inputs(observation, signals=signals)) == 2
+            assert emit_observation_signals_activity(self._inputs(observation, signals=signals)) == ["bug", "bug"]
 
         calls = mock_emit.await_args_list
         assert [c.kwargs["source_id"] for c in calls] == [
@@ -3903,7 +3904,7 @@ class TestEmitObservationSignalActivity:
         observation = _make_observation(scanner)
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
-            assert emit_observation_signal_activity(self._inputs(observation, confidence=confidence)) == 0
+            assert emit_observation_signals_activity(self._inputs(observation, confidence=confidence)) == []
         mock_emit.assert_not_awaited()
 
     def test_skips_when_the_snapshot_does_not_emit_signals(self) -> None:
@@ -3911,7 +3912,7 @@ class TestEmitObservationSignalActivity:
         observation = _make_observation(scanner)
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
-            assert emit_observation_signal_activity(self._inputs(observation)) == 0
+            assert emit_observation_signals_activity(self._inputs(observation)) == []
         mock_emit.assert_not_awaited()
 
     def test_skips_when_the_observation_is_missing(self) -> None:
@@ -3920,7 +3921,7 @@ class TestEmitObservationSignalActivity:
         inputs = self._inputs(observation, observation_id=uuid.uuid4())
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
-            assert emit_observation_signal_activity(inputs) == 0
+            assert emit_observation_signals_activity(inputs) == []
         mock_emit.assert_not_awaited()
 
     @pytest.mark.parametrize(
@@ -3933,7 +3934,7 @@ class TestEmitObservationSignalActivity:
         observation = _make_observation(scanner)
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock, side_effect=error) as mock_emit:
-            assert emit_observation_signal_activity(self._inputs(observation)) == 0
+            assert emit_observation_signals_activity(self._inputs(observation)) == []
         mock_emit.assert_awaited_once()
 
     def test_emits_without_any_source_config(self) -> None:
@@ -3942,10 +3943,23 @@ class TestEmitObservationSignalActivity:
         observation = _make_observation(scanner)
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
-            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+            assert emit_observation_signals_activity(self._inputs(observation)) == ["bug"]
 
         mock_emit.assert_awaited_once()
         assert not SignalSourceConfig.objects.filter(team=scanner.team).exists()
+
+    def test_legacy_count_activity_returns_the_emitted_count(self) -> None:
+        # The unpatched workflow branch reads an int count from this legacy entry point; it must equal the
+        # number of problem types the shared helper emitted.
+        scanner = _make_scanner(emits_signals=True)
+        observation = _make_observation(scanner)
+        signals = [self._signal(url="/one"), self._signal(url="/two")]
+
+        with (
+            patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock),
+            patch(_LOAD_LLM_INPUTS_PATCH, return_value=None),
+        ):
+            assert emit_observation_signal_activity(self._inputs(observation, signals=signals)) == 2
 
 
 @pytest.mark.asyncio
@@ -3974,17 +3988,17 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
                     )
                 ],
             ),
-            emit_observation_signal_activity: 1,
+            emit_observation_signals_activity: ["bug"],
         },
     )
 
     await _run_workflow(_build_inputs(session_id="sess-sig", team_id=99), mocks)
 
     order = [fn for fn, _ in mocks.activity_calls]
-    assert order.index(call_scanner_provider_activity) < order.index(emit_observation_signal_activity)
-    assert order.index(emit_observation_signal_activity) < order.index(emit_observation_event_activity)
+    assert order.index(call_scanner_provider_activity) < order.index(emit_observation_signals_activity)
+    assert order.index(emit_observation_signals_activity) < order.index(emit_observation_event_activity)
 
-    signal_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_observation_signal_activity)
+    signal_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_observation_signals_activity)
     assert signal_input.observation_id == new_observation_id
     assert signal_input.exported_asset_id == 42  # threaded from ensure_session_asset_activity
     assert signal_input.signals[0].description == "Checkout CTA is broken on /cart"
@@ -3992,6 +4006,8 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
 
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 1
+    # The distinct problem types ride the row so the watch feed can name the kind of issue.
+    assert succeeded.scanner_result.signal_problem_types == ["bug"]
 
 
 @pytest.mark.asyncio
@@ -4021,7 +4037,7 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
                 ],
             ),
         },
-        activity_errors={emit_observation_signal_activity: TimeoutError("start-to-close exceeded")},
+        activity_errors={emit_observation_signals_activity: TimeoutError("start-to-close exceeded")},
     )
 
     await _run_workflow(_build_inputs(session_id="sess-sig-fail", team_id=99), mocks)
@@ -4030,3 +4046,47 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
     assert mark_observation_failed_activity not in called
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 0
+    assert succeeded.scanner_result.signal_problem_types == []
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_counts_signals_for_pre_patch_histories() -> None:
+    # A workflow whose history predates the problem-types patch scheduled the count-returning activity.
+    # The unpatched branch must keep calling it, derive signals_count from that int, and leave the types
+    # empty — never dispatch the list-returning activity a pre-patch history never recorded.
+    new_observation_id = uuid.uuid4()
+    model_output = MonitorOutput(verdict="yes", reasoning="user hit the broken CTA", confidence=0.9)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(
+                model_output=model_output,
+                signals=[
+                    SignalFinding(
+                        problem_type="bug",
+                        start_time=30,
+                        end_time=35,
+                        url="https://app.example.com/cart",
+                        description="Checkout CTA is broken on /cart",
+                        confidence=0.8,
+                    )
+                ],
+            ),
+            emit_observation_signal_activity: 2,
+        },
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-sig-legacy", team_id=99), mocks, patched=False)
+
+    called = [fn for fn, _ in mocks.activity_calls]
+    assert emit_observation_signal_activity in called
+    assert emit_observation_signals_activity not in called
+    succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
+    assert succeeded.scanner_result.signals_count == 2
+    assert succeeded.scanner_result.signal_problem_types == []

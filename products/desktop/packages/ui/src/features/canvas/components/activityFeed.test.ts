@@ -107,8 +107,17 @@ describe("activityFeed", () => {
           activityAt: "2026-08-25T10:00:00Z",
         }) as TaskActivityItem;
 
+      const canvasActivity: TaskActivityItem = {
+        ...activity("canvas", "task-2"),
+        commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+      };
+
       const content = deriveActivityFeedContent({
-        taskItems: [activity("live", "task-1"), activity("gone", "task-2")],
+        taskItems: [
+          activity("live", "task-1"),
+          activity("gone", "task-2"),
+          canvasActivity,
+        ],
         reports: [],
         totalReportCount: 0,
         mentionsIncluded: true,
@@ -117,10 +126,14 @@ describe("activityFeed", () => {
         archivedTaskIds: new Set(["task-2"]),
       });
 
-      expect(content.feedItems.map((item) => item.id)).toEqual(["task:live"]);
+      expect(content.feedItems.map((item) => item.id)).toEqual([
+        "task:live",
+        "task:canvas",
+      ]);
       expect(content.unreadItems.map((item) => item.id)).toEqual([
         "live",
         "gone",
+        "canvas",
       ]);
     },
   );

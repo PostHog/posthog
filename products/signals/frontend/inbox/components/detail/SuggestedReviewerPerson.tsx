@@ -5,6 +5,7 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 
 import { EnrichedReviewer } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
+import { SuggestedReviewerScoutTag } from './SuggestedReviewerScoutTag'
 
 const OTHER_SOURCE_LABELS = new Set(['Code history', 'Added by teammate', 'Agent suggestion'])
 
@@ -69,9 +70,13 @@ export function SuggestedReviewerPerson({
                     </span>
                 </Tooltip>
             </div>
-            <LemonTag type="muted" size="small" wrap className="max-w-32">
-                {sourceLabel}
-            </LemonTag>
+            {isScoutReviewer(reviewer) ? (
+                <SuggestedReviewerScoutTag scoutNames={[sourceLabel]} />
+            ) : (
+                <LemonTag type="muted" size="small" wrap className="max-w-32">
+                    {sourceLabel}
+                </LemonTag>
+            )}
             {explanation && (
                 <span
                     className={`col-span-2 min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere] ${reviewer.user ? '' : 'opacity-75'}`}

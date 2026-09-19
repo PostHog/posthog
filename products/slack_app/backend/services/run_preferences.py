@@ -57,7 +57,9 @@ def _central_run_default(team_id: int, user_id: int | None) -> ResolvedAIRunConf
     )
 
     resolved = ai_run_defaults.resolve_ai_run_defaults(team_id, user_id)
-    return resolved if resolved.model else None
+    if resolved.runtime != ai_run_defaults.ACP or not resolved.model:
+        return None
+    return resolved
 
 
 def _coherent_preferences(

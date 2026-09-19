@@ -37,6 +37,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityCluster: () =>
         import('../../products/ai_observability/frontend/clusters/AIObservabilityClusterScene'),
     Alerts: () => import('../../products/alerts/frontend/AlertsScene'),
+    PrecomputeDebug: () => import('../../products/analytics_platform/frontend/PrecomputeDebugScene'),
     Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
     BusinessKnowledgeSettings: () =>
@@ -71,6 +72,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataWarehouseSourceConnect: () =>
         import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
+    WarehouseDestinations: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseDestinationsScene/WarehouseDestinationsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
