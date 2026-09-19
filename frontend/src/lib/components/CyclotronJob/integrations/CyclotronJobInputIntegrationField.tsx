@@ -20,6 +20,7 @@ import {
 } from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { TwilioPhoneNumberPicker } from 'lib/integrations/TwilioIntegrationHelpers'
+import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
@@ -95,6 +96,16 @@ export function CyclotronJobInputIntegrationField({
         return (
             <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
                 Configure {relatedSchemaIntegration.label} to continue
+            </div>
+        )
+    }
+    // The pickers below call kind-specific endpoints, so an integration of another kind left over
+    // from an earlier configuration would fail the request instead of loading any options.
+    if (relatedSchemaIntegration.integration && integration.kind !== relatedSchemaIntegration.integration) {
+        return (
+            <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
+                Select a {getIntegrationNameFromKind(relatedSchemaIntegration.integration)} integration in{' '}
+                {relatedSchemaIntegration.label} to continue
             </div>
         )
     }
