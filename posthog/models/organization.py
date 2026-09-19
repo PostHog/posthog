@@ -2,6 +2,7 @@ import sys
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
+from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -17,6 +18,9 @@ from django.utils.translation import gettext_lazy as _
 
 import structlog
 import dateutil.parser
+import redis.exceptions
+from django_redis.exceptions import ConnectionInterrupted
+from prometheus_client import Counter
 from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
@@ -959,10 +963,48 @@ def sync_billing_on_membership_save(sender, instance: OrganizationMembership, cr
     transaction.on_commit(_sync_if_org_exists)
 
 
+# django-redis wraps the underlying redis error in ConnectionInterrupted, but a backend can also
+# surface the raw redis error or the builtin socket errors under OSError.
+ORGANIZATION_SESSION_AGE_CACHE_ERRORS = (
+    ConnectionInterrupted,
+    redis.exceptions.RedisError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
+
+ORGANIZATION_SESSION_AGE_CACHE_FAILURES = Counter(
+    "organization_session_age_cache_failures",
+    "Cache reads and writes of an organization session cookie age that failed and were ignored.",
+    labelnames=["operation"],
+)
+
+
+def _organization_session_age_key(organization_id: UUID) -> str:
+    return f"org_session_age:{organization_id}"
+
+
+def get_organization_session_age(organization_id: UUID) -> int | None:
+    """Read the cached session cookie age. Returns None when the cache has no value or is unreachable."""
+    try:
+        return cache.get(_organization_session_age_key(organization_id))
+    except ORGANIZATION_SESSION_AGE_CACHE_ERRORS as e:
+        ORGANIZATION_SESSION_AGE_CACHE_FAILURES.labels(operation="read").inc()
+        logger.warning("organization_session_age_cache_error", organization_id=str(organization_id), error=str(e))
+        return None
+
+
 @receiver(post_save, sender=Organization)
 def cache_organization_session_age(sender, instance, **kwargs):
     """Cache organization's session_cookie_age in Redis when it changes."""
-    if instance.session_cookie_age is not None:
-        cache.set(f"org_session_age:{instance.id}", instance.session_cookie_age)
-    else:
-        cache.delete(f"org_session_age:{instance.id}")
+    key = _organization_session_age_key(instance.id)
+    # The cached value is best-effort: readers fall back to settings.SESSION_COOKIE_AGE. A cache
+    # error must not propagate, because this receiver runs inside every Organization.save().
+    try:
+        if instance.session_cookie_age is not None:
+            cache.set(key, instance.session_cookie_age)
+        else:
+            cache.delete(key)
+    except ORGANIZATION_SESSION_AGE_CACHE_ERRORS as e:
+        ORGANIZATION_SESSION_AGE_CACHE_FAILURES.labels(operation="write").inc()
+        logger.warning("organization_session_age_cache_error", organization_id=str(instance.id), error=str(e))
