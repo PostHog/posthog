@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -624,3 +625,13 @@ class TestActionRegistrationAndIntegration(APIBaseTest):
             response.json()
             change_request = ChangeRequest.objects.filter(action_key="feature_flag.enable").first()
             assert change_request is not None
+
+
+class TestUpdateActionCopyMatchesGate(SimpleTestCase):
+    def test_gate_scope_matches_the_copy_shown_to_policy_authors(self):
+        assert set(UpdateFeatureFlagAction.GATEABLE_FIELDS) == {"rollout_percentage"}
+        assert UpdateFeatureFlagAction.description == "Update feature flag rollout percentage", (
+            "The gate compares only the fields in GATEABLE_FIELDS. If you widen it, say so in this "
+            "description and in APPROVAL_ACTIONS in frontend/src/scenes/approvals/utils.ts, or policy "
+            "authors get a gate that is narrower than its label."
+        )

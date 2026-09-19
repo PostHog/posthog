@@ -372,11 +372,12 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
 
 
 class UpdateFeatureFlagAction(BaseAction):
-    """Gate feature flag field-level updates based on policy conditions."""
+    """Gate feature flag rollout percentage changes based on policy conditions."""
 
     key = "feature_flag.update"
     version = 1
-    description = "Update feature flag fields"
+    # The policy picker in frontend/src/scenes/approvals/utils.ts repeats this scope to policy authors.
+    description = "Update feature flag rollout percentage"
     resource_type = "feature_flag"
     endpoint_serializer_class = FeatureFlagSerializer
 
