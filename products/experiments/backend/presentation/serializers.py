@@ -1283,6 +1283,7 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
     description = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=3000,
         help_text="Optional experiment description.",
     )
 
