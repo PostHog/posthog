@@ -106,6 +106,7 @@ def _initialize_worker_metrics() -> None:
     adding one here cannot be silently skipped by another's early return.
     """
     _initialize_liveness_alerted_task_series()
+    _initialize_hypercache_verification_last_success()
     _initialize_cohort_backlog_metric()
 
 
@@ -121,6 +122,18 @@ def _initialize_liveness_alerted_task_series() -> None:
                 counter.labels(task_name=task_name)
     except Exception:
         logger.warning("failed_to_initialize_task_metric_series", exc_info=True)
+
+
+def _initialize_hypercache_verification_last_success() -> None:
+    # The cache verification sweeps stamp their last completed run in the shared cache, and
+    # every worker republishes those stamps here. Their liveness alerts then read a value a
+    # rollout cannot reset, unlike the per-pod celery success counters seeded above.
+    try:
+        from posthog.tasks.hypercache_verification import publish_last_verification_success
+
+        publish_last_verification_success()
+    except Exception:
+        logger.warning("failed_to_initialize_hypercache_verification_metrics", exc_info=True)
 
 
 def _initialize_cohort_backlog_metric() -> None:

@@ -7,8 +7,12 @@ Tests cover:
 - Tasks skip when FLAGS_REDIS_URL not configured
 """
 
+import time
+from collections.abc import Callable
+
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache as django_cache
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -18,12 +22,26 @@ from prometheus_client import REGISTRY
 from posthog.storage.hypercache_verifier import TeamBatchFetchError, VerificationResult
 from posthog.tasks.hypercache_verification import (
     DEADLINE_HEADROOM_SECONDS,
+    HYPERCACHE_VERIFICATION_LAST_SUCCESS_GAUGE,
+    publish_last_verification_success,
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
 from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 from posthog.tasks.utils import CeleryQueue
+
+
+def _last_success_key(cache_type: str) -> str:
+    return f"posthog:hypercache_verification:last_success:{cache_type}"
+
+
+def _last_success_gauge(cache_type: str) -> float | None:
+    """Current value of the last-success gauge in the default registry."""
+    return REGISTRY.get_sample_value(
+        "posthog_hypercache_verification_last_success_timestamp_seconds",
+        {"cache_type": cache_type},
+    )
 
 
 def _incomplete_runs(cache_type: str, reason: str) -> float:
@@ -370,3 +388,61 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
             mock_run_verification.assert_not_called()
         finally:
             django_cache.delete(lock_key)
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestLastVerificationSuccessStamp(PushGatewayTaskTestMixin, SimpleTestCase):
+    """The stamp these tasks leave is what the sweep liveness alerts read. A stamp that stops
+    being written reads as a stalled sweep, and one written on a failed run hides a real stall,
+    so both directions are covered here."""
+
+    TASKS = [
+        ("flags", verify_and_fix_flags_cache_task),
+        ("team_metadata", verify_and_fix_team_metadata_cache_task),
+        ("flag_definitions", verify_and_fix_flag_definitions_cache_task),
+    ]
+
+    def tearDown(self) -> None:
+        for cache_type, _ in self.TASKS:
+            django_cache.delete(_last_success_key(cache_type))
+        super().tearDown()
+
+    @parameterized.expand(TASKS)
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_completed_run_stamps_the_gauge_and_the_shared_cache(
+        self, cache_type: str, task: Callable[[], None], mock_run_verification: MagicMock
+    ) -> None:
+        mock_run_verification.return_value = VerificationResult()
+        started_at = time.time()
+
+        task()
+
+        stamp = django_cache.get(_last_success_key(cache_type))
+        assert stamp is not None and stamp >= started_at
+        assert _last_success_gauge(cache_type) == stamp
+
+    @parameterized.expand(TASKS)
+    @patch("posthog.tasks.hypercache_verification.capture_exception")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_failed_run_leaves_the_previous_stamp_alone(
+        self, cache_type: str, task: Callable[[], None], mock_run_verification: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_run_verification.side_effect = Exception("verification failed")
+        earlier_run = 1_700_000_000.0
+        django_cache.set(_last_success_key(cache_type), earlier_run, timeout=60)
+        HYPERCACHE_VERIFICATION_LAST_SUCCESS_GAUGE.labels(cache_type=cache_type).set(earlier_run)
+
+        with self.assertRaises(Exception):
+            task()
+
+        assert django_cache.get(_last_success_key(cache_type)) == earlier_run
+        assert _last_success_gauge(cache_type) == earlier_run
+
+    def test_worker_boot_republishes_the_stored_stamp(self) -> None:
+        earlier_run = 1_700_000_000.0
+        django_cache.set(_last_success_key("flag_definitions"), earlier_run, timeout=60)
+        HYPERCACHE_VERIFICATION_LAST_SUCCESS_GAUGE.labels(cache_type="flag_definitions").set(0)
+
+        publish_last_verification_success()
+
+        assert _last_success_gauge("flag_definitions") == earlier_run

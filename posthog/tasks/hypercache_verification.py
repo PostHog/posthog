@@ -18,7 +18,7 @@ from django.core.cache import cache as django_cache
 import structlog
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 
 from posthog.celery_task_names import (
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
@@ -75,12 +75,32 @@ HYPERCACHE_VERIFICATION_INCOMPLETE_RUNS_COUNTER = Counter(
     labelnames=["cache_type", "reason"],
 )
 
+_ALL_CACHE_TYPES = (*get_args(CacheType), FLAG_DEFINITIONS_CACHE_TYPE)
+
 # Pre-create every label pair so zero-valued series exist from worker boot: increase()
 # never misses a series' first increment, and alert expressions can be validated
 # against live series before any incident occurs.
-for _cache_type in (*get_args(CacheType), FLAG_DEFINITIONS_CACHE_TYPE):
+for _cache_type in _ALL_CACHE_TYPES:
     for _reason in get_args(IncompleteRunReason):
         HYPERCACHE_VERIFICATION_INCOMPLETE_RUNS_COUNTER.labels(cache_type=_cache_type, reason=_reason)
+
+# Unix time of the last run that returned without raising, which is the same event
+# posthog_celery_task_success_total counts. Liveness alerts read this gauge instead of that
+# counter because the counter lives in the worker process: a rollout replaces every pod, the
+# fleet's series restart at zero, and a healthy sweep then reads the same as a stopped one
+# until its next run completes. The stamp is kept in the shared cache and republished at
+# worker boot, so a rollout leaves it untouched.
+HYPERCACHE_VERIFICATION_LAST_SUCCESS_GAUGE = Gauge(
+    "posthog_hypercache_verification_last_success_timestamp_seconds",
+    "Unix time of the last verification run that returned without raising",
+    labelnames=["cache_type"],
+    multiprocess_mode="max",
+)
+
+_LAST_SUCCESS_KEY_PREFIX = "posthog:hypercache_verification:last_success:"
+# Bounds an abandoned key only. A running sweep re-stamps its key every cycle, and a gap
+# long enough to expire the key is many times longer than any alert window.
+_LAST_SUCCESS_TTL_SECONDS = 30 * 24 * 60 * 60
 
 _FIX_ISSUE_TYPES = ("cache_miss", "cache_mismatch", "expiry_missing")
 # Only the flags cache has a second writer (the Rust Kafka builder); the other
@@ -88,7 +108,7 @@ _FIX_ISSUE_TYPES = ("cache_miss", "cache_mismatch", "expiry_missing")
 # publish zero-valued series that can never increment.
 _FIX_WRITERS_BY_CACHE_TYPE = {
     cache_type: ("python", "rust", "unknown") if cache_type == "flags" else ("python",)
-    for cache_type in (*get_args(CacheType), FLAG_DEFINITIONS_CACHE_TYPE)
+    for cache_type in _ALL_CACHE_TYPES
 }
 # Same pre-creation rationale as above. It matters most for writer="rust": a
 # rust-attributed fix is the rare parity signal the Kafka-builder ramp gates on,
@@ -101,6 +121,37 @@ for _cache_type, _writers in _FIX_WRITERS_BY_CACHE_TYPE.items():
 
 def _record_incomplete_run(cache_type: str, reason: IncompleteRunReason) -> None:
     HYPERCACHE_VERIFICATION_INCOMPLETE_RUNS_COUNTER.labels(cache_type=cache_type, reason=reason).inc()
+
+
+def _last_success_key(cache_type: str) -> str:
+    return f"{_LAST_SUCCESS_KEY_PREFIX}{cache_type}"
+
+
+def _record_successful_run(cache_type: str) -> None:
+    """Stamp the run that just returned, in the gauge and in the shared cache.
+
+    Never raises. A cache that cannot hold the stamp must not turn a completed sweep into a
+    failed task; the gauge on this pod still carries the run until the pod is replaced.
+    """
+    completed_at = time.time()
+    HYPERCACHE_VERIFICATION_LAST_SUCCESS_GAUGE.labels(cache_type=cache_type).set(completed_at)
+    try:
+        django_cache.set(_last_success_key(cache_type), completed_at, timeout=_LAST_SUCCESS_TTL_SECONDS)
+    except Exception:
+        logger.warning("Failed to store last cache verification success", cache_type=cache_type, exc_info=True)
+
+
+def publish_last_verification_success() -> None:
+    """Republish the stamps on a worker that has just booted.
+
+    Every worker publishes them, so the alert takes the newest stamp across the fleet and a
+    rollout that replaces every pod never reads as a stalled sweep. A cache type that has no
+    stamp yet publishes no series, which keeps the alert dormant until the first run lands.
+    """
+    for cache_type in _ALL_CACHE_TYPES:
+        completed_at = django_cache.get(_last_success_key(cache_type))
+        if completed_at is not None:
+            HYPERCACHE_VERIFICATION_LAST_SUCCESS_GAUGE.labels(cache_type=cache_type).set(completed_at)
 
 
 def _log_batch_fetch_exhausted(cache_type: str, start_time: float, error: TeamBatchFetchError) -> None:
@@ -273,11 +324,13 @@ def verify_and_fix_flags_cache_task(self: PushGatewayTask) -> None:
     30-minute schedule so a run always finishes before the next one is due.
 
     Metrics: posthog_hypercache_verify_fixes_total{cache_type="flags", issue_type="...", writer="..."},
-    posthog_hypercache_verification_incomplete_runs_total{cache_type="flags", reason="..."}
+    posthog_hypercache_verification_incomplete_runs_total{cache_type="flags", reason="..."},
+    posthog_hypercache_verification_last_success_timestamp_seconds{cache_type="flags"}
     """
     _run_cache_verification(
         "flags", settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE, self.soft_time_limit, self.time_limit
     )
+    _record_successful_run("flags")
 
 
 @shared_task(
@@ -300,11 +353,13 @@ def verify_and_fix_team_metadata_cache_task(self: PushGatewayTask) -> None:
     Expected duration: ~15-20 minutes (observed 2026-08-19).
 
     Metrics: posthog_hypercache_verify_fixes_total{cache_type="team_metadata", issue_type="..."},
-    posthog_hypercache_verification_incomplete_runs_total{cache_type="team_metadata", reason="..."}
+    posthog_hypercache_verification_incomplete_runs_total{cache_type="team_metadata", reason="..."},
+    posthog_hypercache_verification_last_success_timestamp_seconds{cache_type="team_metadata"}
     """
     _run_cache_verification(
         "team_metadata", settings.TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE, self.soft_time_limit, self.time_limit
     )
+    _record_successful_run("team_metadata")
 
 
 @shared_task(
@@ -330,6 +385,8 @@ def verify_and_fix_flag_definitions_cache_task(self: PushGatewayTask) -> None:
     at the deadline if it runs long, and the every-minute self-heal drain covers gaps.
 
     Metrics: posthog_hypercache_verify_fixes_total{cache_type="flag_definitions", issue_type="..."},
-    posthog_hypercache_verification_incomplete_runs_total{cache_type="flag_definitions", reason="..."}
+    posthog_hypercache_verification_incomplete_runs_total{cache_type="flag_definitions", reason="..."},
+    posthog_hypercache_verification_last_success_timestamp_seconds{cache_type="flag_definitions"}
     """
     _run_flag_definitions_verification(self.soft_time_limit, self.time_limit)
+    _record_successful_run(FLAG_DEFINITIONS_CACHE_TYPE)
