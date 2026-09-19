@@ -22,7 +22,8 @@
 //!
 //! The module also normalizes legacy untagged payloads ([`normalize_legacy_tags`]):
 //! SDKs from before the stacktrace `type` and frame `platform` tags existed need
-//! those tags added before typed parsing.
+//! those tags added before typed parsing. That normalization is keyed on `$lib`
+//! too, because frame shape alone does not identify the language.
 
 use std::sync::OnceLock;
 
@@ -266,9 +267,16 @@ pub fn legacy_wire_order(
     Some(legacy)
 }
 
-// Keys only python frames carry on the wire. posthog-python < 3.8.0 sent frames without
-// a platform tag, so any of these keys is what identifies such a frame. The list mirrors
-// the serde field names of `RawPythonFrame` (core/types/langs/python.rs) — keep in sync.
+// The only `$lib` that sent untagged frames we can classify. Frame shape alone does not
+// identify the language: `RawRubyFrame` and `RawJavaFrame` carry most of the keys below,
+// so a shape-only rule labels a ruby or java frame python. The rule sits outside the
+// `lib_rules` table because it runs before typed parsing, not on a parsed list.
+const LEGACY_PYTHON_LIB: &str = "posthog-python";
+
+// Keys a legacy untagged python frame carries on the wire. posthog-python < 3.8.0 sent
+// frames without a platform tag, so any of these keys, on a payload from that SDK, is what
+// identifies such a frame. The list mirrors the serde field names of `RawPythonFrame`
+// (core/types/langs/python.rs) — keep in sync.
 const LEGACY_PYTHON_FRAME_KEYS: &[&str] = &[
     "abs_path",
     "context_line",
@@ -281,18 +289,20 @@ const LEGACY_PYTHON_FRAME_KEYS: &[&str] = &[
 /// typed parsing. posthog-python only added the `"type": "raw"` stacktrace tag and the
 /// frame `platform` tag in 3.8.0; `Stacktrace` and `RawFrame` parse both as serde-tagged
 /// enums, so an untagged payload would otherwise fail with a missing-field error and
-/// never become an issue. An untagged stacktrace is tagged raw. An untagged frame in a
-/// raw stacktrace is tagged python only when a python-only key identifies it — other
-/// frame shapes overlap too much to classify safely, so any other untagged frame keeps
-/// failing typed parsing.
+/// never become an issue. An untagged stacktrace is tagged raw, whatever the SDK. An
+/// untagged frame in a raw stacktrace is tagged python only when the payload comes from
+/// posthog-python and a python frame key identifies it — any other untagged frame keeps
+/// failing typed parsing, which is better than an issue whose frames claim the wrong
+/// language.
 ///
 /// This runs once, at the processing-ingest boundary (`TryFrom<AnyEvent>`). Every other
 /// parse site of these types consumes cymbal-serialized JSON, which always carries the
 /// tags.
-pub fn normalize_legacy_tags(exception_list: &mut Value) {
+pub fn normalize_legacy_tags(exception_list: &mut Value, lib: Option<&str>) {
     let Some(exceptions) = exception_list.as_array_mut() else {
         return;
     };
+    let tag_python_frames = lib == Some(LEGACY_PYTHON_LIB);
     for exception in exceptions {
         let Some(stacktrace) = exception
             .get_mut("stacktrace")
@@ -302,6 +312,9 @@ pub fn normalize_legacy_tags(exception_list: &mut Value) {
         };
         if !stacktrace.contains_key("type") {
             stacktrace.insert("type".to_string(), Value::String("raw".to_string()));
+        }
+        if !tag_python_frames {
+            continue;
         }
         // Only raw stacktraces can carry untagged legacy frames. Resolved frames
         // legitimately carry keys like `module`, and must not get a platform tag.
@@ -790,34 +803,34 @@ mod test {
         assert_eq!(parse_lenient(""), None);
     }
 
-    // The shape posthog-python < 3.8.0 emits: no "type" on the stacktrace and no
-    // "platform" on the frames. Written fresh, not copied from captured data.
-    const LEGACY_PYTHON_EXCEPTION_LIST: &str = r#"[
-        {
-            "type": "ConnectionError",
-            "value": "connection refused",
-            "stacktrace": {
-                "frames": [
-                    {
-                        "abs_path": "/app/example/service.py",
-                        "context_line": "    connect()",
-                        "filename": "example/service.py",
-                        "function": "start",
-                        "lineno": 12,
-                        "module": "example.service",
-                        "pre_context": [],
-                        "post_context": [],
-                        "in_app": true
-                    }
-                ]
-            }
-        }
-    ]"#;
+    // A frame as posthog-python < 3.8.0 sent it, with no "platform" tag. Ruby frames
+    // carry every key here but `module`, and java frames carry `module` too, which is why
+    // the classifier reads `$lib` and not the shape. Written fresh, not copied from
+    // captured data.
+    const LEGACY_PYTHON_FRAME: &str = r#"{
+        "abs_path": "/app/example/service.py",
+        "context_line": "    connect()",
+        "filename": "example/service.py",
+        "function": "start",
+        "lineno": 12,
+        "module": "example.service",
+        "pre_context": [],
+        "post_context": [],
+        "in_app": true
+    }"#;
+
+    // A legacy payload: the stacktrace carries no "type" either.
+    fn exception_list_with_frame(frame: &str) -> Value {
+        serde_json::from_str(&format!(
+            r#"[{{"type": "ConnectionError", "value": "connection refused", "stacktrace": {{"frames": [{frame}]}}}}]"#
+        ))
+        .unwrap()
+    }
 
     #[test]
     fn tags_a_legacy_python_exception_list_so_it_parses() {
-        let mut value: Value = serde_json::from_str(LEGACY_PYTHON_EXCEPTION_LIST).unwrap();
-        normalize_legacy_tags(&mut value);
+        let mut value = exception_list_with_frame(LEGACY_PYTHON_FRAME);
+        normalize_legacy_tags(&mut value, Some("posthog-python"));
         let list: ExceptionList = serde_json::from_value(value).unwrap();
         let Some(Stacktrace::Raw { frames }) = &list[0].stack else {
             panic!("expected a raw stacktrace");
@@ -847,23 +860,30 @@ mod test {
             }
         ]"#;
         let mut value: Value = serde_json::from_str(raw).unwrap();
-        normalize_legacy_tags(&mut value);
+        normalize_legacy_tags(&mut value, Some("posthog-python"));
         assert_eq!(value[0]["stacktrace"]["frames"][0].get("platform"), None);
     }
 
     #[test]
+    fn leaves_untagged_frames_from_other_sdks_unclassified() {
+        for lib in [Some("posthog-ruby"), Some("posthog-android"), None] {
+            let mut value = exception_list_with_frame(LEGACY_PYTHON_FRAME);
+            normalize_legacy_tags(&mut value, lib);
+            assert_eq!(
+                value[0]["stacktrace"]["frames"][0].get("platform"),
+                None,
+                "a {lib:?} frame was classified"
+            );
+            assert!(serde_json::from_value::<ExceptionList>(value).is_err());
+        }
+    }
+
+    #[test]
     fn leaves_untagged_frames_without_python_markers_unclassified() {
-        let raw = r#"[
-            {
-                "type": "Error",
-                "value": "boom",
-                "stacktrace": {
-                    "frames": [{"filename": "app.js", "function": "main", "lineno": 3, "colno": 7}]
-                }
-            }
-        ]"#;
-        let mut value: Value = serde_json::from_str(raw).unwrap();
-        normalize_legacy_tags(&mut value);
+        let mut value = exception_list_with_frame(
+            r#"{"filename": "app.js", "function": "main", "lineno": 3, "colno": 7}"#,
+        );
+        normalize_legacy_tags(&mut value, Some("posthog-python"));
         assert!(serde_json::from_value::<ExceptionList>(value).is_err());
     }
 }
