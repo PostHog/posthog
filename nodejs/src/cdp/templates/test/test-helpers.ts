@@ -431,6 +431,12 @@ export class TemplateTester {
         return result
     }
 
+    async executeFetch(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        return this.hogExecutor.executeFetch(invocation)
+    }
+
     logsForSnapshot(logs: MinimalLogEntry[]): MinimalLogEntry[] {
         return logs.map((x) => {
             if (typeof x.message === 'string' && x.message.includes('Function completed in')) {

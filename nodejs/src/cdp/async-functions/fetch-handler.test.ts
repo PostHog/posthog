@@ -8,7 +8,7 @@ describe('fetch handler', () => {
     const callFetch = async (
         fetchOptions: Record<string, any>
     ): Promise<CyclotronInvocationQueueParametersFetchType> => {
-        const result = { invocation: {} } as CyclotronJobInvocationResult<any>
+        const result = { invocation: { state: { globals: {} } } } as CyclotronJobInvocationResult<any>
         await getAsyncFunctionHandler('fetch')!.execute(['https://example.com', fetchOptions], {} as any, result)
         return result.invocation.queueParameters as CyclotronInvocationQueueParametersFetchType
     }
@@ -23,5 +23,11 @@ describe('fetch handler', () => {
         expect(first.standard_webhooks?.secret_input).toBe('signing_secret')
         expect(first.standard_webhooks?.webhook_id).toBeTruthy()
         expect(second.standard_webhooks?.webhook_id).not.toBe(first.standard_webhooks?.webhook_id)
+    })
+
+    it('keeps a bearer token reference for resolution when the request is sent', async () => {
+        const params = await callFetch({ bearer_token_input: 'api_key' })
+        expect(params.bearer_token_input).toBe('api_key')
+        expect(params.headers).not.toHaveProperty('Authorization')
     })
 })

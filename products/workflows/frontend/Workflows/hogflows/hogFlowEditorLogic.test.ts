@@ -1,9 +1,12 @@
+import './registry/actions/typesafe'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
-import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { CreateActionType, computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { getRegisteredActionNodeCategories } from './registry/actions/actionNodeRegistry'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -182,6 +185,36 @@ describe('hogFlowEditorLogic', () => {
         logic.actions.setSelectedNodeId(action.id)
 
         expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
+    })
+
+    it.each([false, true])('creates numeric confidence and preserves existing variables (%s)', (existing) => {
+        const node = getRegisteredActionNodeCategories({ 'typesafe-workflow': true })
+            .flatMap((category) => category.nodes)
+            .find((node) => node.name === 'Classify with TypeSafe') as CreateActionType
+        const retained = {
+            key: 'typesafe_category',
+            type: 'string' as const,
+            label: 'Saved category',
+            default: 'other',
+        }
+        workflowLogic().actions.setWorkflowInfo({
+            ...NEW_WORKFLOW,
+            variables: existing ? [retained] : [],
+        })
+        logic.actions.setNodeToBeAdded(node)
+        logic.actions.onDrop(undefined, edge(TRIGGER_NODE_ID, EXIT_NODE_ID, 'continue'))
+
+        expect(logic.values.workflow.variables).toEqual([
+            existing ? retained : { key: 'typesafe_category', type: 'string', label: 'TypeSafe category', default: '' },
+            { key: 'typesafe_confidence', type: 'number', label: 'TypeSafe confidence', default: 0 },
+        ])
+        expect(logic.values.workflow.actions.find((action) => action.type === 'function')).toMatchObject({
+            config: { template_id: 'template-typesafe-classify' },
+            output_variable: node.output_variable,
+        })
+        expect(
+            getRegisteredActionNodeCategories({ 'typesafe-workflow': false }).flatMap((category) => category.nodes)
+        ).not.toContain(node)
     })
 
     it('duplicates a linear step below itself', () => {
