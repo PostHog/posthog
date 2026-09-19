@@ -20,6 +20,7 @@ from posthog.hogql.printer.postgres_functions import (
 )
 
 from posthog.uuidt import UUIDT
+from posthog.week_start_day import WeekStartDay
 
 # Regex for validating function names — only alphanumeric and underscores allowed.
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
@@ -316,7 +317,7 @@ class PostgresPrinter(BasePrinter):
 
         if node.name == "toStartOfWeek":
             if len(node.args) == 1:
-                week_mode = 0 if self._get_week_start_day().name == "SUNDAY" else 3
+                week_mode = 0 if self._get_week_start_day() == WeekStartDay.SUNDAY else 3
             elif len(node.args) == 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, int):
                 week_mode = node.args[1].value
             else:
