@@ -77,7 +77,9 @@ def get_overview_for_team(
         filterTestAccounts=True,
         properties=[],
     )
-    runner = WebOverviewQueryRunner(team=team, query=query)
+    # A userless build is the Temporal digest, whose access boundary is the recipient list, so it
+    # reads warehouse-backed goals. A build for a requesting user stays access-controlled.
+    runner = WebOverviewQueryRunner(team=team, query=query, bypass_warehouse_access_control=user is None)
     response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
 
     items_by_key = {item.key: item for item in response.results}
@@ -161,7 +163,7 @@ def _run_stats_table_query(
         filterTestAccounts=True,
         properties=[],
     )
-    runner = WebStatsTableQueryRunner(team=team, query=query)
+    runner = WebStatsTableQueryRunner(team=team, query=query, bypass_warehouse_access_control=user is None)
     return _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
 
 
@@ -232,7 +234,7 @@ def get_goals_for_team(
             compareFilter=CompareFilter(compare=compare),
             properties=[],
         )
-        runner = WebGoalsQueryRunner(team=team, query=query)
+        runner = WebGoalsQueryRunner(team=team, query=query, bypass_warehouse_access_control=user is None)
         response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
     except NoActionsError:
         return []

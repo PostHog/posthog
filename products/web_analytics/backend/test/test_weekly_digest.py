@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -23,6 +23,8 @@ from posthog.models import Team
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError
 from products.web_analytics.backend.weekly_digest import (
     _default_overview,
@@ -411,6 +413,49 @@ class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
         assert len(result) >= 1
         goal = next(g for g in result if g["name"] == "Signed Up")
         assert goal["conversions"] >= 1
+
+    @patch(
+        "posthoganalytics.feature_enabled",
+        new=Mock(side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control"),
+    )
+    def test_userless_digest_reads_a_goal_that_filters_on_a_warehouse_table(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="subscriptions",
+            query={"kind": "HogQLQuery", "query": "SELECT 'a@example.com' AS customer_email, 'pro' AS plan"},
+            columns={"customer_email": "String", "plan": "String"},
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="subscriptions",
+            joining_table_key="customer_email",
+            field_name="subscriptions",
+        )
+        Action.objects.create(
+            team=self.team,
+            name="Subscribed",
+            steps_json=[
+                {
+                    "event": "signed_up",
+                    "properties": [
+                        {
+                            "type": "data_warehouse_person_property",
+                            "key": "subscriptions.plan",
+                            "value": "pro",
+                            "operator": "exact",
+                        }
+                    ],
+                }
+            ],
+            last_calculated_at=timezone.now(),
+        )
+
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
+            result = get_goals_for_team(self.team)
+
+        assert [goal["name"] for goal in result] == ["Subscribed"]
 
 
 class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
