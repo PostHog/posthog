@@ -139,6 +139,7 @@ import {
     toConcurrencyPayload,
     toFlagVariantsInput,
     withoutProjectedFlagConfig,
+    withoutUnitlessConversionWindow,
 } from './utils'
 
 export const FORM_MODES = {
@@ -1746,7 +1747,7 @@ export const experimentLogic = kea<experimentLogicType>([
                           ? `${getDefaultMetricTitle(originalMetric)} (copy)`
                           : undefined
 
-                    const newMetric = { ...originalMetric, uuid: newUuid, name }
+                    const newMetric = withoutUnitlessConversionWindow({ ...originalMetric, uuid: newUuid, name })
                     metrics.splice(originalIndex + 1, 0, newMetric)
 
                     return {
@@ -1771,11 +1772,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     const query = savedMetric.query
                     const name = `${savedMetric.name || getDefaultMetricTitle(query)} (copy)`
 
-                    const newMetric = {
+                    const newMetric = withoutUnitlessConversionWindow({
                         ...resolveSharedMetric(savedMetric),
                         uuid: newUuid,
                         name,
-                    }
+                    })
                     metrics.push(newMetric)
 
                     return {
@@ -2600,7 +2601,19 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             try {
                 await updatePromise
-            } catch {
+            } catch (error: any) {
+                // A rejected metric list left in local state is resent by every later metrics save,
+                // and fails the same way until the page reloads. Not after a conflict: the loader
+                // has already rebased local state on the server's.
+                if (!isExperimentConflictError(error) && values.unmodifiedExperiment) {
+                    const saved = structuredClone(values.unmodifiedExperiment)
+                    actions.setExperiment({
+                        metrics: saved.metrics,
+                        metrics_secondary: saved.metrics_secondary,
+                        primary_metrics_ordered_uuids: saved.primary_metrics_ordered_uuids,
+                        secondary_metrics_ordered_uuids: saved.secondary_metrics_ordered_uuids,
+                    })
+                }
                 return
             }
 
