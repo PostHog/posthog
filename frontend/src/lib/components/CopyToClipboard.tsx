@@ -63,6 +63,8 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
             className={iconMargin ? 'ml-1' : undefined}
             data-attr="copy-icon"
             onClick={selectable || !children ? copy : undefined}
+            // without children the button is the only element rendered, so it carries the caller's props
+            {...(children ? {} : props)}
         />
     )
 

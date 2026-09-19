@@ -48,6 +48,16 @@ describe('parseUrl', () => {
             expected: { urlToUse: undefined, isValidUrl: false, isWebUrl: false },
         },
         {
+            name: 'synthesized unknown href',
+            input: 'unknown',
+            expected: { urlToUse: undefined, isValidUrl: false, isWebUrl: false },
+        },
+        {
+            name: 'location object with synthesized unknown href',
+            input: { href: ' unknown ' },
+            expected: { urlToUse: undefined, isValidUrl: false, isWebUrl: false },
+        },
+        {
             name: 'invalid URL',
             input: 'not-a-url',
             expected: { urlToUse: 'not-a-url', isValidUrl: false, isWebUrl: false },
