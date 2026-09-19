@@ -41,6 +41,13 @@ else
     export GRANIAN_LOOP=${GRANIAN_LOOP:-uvloop}
 fi
 
+# setpriv keeps the environment, so HOME would stay /root, which the dropped user
+# cannot read. libpq then fails every Postgres connection on the unreadable
+# $HOME/.postgresql client cert. Give the app a home directory it can traverse.
+APP_HOME=$(mktemp -d)
+chmod 755 "$APP_HOME"
+export HOME=$APP_HOME
+
 # The container runs as root, so drop the application itself to an unprivileged
 # user. PROMETHEUS_MULTIPROC_DIR is world-writable and the ports are >1024.
 DROP_PRIVILEGES="setpriv --reuid=nobody --regid=nogroup --clear-groups"
@@ -48,6 +55,6 @@ DROP_PRIVILEGES="setpriv --reuid=nobody --regid=nogroup --clear-groups"
 $DROP_PRIVILEGES python ./bin/granian_metrics.py &
 METRICS_PID=$!
 
-trap 'kill $METRICS_PID 2>/dev/null; rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+trap 'kill $METRICS_PID 2>/dev/null; rm -rf "$PROMETHEUS_MULTIPROC_DIR" "$APP_HOME"' EXIT
 
 exec $DROP_PRIVILEGES granian "$APP_TARGET"
