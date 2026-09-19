@@ -394,6 +394,12 @@ def _validate_event(ev: dict[str, Any], *, event_source: str, ai_lane: bool) -> 
             f"{fn} ({event_source}): '{event_name}' is a replay event; use the replay capture path"
         )
 
+    # Normalization would otherwise fail on these inside a worker, after other chunks published.
+    for key in ("properties", "options"):
+        value = ev.get(key)
+        if value is not None and not isinstance(value, dict):
+            raise CaptureInternalError(f"{fn} ({event_source}, {event_name}): {key} must be a dict")
+
     distinct_id: str = ev.get("distinct_id", "")
     if not distinct_id:
         props = ev.get("properties") or {}

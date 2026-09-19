@@ -1480,6 +1480,27 @@ class TestAiLaneRouting(SimpleTestCase):
         assert spy.calls[0]["url"] == EXPECTED_AI_URL
         assert spy.calls[0]["json"]["historical_migration"] is True
 
+    @parameterized.expand([("properties", ["invalid"]), ("options", "not-a-dict")])
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 1)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_non_dict_event_field_is_rejected_before_any_chunk_publishes(
+        self, key: str, bad_value: Any, mock_session_fn: MagicMock
+    ) -> None:
+        # Normalization runs per chunk inside a worker; a field it cannot read must
+        # fail the whole batch up front, not after an earlier chunk already landed.
+        good_uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(good_uid))])
+        events = [
+            _make_event(event="$pageview", event_uuid=good_uid),
+            {**_make_event(event="$ai_generation", distinct_id="u2"), key: bad_value},
+        ]
+
+        with self.assertRaises(CaptureInternalError) as ctx:
+            capture_batch_internal(events=events, token="tok", event_source="src")
+
+        assert f"capture_internal (src, $ai_generation): {key} must be a dict" in str(ctx.exception)
+        assert spy.calls == []
+
     @parameterized.expand(
         [("same_lane", "$ai_generation", "$ai_span"), ("across_lanes", "$ai_generation", "$pageview")]
     )
