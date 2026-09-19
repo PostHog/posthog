@@ -419,6 +419,43 @@ describe('LemonInputSelect', () => {
 
     it.each([
         {
+            name: 'commits it unchanged when the text was not touched',
+            typed: '',
+            expected: ['Acme Corp '],
+        },
+        {
+            name: 'trims what the person typed over it',
+            typed: '  Other Corp  ',
+            expected: ['Other Corp'],
+        },
+    ])('multiple-select mode: editing a value snack $name', async ({ typed, expected }) => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                options={[{ key: 'Acme Corp ', label: 'Acme Corp ' }]}
+                value={['Acme Corp ']}
+                onChange={onChange}
+                allowCustomValues
+            />
+        )
+
+        // Clicking the snack's text opens it for editing, seeding the input with its value
+        await userEvent.click(container.querySelector('[title="Acme Corp "]')!)
+        const input = container.querySelector('input[type="text"]') as HTMLInputElement
+        expect(input.value).toBe('Acme Corp ')
+        if (typed) {
+            await userEvent.clear(input)
+            await userEvent.type(input, typed)
+        }
+        await userEvent.click(document.body)
+
+        expect(onChange).toHaveBeenLastCalledWith(expected)
+    })
+
+    it.each([
+        {
             name: 'adds nothing when the limit is reached',
             keys: '{ArrowDown}{ArrowDown}{Enter}',
             expectedSelections: [],
