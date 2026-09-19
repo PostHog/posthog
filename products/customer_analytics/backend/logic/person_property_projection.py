@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.facade.hooks import (
     PersonPropertySourceProjection,
     PersonPropertySyncSource,
     WarehouseBinding,
+    warehouse_column_root,
 )
 
 
@@ -84,7 +85,11 @@ def person_property_projection(team_id: int, binding: WarehouseBinding) -> list[
     return [
         PersonPropertySourceProjection(
             key_column=source.key_column,
-            columns=frozenset({source.key_column, *(source.column_property_map or {}).keys()}),
+            # A mapped key may be a dotted JSON path into a nested column, so stage the root column
+            # (e.g. "custom_attributes" for "custom_attributes.plan"), not the path itself.
+            columns=frozenset(
+                {source.key_column, *(warehouse_column_root(key) for key in (source.column_property_map or {}))}
+            ),
         )
         for source in sources
     ]
@@ -106,6 +111,7 @@ def person_property_sync_sources(team_id: int, binding: WarehouseBinding) -> lis
             property_descriptions=_property_descriptions(source),
             target=source.definition.target_type,
             group_type_index=source.definition.group_type_index,
+            match_mode=source.match_mode,
         )
         for source in sources
     ]
