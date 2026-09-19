@@ -63,7 +63,6 @@ describe('InstructionsFormatter', () => {
             const result = formatter.buildToolsInstructions(fullCtx)
             expect(result).toContain('### Basic functionality')
             expect(result).toContain('### Business knowledge, then PostHog docs')
-            expect(result).toContain('Before your first answer to every user request')
             expect(result.indexOf('`business-knowledge-documents-search`')).toBeLessThan(
                 result.indexOf('`docs-search`')
             )
@@ -413,6 +412,32 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('- visualizations:')
             expect(result).toContain('- urls:')
             expect(result).toContain('- feedback:')
+        })
+    })
+
+    // A blanket "search before every answer" mandate fired a docs or business-knowledge search
+    // on unrelated requests. The exec description reaches any client that lists tool
+    // descriptions, so both surfaces carrying the section must scope it by topic.
+    describe('knowledge-search scoping', () => {
+        it.each([
+            {
+                name: 'buildToolsInstructions',
+                render: (formatter: InstructionsFormatter) => formatter.buildToolsInstructions(fullCtx),
+            },
+            {
+                name: 'buildExecToolDescription',
+                render: (formatter: InstructionsFormatter) =>
+                    formatter.buildExecToolDescription({ knowledgeSearchEnabled: true }),
+            },
+        ])('$name only mandates a search for PostHog and company questions', ({ render }) => {
+            const result = render(new InstructionsFormatter())
+
+            expect(result).toContain('### Business knowledge, then PostHog docs')
+            expect(result).not.toMatch(/every user request|even when the request looks simple/)
+            expect(result).toContain('call neither search')
+            // The gate is the topic, never the location: a PostHog SDK question that names a
+            // file in the user's repository still has to reach docs-search.
+            expect(result).toContain('The topic decides, not the location')
         })
     })
 
