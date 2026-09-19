@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from json import JSONDecodeError, dumps, loads
@@ -242,6 +243,17 @@ def parse_fold_summary_row(row: Any) -> dict[str, Any]:
         "pct_below_fold": round(100 * below / total, 1) if total else 0.0,
         "median_viewport_height": median,
     }
+
+
+_UNESCAPED_REGEX_CHARS = re.compile(r"\\.|([.*+?^=!:${}()|\[\]/\\])")
+
+
+def literal_wildcard_url_pattern(value: str) -> str:
+    trimmed = re.sub(r"^\^|\$$", "", value.strip()).replace(".*", "*")
+    return "*".join(
+        _UNESCAPED_REGEX_CHARS.sub(lambda m: f"\\{m.group(1)}" if m.group(1) else m.group(0), segment)
+        for segment in trimmed.split("*")
+    )
 
 
 def anchor_url_pattern(value: str) -> str:
@@ -683,8 +695,8 @@ def _renderer_heatmap_query(export_context: dict[str, object]) -> dict[str, obje
         "viewport_width_max": int((width + extra_pixels) + 0.5),
         "limit": 0,
     }
-    if any(character in heatmap_data_url for character in "*+?^${}()|[]\\"):
-        query["url_pattern"] = heatmap_data_url
+    if "*" in heatmap_data_url:
+        query["url_pattern"] = literal_wildcard_url_pattern(heatmap_data_url)
     else:
         query["url_exact"] = heatmap_data_url
 
