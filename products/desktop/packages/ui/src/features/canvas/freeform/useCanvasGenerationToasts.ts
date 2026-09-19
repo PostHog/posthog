@@ -15,6 +15,7 @@ import { NotificationBus } from "@posthog/ui/features/notifications/notification
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { toast } from "@posthog/ui/primitives/toast";
+import { logger } from "@posthog/ui/shell/logger";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
@@ -22,6 +23,8 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 // canvas record poll in FreeformCanvasView so the toast and the in-view state
 // land together.
 const POLL_MS = 4000;
+
+const log = logger.scope("canvas-generation-toasts");
 
 interface TrackedCanvasEntry {
   channelId: string;
@@ -51,11 +54,16 @@ function useRetryCanvasGeneration(): (entry: TrackedCanvasEntry) => void {
               .track({ ...entry, instruction, taskId: result.taskId });
             toast.success("Retrying the request");
           },
-          onError: (error) =>
+          onError: (error) => {
+            log.error("Failed to retry canvas request", {
+              dashboardId: entry.dashboardId,
+              error,
+            });
             toast.error("Couldn't retry the request", {
               description:
                 error instanceof Error ? error.message : String(error),
-            }),
+            });
+          },
         },
       );
     },

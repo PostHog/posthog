@@ -229,19 +229,23 @@ export function parseMcpServers(
   return mcpServers;
 }
 
-const LOOPBACK_HOSTNAMES = new Set([
-  "localhost",
-  "127.0.0.1",
-  "0.0.0.0",
-  "[::1]",
-]);
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "0.0.0.0", "[::1]"]);
 
+// The WHATWG URL parser canonicalises IPv4 hosts to dotted-quad form, so a
+// prefix check covers all of 127.0.0.0/8.
 function isLoopbackUrl(url: string): boolean {
   try {
-    return LOOPBACK_HOSTNAMES.has(new URL(url).hostname.toLowerCase());
+    const hostname = new URL(url).hostname.toLowerCase();
+    return (
+      LOOPBACK_HOSTNAMES.has(hostname) || /^127\.\d+\.\d+\.\d+$/.test(hostname)
+    );
   } catch {
     return false;
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -265,7 +269,7 @@ export function loopbackMcpjsonServerNames(
     return [];
   }
 
-  let cfg: { mcpServers?: unknown };
+  let cfg: unknown;
   try {
     cfg = JSON.parse(raw);
   } catch (err) {
@@ -275,14 +279,12 @@ export function loopbackMcpjsonServerNames(
     return [];
   }
 
-  const servers = cfg.mcpServers;
-  if (!servers || typeof servers !== "object") return [];
+  if (!isPlainObject(cfg) || !isPlainObject(cfg.mcpServers)) return [];
 
   const names: string[] = [];
-  for (const [name, config] of Object.entries(
-    servers as Record<string, McpServerConfig>,
-  )) {
-    const transport = parseClaudeJsonTransport(config);
+  for (const [name, config] of Object.entries(cfg.mcpServers)) {
+    if (!isPlainObject(config)) continue;
+    const transport = parseClaudeJsonTransport(config as McpServerConfig);
     if (
       (transport.kind === "http" || transport.kind === "sse") &&
       isLoopbackUrl(transport.url)
