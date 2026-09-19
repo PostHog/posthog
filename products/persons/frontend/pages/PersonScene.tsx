@@ -246,8 +246,7 @@ export function PersonScene(): JSX.Element | null {
                         'data-attr': 'person-load-error-reload',
                     }}
                 >
-                    <p>We couldn't load this person.</p>
-                    <p className="text-muted mb-0">{personError}</p>
+                    <p className="mb-0">We couldn't load this person. Reload to try again.</p>
                 </LemonBanner>
             </div>
         )

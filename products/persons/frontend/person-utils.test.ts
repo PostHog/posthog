@@ -92,6 +92,16 @@ describe('the person header', () => {
             }
         )
 
+        it('links by UUID when there are no distinct IDs', () => {
+            expect(asLink({ id: '741cc6c0-7c48-55f2-9b58-1b648a381c9e', distinct_ids: [], properties: {} })).toEqual(
+                urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')
+            )
+        })
+
+        it('returns no link when the id is a numeric primary key rather than a UUID', () => {
+            expect(asLink({ id: '32455318601', distinct_ids: [], properties: {} })).toBeUndefined()
+        })
+
         it('returns undefined for a person without a profile', () => {
             expect(asLink({ distinct_ids: ['a uuid'] })).toBeUndefined()
         })
