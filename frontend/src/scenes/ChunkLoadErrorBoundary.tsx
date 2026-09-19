@@ -20,7 +20,18 @@ interface State {
 interface ChunkLoadErrorBoundaryProps {
     children: ReactNode
     reload?: () => void
-    fallback?: (error: unknown) => ReactNode
+    /**
+     * `clearError` re-renders `children`. React keeps a rejected import and re-throws it
+     * without asking for the chunk again, so a fallback that offers a retry must also
+     * rebuild the lazy value, which `useRetryableLazy` does.
+     */
+    fallback?: (error: unknown, clearError: () => void) => ReactNode
+    /**
+     * Set when this subtree can fail on its own without taking the page with it. The
+     * boundary renders `fallback` straight away instead of reloading, which keeps state
+     * the person has typed and leaves the reload to them.
+     */
+    degradeInPlace?: boolean
 }
 
 export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProps, State> {
@@ -32,6 +43,12 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
 
     override componentDidCatch(error: unknown): void {
         if (!isChunkLoadError(error)) {
+            return
+        }
+        // The page is already interactive, so a reload cannot bring back the missing chunk any
+        // faster than a retry can, and it discards whatever the person has typed meanwhile.
+        if (this.props.degradeInPlace && this.props.fallback) {
+            this.setState({ surface: true })
             return
         }
         let lastReload = 0
@@ -60,10 +77,14 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         }
     }
 
+    private clearError = (): void => {
+        this.setState({ error: null, surface: false })
+    }
+
     override render(): ReactNode {
         const { error, surface } = this.state
         if (error && surface && isChunkLoadError(error) && this.props.fallback) {
-            return this.props.fallback(error)
+            return this.props.fallback(error, this.clearError)
         }
         if (error && (!isChunkLoadError(error) || surface)) {
             throw error
