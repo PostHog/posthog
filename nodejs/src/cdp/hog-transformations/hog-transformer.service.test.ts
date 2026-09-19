@@ -3,11 +3,13 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { DateTime } from 'luxon'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { FetchResponse, fetch } from '~/common/utils/request'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
+import { template as typesafeTemplate } from '../../../src/cdp/templates/_transformations/typesafe/typesafe.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
@@ -26,6 +28,13 @@ jest.mock('@posthog/hogvm-node', () => ({
     executeSync: jest.fn(),
     executeBatch: jest.fn(),
 }))
+
+// Keep the real transport for every other test; the native TypeSafe transform is the only
+// caller here, and it must not reach the provider.
+jest.mock('~/common/utils/request', () => {
+    const original = jest.requireActual('~/common/utils/request')
+    return { ...original, fetch: jest.fn().mockImplementation(original.fetch) }
+})
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
 
@@ -1066,6 +1075,71 @@ describe('HogTransformer', () => {
                   "uuid": "event-id",
                 }
             `)
+        })
+    })
+
+    describe('native typesafe transformation', () => {
+        const typesafeRequest = jest.mocked(fetch)
+
+        const classifiedAs = (choice: string): FetchResponse => ({
+            status: 200,
+            headers: {},
+            json: () => Promise.resolve({ answers: { category: { type: 'choice', choice, confidence: 0.95 } } }),
+            text: () => Promise.resolve(''),
+            dump: () => Promise.resolve(),
+        })
+
+        beforeEach(async () => {
+            typesafeRequest.mockClear()
+
+            const typesafe = createHogFunction({
+                type: 'transformation',
+                name: typesafeTemplate.name,
+                template_id: typesafeTemplate.id,
+                team_id: teamId,
+                enabled: true,
+                hog: typesafeTemplate.code,
+                // The stub the template stores. If dispatch stops matching the template id, the
+                // Node VM runs this instead and returns the event unchanged with no error.
+                bytecode: await compileHog(typesafeTemplate.code),
+                inputs_schema: typesafeTemplate.inputs_schema,
+                inputs: Object.fromEntries(
+                    typesafeTemplate.inputs_schema.map((input) => [
+                        input.key,
+                        { value: input.key === 'api_key' ? 'fake-demo-key' : input.default },
+                    ])
+                ),
+                execution_order: 1,
+            })
+
+            const readsTheCategory = createHogFunction({
+                type: 'transformation',
+                name: 'Reads the category',
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(`
+                    let returnEvent := event
+                    returnEvent.properties.category_seen_by_next := event.properties.content_category
+                    return returnEvent
+                `),
+                execution_order: 2,
+            })
+
+            await insertHogFunction(hub.postgres, teamId, typesafe)
+            await insertHogFunction(hub.postgres, teamId, readsTheCategory)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [typesafe.id, readsTheCategory.id])
+        })
+
+        it('dispatches to the native transform and hands its output to the next transformation', async () => {
+            typesafeRequest.mockImplementationOnce(() => Promise.resolve(classifiedAs('cooking')))
+
+            const result = await hogTransformer.transformEventAndProduceMessages(
+                createPluginEvent({ event: 'demo article viewed', team_id: teamId })
+            )
+
+            expect(typesafeRequest).toHaveBeenCalledTimes(1)
+            expect(result.event?.properties?.content_category).toBe('cooking')
+            expect(result.event?.properties?.category_seen_by_next).toBe('cooking')
         })
     })
 
