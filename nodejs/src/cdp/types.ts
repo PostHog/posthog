@@ -282,6 +282,23 @@ export type AppMetricType = MinimalAppMetric & {
     app_source: MetricLogSource
 }
 
+/**
+ * Where an event stopped, for a record on a dead-letter topic.
+ *
+ * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
+ * `parse` and `process` are the ones it does not: a message it cannot read, and anything else
+ * that throws while an event is being turned into invocations. Those two exist so an unanticipated
+ * bug parks the event rather than stalling the partition it arrived on.
+ */
+export type DeadLetterStep = 'parse' | 'filter' | 'inputs' | 'process'
+
+export type InvocationBuildFailure = {
+    sourceId: string
+    sourceKind: 'hog_function' | 'hog_flow'
+    step: DeadLetterStep
+    error: string
+}
+
 export interface HogFunctionTiming {
     kind: 'hog' | 'async_function'
     duration_ms: number
