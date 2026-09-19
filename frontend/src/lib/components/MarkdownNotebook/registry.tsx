@@ -17,6 +17,7 @@ import {
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from './freshlyInserted'
+import { sanitizeNotebookLinkHref } from './markdown'
 import {
     NotebookComponentDefinition,
     NotebookComponentBlockNode,
@@ -340,12 +341,23 @@ function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Ele
     )
 }
 
+/**
+ * `allow-same-origin` beside `allow-scripts` lets the framed page reach back out and script this
+ * document, so a page on our own origin gets `allow-scripts` alone. A third-party page keeps
+ * `allow-same-origin`, because its own cookies and storage are what most embeds need to work.
+ */
+function getEmbedSandbox(src: string): string {
+    return new URL(src).origin === window.location.origin ? 'allow-scripts' : 'allow-scripts allow-same-origin'
+}
+
 function EmbedView({ node }: NotebookComponentRenderProps): JSX.Element {
-    const src = typeof node.props.src === 'string' ? node.props.src : ''
+    // Notebook content is authored by collaborators and by PostHog AI, so the target is untrusted:
+    // an unchecked `javascript:` src runs in this page's origin.
+    const src = sanitizeNotebookLinkHref(typeof node.props.src === 'string' ? node.props.src : '')
     const title = typeof node.props.title === 'string' ? node.props.title : 'Embedded content'
 
     return src ? (
-        <iframe className="MarkdownNotebook__embed" src={src} title={title} sandbox="allow-scripts allow-same-origin" />
+        <iframe className="MarkdownNotebook__embed" src={src} title={title} sandbox={getEmbedSandbox(src)} />
     ) : (
         <SummaryView node={node} mode="view" updateProps={() => {}} deleteNode={() => {}} />
     )
