@@ -140,6 +140,18 @@
       "captureProduced": false
     },
     {
+      "type": "invalid_alias",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
+      "type": "invalid_anon_distinct_id",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "invalid_batch",
       "category": "event",
       "severity": "error",

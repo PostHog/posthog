@@ -30,6 +30,42 @@ export function createValidateEventPropertiesStep<T extends { event: PipelineEve
             }
         }
 
+        // $anon_distinct_id and alias name the other side of a person merge and reach String() in
+        // PersonMergeService, which throws for a non-string like { toString: null } — an unhandled
+        // rejection that crashes the consumer and, with the offset uncommitted, wedges the partition when
+        // Kafka redelivers the event. A non-string can't identify a person anyway; distinct IDs are strings.
+        if (
+            event.event === '$identify' ||
+            event.event === '$create_alias' ||
+            event.event === '$merge_dangerously'
+        ) {
+            const properties = event.properties ?? {}
+
+            for (const [property, warningType] of [
+                ['$anon_distinct_id', 'invalid_anon_distinct_id'],
+                ['alias', 'invalid_alias'],
+            ] as const) {
+                const value = properties[property]
+                if (value != null && typeof value !== 'string') {
+                    return drop(
+                        warningType,
+                        [],
+                        [
+                            {
+                                type: warningType,
+                                details: {
+                                    eventUuid: event.uuid,
+                                    event: event.event,
+                                    distinctId: event.distinct_id,
+                                    receivedType: Array.isArray(value) ? 'array' : typeof value,
+                                },
+                            },
+                        ]
+                    )
+                }
+            }
+        }
+
         return Promise.resolve(ok(input))
     }
 }
