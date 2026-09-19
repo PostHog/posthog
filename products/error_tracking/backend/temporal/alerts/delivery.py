@@ -44,6 +44,7 @@ from products.error_tracking.backend.temporal.alerts.filtering import (
 )
 from products.error_tracking.backend.temporal.alerts.messages import (
     DEFAULT_HEADLINE,
+    SlackActions,
     build_reply_text,
     build_root_edit,
     build_root_message,
@@ -482,7 +483,7 @@ def _post_claimed(
         # can land before the opener: the root shows the issue row as it is now, not
         # as the opener's payload saw it.
         root_inputs = _with_current_status(inputs)
-        message = build_root_message(root_inputs)
+        message = build_root_message(root_inputs, actions=_slack_actions(delivery.destination, inputs))
         response = client.chat_postMessage(channel=channel, blocks=message["blocks"], text=message["text"])
         # The rooting notification is recorded so a later attempt of it can tell
         # its own root from an older conversation.
@@ -500,7 +501,7 @@ def _post_claimed(
         # Replies stay in the thread's own channel: a provider thread cannot move,
         # so a repointed destination only applies to newly opened threads.
         client.chat_postMessage(channel=external_ref["channel"], thread_ts=external_ref["ts"], text=reply)
-        external_ref = _reconcile_root_status(client, thread, inputs)
+        external_ref = _reconcile_root_status(client, thread, inputs, _slack_actions(delivery.destination, inputs))
 
     _finalize_thread(thread, inputs, claimed_at, external_ref=external_ref, root_headline=root_headline)
     _record_delivery_outcome(delivery.destination, error=None)
@@ -569,6 +570,19 @@ def _release_thread(
     ).update(pending_notification_id=None, pending_claimed_at=None)
 
 
+def _slack_actions(
+    destination: ErrorTrackingAlertDestination, inputs: AlertDeliveryWorkflowInputs
+) -> SlackActions | None:
+    if destination.integration_id is None:
+        return None
+    return SlackActions(
+        integration_id=destination.integration_id,
+        issue_id=inputs.issue_id,
+        team_id=inputs.team_id,
+        fingerprint=inputs.fingerprint,
+    )
+
+
 def _with_current_status(inputs: AlertDeliveryWorkflowInputs) -> AlertDeliveryWorkflowInputs:
     status = (
         ErrorTrackingIssue.objects.filter(id=inputs.issue_id, team_id=inputs.team_id)
@@ -585,7 +599,10 @@ def _with_current_status(inputs: AlertDeliveryWorkflowInputs) -> AlertDeliveryWo
 
 
 def _reconcile_root_status(
-    client: WebClient, thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs
+    client: WebClient,
+    thread: ErrorTrackingAlertThread,
+    inputs: AlertDeliveryWorkflowInputs,
+    actions: SlackActions | None,
 ) -> dict:
     """Edit the root's status line whenever it differs from the issue row's status.
 
@@ -599,7 +616,7 @@ def _reconcile_root_status(
     inputs = _with_current_status(inputs)
     if not inputs.status or inputs.status == external_ref.get("root_status"):
         return external_ref
-    message = build_root_edit(inputs, headline=thread.root_headline or DEFAULT_HEADLINE)
+    message = build_root_edit(inputs, headline=thread.root_headline or DEFAULT_HEADLINE, actions=actions)
     try:
         client.chat_update(
             channel=external_ref["channel"],
