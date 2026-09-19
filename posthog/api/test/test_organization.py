@@ -1512,6 +1512,53 @@ class TestOrganizationRequestAIAccessAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         mock_task.delay.assert_not_called()
 
+    def _personal_api_key_bearer(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="AI access",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def _oauth_bearer(self, scopes: list[str]) -> str:
+        application = OAuthApplication.objects.create(
+            name="AI access test app",
+            client_id="test_ai_access_client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+            is_first_party=True,
+        )
+        token = OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_test_ai_access_token",
+            scope=" ".join(scopes),
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=[str(self.organization.id)],
+        )
+        return token.token
+
+    @parameterized.expand(
+        [
+            ("personal_api_key_write", "_personal_api_key_bearer", ["organization:write"], status.HTTP_200_OK),
+            ("personal_api_key_read", "_personal_api_key_bearer", ["organization:read"], status.HTTP_403_FORBIDDEN),
+            ("oauth_write", "_oauth_bearer", ["organization:write"], status.HTTP_200_OK),
+        ]
+    )
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_scoped_token_can_request_ai_access(self, _name, bearer_factory, scopes, expected_status, mock_task):
+        bearer = getattr(self, bearer_factory)(scopes)
+
+        response = self.client.post(self._url(), headers={"authorization": f"Bearer {bearer}"})
+
+        assert response.status_code == expected_status, response.content
+        assert mock_task.delay.called is (expected_status == status.HTTP_200_OK)
+
     @patch("posthog.api.organization.send_posthog_ai_access_request")
     def test_request_ai_access_is_rate_limited(self, mock_task):
         first = self.client.post(self._url())

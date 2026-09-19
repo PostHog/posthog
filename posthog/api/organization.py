@@ -699,6 +699,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         url_path="request_ai_access",
+        required_scopes=["organization:write"],
         throttle_classes=[PostHogAIAccessRequestUserThrottle, PostHogAIAccessRequestIPThrottle],
     )
     def request_ai_access(self, request: Request, **kwargs) -> Response:
