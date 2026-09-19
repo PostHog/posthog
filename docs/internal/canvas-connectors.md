@@ -11,43 +11,12 @@ but does not change the space's repository settings. The viewer must have access
 and must submit the form before a run starts. Omitting both fields opens the usual empty task form.
 Do not use `tasks.create_and_run` for a repository override: that action inherits the space settings.
 
-`tasks.create_and_run` requires a title. Its description is optional and can be blank.
-Card forms can accept a title alone; do not require a description to save a card or start its task.
-For compact boards, put the card form in a dialog opened by the board's add button.
-Keep the dialog closed on load and close it after a successful save.
-Cloud run settings can use a separate dialog with an editable prompt, initially filled with the card's title and description.
-Send the edited prompt as the action's `description`; keep the card's own title and description unchanged.
-Save the prompt with the run request before starting. A retry must keep the same prompt and `idempotency_key`, including after a reload.
-Keep each new run's draft editable, even when the card has a saved or unconfirmed start.
-Use a separate retry action for each saved request. Do not let an old request lock the new draft or replace its edited prompt.
-Generate a fresh key for each new run, save the request before dispatch, and retain unconfirmed requests until their thread links are saved.
-If a retry returns an already linked task, keep its editable thread label and do not add a duplicate link.
-The action also accepts optional `model` and `reasoning_effort` fields for one Cloud task.
+`tasks.create_and_run` accepts optional `model` and `reasoning_effort` fields for one Cloud task.
 Use the identifiers and supported efforts from the task model catalogue.
 The selected model determines the runtime adapter; reasoning effort requires an explicit model.
 Omit both fields to retain the viewer's defaults. These fields do not change saved run preferences.
 Retries with the same `idempotency_key` return the existing task, even if the requested settings change.
-Generate a new key for each additional task linked to the same canvas card.
-Editable thread labels belong to each saved card link. Keep them in canvas state, separate from task titles and run prompts.
-Use the task ID for navigation, not the editable label, and retain labels when loading or moving a card.
-The returned run status is a snapshot, not live progress.
-Canvases without task syncing should show the thread link without storing or displaying that status.
-Keep manual board columns separate from thread state.
-On drag-only boards, the card's column shows its status; omit a separate column dropdown.
-Move cards without a success banner. Clear any prior success notice after a move, but keep save errors visible.
-Store archive state separately from the card's column so restoring a card preserves its position and thread links.
-Put archived cards in a folded section below the board, not in a fourth column. Exclude them from title search while folded and include them when expanded.
-Exclude archived cards from task summaries. Archiving does not stop linked tasks or free a state key.
-Confirm card deletion, then delete only its user-state key with `ph.state.set(key, null, { scope: 'user' })`; do not delete linked threads.
-Keep archive, restore, and delete actions disabled while a card is saving or has unsaved thread links. Preserve the card and show an error if a write fails.
-For large boards, keep column headers outside independently scrolling card lists.
-Fold card details to reduce height without hiding start buttons, thread counts, or save errors.
-Bound long descriptions and thread lists with their own scroll areas, and keep folding separate from saved task state.
-Title search should filter all columns without changing saved cards or their column positions.
-Normalize case, accents, punctuation, and whitespace; match all query words in any order, with exact matches before typo matches.
-Keep short terms and numbers strict. Limit typo matching to one edit for words with 4–7 characters and two edits for longer words.
-Show matching and total counts, keep empty columns as drop targets, and provide a clear button and Escape shortcut.
-Keep folding independent of the filtered count, and reset column scroll positions when the query changes.
+Use a new request key to start another task.
 
 `ph.openExternal(url)` accepts HTTPS GitHub PR links as well as PostHog HTTPS URLs. GitHub links
 must use `github.com`, with no credentials, custom port, or query string. PR overview, files,
@@ -60,46 +29,6 @@ deployment to include the new runtime. An older artifact can have no `ph.navigat
 message rather than silently creating a task with the space's default repository.
 Prefilled forms use a separate `compose-task` navigation intent so older hosts reject the request
 instead of dropping its fields and opening a task with the wrong repository.
-
-### Private screenshot inputs
-
-The `screenshots.upload` action accepts `{content}` with base64 image bytes and returns `{id}`.
-The server checks the image content, not a supplied MIME type or filename.
-PNG, JPEG, and WebP images must be at most 1 MB and 16 megapixels.
-Images use private object storage, scoped to the project, viewer, and canvas.
-They are not public media assets. Store only their IDs in user state.
-The `screenshots.read` action accepts `{id}` and returns `{content, content_type}` for a data URL preview.
-It requires a user action, like other canvas actions. Do not fetch previews during render or on load.
-Uploads have immutable, server-generated IDs. Removing an ID from a card does not delete its stored image.
-
-Pass up to six IDs as `screenshot_ids` on `tasks.create_and_run`.
-The server copies each image into the task's private `user_attachment` artifacts before it starts the run.
-The run receives the artifact IDs through the existing task input path, not as public URLs in prompt text.
-The same canvas and viewer checks apply before any new task is created.
-Idempotent retries return the original run without reading or replacing its images.
-
-For card and run forms, handle file selection and clipboard image items without replacing pasted text.
-Keep card image IDs separate from run-only image IDs. Prefill each new run with the card's images.
-Allow removal from a run without changing the card. Save the selected IDs with the immutable run request before dispatch.
-Disable save and start while uploads are pending or have failed, and keep errors visible.
-Keep image bytes out of canvas state, analytics, and published source.
-
-Deploy the backend actions and the host upload-size allowance before publishing these controls.
-The host keeps its 64 KB limit for other requests; only `screenshots.upload` accepts a bounded 1 MB image payload.
-Declare both screenshot verbs in the canvas capabilities when enabling the controls.
-The source validator rejects these verbs on older servers, so the existing boards stay unchanged until deployment.
-
-### Task summaries
-
-Test experimental summary features in a separate canvas with its own user-scoped state.
-Copy card data through the state API, not through published source, and do not copy pending Cloud start requests.
-`ph.agent.request` asks the authoring agent to edit a canvas; it does not return an LLM completion.
-For an on-demand summary, use an explicit `tasks.create_and_run` action and show that it uses paid compute.
-Persist the request ID before starting, reuse it on retries, and give the task a request-specific user-state key for its result.
-Ask the task to read the requested cards and available thread output, report missing evidence, and write only its result key.
-Validate the result ID and card coverage, render generated text without HTML, and keep the last good result when a refresh fails.
-Bound result polling, resume reads after reload without starting another task, and ignore results from older requests.
-Keep manual board columns unchanged and mark the summary as stale when the input cards change.
 
 ## Declare tools
 

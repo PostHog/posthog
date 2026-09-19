@@ -135,36 +135,6 @@ describe("createCanvasHostMessageRouter", () => {
     });
   });
 
-  it.each([
-    ["actionInvoke", "screenshots.upload", 1_398_104, true],
-    ["actionInvoke", "screenshots.upload", 1_500_000, false],
-    ["actionInvoke", "tasks.create_and_run", 100_000, false],
-    ["stateSet", "screenshots.upload", 100_000, false],
-  ])(
-    "bounds screenshot uploads without widening other requests (%s, %s, %s)",
-    async (method, verb, size, forwarded) => {
-      const onDataRequest = vi.fn().mockResolvedValue({ ok: true });
-      const post = vi.fn();
-      const route = createCanvasHostMessageRouter({
-        post,
-        callbacks: () => ({ onDataRequest }),
-        hasUserActivation: () => true,
-        openExternal: vi.fn(),
-      });
-      await route({
-        channel: "posthog-canvas",
-        type: "data-request",
-        id: "screenshot",
-        method: method as "actionInvoke" | "stateSet",
-        payload: { verb, payload: { content: "A".repeat(size) } },
-      });
-      expect(onDataRequest).toHaveBeenCalledTimes(forwarded ? 1 : 0);
-      expect(post).toHaveBeenCalledWith(
-        expect.objectContaining({ ok: forwarded }),
-      );
-    },
-  );
-
   it("rejects agent requests that are not triggered by a user action", async () => {
     const post = vi.fn();
     const onDataRequest = vi.fn();

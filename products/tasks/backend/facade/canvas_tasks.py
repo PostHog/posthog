@@ -1,47 +1,11 @@
 from collections.abc import Callable
-from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from django.db import transaction
-
-from posthog.storage import object_storage
 
 from products.tasks.backend.facade import api
 from products.tasks.backend.facade.contracts import TaskRunDTO
 from products.tasks.backend.models import Channel, Task
-
-TaskScreenshot = tuple[str, bytes, str]
-
-
-def _stage_screenshots(task: Task, screenshots: list[TaskScreenshot]) -> list[str]:
-    from products.tasks.backend.logic.services.staged_artifacts import (
-        STAGED_ARTIFACT_TTL_DAYS,
-        build_task_artifact_entry,
-        build_task_staged_artifact_storage_path,
-        cache_task_staged_artifact,
-        tag_task_artifact,
-    )
-
-    artifact_ids = []
-    for name, content, content_type in screenshots:
-        artifact_id = uuid4().hex
-        storage_path = build_task_staged_artifact_storage_path(task, artifact_id, name)
-        object_storage.write(storage_path, content)
-        tag_task_artifact(storage_path, ttl_days=STAGED_ARTIFACT_TTL_DAYS, team_id=task.team_id)
-        cache_task_staged_artifact(
-            task,
-            build_task_artifact_entry(
-                artifact_id=artifact_id,
-                name=name,
-                artifact_type="user_attachment",
-                source="user",
-                size=len(content),
-                content_type=content_type,
-                storage_path=storage_path,
-            ),
-        )
-        artifact_ids.append(artifact_id)
-    return artifact_ids
 
 
 def create_and_run_channel_task(
@@ -56,7 +20,6 @@ def create_and_run_channel_task(
     before_create: Callable[[], None],
     model: str | None = None,
     reasoning_effort: str | None = None,
-    load_screenshots: Callable[[], list[TaskScreenshot]] | None = None,
 ) -> TaskRunDTO:
     with transaction.atomic():
         channel = (
@@ -83,7 +46,7 @@ def create_and_run_channel_task(
                 get_runtime_adapter_for_model,
             )
 
-            run_options: dict[str, Any] = {}
+            run_options: dict[str, str] = {}
             if reasoning_effort is not None and model is None:
                 raise ValueError("Select a model before setting reasoning effort.")
             if model is not None:
@@ -96,7 +59,6 @@ def create_and_run_channel_task(
                 if reasoning_effort is not None:
                     run_options["reasoning_effort"] = reasoning_effort
             before_create()
-            screenshots = load_screenshots() if load_screenshots else []
             task = api.create_task(
                 team_id,
                 user_id,
@@ -107,8 +69,6 @@ def create_and_run_channel_task(
                     "origin_key": origin_key,
                 },
             )
-            if screenshots:
-                run_options["pending_user_artifact_ids"] = _stage_screenshots(Task.objects.get(id=task.id), screenshots)
             result = api.run_task(task.id, team_id, user_id, validated_data=run_options)
             if result is None:
                 raise ValueError("The task is no longer available.")

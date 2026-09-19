@@ -21,15 +21,6 @@ from rest_framework import serializers
 
 from posthog.dataclasses import frozen
 
-from products.canvas.backend.screenshots import (
-    MAX_SCREENSHOTS,
-    ScreenshotReadSerializer,
-    ScreenshotUploadSerializer,
-    load_task_screenshots,
-    preview_screenshot,
-    upload_screenshot,
-)
-
 if TYPE_CHECKING:
     from rest_framework.response import Response
 
@@ -89,7 +80,6 @@ class TaskCreatePayloadSerializer(serializers.Serializer):
 
 
 class TaskCreateAndRunPayloadSerializer(TaskCreatePayloadSerializer):
-    screenshot_ids = serializers.ListField(child=serializers.UUIDField(), max_length=MAX_SCREENSHOTS, required=False)
     idempotency_key = serializers.UUIDField(help_text="Reuse this UUID when retrying the same cloud task request.")
     model = serializers.CharField(
         required=False, max_length=255, help_text="Task model identifier. Omit to use the viewer's default model."
@@ -145,7 +135,6 @@ def _create_and_run_task(team_id: int, user_id: int, canvas: "Canvas", payload: 
         before_create=check_usage,
         model=payload.get("model"),
         reasoning_effort=payload.get("reasoning_effort"),
-        load_screenshots=lambda: load_task_screenshots(team_id, user_id, canvas.id, payload.get("screenshot_ids", [])),
     )
     return {"task_id": str(run.task_id), "run_id": str(run.id), "status": run.status}
 
@@ -175,29 +164,6 @@ class CanvasAction:
 CANVAS_ACTIONS: dict[str, CanvasAction] = {
     action.verb: action
     for action in [
-        CanvasAction(
-            verb="screenshots.upload",
-            summary="Attach a private screenshot to this canvas, as the viewer.",
-            destructive=False,
-            payload_serializer=ScreenshotUploadSerializer,
-            execute=upload_screenshot,
-            required_scopes=("canvas:write",),
-            usage=(
-                "Payload `{content}` (base64 image bytes) returns `{id}`. Accepts PNG, JPEG, or WebP up to 1 MB "
-                "and 16 megapixels. Images are private to the viewer and canvas. Store only the returned ID "
-                "in user state, never image bytes or a public URL. Upload only after an explicit file selection or paste. "
-                "Each upload gets a new ID; existing images cannot be overwritten."
-            ),
-        ),
-        CanvasAction(
-            verb="screenshots.read",
-            summary="Read one of the viewer's private screenshots from this canvas.",
-            destructive=False,
-            payload_serializer=ScreenshotReadSerializer,
-            execute=preview_screenshot,
-            required_scopes=("canvas:read",),
-            usage="Payload `{id}` returns `{content, content_type}`. Build a data URL for a local preview. No public URL is created.",
-        ),
         CanvasAction(
             verb="annotations.create",
             summary="Create a project annotation.",
@@ -240,22 +206,18 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
             required_scopes=("task:write",),
             starts_cloud_run=True,
             usage=(
-                "Payload `{title, description?, idempotency_key, model?, reasoning_effort?, screenshot_ids?}` returns "
+                "Payload `{title, description?, idempotency_key, model?, reasoning_effort?}` returns "
                 "`{task_id, run_id, status}`. "
                 "Creates a task in the canvas's space as the viewer and queues its cloud run. "
                 "Inherits the space's repositories and the viewer's default run settings. "
                 "Optional model and reasoning_effort apply to this task only, without changing those defaults. "
                 "Use model identifiers and supported efforts from the task model catalogue. "
                 "The model selects its runtime adapter. reasoning_effort requires model. "
-                "Pass up to six screenshot IDs from screenshots.upload on this canvas as this viewer. "
-                "The images become private input artifacts for the cloud run. Save the image IDs with the "
-                "request before dispatch. Retries keep the original prompt and images. "
                 "The standard cloud access and usage limits apply. This action uses paid compute. "
                 "Use a 'Start cloud task' button and disable it while the request is pending. "
                 "Generate a UUID for idempotency_key once per intended task and reuse it on retries; "
                 "a retry returns the existing task and latest run without starting another run. "
-                "Link to the returned task. The returned status is a snapshot, not live progress; "
-                "canvases without task syncing should omit it from cards and result messages. "
+                "Use the returned status in the result message. A queued run has not finished. "
                 "Declare this verb separately from tasks.create, which still creates a task without a run."
             ),
         ),
