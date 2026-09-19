@@ -2181,6 +2181,12 @@ class TestCanvasActions(CanvasAPIBaseTest):
             ("without_repository", [], {}, {}),
             ("space_repositories", ["example/app", "example/api"], {}, {"description": ""}),
             (
+                "custom_prompt",
+                [],
+                {},
+                {"description": "Check only the error messages.\n\nDo not change the signup flow."},
+            ),
+            (
                 "selected_model",
                 [],
                 {"model": "claude-opus-4-8", "reasoning_effort": "high"},
@@ -2231,7 +2237,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         ):
             response = self._invoke(canvas_id, "tasks.create_and_run", payload)
             usage.return_value = SimpleNamespace(is_rate_limited=True, limit_type="burst", reset_at=None, is_pro=False)
-            retry = self._invoke(canvas_id, "tasks.create_and_run", payload)
+            retry = self._invoke(canvas_id, "tasks.create_and_run", {**payload, "description": "A different prompt."})
             new_request = self._invoke(canvas_id, "tasks.create_and_run", {**payload, "idempotency_key": str(uuid4())})
 
         assert response.status_code == status.HTTP_200_OK, response.json()

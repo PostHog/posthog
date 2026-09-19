@@ -15,6 +15,9 @@ Do not use `tasks.create_and_run` for a repository override: that action inherit
 Card forms can accept a title alone; do not require a description to save a card or start its task.
 For compact boards, put the card form in a dialog opened by the board's add button.
 Keep the dialog closed on load and close it after a successful save.
+Cloud run settings can use a separate dialog with an editable prompt, initially filled with the card's title and description.
+Send the edited prompt as the action's `description`; keep the card's own title and description unchanged.
+Save the prompt with the run request before starting. A retry must keep the same prompt and `idempotency_key`, including after a reload.
 The action also accepts optional `model` and `reasoning_effort` fields for one Cloud task.
 Use the identifiers and supported efforts from the task model catalogue.
 The selected model determines the runtime adapter; reasoning effort requires an explicit model.
