@@ -8,9 +8,10 @@ import {
   listScoutCreatorOptions,
   listScoutsNeedingAttention,
   prettifyScoutSkillName,
+  type ScoutFleetSort,
   type ScoutOrigin,
   scoutCreatorKey,
-  sortConfigsForDisplay,
+  sortConfigsBy,
 } from "@posthog/core/scouts/scoutPresentation";
 import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
 import { suggestionBrief } from "@posthog/core/scouts/scoutSuggestions";
@@ -52,6 +53,14 @@ const ORIGIN_TABS: { value: OriginFilter; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
+const SORT_OPTIONS: { value: ScoutFleetSort; label: string }[] = [
+  { value: "status", label: "Sort: Status" },
+  { value: "name", label: "Sort: Name" },
+  { value: "created", label: "Sort: Recently created" },
+  { value: "updated", label: "Sort: Recently updated" },
+  { value: "last_run", label: "Sort: Last run" },
+];
+
 /** The fleet index: what needs a decision, then every agent in a table. */
 export function ScoutsFleetView({
   onNewAgent,
@@ -86,6 +95,7 @@ export function ScoutsFleetView({
   const [search, setSearch] = useState("");
   const [creatorKey, setCreatorKey] = useState("");
   const [hideDisabled, setHideDisabled] = useState(false);
+  const [sort, setSort] = useState<ScoutFleetSort>("status");
 
   const allConfigs = configs ?? EMPTY_CONFIGS;
   const rollups = useMemo(
@@ -124,11 +134,15 @@ export function ScoutsFleetView({
   // The order depends on the fleet alone, so a keystroke in the search box
   // filters what is already sorted rather than sorting it again.
   const orderedConfigs = useMemo(() => {
+    const sorted = sortConfigsBy(allConfigs, sort);
+    // Only the default order lifts the scouts that need a decision. A chosen
+    // order would no longer be the order the user asked for.
+    if (sort !== "status") return sorted;
     const urgent = new Set(attention.map((item) => item.config.id));
-    return sortConfigsForDisplay(allConfigs).sort(
+    return sorted.sort(
       (a, b) => Number(urgent.has(b.id)) - Number(urgent.has(a.id)),
     );
-  }, [allConfigs, attention]);
+  }, [allConfigs, attention, sort]);
 
   const visibleConfigs = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -359,6 +373,22 @@ export function ScoutsFleetView({
             />
           </div>
         ) : null}
+        <div className="w-48">
+          <SettingsOptionSelect
+            value={sort}
+            options={SORT_OPTIONS}
+            onValueChange={(next) => {
+              setSort(next as ScoutFleetSort);
+              track(ANALYTICS_EVENTS.SCOUT_ACTION, {
+                action_type: "sort_fleet",
+                surface: "fleet_list",
+                sort: next,
+              });
+            }}
+            size="default"
+            ariaLabel="Sort agents"
+          />
+        </div>
         <Button
           type="button"
           variant={hideDisabled ? "outline" : "link-muted"}

@@ -1033,6 +1033,49 @@ export function sortConfigsForDisplay(configs: ScoutConfig[]): ScoutConfig[] {
     .map((entry) => entry.config);
 }
 
+/** How the fleet list is ordered. `status` is the lifecycle order the list opens on. */
+export type ScoutFleetSort =
+  | "status"
+  | "name"
+  | "created"
+  | "updated"
+  | "last_run";
+
+const SCOUT_RECENCY_TIMESTAMPS: Record<
+  "created" | "updated" | "last_run",
+  (config: ScoutConfig) => string | null
+> = {
+  created: (config) => config.created_at,
+  updated: (config) => config.updated_at ?? null,
+  last_run: (config) => config.last_run_at,
+};
+
+/** Newest first. A scout without the timestamp sorts after every dated one. */
+function compareByRecency(first: string | null, second: string | null): number {
+  if (!first || !second) {
+    return first === second ? 0 : first ? -1 : 1;
+  }
+  return new Date(second).getTime() - new Date(first).getTime();
+}
+
+export function sortConfigsBy(
+  configs: ScoutConfig[],
+  sort: ScoutFleetSort,
+): ScoutConfig[] {
+  if (sort === "status") return sortConfigsForDisplay(configs);
+  const byName = [...configs].sort((a, b) =>
+    prettifyScoutSkillName(a.skill_name).localeCompare(
+      prettifyScoutSkillName(b.skill_name),
+    ),
+  );
+  if (sort === "name") return byName;
+  const timestampOf = SCOUT_RECENCY_TIMESTAMPS[sort];
+  // The sort is stable, so scouts with the same timestamp keep their name order.
+  return byName.sort((a, b) =>
+    compareByRecency(timestampOf(a), timestampOf(b)),
+  );
+}
+
 // Cron times need the project timezone, which this response does not include.
 export function nextRunAt(
   config: ScoutConfig,

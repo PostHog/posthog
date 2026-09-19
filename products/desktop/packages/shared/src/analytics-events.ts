@@ -1040,6 +1040,7 @@ type ScoutActionType =
   | "dismiss_suggestion"
   | "filter_origin"
   | "search_agents"
+  | "sort_fleet"
   | "switch_detail_tab";
 
 /**
@@ -1119,6 +1120,8 @@ export interface ScoutActionProperties {
   helper_skill?: string;
   hide_disabled?: boolean;
   created_by_me?: boolean;
+  /** The order the user chose, for `sort_fleet`. */
+  sort?: string;
   /** Status of the linked inbox report, for `open_linked_report`. */
   report_status?: string;
 }

@@ -645,6 +645,8 @@ export interface ScoutConfig {
   run_cron_schedule?: string | null;
   last_run_at: string | null;
   created_at: string;
+  /** ISO timestamp of the last write; absent on backends predating the field. */
+  updated_at?: string | null;
 }
 
 export interface ScoutSuggestionProposedConfig {
