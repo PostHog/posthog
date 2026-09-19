@@ -45,7 +45,7 @@ export function AuthSceneCard({
                 <OAuthConnectionLogos appName={pendingConnection.clientName} logoUri={pendingConnection.logoUri} />
             ) : (
                 <span className="AuthScene__logo block mb-4">
-                    <Logo variant="gradient" size="lg" />
+                    <Logo size="lg" />
                 </span>
             )}
             <div className="AuthScene__card w-full pt-8 px-5 sm:px-9 pb-8">{children}</div>

@@ -22,7 +22,7 @@ export function OAuthAuthorizeLayout({ children }: { children: ReactNode }): JSX
                     <OAuthConnectionLogos appName={appName} logoUri={oauthApplication.logo_uri ?? null} />
                 ) : (
                     <span className="AuthScene__logo shrink-0 block mx-auto mb-4">
-                        <Logo variant="gradient" size="lg" />
+                        <Logo size="lg" />
                     </span>
                 )}
                 {children}
