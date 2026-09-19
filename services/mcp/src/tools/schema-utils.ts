@@ -15,6 +15,8 @@ interface ScalarConstraints {
     maxLength?: number
     minimum?: number
     maximum?: number
+    exclusiveMinimum?: number
+    exclusiveMaximum?: number
     pattern?: string
     format?: string
 }
@@ -54,6 +56,8 @@ const NUMERIC_CONSTRAINT_KEYS = [
     'maxLength',
     'minimum',
     'maximum',
+    'exclusiveMinimum',
+    'exclusiveMaximum',
 ] as const satisfies readonly (keyof ScalarConstraints)[]
 const STRING_CONSTRAINT_KEYS = ['pattern', 'format'] as const satisfies readonly (keyof ScalarConstraints)[]
 
@@ -98,22 +102,22 @@ function carryWrapperMetadata(wrapper: JSONSchema, variant: JSONSchema): JSONSch
 }
 
 /**
- * A nullable scalar (`anyOf: [{type: 'string', maxLength: 3000}, {type: 'null'}]`) is
- * one scalar for the caller's purposes. Returns that variant, with the wrapper's
- * description and default, so its type, enum and constraints are summarized instead
- * of the union wrapper, which carried none of them. Anything else comes back unchanged.
+ * A nullable field (`anyOf: [{type: 'string', maxLength: 3000}, {type: 'null'}]`) is
+ * its one non-null variant for the caller's purposes. Returns that variant, with the
+ * wrapper's description and default, so its type, enum, constraints, fields and
+ * drill-down hint are summarized instead of the union wrapper, which carried none of
+ * them. Anything else comes back unchanged.
  */
-function unwrapNullableScalar(schema: JSONSchema): JSONSchema {
+function unwrapNullable(schema: JSONSchema): JSONSchema {
     const variants = (schema.anyOf || schema.oneOf) as JSONSchema[] | undefined
     if (!variants) {
         return schema
     }
     const nonNull = variants.filter((v) => v.type !== 'null')
-    const only = nonNull.length === 1 ? nonNull[0]! : undefined
-    if (!only || typeof only.type !== 'string' || only.type === 'object' || only.type === 'array') {
+    if (nonNull.length !== 1) {
         return schema
     }
-    return carryWrapperMetadata(schema, only)
+    return carryWrapperMetadata(schema, nonNull[0]!)
 }
 
 /**
@@ -293,7 +297,7 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
     const pathPrefix = fieldPath ? `${fieldPath}.` : ''
 
     for (const [name, rawProp] of Object.entries(properties)) {
-        const prop = unwrapNullableScalar(rawProp)
+        const prop = unwrapNullable(rawProp)
         const entry: SummarizedProperty = {}
         entry.type = getTypeString(prop)
 

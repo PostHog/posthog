@@ -689,6 +689,22 @@ describe('schema-utils', () => {
             expect(result.properties.rollout).toEqual({ type: 'integer', minimum: 0, maximum: 100 })
         })
 
+        // zod renders `.positive()` as `exclusiveMinimum: 0` (e.g. `dashboard-create-tile.id`).
+        it('keeps exclusive numeric bounds', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    id: { type: 'integer', exclusiveMinimum: 0 },
+                    ratio: { type: 'number', exclusiveMaximum: 1 },
+                },
+            }
+
+            const result = summarizeSchema(schema, 'my-tool')
+
+            expect(result.properties.id).toEqual({ type: 'integer', exclusiveMinimum: 0 })
+            expect(result.properties.ratio).toEqual({ type: 'number', exclusiveMaximum: 1 })
+        })
+
         // zod renders `.nullable()` as `anyOf: [scalar, null]`; the experiment tools'
         // `description` arrives this way, and the summary used to say
         // "union of 1 types" with no cap.
@@ -715,6 +731,38 @@ describe('schema-utils', () => {
             expect(result.properties.stats).toEqual({ type: 'string', enum: ['bayesian', 'frequentist'] })
             // A nullable object is still complex and keeps its drill-down hint.
             expect(result.properties.config!.hint).toContain('schema my-tool config')
+        })
+
+        // `query-web-overview.conversionGoal` is a nullable union of object variants:
+        // `anyOf: [{anyOf: [ActionConversionGoal, CustomEventConversionGoal]}, null]`.
+        it('summarizes a nullable object union as the union, with its drill-down hint', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    conversionGoal: {
+                        anyOf: [
+                            {
+                                anyOf: [
+                                    { type: 'object', properties: { actionId: { type: 'integer' } } },
+                                    { type: 'object', properties: { customEventName: { type: 'string' } } },
+                                ],
+                            },
+                            { type: 'null' },
+                        ],
+                        description: 'Goal',
+                    },
+                    config: { anyOf: [{ type: 'object', properties: { a: {}, b: {} } }, { type: 'null' }] },
+                },
+            }
+
+            const result = summarizeSchema(schema, 'my-tool')
+
+            expect(result.properties.conversionGoal).toEqual({
+                type: 'union of 2 types',
+                description: 'Goal',
+                hint: expect.stringContaining('schema my-tool conversionGoal'),
+            })
+            expect(result.properties.config).toMatchObject({ type: 'object', fields: ['a', 'b'] })
         })
 
         it('keeps constraints on a leaf schema summarized on its own', () => {
