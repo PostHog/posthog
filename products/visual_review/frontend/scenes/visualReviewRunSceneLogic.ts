@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { isUnavailableEndpointError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -57,6 +58,7 @@ export interface visualReviewRunSceneLogicValues {
     repoLoading: boolean
     run: RunApi | null
     runLoading: boolean
+    runNotFound: boolean
     selectedSnapshot: SnapshotApi | null
     selectedSnapshotId: string | null
     showQuarantinedThumbnails: boolean
@@ -131,10 +133,10 @@ export interface visualReviewRunSceneLogicActions {
         errorObject?: any
     }
     loadRunSuccess: (
-        run: RunApi,
+        run: RunApi | null,
         payload?: any
     ) => {
-        run: RunApi
+        run: RunApi | null
         payload?: any
     }
     loadSnapshots: () => any
@@ -191,6 +193,9 @@ export interface visualReviewRunSceneLogicActions {
         value: true
     }
     recomputeRunSuccess: () => {
+        value: true
+    }
+    setRunNotFound: () => {
         value: true
     }
     setSelectedSnapshotId: (snapshotId: string | null) => {
@@ -270,6 +275,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         recomputeRunSuccess: true,
         recomputeRunFailure: true,
         markThumbnailFailed: (identifier: string) => ({ identifier }),
+        setRunNotFound: true,
         toggleQuarantinedThumbnails: true,
     }),
     reducers({
@@ -319,13 +325,31 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 toggleQuarantinedThumbnails: (state) => !state,
             },
         ],
+        runNotFound: [
+            false,
+            {
+                loadRun: () => false,
+                setRunNotFound: () => true,
+            },
+        ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         run: [
             null as RunApi | null,
             {
                 loadRun: async () => {
-                    return visualReviewRunsRetrieve(String(values.currentProjectId), props.runId)
+                    try {
+                        return await visualReviewRunsRetrieve(String(values.currentProjectId), props.runId)
+                    } catch (error) {
+                        // The scene has its own state for a run this project cannot reach, so let the
+                        // loader succeed with nothing. A rejection here would toast and report an
+                        // answer the page already explains. Every other status still rejects.
+                        if (!isUnavailableEndpointError(error)) {
+                            throw error
+                        }
+                        actions.setRunNotFound()
+                        return null
+                    }
                 },
             },
         ],
@@ -333,11 +357,25 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotApi[],
             {
                 loadSnapshots: async () => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        limit: 10000,
-                        include_quarantined: true,
-                    })
-                    return response.results
+                    try {
+                        const response = await visualReviewRunsSnapshotsList(
+                            String(values.currentProjectId),
+                            props.runId,
+                            {
+                                limit: 10000,
+                                include_quarantined: true,
+                            }
+                        )
+                        return response.results
+                    } catch (error) {
+                        // Snapshots hang off the run, so an unreachable run answers 404 here too.
+                        // Both loads start together, so both have to recover for the page to stay quiet.
+                        if (!isUnavailableEndpointError(error)) {
+                            throw error
+                        }
+                        actions.setRunNotFound()
+                        return []
+                    }
                 },
             },
         ],
