@@ -5,7 +5,7 @@ import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanF
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { isURL } from 'lib/utils/url'
-import { formatBreakdownType } from 'scenes/insights/utils'
+import { formatBreakdownType, getNullBreakdownNotes } from 'scenes/insights/utils'
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 
@@ -82,6 +82,8 @@ type BreakdownColumnItemProps = {
     item: IndexedTrendResult
     formatItemBreakdownLabel: (item: IndexedTrendResult) => string
     breakdownFilter?: BreakdownFilter
+    /** Which of several breakdowns this column shows. */
+    multipleBreakdownIndex?: number
     /** "Current"/"Previous" tag, shown when the breakdown label doubles as the series column. */
     compareValue?: string
 }
@@ -90,6 +92,7 @@ export function BreakdownColumnItem({
     item,
     formatItemBreakdownLabel,
     breakdownFilter,
+    multipleBreakdownIndex,
     compareValue,
 }: BreakdownColumnItemProps): JSX.Element {
     const breakdownLabel = formatItemBreakdownLabel(item)
@@ -97,6 +100,8 @@ export function BreakdownColumnItem({
     const formattedLabel = showPathCleaningHighlight
         ? parseAliasToReadable(breakdownLabel)
         : stringWithWBR(breakdownLabel, 20)
+
+    const nullBreakdownNotes = getNullBreakdownNotes(item.breakdown_value, breakdownFilter, multipleBreakdownIndex)
 
     // Clipped with CSS only, so the full value stays in the DOM — copying the cell copies everything
     return (
@@ -114,9 +119,14 @@ export function BreakdownColumnItem({
                             {formattedLabel}
                         </Link>
                     ) : (
-                        <div title={breakdownLabel} className="font-medium line-clamp-4">
-                            {formattedLabel}
-                        </div>
+                        <Tooltip title={nullBreakdownNotes?.explanation}>
+                            <div
+                                title={nullBreakdownNotes ? undefined : breakdownLabel}
+                                className="font-medium line-clamp-4"
+                            >
+                                {formattedLabel}
+                            </div>
+                        </Tooltip>
                     )}
                 </>
             )}

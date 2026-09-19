@@ -7,9 +7,10 @@ import { ChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/Char
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel, getTrendResultCustomizationKey } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getNullBreakdownNotes, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -85,6 +86,8 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
 
     const showSeriesIsolationMenu = !readOnly && legendSeriesIsolationMenuEligible
 
+    const nullBreakdownNotes = getNullBreakdownNotes(item.breakdown_value, breakdownFilter)
+
     const row = (
         <div className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
             <div className="grow">
@@ -95,20 +98,25 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                     onChange={() => toggleResultHidden(item)}
                     fullWidth
                     label={
-                        <InsightLabel
-                            key={item.id}
-                            seriesColor={mainColor}
-                            action={item.action}
-                            fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                            hasMultipleSeries={!isSingleSeriesDefinition}
-                            breakdownValue={formattedBreakdownValue}
-                            compareValue={isPrevious ? formatCompareLabel(item) : undefined}
-                            pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
-                            showPathCleaningHighlight={showPathCleaningHighlight}
-                            hideIcon
-                            showSingleName
-                            hideHogQLTagWhenCustomName
-                        />
+                        <Tooltip title={nullBreakdownNotes?.explanation}>
+                            {/* InsightLabel takes no DOM props, so the tooltip needs an element of its own to hover */}
+                            <div>
+                                <InsightLabel
+                                    key={item.id}
+                                    seriesColor={mainColor}
+                                    action={item.action}
+                                    fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                                    hasMultipleSeries={!isSingleSeriesDefinition}
+                                    breakdownValue={formattedBreakdownValue}
+                                    compareValue={isPrevious ? formatCompareLabel(item) : undefined}
+                                    pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                                    showPathCleaningHighlight={showPathCleaningHighlight}
+                                    hideIcon
+                                    showSingleName
+                                    hideHogQLTagWhenCustomName
+                                />
+                            </div>
+                        </Tooltip>
                     }
                     disabledReason={!canEditInsight ? 'You need editor access to modify this insight.' : undefined}
                 />

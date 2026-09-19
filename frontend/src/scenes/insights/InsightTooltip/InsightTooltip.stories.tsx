@@ -3,6 +3,7 @@ import { useMountedLogic } from 'kea'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { InsightType } from '~/types'
@@ -80,6 +81,34 @@ export default meta
 
 export const Default: Story = {
     args: {},
+}
+
+export const NullBreakdown: Story = {
+    args: {
+        breakdownFilter: { breakdown: '$pathname', breakdown_type: 'event' },
+        seriesData: [
+            {
+                id: 0,
+                dataIndex: 7,
+                datasetIndex: 0,
+                order: 0,
+                breakdown_value: '/pricing',
+                label: '$pageview',
+                color: '#1d4aff',
+                count: 482,
+            },
+            {
+                id: 1,
+                dataIndex: 7,
+                datasetIndex: 1,
+                order: 1,
+                breakdown_value: BREAKDOWN_NULL_STRING_LABEL,
+                label: '$pageview',
+                color: '#621da6',
+                count: 128,
+            },
+        ] as any,
+    },
 }
 
 export const Columns: Story = {
