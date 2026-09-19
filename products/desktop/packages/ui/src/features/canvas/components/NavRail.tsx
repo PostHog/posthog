@@ -24,6 +24,7 @@ import {
   pickRailDestination,
   type RailCounts,
   type RailDestination,
+  showWorkColumn,
   visibleRailDestinations,
   visibleWorkRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
@@ -270,8 +271,11 @@ function NavRailImpl() {
         // it covers the column they are asking for, so leaving it up is a
         // click that appears to do nothing.
         closeWorkActivity();
-        if (destination.pane === "spaces") {
-          destination.onPick();
+        // Work only withholds navigation while you are already inside it,
+        // where the column sits beside what you are reading. From anywhere
+        // else the pick has to travel, or the click does nothing at all.
+        if (destination.pane === "spaces" && railPaneFoldsIntoWork(railPane)) {
+          showWorkColumn();
           return;
         }
       }

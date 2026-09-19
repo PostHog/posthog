@@ -1,7 +1,7 @@
 import {
   BellIcon,
   BookOpenTextIcon,
-  BriefcaseIcon,
+  CookingPotIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
@@ -262,8 +262,11 @@ export function visibleRailDestinations(
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
 }
 
-/** Show the Work column. Never navigates: the column is where you already are. */
-function showWorkColumn(): void {
+/**
+ * Show the Work column. Called on its own only from inside Work's own
+ * territory, where the column is beside what you are already reading.
+ */
+export function showWorkColumn(): void {
   useSidebarStore.getState().setOpen(true);
 }
 
@@ -275,9 +278,15 @@ const WORK_DESTINATION: RailDestination = {
   pane: "spaces",
   label: "Work",
   analyticsId: "spaces",
-  Icon: BriefcaseIcon,
+  Icon: CookingPotIcon,
   href: "/spaces",
-  onPick: showWorkColumn,
+  // Reached from outside Work — Self-driving, the Command Center — there is
+  // nothing to show the column beside, so the pick goes somewhere. The rail
+  // restores where Work last was and falls back to this.
+  onPick: () => {
+    showWorkColumn();
+    navigateToSpaces();
+  },
   onReclick: showWorkColumn,
 };
 
