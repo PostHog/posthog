@@ -157,6 +157,15 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('empty hosts', () => {
+        it('starts from an empty template when the host passes neither a value nor a default', async () => {
+            logic = emailTemplaterLogic(makeProps({ value: null, defaultValue: undefined }))
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ emailTemplate: {} })
+        })
+    })
+
     describe('starting-point picker', () => {
         it('closes the picker when the editor modal closes', async () => {
             logic = emailTemplaterLogic(makeProps())

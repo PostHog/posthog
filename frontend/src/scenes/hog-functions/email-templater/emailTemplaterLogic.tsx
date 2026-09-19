@@ -531,7 +531,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     forms(({ actions, values, props, cache }) => ({
         emailTemplate: {
-            defaults: props.defaultValue as EmailTemplate,
+            // An input schema with no default gives us neither a value nor a defaultValue, and
+            // every reader of the template fields breaks on an empty form value.
+            defaults: (props.defaultValue ?? {}) as EmailTemplate,
             submit: async (formValues: EmailTemplate | undefined) => {
                 if (!formValues) {
                     return
