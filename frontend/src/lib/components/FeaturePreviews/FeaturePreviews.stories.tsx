@@ -51,6 +51,24 @@ export const Basic: Story = {
     },
 }
 
+// PostHog Desktop is a public download, so its switch grants nothing on its own — the card
+// promotes the download instead of implying the switch unlocks the app.
+export const DownloadableApp: Story = {
+    args: {
+        earlyAccessFeatures: [
+            {
+                name: 'PostHog Desktop',
+                description: 'An agentic development environment giving coding agents access to product context',
+                stage: 'beta',
+                documentationUrl: 'https://posthog.com/docs/posthog-desktop/download-posthog-desktop',
+                flagKey: 'twig',
+                payload: {},
+            },
+        ],
+        enabledFeatureFlags: ['twig'],
+    },
+}
+
 export const Empty: Story = {
     args: {
         earlyAccessFeatures: [],
