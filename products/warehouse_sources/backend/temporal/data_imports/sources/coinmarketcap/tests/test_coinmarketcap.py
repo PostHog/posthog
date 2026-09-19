@@ -11,15 +11,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarket
     API_KEY_HEADER,
     CoinMarketCapPaginator,
     CoinMarketCapResumeConfig,
+    _history_start,
+    _rows_from,
     coinmarketcap_source,
+    get_batch_rows,
     get_resource,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import (
+    COINMARKETCAP_BATCH_ENDPOINTS,
     COINMARKETCAP_ENDPOINTS,
-    ENDPOINTS,
+    HISTORICAL_BACKFILL_DAYS,
+    HISTORICAL_BATCH_SIZE,
+    HISTORICAL_COIN_LIMIT,
+    METADATA_BATCH_SIZE,
     PAGE_SIZE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.source import CoinMarketCapSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
@@ -86,7 +94,7 @@ class TestCoinMarketCapPaginator:
 
 
 class TestGetResource:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @pytest.mark.parametrize("endpoint", list(COINMARKETCAP_ENDPOINTS))
     def test_resource_shape(self, endpoint: str) -> None:
         resource = get_resource(endpoint)
         config = COINMARKETCAP_ENDPOINTS[endpoint]
@@ -142,6 +150,7 @@ class TestCoinMarketCapSourceResumeBehavior:
                 endpoint=endpoint,
                 team_id=123,
                 job_id="test_job",
+                logger=MagicMock(),
                 resumable_source_manager=manager,
             )
             list(cast(Iterable[Any], source.items()))
@@ -252,3 +261,272 @@ class TestValidateCredentials:
             valid, error = validate_credentials("test-key")
             assert valid is False
             assert error == "boom"
+
+
+def _make_batch_response(body: dict[str, Any], status_code: int = 200, url: str = "") -> Response:
+    resp = _make_http_response(body, status_code=status_code)
+    resp.url = url
+    resp.reason = "Forbidden" if status_code == 403 else "OK"
+    return resp
+
+
+class _FakeSession:
+    """Records every `_get` call and replays a queued list of responses."""
+
+    def __init__(self, responses: list[Response]) -> None:
+        self.responses = iter(responses)
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get(self, url: str, params: dict[str, Any] | None = None, **_kwargs: Any) -> Response:
+        self.calls.append((url, dict(params or {})))
+        return next(self.responses)
+
+
+def _patch_session(responses: list[Response]) -> tuple[Any, _FakeSession]:
+    session = _FakeSession(responses)
+    patcher = patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.coinmarketcap.make_tracked_session",
+        return_value=session,
+    )
+    return patcher, session
+
+
+class TestRowsFrom:
+    def test_object_map_keyed_by_id(self) -> None:
+        rows = _rows_from("object_map", {"1": {"id": 1, "symbol": "BTC"}, "1027": {"id": 1027, "symbol": "ETH"}})
+        assert [row["id"] for row in rows] == [1, 1027]
+
+    def test_object_map_unwraps_a_single_object(self) -> None:
+        # A single-id request returns the record directly rather than an id-keyed map.
+        assert _rows_from("object_map", {"id": 1, "symbol": "BTC"}) == [{"id": 1, "symbol": "BTC"}]
+
+    def test_object_map_flattens_symbol_keyed_lists(self) -> None:
+        # Requesting by symbol wraps each value in a list, because a symbol isn't unique.
+        rows = _rows_from("object_map", {"BTC": [{"id": 1}, {"id": 2}]})
+        assert [row["id"] for row in rows] == [1, 2]
+
+    def test_per_coin_quotes_stamps_coin_identity_on_each_quote(self) -> None:
+        rows = _rows_from(
+            "per_coin_quotes",
+            {
+                "1": {
+                    "id": 1,
+                    "name": "Bitcoin",
+                    "symbol": "BTC",
+                    "quotes": [
+                        {"timestamp": "2026-01-01T00:00:00.000Z", "quote": {"USD": {"price": 1.0}}},
+                        {"timestamp": "2026-01-02T00:00:00.000Z", "quote": {"USD": {"price": 2.0}}},
+                    ],
+                }
+            },
+        )
+
+        assert len(rows) == 2
+        assert all(row["id"] == 1 and row["symbol"] == "BTC" for row in rows)
+        assert [row["timestamp"] for row in rows] == ["2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z"]
+        # The nested array must not survive onto the row, or every row carries the whole series.
+        assert all("quotes" not in row for row in rows)
+
+    def test_per_coin_quotes_handles_a_single_object_payload(self) -> None:
+        # OHLCV historical returns the coin object directly when only one id is requested.
+        rows = _rows_from(
+            "per_coin_quotes",
+            {"id": 1, "symbol": "BTC", "quotes": [{"time_open": "2026-01-01T00:00:00.000Z"}]},
+        )
+        assert rows == [{"id": 1, "symbol": "BTC", "time_open": "2026-01-01T00:00:00.000Z"}]
+
+    def test_quote_list_reads_the_nested_series(self) -> None:
+        rows = _rows_from("quote_list", {"quotes": [{"timestamp": "2026-01-01T00:00:00.000Z", "btc_dominance": 50.0}]})
+        assert rows == [{"timestamp": "2026-01-01T00:00:00.000Z", "btc_dominance": 50.0}]
+
+    @pytest.mark.parametrize("data", [None, {}, {"quotes": None}])
+    def test_quote_list_tolerates_an_empty_body(self, data: Any) -> None:
+        assert _rows_from("quote_list", data) == []
+
+
+class TestHistoryStart:
+    def test_uses_the_watermark_when_one_is_set(self) -> None:
+        import datetime
+
+        watermark = datetime.datetime(2026, 3, 1, 12, 30, tzinfo=datetime.UTC)
+        assert _history_start(watermark) == watermark.isoformat()
+
+    def test_falls_back_to_the_backfill_window(self) -> None:
+        import datetime
+
+        expected = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=HISTORICAL_BACKFILL_DAYS)).date()
+        assert _history_start(None) == expected.isoformat()
+
+    def test_passes_a_string_watermark_through(self) -> None:
+        assert _history_start("2026-01-01T00:00:00.000Z") == "2026-01-01T00:00:00.000Z"
+
+
+class TestGetBatchRows:
+    def _manager(self, resume_config: CoinMarketCapResumeConfig | None = None) -> MagicMock:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = resume_config is not None
+        manager.load_state.return_value = resume_config
+        return manager
+
+    def _run(
+        self,
+        endpoint: str,
+        responses: list[Response],
+        manager: MagicMock,
+        db_incremental_field_last_value: Any = None,
+    ) -> tuple[list[dict[str, Any]], _FakeSession]:
+        patcher, session = _patch_session(responses)
+        with patcher:
+            batches = list(
+                get_batch_rows(
+                    api_key="test-key",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                )
+            )
+        return [row for batch in batches for row in batch], session
+
+    def test_global_metrics_makes_one_unbatched_request(self) -> None:
+        manager = self._manager()
+        rows, session = self._run(
+            "global_metrics_quotes_historical",
+            [_make_batch_response({"data": {"quotes": [{"timestamp": "2026-01-01T00:00:00.000Z"}]}})],
+            manager,
+        )
+
+        assert rows == [{"timestamp": "2026-01-01T00:00:00.000Z"}]
+        assert len(session.calls) == 1
+        url, params = session.calls[0]
+        assert url.endswith("/v1/global-metrics/quotes/historical")
+        assert "id" not in params
+        assert params["interval"] == "daily"
+        # No coin batches to resume through, so nothing should be checkpointed.
+        manager.save_state.assert_not_called()
+
+    def test_full_refresh_sends_the_backfill_window_not_a_watermark(self) -> None:
+        _, session = self._run(
+            "global_metrics_quotes_historical",
+            [_make_batch_response({"data": {"quotes": []}})],
+            self._manager(),
+        )
+        assert session.calls[0][1]["time_start"] == _history_start(None)
+
+    def test_incremental_sends_the_watermark(self) -> None:
+        import datetime
+
+        watermark = datetime.datetime(2026, 3, 1, tzinfo=datetime.UTC)
+        _, session = self._run(
+            "global_metrics_quotes_historical",
+            [_make_batch_response({"data": {"quotes": []}})],
+            self._manager(),
+            db_incremental_field_last_value=watermark,
+        )
+        assert session.calls[0][1]["time_start"] == watermark.isoformat()
+
+    def test_info_batches_every_id_in_the_map(self) -> None:
+        map_page = {"data": [{"id": coin_id} for coin_id in range(1, METADATA_BATCH_SIZE + 3)]}
+        manager = self._manager()
+        rows, session = self._run(
+            "cryptocurrency_info",
+            [
+                _make_batch_response(map_page),
+                _make_batch_response({"data": {"1": {"id": 1}}}),
+                _make_batch_response({"data": {"251": {"id": 251}}}),
+            ],
+            manager,
+        )
+
+        map_call, first_batch, second_batch = session.calls
+        assert map_call[0].endswith("/v1/cryptocurrency/map")
+        assert first_batch[0].endswith("/v2/cryptocurrency/info")
+        assert first_batch[1]["id"] == ",".join(str(i) for i in range(1, METADATA_BATCH_SIZE + 1))
+        assert second_batch[1]["id"] == f"{METADATA_BATCH_SIZE + 1},{METADATA_BATCH_SIZE + 2}"
+        assert [row["id"] for row in rows] == [1, 251]
+
+        # Checkpointed after each batch is yielded, so a crash re-yields rather than skips.
+        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+            CoinMarketCapResumeConfig(batch_index=1),
+            CoinMarketCapResumeConfig(batch_index=2),
+        ]
+
+    def test_info_walks_every_map_page(self) -> None:
+        manager = self._manager()
+        _, session = self._run(
+            "cryptocurrency_info",
+            [
+                _make_batch_response({"data": [{"id": i} for i in range(1, PAGE_SIZE + 1)]}),
+                _make_batch_response({"data": [{"id": PAGE_SIZE + 1}]}),
+                *[_make_batch_response({"data": {}}) for _ in range(21)],
+            ],
+            manager,
+        )
+
+        map_calls = [params for url, params in session.calls if url.endswith("/v1/cryptocurrency/map")]
+        assert [params["start"] for params in map_calls] == [1, 1 + PAGE_SIZE]
+
+    def test_resume_skips_the_batches_already_yielded(self) -> None:
+        map_page = {"data": [{"id": coin_id} for coin_id in range(1, METADATA_BATCH_SIZE + 3)]}
+        manager = self._manager(CoinMarketCapResumeConfig(batch_index=1))
+        _, session = self._run(
+            "cryptocurrency_info",
+            [_make_batch_response(map_page), _make_batch_response({"data": {"251": {"id": 251}}})],
+            manager,
+        )
+
+        info_calls = [params for url, params in session.calls if url.endswith("/v2/cryptocurrency/info")]
+        assert len(info_calls) == 1
+        assert info_calls[0]["id"] == f"{METADATA_BATCH_SIZE + 1},{METADATA_BATCH_SIZE + 2}"
+
+    @pytest.mark.parametrize("endpoint", ["quotes_historical", "ohlcv_historical"])
+    def test_historical_endpoints_rank_the_coin_universe_by_market_cap(self, endpoint: str) -> None:
+        listings = {"data": [{"id": coin_id} for coin_id in range(HISTORICAL_BATCH_SIZE + 1, 0, -1)]}
+        manager = self._manager()
+        _, session = self._run(
+            endpoint,
+            [_make_batch_response(listings), _make_batch_response({"data": {}}), _make_batch_response({"data": {}})],
+            manager,
+        )
+
+        universe_call, first_batch, second_batch = session.calls
+        assert universe_call[0].endswith("/v1/cryptocurrency/listings/latest")
+        assert universe_call[1]["sort"] == "market_cap"
+        assert universe_call[1]["sort_dir"] == "desc"
+        assert universe_call[1]["limit"] == HISTORICAL_COIN_LIMIT
+
+        # Ids are batched in ascending id order, not in the rank order the listing returned, so a
+        # resumed run picks up the same batches even after the ranking moves.
+        assert first_batch[1]["id"] == ",".join(str(i) for i in range(1, HISTORICAL_BATCH_SIZE + 1))
+        assert second_batch[1]["id"] == str(HISTORICAL_BATCH_SIZE + 1)
+        assert first_batch[1]["time_start"] == _history_start(None)
+        assert first_batch[0].endswith(COINMARKETCAP_BATCH_ENDPOINTS[endpoint].path)
+
+
+class TestBatchEndpointErrors:
+    def test_a_plan_refusal_matches_a_non_retryable_error(self) -> None:
+        # CoinMarketCap answers 403 when the plan doesn't cover an endpoint. Retrying can never
+        # satisfy that, so the raised message has to match one of the source's declared patterns.
+        patcher, _ = _patch_session(
+            [
+                _make_batch_response(
+                    {"status": {"error_code": 1006}},
+                    status_code=403,
+                    url="https://pro-api.coinmarketcap.com/v2/cryptocurrency/ohlcv/historical",
+                )
+            ]
+        )
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patcher, pytest.raises(Exception) as exc_info:
+            list(
+                get_batch_rows(
+                    api_key="test-key",
+                    endpoint="ohlcv_historical",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert any(key in str(exc_info.value) for key in CoinMarketCapSource().get_non_retryable_errors())
