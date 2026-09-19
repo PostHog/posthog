@@ -49,6 +49,10 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
    DB (`--reset-db` if the PR's migrations are incompatible with the baseline).
 5. **Sync HogFunction templates** - start the CDP service and load destination
    templates into the restored database before the preview becomes available.
+   Neither stage sits on the serial path: the CDP service starts before the
+   migrate and boots underneath it, and the template sync runs while web boots
+   and the health poll waits. Only whatever wait is left over is paid serially,
+   and `join_long`'s `*-wait` timings report it.
 6. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
 
 Driven entirely by the **`posthog-hogland` Python SDK** over hogplane's HTTP API
