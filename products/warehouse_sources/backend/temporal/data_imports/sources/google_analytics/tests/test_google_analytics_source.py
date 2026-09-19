@@ -11,6 +11,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
+    GA4_MAX_DIMENSIONS,
+    GA4_MAX_METRICS,
     GOOGLE_ANALYTICS_REPORT_SCHEMAS,
     CustomReportError,
     parse_custom_reports,
@@ -149,6 +151,14 @@ def test_validate_credentials_rejects_invalid_custom_reports():
     )
     assert ok is False
     assert "at least one metric" in (message or "")
+
+
+def test_all_schemas_stay_within_ga4_request_limits():
+    # GA4 rejects a runReport request that asks for more than these many fields, and the
+    # built-in reports skip the custom-report validation that enforces the same caps.
+    for name, schema in GOOGLE_ANALYTICS_REPORT_SCHEMAS.items():
+        assert len(schema["dimensions"]) <= GA4_MAX_DIMENSIONS, name
+        assert len(schema["metrics"]) <= GA4_MAX_METRICS, name
 
 
 def test_all_schemas_have_date_dimension_and_in_primary_key():
