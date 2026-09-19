@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
@@ -45,13 +45,13 @@ function validateIncorporationDate(date: Dayjs | undefined, isYC: boolean): stri
         return undefined
     }
     if (!date) {
-        return 'Please enter your incorporation date'
+        return 'Please enter your founding date'
     }
     if (!dayjs.isDayjs(date)) {
         return 'Invalid date format'
     }
     if (date.isAfter(dayjs())) {
-        return 'Incorporation date cannot be in the future'
+        return 'Founding date cannot be in the future'
     }
     if (date.isBefore(dayjs().subtract(2, 'year'))) {
         return 'Company must be less than 2 years old to be eligible'
@@ -223,6 +223,7 @@ function captureBlockedApplicationIfGateShown(values: startupProgramLogicValues,
         program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
         organization_id: values.currentOrganizationId,
         blocked_at: 'form',
+        reason: 'email_domain',
     })
 }
 
@@ -419,6 +420,23 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     throw error
                 }
             },
+        },
+    })),
+    listeners(({ values }) => ({
+        // Server-side failures reach the user as a toast, so only field validation is captured here
+        submitStartupProgramFailure: () => {
+            const errors: Record<string, any> = values.startupProgramValidationErrors
+            const invalidFields = Object.keys(errors).filter((field) => errors[field])
+            if (!invalidFields.length) {
+                return
+            }
+            posthog.capture('startup program application blocked', {
+                program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
+                organization_id: values.currentOrganizationId,
+                blocked_at: 'form',
+                reason: 'validation_failed',
+                invalid_fields: invalidFields,
+            })
         },
     })),
     subscriptions(({ values, cache }) => ({
