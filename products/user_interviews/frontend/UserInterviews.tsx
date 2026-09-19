@@ -97,9 +97,10 @@ export function UserInterviews(): JSX.Element {
         context: {},
         initialMaxPrompt: NEW_TOPIC_PROMPT,
         suggestions: NEW_TOPIC_SUGGESTIONS,
-        // `openMax` is null only when the tool is inactive, so the button's disabledReason
-        // needs this to fire on an instance without PostHog AI.
-        active: isMaxAvailable,
+        // The hook runs before the flag gate below, so without `isEnabled` a flag-off visit still
+        // hands Max the topic-creation tool. `openMax` is null only when the tool is inactive, so
+        // the button's disabledReason needs `isMaxAvailable` to fire on an instance without PostHog AI.
+        active: isEnabled && isMaxAvailable,
     })
 
     if (!isEnabled) {
