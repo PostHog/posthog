@@ -120,6 +120,11 @@ CAPTURE_V1_OPTION_CONFLICT = Counter(
     "Typed option input disagreed with a legacy property; explicit won.",
     labelnames=["event_source", "field"],
 )
+CAPTURE_V1_EVENTS_REROUTED = Counter(
+    "capture_v1_internal_events_rerouted",
+    "Events whose name put them on the other lane than the entry point the caller used.",
+    labelnames=["event_source", "from_lane"],
+)
 
 # --------------------------------------------------------------------------- #
 # Errors & result type
@@ -346,6 +351,10 @@ def _validate_event(ev: dict[str, Any], *, event_source: str, ai_lane: bool) -> 
     so `_capture_batch_impl` can clear a whole batch before submitting the first
     chunk. A chunked batch would otherwise publish its early chunks and raise on
     a later one, reporting failure after a partial ingestion.
+
+    ``ai_lane`` names the entry point the caller used in error messages. It does
+    not gate the event name: the wire lane is chosen per event from the `$ai_`
+    prefix in `_capture_batch_impl`.
     """
     fn = _lane_fn_name(ai_lane)
 
@@ -356,20 +365,6 @@ def _validate_event(ev: dict[str, Any], *, event_source: str, ai_lane: bool) -> 
     if event_name in SESSION_RECORDING_EVENT_NAMES:
         raise CaptureInternalError(
             f"{fn} ({event_source}): '{event_name}' is a replay event; use the replay capture path"
-        )
-
-    # The `$ai_` prefix, matching what billing's `is_llm_event` already keys on.
-    # Capture's AI endpoint admits a narrower allowlist, so a prefixed name it
-    # does not recognise is refused there as `non_ai_event`, which keeps the
-    # authority server-side.
-    is_ai_event_name = event_name.startswith(AI_EVENT_NAME_PREFIX)
-    if ai_lane and not is_ai_event_name:
-        raise CaptureInternalError(
-            f"capture_ai_internal ({event_source}): '{event_name}' is not an AI event; use capture_internal"
-        )
-    if is_ai_event_name and not ai_lane:
-        raise CaptureInternalError(
-            f"capture_internal ({event_source}): '{event_name}' is an AI event; use capture_ai_internal"
         )
 
     distinct_id: str = ev.get("distinct_id", "")
@@ -398,10 +393,9 @@ def prepare_capture_internal_batch(
     Returns ``(payload, ordered_uuids)`` so callers can correlate the
     results map.
 
-    ``ai_lane`` selects which lane the batch is bound for and, with it, which
-    event names are admissible.  Capture's v1 AI endpoint refuses analytics
-    traffic with a per-event ``non_ai_event`` drop.  Catching it here turns that
-    into an immediate, actionable error at the call site instead.
+    ``ai_lane`` only names the entry point in error messages. The envelope is
+    the same on both lanes; `_capture_batch_impl` decides the wire lane per
+    event from the `$ai_` prefix.
     """
     _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
 
@@ -639,7 +633,7 @@ def _merge_results(chunk_results: list[CaptureInternalResult]) -> CaptureInterna
     return merged
 
 
-def _capture_batch_impl(
+def _submit_lane(
     *,
     events: list[dict[str, Any]],
     token: str,
@@ -650,13 +644,8 @@ def _capture_batch_impl(
     timeout: float,
     ai_lane: bool,
 ) -> CaptureInternalResult:
-    """Shared body of capture_batch_internal and capture_batch_ai_internal.
-
-    The lane is not a public argument: callers pick it by choosing an entry point,
-    so there is exactly one way to reach each lane.
-    """
-    _validate_batch_inputs(events, token=token, event_source=event_source)
-
+    """Submit one lane's events: directly when they fit one chunk, else chunked and
+    fanned out concurrently. Events are already validated."""
     chunk_size = max(CAPTURE_INTERNAL_BATCH_CHUNK_SIZE, 1)
 
     def _submit_chunk(chunk_events: list[dict[str, Any]]) -> CaptureInternalResult:
@@ -671,21 +660,16 @@ def _capture_batch_impl(
             ai_lane=ai_lane,
         )
 
-    # Hot path: small batch — submit directly, no threading overhead. One chunk
-    # validates and posts in that order, so it needs no pre-pass.
+    # Hot path: small batch — submit directly, no threading overhead.
     if len(events) <= chunk_size:
         return _submit_chunk(events)
-
-    # Each worker validates only its own chunk, so clear the whole batch first
-    # or a rejected event can follow chunks that already published.
-    for ev in events:
-        _validate_event(ev, event_source=event_source, ai_lane=ai_lane)
 
     # Large batch: chunk and fan out concurrently.
     chunks = [events[i : i + chunk_size] for i in range(0, len(events), chunk_size)]
     logger.info(
         "capture_batch_internal_chunked",
         event_source=event_source,
+        lane="ai" if ai_lane else "analytics",
         total_events=len(events),
         chunks=len(chunks),
         chunk_size=chunk_size,
@@ -714,6 +698,70 @@ def _capture_batch_impl(
                 )
 
     return _merge_results(chunk_results)
+
+
+def _capture_batch_impl(
+    *,
+    events: list[dict[str, Any]],
+    token: str,
+    event_source: str,
+    historical_migration: bool,
+    process_person_profile: bool,
+    max_attempts: int,
+    timeout: float,
+    ai_lane: bool,
+) -> CaptureInternalResult:
+    """Shared body of capture_batch_internal and capture_batch_ai_internal.
+
+    ``ai_lane`` is the entry point the caller chose. The wire lane is decided per
+    event: every `$ai_`-prefixed name goes to `/i/v1/ai/events` on capture-ai and
+    everything else to `/i/v1/analytics/events`, whichever entry point was used.
+    capture-ai drops non-AI events per event as `misrouted_event`, so sending them
+    there would lose them; the analytics deployment would give an `$ai_*` event
+    person processing. Rerouting here keeps both lanes correct and is counted so
+    a call site on the wrong entry point is visible.
+    """
+    _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
+
+    # Every client-side rejection fires here, before either lane submits, so a
+    # rejected event cannot follow a chunk that already published, and the error
+    # names the entry point the caller used.
+    for ev in events:
+        _validate_event(ev, event_source=event_source, ai_lane=ai_lane)
+
+    ai_events = [ev for ev in events if ev["event"].startswith(AI_EVENT_NAME_PREFIX)]
+    analytics_events = [ev for ev in events if not ev["event"].startswith(AI_EVENT_NAME_PREFIX)]
+
+    rerouted = analytics_events if ai_lane else ai_events
+    if rerouted:
+        from_lane = "ai" if ai_lane else "analytics"
+        CAPTURE_V1_EVENTS_REROUTED.labels(event_source=event_source, from_lane=from_lane).inc(len(rerouted))
+        logger.info(
+            "capture_internal_rerouted",
+            event_source=event_source,
+            entry_point=_lane_fn_name(ai_lane),
+            from_lane=from_lane,
+            rerouted_events=len(rerouted),
+            total_events=len(events),
+        )
+
+    lane_results = [
+        _submit_lane(
+            events=lane_events,
+            token=token,
+            event_source=event_source,
+            historical_migration=historical_migration,
+            process_person_profile=process_person_profile,
+            max_attempts=max_attempts,
+            timeout=timeout,
+            ai_lane=lane_is_ai,
+        )
+        for lane_events, lane_is_ai in ((analytics_events, False), (ai_events, True))
+        if lane_events
+    ]
+    if len(lane_results) == 1:
+        return lane_results[0]
+    return _merge_results(lane_results)
 
 
 def capture_batch_internal(
@@ -755,6 +803,9 @@ def capture_batch_internal(
     Session replay events ($snapshot, $performance_event, $snapshot_items) are NOT SUPPORTED
     and will raise CaptureInternalError.  Real replay ingestion flows through SDKs directly
     to the capture-rs /s/ endpoint.
+
+    Events with an `$ai_`-prefixed name are sent to the AI lane (see capture_ai_internal)
+    and counted as rerouted; the rest of the batch goes to the analytics lane as usual.
 
     event.options reference (typed options replacing legacy $-prefixed properties):
     ┌─────────────────────────┬────────────────────────────┬──────────────┐
@@ -1018,13 +1069,13 @@ def capture_ai_internal(
     capture-analytics.  That deployment is configured for AI traffic: an 8MiB per-event
     ceiling instead of 983040 bytes, and a direct produce to the AI topic.
 
-    The two lanes are mutually exclusive and each refuses the other's traffic, so:
-
-      * a non-`$ai_` event name here raises CaptureInternalError, and
-      * an `$ai_` event name passed to capture_internal raises likewise.
-
-    Both are client-side errors raised before any HTTP call, so a misrouted call site
-    fails loudly at the point of the mistake rather than as a per-event drop later.
+    The wire lane follows the event name, not the entry point: a non-`$ai_` name
+    passed here is sent to the analytics lane, and an `$ai_` name passed to
+    capture_internal is sent to the AI lane. Each reroute is counted
+    (``capture_v1_internal_events_rerouted``) and logged, so a call site on the
+    wrong entry point is visible without losing events. Prefer the matching entry
+    point anyway: it documents intent and keeps ``historical_migration`` and
+    ``session_id`` / ``window_id`` off AI events.
 
     ``historical_migration`` is not offered: AI backfills do not run through this path.
 
@@ -1036,8 +1087,7 @@ def capture_ai_internal(
         CaptureInternalResult with per-event outcome, exactly as capture_internal.
 
     Raises:
-        CaptureInternalError: on client-side validation failures — including a non-AI
-            event name — or HTTP/transport errors.
+        CaptureInternalError: on client-side validation failures or HTTP/transport errors.
     """
     return _capture_single_impl(
         token=token,
@@ -1070,8 +1120,8 @@ def capture_batch_ai_internal(
     capture_batch_ai_internal is capture_batch_internal for the AI lane.
 
     Same chunking, concurrency, retry rounds and per-event result merging — see
-    capture_batch_internal's docstring.  Every event in the batch must have an `$ai_`
-    prefixed name; one that does not raises CaptureInternalError before anything is sent.
+    capture_batch_internal's docstring.  An event without an `$ai_` prefixed name is
+    sent to the analytics lane instead and counted as rerouted; see capture_ai_internal.
 
     ``historical_migration`` is not offered: AI backfills do not run through this path.
     """
