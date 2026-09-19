@@ -4,6 +4,7 @@ import type {
   SignalUserAutonomyConfig,
 } from "@posthog/shared/types";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
@@ -17,8 +18,9 @@ export interface SlackNotificationUpdates {
 }
 
 /**
- * Mutations that write to the per-user Self-driving autonomy config:
- * Slack notification preferences. Reads come from `useSignalUserAutonomyConfig`.
+ * Mutations that write to the per-user Self-driving autonomy config: Slack
+ * notification preferences and GitHub assignment. Reads come from
+ * `useSignalUserAutonomyConfig`.
  */
 export function useSignalUserAutonomyMutations() {
   const client = useAuthenticatedClient();
@@ -93,7 +95,56 @@ export function useSignalUserAutonomyMutations() {
     [client, queryClient],
   );
 
+  const githubAssignmentMutation = useAuthenticatedMutation<
+    SignalUserAutonomyConfig,
+    Error,
+    boolean,
+    { previous: SignalUserAutonomyConfig | null }
+  >(
+    async (authClient, enabled) =>
+      await authClient.updateSignalUserAutonomyConfig({
+        github_assign_on_pull_request: enabled,
+      }),
+    {
+      onMutate: (enabled) => {
+        const previous =
+          queryClient.getQueryData<SignalUserAutonomyConfig | null>(
+            USER_AUTONOMY_QUERY_KEY,
+          ) ?? null;
+        // Build from the previous snapshot so unrelated settings (autostart
+        // threshold, Slack notifications) survive the optimistic write.
+        const optimisticNext: SignalUserAutonomyConfig = {
+          ...(previous ??
+            ({ autostart_priority: null } as SignalUserAutonomyConfig)),
+          github_assign_on_pull_request: enabled,
+        };
+        queryClient.setQueryData<SignalUserAutonomyConfig | null>(
+          USER_AUTONOMY_QUERY_KEY,
+          optimisticNext,
+        );
+        return { previous };
+      },
+      onSuccess: (fresh) => {
+        queryClient.setQueryData<SignalUserAutonomyConfig | null>(
+          USER_AUTONOMY_QUERY_KEY,
+          fresh,
+        );
+      },
+      onError: (error, _enabled, context) => {
+        queryClient.setQueryData<SignalUserAutonomyConfig | null>(
+          USER_AUTONOMY_QUERY_KEY,
+          context?.previous ?? null,
+        );
+        toast.error(
+          error.message || "Failed to update GitHub assignment setting",
+        );
+      },
+    },
+  );
+
   return {
     handleUpdateSlackNotifications,
+    handleUpdateGithubAssignment: githubAssignmentMutation.mutate,
+    isUpdatingGithubAssignment: githubAssignmentMutation.isPending,
   };
 }
