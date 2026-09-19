@@ -13,6 +13,10 @@ and the SQL editor use), so no web worker ever waits on ClickHouse:
   background thread polls this — invisible to the user, who already waits on the
   run callback or the page response.
 
+An object-delivery request (`delivery: "object"`) runs as a Temporal materialize job
+instead. Its status is the notebook-owned `frame_status` record, and the poll answers
+with a 302 to a presigned URL for the frame.
+
 Wired in posthog/urls.py at internal/notebooks/data_plane/query/.
 """
 
@@ -34,7 +38,7 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
 
-from products.notebooks.backend import frame_store
+from products.notebooks.backend import frame_status, frame_store
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.sql_v2 import (
     DELIVERY_INLINE,
@@ -190,7 +194,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                     "notebook_frame_materialize_enqueue_failed", notebook_short_id=claims.notebook_short_id
                 )
                 return JsonResponse({"error": "Query could not be scheduled."}, status=500)
-            return JsonResponse({"query_id": status.id, "delivery": DELIVERY_OBJECT_RELAY}, status=202)
+            return JsonResponse({"query_id": status.query_id, "delivery": DELIVERY_OBJECT_RELAY}, status=202)
         if frame_store_configured:
             # The environment is provisioned but this user is outside the rollout, which is
             # the expected state for most users while the flag ramps. Counted, not logged:
@@ -253,6 +257,10 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
     if isinstance(claims, JsonResponse):
         return claims
 
+    frame = frame_status.get_frame_status(claims.team_id, query_id)
+    if frame is not None:
+        return _frame_status_response(frame, claims.team_id, query_id)
+
     try:
         status = get_query_status(team_id=claims.team_id, query_id=query_id)
     except QueryNotFoundError:
@@ -264,26 +272,26 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
         return JsonResponse({"error": status.error_message or "Query execution failed."}, status=400)
 
     results: dict[str, Any] = status.results or {}
-
-    object_key = results.get("object_key")
-    if object_key:
-        # Object delivery: the status carries a pointer, not rows. The token was verified
-        # above; presign_get additionally refuses keys outside this team's prefix. The
-        # presigned URL is a bearer secret — it must never be logged.
-        try:
-            # Sign against the bucket the writer recorded. A status written before a bucket
-            # change still points at the old bucket, and signing it against the new one
-            # would 404 every frame materialized in the window before that deploy.
-            recorded_bucket = results.get("bucket")
-            presigned_url = frame_store.presign_get(
-                str(object_key), claims.team_id, bucket=str(recorded_bucket) if recorded_bucket else None
-            )
-        except frame_store.FrameStoreError:
-            logger.exception("notebook_frame_presign_failed", team_id=claims.team_id, query_id=query_id)
-            return JsonResponse({"error": "The frame download could not be prepared. Try re-running."}, status=500)
-        return HttpResponseRedirect(presigned_url)
-
     columns = [str(column) for column in (results.get("columns") or [])]
     types = [[str(name), str(type_name)] for name, type_name in (results.get("types") or [])]
     payload = _rows_to_arrow_bytes(columns, results.get("results") or [], types)
     return HttpResponse(payload, content_type=ARROW_STREAM_CONTENT_TYPE)
+
+
+def _frame_status_response(frame: frame_status.FrameStatus, team_id: int, query_id: str) -> HttpResponse:
+    if not frame.complete:
+        return JsonResponse({"status": "running"}, status=202)
+    if frame.error or frame.object_key is None:
+        return JsonResponse({"error": frame.error_message or "Query execution failed."}, status=400)
+    # Object delivery: the status carries a pointer, not rows. The caller verified the token;
+    # presign_get additionally refuses keys outside this team's prefix. The presigned URL is
+    # a bearer secret — it must never be logged.
+    try:
+        # Sign against the bucket the writer recorded. A status written before a bucket
+        # change still points at the old bucket, and signing it against the new one
+        # would 404 every frame materialized in the window before that deploy.
+        presigned_url = frame_store.presign_get(frame.object_key, team_id, bucket=frame.bucket)
+    except frame_store.FrameStoreError:
+        logger.exception("notebook_frame_presign_failed", team_id=team_id, query_id=query_id)
+        return JsonResponse({"error": "The frame download could not be prepared. Try re-running."}, status=500)
+    return HttpResponseRedirect(presigned_url)
