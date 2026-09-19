@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -100,7 +102,7 @@ class MetricsTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "metrics_distributed"
+        return settings.METRICS_ARRAY_VIEW or "metrics_distributed"
 
     def to_printed_hogql(self):
         return "metrics"

@@ -59,7 +59,7 @@ def _series_fingerprint(
 def truncate_metrics_tables() -> None:
     """Clear every table the seeder's inserts fan out into, so leftovers can't
     leak between tests."""
-    for table in ("metrics2", "metric_series2", "metric_attributes2"):
+    for table in ("metrics2", "metrics2_agg", "metric_series2", "metric_attributes2"):
         sync_execute(f"TRUNCATE TABLE IF EXISTS {table}")
 
 

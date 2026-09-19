@@ -375,6 +375,9 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
 )
 
 CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_single_shard")
+# Spike: name of a flat view over `metrics2_agg` (`metrics2_flat` or `metrics2_flat_idx`) that the
+# `metrics` HogQL table reads instead of `metrics_distributed`. Empty means off. Local tests only.
+METRICS_ARRAY_VIEW: str = os.getenv("METRICS_ARRAY_VIEW", "")
 # The name the logs cluster answers to from the ingestion-events nodes, which host the logs Kafka
 # table and the Distributed front that writes into it. Cloud names it the same from both sides, so it
 # defaults to CLICKHOUSE_LOGS_CLUSTER; the local multinode stack does not, and sets this explicitly.
