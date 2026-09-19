@@ -27,8 +27,11 @@ can't be expressed structurally:
 
 ## HogQL insights
 
-For saved insights with `query.kind === "HogQLQuery"`, the playbook routing is shape-based
-rather than kind-based. Read the SQL and pick the closest playbook:
+For saved insights whose body is a `HogQLQuery`, the playbook routing is shape-based
+rather than kind-based.
+Read `query.source.kind` to find it: the wrapper at `query.kind` is
+`DataVisualizationNode` or `DataTableNode`.
+Read the SQL and pick the closest playbook:
 
 - `count(...) GROUP BY toStartOfDay(...)` or similar count-over-time → trend playbook.
 - Multi-step `windowFunnel` or sequential filtering → funnel playbook.
