@@ -267,6 +267,9 @@ class PgAnalyzeIssueReference(ContractModel):
 class PgAnalyzeIssueSignalExtra(SignalExtraBase):
     severity: str | None
     references: list[PgAnalyzeIssueReference]
+    # The cited SQL, lifted out of `references` and truncated so it fits the gate's metadata budget,
+    # which is why it is not just `references`. Absent on a finding that cites no query.
+    cited_queries: list[str] = []
     database_id: str | None
     server_human_id: str | None
     server_name: str | None

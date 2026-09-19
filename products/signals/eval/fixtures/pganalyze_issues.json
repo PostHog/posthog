@@ -38,5 +38,15 @@
     "server_human_id": "posthog-cloud-prod",
     "server_name": "posthog-cloud-prod-us-east-1",
     "synced_at": "2026-04-20T12:00:00+00:00"
+  },
+  {
+    "id": "issue_slow_query_rds_platform_function",
+    "database_id": "db_main",
+    "description": "Query #9900112233 takes 68 ms on average across 1,210 calls per day.",
+    "severity": "info",
+    "references": "[{\"kind\": \"Query\", \"name\": \"Query #9900112233\", \"queryText\": \"SELECT * FROM rds_get_stat_dxl_counters()\", \"url\": \"https://app.pganalyze.com/servers/posthog-cloud-prod/databases/main/queries/9900112233\"}]",
+    "server_human_id": "posthog-cloud-prod",
+    "server_name": "posthog-cloud-prod-us-east-1",
+    "synced_at": "2026-04-20T12:00:00+00:00"
   }
 ]
