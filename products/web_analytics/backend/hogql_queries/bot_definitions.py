@@ -900,6 +900,29 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "swissaitalent.ch",
         documentation_url="https://swissaitalent.ch/bot",
     ),
+    "JobsToInbox": BotDefinition(
+        "JobsToInbox", "search_crawler", "Bot", "JobsToInbox", documentation_url="https://www.jobstoinbox.com"
+    ),
+    "EtherdeckBot": BotDefinition(
+        "Etherdeck",
+        "search_crawler",
+        "Bot",
+        "Etherdeck",
+        documentation_url="https://servers.etherdeck.org/search/about",
+    ),
+    "VoryqeSearchBot": BotDefinition(
+        "Voryqe Search", "search_crawler", "Bot", "Voryqe", documentation_url="https://www.voryqe.com/"
+    ),
+    "Magdox-Archive": BotDefinition(
+        "Magdox Archive", "search_crawler", "Bot", "Magdox", documentation_url="https://magdox.io/bot"
+    ),
+    "Georgia Tech README Security Research Crawler": BotDefinition(
+        "Georgia Tech README Security Research Crawler",
+        "search_crawler",
+        "Bot",
+        "Georgia Institute of Technology",
+        documentation_url="https://forms.office.com/r/i1h9pFXbKA",
+    ),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
@@ -950,6 +973,16 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "BenchRankBot": BotDefinition(
         "BenchRank", "seo_crawler", "Bot", "BenchRank", documentation_url="https://benchrank.app/bot"
     ),
+    "PostletCompetitorWatch": BotDefinition(
+        "Postlet Competitor Watch", "seo_crawler", "Bot", "Postlet", documentation_url="https://postlet.com"
+    ),
+    "SurfoundBot": BotDefinition(
+        "Surfound",
+        "seo_crawler",
+        "Bot",
+        "Bridgewood Creative",
+        documentation_url="https://bridgewoodcreative.com/scan/bot",
+    ),
     # Social / link-preview crawlers
     "PagePeeker": BotDefinition(
         "PagePeeker", "social_crawler", "Bot", "PagePeeker", documentation_url="https://pagepeeker.com/robots/"
@@ -993,6 +1026,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     "NimbusBlocklistSync": BotDefinition(
         "Nimbus Blocklist Sync", "monitoring", "Bot", "Nimbus", documentation_url="https://nimbus.com"
+    ),
+    "Vivere-Monitor": BotDefinition(
+        "Vivere Monitor", "monitoring", "Bot", "Vivere", documentation_url="https://vivere.dev"
     ),
     # HTTP clients
     "MrAnandPortfolio": BotDefinition(
