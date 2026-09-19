@@ -5511,8 +5511,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         self,
         query: str,
         context: Optional[HogQLContext] = None,
+        placeholders: dict[str, ast.Expr] | None = None,
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, placeholders=placeholders)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
         prepared_select_query: ast.SelectQuery = cast(
@@ -5532,6 +5533,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         expected_query: str,
         expected_context_values: Mapping[str, Any] | None = None,
         optimization_mode: MaterializedColumnsOptimizationMode | None = None,
+        placeholders: dict[str, ast.Expr] | None = None,
     ) -> None:
         context = HogQLContext(
             team_id=self.team.pk,
@@ -5540,7 +5542,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 materializedColumnsOptimizationMode=optimization_mode,
             ),
         )
-        printed_expr = self._expr(input_expression, context)
+        printed_expr = self._expr(input_expression, context, placeholders=placeholders)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             baseline_context = HogQLContext(
                 team_id=self.team.pk,
@@ -5549,7 +5551,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                     materializedColumnsOptimizationMode=optimization_mode,
                 ),
             )
-            baseline_expr = self._expr(input_expression, baseline_context)
+            baseline_expr = self._expr(input_expression, baseline_context, placeholders=placeholders)
             self.assertEqual(printed_expr % context.values, baseline_expr % baseline_context.values)
             self.assertNotIn("mat_", printed_expr)
             self.assertNotIn("JSONExtractRaw(events.properties", printed_expr)
@@ -6233,8 +6235,17 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop in ('value1', 'value2')",
-                f"has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name})",
+                f"and(in(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s)), has([%(hogql_val_2)s, %(hogql_val_3)s], events.{mat_col.name}))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_in_list_constant_uses_raw_column_for_non_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop in {values}",
+                f"and(in(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s)), has([%(hogql_val_2)s, %(hogql_val_3)s], events.{mat_col.name}))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+                placeholders={"values": ast.Constant(value=["value1", "value2"])},
             )
 
     def test_materialized_column_not_in_uses_raw_column_for_non_nullable(self) -> None:
@@ -6264,7 +6275,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=True) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop in ('value1', 'value2')",
-                f"and(has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name}), isNotNull(events.{mat_col.name}))",
+                f"and(in(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s)), has([%(hogql_val_2)s, %(hogql_val_3)s], events.{mat_col.name}), isNotNull(events.{mat_col.name}))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -6281,7 +6292,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_lower_index=True) as mat_col:
             self._test_materialized_column_comparison(
                 "lower(properties.test_prop) in ('value1', 'value2')",
-                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(events.{mat_col.name}))",
+                f"and(in(lower(events.{mat_col.name}), tuple(%(hogql_val_0)s, %(hogql_val_1)s)), has([%(hogql_val_2)s, %(hogql_val_3)s], lower(events.{mat_col.name})))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -6298,7 +6309,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             self._test_materialized_column_comparison(
                 "lower(properties.test_prop) in ('value1', 'value2')",
-                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(coalesce(events.{mat_col.name}, '')))",
+                f"and(in(lower(coalesce(events.{mat_col.name}, '')), tuple(%(hogql_val_0)s, %(hogql_val_1)s)), has([%(hogql_val_2)s, %(hogql_val_3)s], lower(coalesce(events.{mat_col.name}, ''))))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -6315,7 +6326,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_lower_index=True) as mat_col:
             self._test_materialized_column_comparison(
                 "LOWER(properties.test_prop) in ('value1', 'value2')",
-                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(events.{mat_col.name}))",
+                f"and(in(lower(events.{mat_col.name}), tuple(%(hogql_val_0)s, %(hogql_val_1)s)), has([%(hogql_val_2)s, %(hogql_val_3)s], lower(events.{mat_col.name})))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -6324,7 +6335,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False, create_ngram_lower_index=True) as mat_col:
             self._test_materialized_column_comparison(
                 "lower(properties.test_prop) in ('value1', 'value2')",
-                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(events.{mat_col.name}))",
+                f"and(in(lower(events.{mat_col.name}), tuple(%(hogql_val_0)s, %(hogql_val_1)s)), has([%(hogql_val_2)s, %(hogql_val_3)s], lower(events.{mat_col.name})))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -6350,7 +6361,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
             self._test_materialized_column_comparison(
                 "lower(properties.test_prop) in ('null', 'value2')",
-                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(coalesce(events.{mat_col.name}, '')))",
+                f"and(in(lower(coalesce(events.{mat_col.name}, '')), tuple(%(hogql_val_0)s, %(hogql_val_1)s)), has([%(hogql_val_2)s, %(hogql_val_3)s], lower(coalesce(events.{mat_col.name}, ''))))",
                 {"hogql_val_0": "null", "hogql_val_1": "value2"},
             )
             assert "has(" not in self._expr("lower(properties.test_prop) in ('', 'value2')")
