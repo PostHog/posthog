@@ -47,6 +47,7 @@ import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
 
 interface QueryWindowProps {
+    nativeQueryJourney?: boolean
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
     tabId: string
     mode?: SQLEditorMode
@@ -72,6 +73,7 @@ interface QueryWindowProps {
 }
 
 export function QueryWindow({
+    nativeQueryJourney = true,
     onSetMonacoAndEditor,
     tabId,
     mode,
@@ -417,7 +419,12 @@ export function QueryWindow({
             ) : null}
 
             {showOutputPanel ? (
-                <InternalQueryWindow tabId={tabId} biMode={showBIEditor} onShareTab={onShareTab} />
+                <InternalQueryWindow
+                    tabId={tabId}
+                    biMode={showBIEditor}
+                    onShareTab={onShareTab}
+                    nativeQueryJourney={nativeQueryJourney}
+                />
             ) : null}
         </div>
     )
@@ -579,10 +586,12 @@ function RunButton({
 }
 
 const InternalQueryWindow = memo(function InternalQueryWindow({
+    nativeQueryJourney,
     tabId,
     biMode,
     onShareTab,
 }: {
+    nativeQueryJourney: boolean
     tabId: string
     biMode: boolean
     onShareTab?: () => void
@@ -593,7 +602,7 @@ const InternalQueryWindow = memo(function InternalQueryWindow({
         return null
     }
 
-    return <OutputPane tabId={tabId} biMode={biMode} onShareTab={onShareTab} />
+    return <OutputPane tabId={tabId} biMode={biMode} onShareTab={onShareTab} nativeQueryJourney={nativeQueryJourney} />
 })
 
 function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQLEditorMode }): JSX.Element | null {
