@@ -55,6 +55,7 @@ Hosts:
 11. tRPC routers are one-line forwards over services. No inline business logic.
 12. Use Inversify with `@inversifyjs/strongly-typed`. Define each token as a standalone `export const TOKEN = Symbol.for("posthog.<area>.<thing>")` beside its `interface`/service — never an object-literal token bag (`TOKENS = { X: Symbol.for(...) }`), because object properties are not `unique symbol` and cannot key a binding map. Every composition root declares a `BindingMap` interface (token → bound type) and constructs `new TypedContainer<BindingMap>()`, so a mistyped bind or a resolve of an unbound token fails at compile time. Bind in the feature module. Do not use `@provide` or `*Port` naming.
 13. Use `@posthog/quill` for rendering-layer primitives. Never import Radix — see [UI Components](#ui-components). Routing is TanStack Router contributed per feature.
+14. Make each user action optimistic when its expected result is reversible. Update all visible state and route context immediately. Restore the prior state if the request fails. If a safe rollback is not possible, show an explicit pending state.
 
 Hard boundary: `@posthog/core` and `@posthog/ui` never import host transports. No `trpcClient`, `electron`, or `node:*`.
 
