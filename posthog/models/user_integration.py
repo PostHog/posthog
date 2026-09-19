@@ -11,7 +11,7 @@ import structlog
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, raise_if_github_unreachable
 from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
 from posthog.models.utils import UUIDModel
 
@@ -282,7 +282,9 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         """Exchange the refresh token for a fresh user-to-server access token.
 
         Deletes the integration row and raises :class:`ReauthorizationRequired`
-        when GitHub signals the refresh token can't produce a new access token.
+        when GitHub signals the refresh token can't produce a new access token,
+        and raises :class:`GitHubTokenRefreshUnavailable` when the call never
+        reached GitHub.
         """
         client_id = settings.GITHUB_APP_CLIENT_ID
         client_secret = settings.GITHUB_APP_CLIENT_SECRET
@@ -293,17 +295,18 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             self._discard("no user refresh token stored")
             raise ReauthorizationRequired("No refresh token stored for this GitHub integration.")
 
-        response = requests.post(
-            "https://github.com/login/oauth/access_token",
-            json={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-            },
-            headers={"Accept": "application/json"},
-            timeout=10,
-        )
+        with raise_if_github_unreachable():
+            response = requests.post(
+                "https://github.com/login/oauth/access_token",
+                json={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                },
+                headers={"Accept": "application/json"},
+                timeout=10,
+            )
         try:
             payload = response.json()
         except ValueError:
