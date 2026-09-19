@@ -21,6 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
@@ -95,6 +96,12 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
         warning: jest.fn(),
         info: jest.fn(),
     },
+}))
+
+jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
+    ...jest.requireActual('~/layout/panel-layout/ProjectTree/projectTreeLogic'),
+    deleteFromTree: jest.fn(),
+    refreshTreeItem: jest.fn(),
 }))
 
 const MOCK_FEATURE_FLAG = {
@@ -2852,6 +2859,24 @@ describe('featureFlagLogic', () => {
                 ).toFinishAllListeners()
 
                 expect(logic.values.showStaleFlagBanner).toBe(true)
+            } finally {
+                updateSpy.mockRestore()
+            }
+        })
+    })
+
+    describe('restoreFeatureFlag', () => {
+        // deleteWithUndo hands the callback the `undo: true` that restore sets, so branching on it
+        // takes the delete path and drops the restored flag out of the files tree.
+        it('puts the restored flag back in the files tree', async () => {
+            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: false })
+            try {
+                await expectLogic(logic, () =>
+                    logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG)
+                ).toFinishAllListeners()
+
+                expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', String(MOCK_FEATURE_FLAG.id))
+                expect(deleteFromTree).not.toHaveBeenCalled()
             } finally {
                 updateSpy.mockRestore()
             }

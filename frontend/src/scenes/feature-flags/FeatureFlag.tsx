@@ -137,6 +137,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         accessDeniedToFeatureFlag,
         earlyAccessFeaturesList,
         featureFlagActiveUpdateLoading,
+        featureFlagRestoreLoading,
         dependentFlags,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -442,7 +443,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <ButtonPrimitive
                                     menuItem
                                     variant="danger"
-                                    disabled={!!disabledReason}
+                                    disabled={!!disabledReason || featureFlagRestoreLoading}
                                     {...(disabledReason && { tooltip: disabledReason })}
                                     data-attr={featureFlag.deleted ? 'restore-feature-flag' : 'delete-feature-flag'}
                                     onClick={() => {
@@ -473,6 +474,24 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
                     )}
 
+                    {featureFlag.deleted && (
+                        <LemonBanner
+                            type="error"
+                            action={
+                                featureFlag.can_edit
+                                    ? {
+                                          children: 'Restore',
+                                          onClick: () => restoreFeatureFlag(featureFlag),
+                                          loading: featureFlagRestoreLoading,
+                                          'data-attr': 'restore-feature-flag-banner',
+                                      }
+                                    : undefined
+                            }
+                        >
+                            This feature flag is deleted. It's hidden from the flag list and can't be evaluated. Restore
+                            it to use it again.
+                        </LemonBanner>
+                    )}
                     {featureFlag.archived && (
                         <LemonBanner
                             type="warning"
@@ -545,7 +564,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     {({ disabledReason }) => (
                                         <SceneMenuBarItem
                                             variant="destructive"
-                                            disabled={!!disabledReason}
+                                            disabled={!!disabledReason || featureFlagRestoreLoading}
                                             data-attr={
                                                 featureFlag.deleted
                                                     ? `${RESOURCE_TYPE}-menubar-restore`
@@ -723,7 +742,7 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
     if (featureFlag.deleted) {
         return (
             <div data-attr="feature-flag-usage-deleted-banner">
-                <LemonBanner type="error">This feature flag has been deleted.</LemonBanner>
+                <LemonBanner type="info">Usage data is not shown for a deleted feature flag.</LemonBanner>
             </div>
         )
     }
