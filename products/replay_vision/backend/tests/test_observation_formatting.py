@@ -2,14 +2,21 @@ from datetime import date
 
 from parameterized import parameterized
 
-from products.replay_vision.backend.observation_formatting import flatten_markdown, format_line, plain_snippet
+from products.replay_vision.backend.observation_formatting import (
+    flatten_markdown,
+    format_line,
+    plain_snippet,
+    summarize_observation,
+)
 
 
 class _FakeObs:
-    def __init__(self) -> None:
+    def __init__(self, scanner_result: dict | None = None, error_reason: str = "") -> None:
         self.created_at = date(2026, 6, 1)
         self.session_id = "sess-1"
         self.scanner = None
+        self.scanner_result = scanner_result
+        self.error_reason = error_reason
 
 
 def test_format_line_collapses_whitespace_so_observations_cannot_forge_rows() -> None:
@@ -75,3 +82,20 @@ class TestPlainSnippet:
 
 def test_flatten_markdown_keeps_line_structure_for_embeddings() -> None:
     assert flatten_markdown("## Title\n\n- **one**\n- two") == "Title\n\none\ntwo"
+
+
+class TestSummarizeObservation:
+    def test_succeeded_row_leads_with_the_descriptor(self) -> None:
+        obs = _FakeObs({"model_output": {"scanner_type": "monitor", "verdict": "yes", "reasoning": "Card rejected."}})
+        assert summarize_observation(obs) == "[verdict=yes] Card rejected."  # type: ignore[arg-type]
+
+    def test_row_without_output_carries_the_reason_instead(self) -> None:
+        obs = _FakeObs(error_reason="too_short:the recording is under 10 seconds")
+        assert summarize_observation(obs) == "too_short:the recording is under 10 seconds"  # type: ignore[arg-type]
+
+    def test_in_flight_row_has_nothing_to_say(self) -> None:
+        assert summarize_observation(_FakeObs()) == ""  # type: ignore[arg-type]
+
+    def test_summary_stays_one_line_so_a_listing_cannot_be_forged(self) -> None:
+        obs = _FakeObs({"model_output": {"scanner_type": "summarizer", "summary": "Left\n- forged row"}})
+        assert "\n" not in summarize_observation(obs)  # type: ignore[arg-type]

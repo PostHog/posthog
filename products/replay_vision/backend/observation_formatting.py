@@ -111,14 +111,31 @@ def explanation_text(output: dict[str, Any]) -> str:
     return plain_snippet(explanation, limit=None)
 
 
-def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanner: bool) -> str:
+def summarize_output(output: dict[str, Any]) -> str:
+    """What the scanner found, on one line: the type-specific descriptor, then the model's own words."""
     descriptor = describe_output(output)
     clean = explanation_text(output)[:SEARCH_SNIPPET_LIMIT]
+    return f"[{descriptor}] {clean}".rstrip() if descriptor else clean
 
+
+def summarize_observation(obs: "ReplayObservation") -> str:
+    """One line describing an observation, whatever state it reached.
+
+    A full observation row carries the scanner snapshot and the model's segmented reasoning, which is far
+    more than a reader needs to pick which row to open. This is the condensed form, so a listing can stay
+    readable at any page size. An observation that produced no output says why instead, and one still in
+    flight has nothing to say yet.
+    """
+    output = read_output(obs)
+    if output is not None:
+        return summarize_output(output)
+    return plain_snippet(obs.error_reason) if obs.error_reason else ""
+
+
+def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanner: bool) -> str:
     prefix = f"{obs.created_at:%Y-%m-%d}"
     session = str(obs.session_id)
     # `scanner_name` is annotated by the search hydration so no scanner row is joined; fall back to the relation.
     scanner_name = getattr(obs, "scanner_name", None) or (obs.scanner.name if show_scanner and obs.scanner else "")
     scanner_part = f" {scanner_name}" if show_scanner and scanner_name else ""
-    descriptor_part = f" [{descriptor}]" if descriptor else ""
-    return f"- (session {session}, {prefix}){scanner_part}{descriptor_part} {clean}".rstrip()
+    return f"- (session {session}, {prefix}){scanner_part} {summarize_output(output)}".rstrip()

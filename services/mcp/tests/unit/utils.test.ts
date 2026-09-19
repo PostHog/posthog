@@ -8,6 +8,7 @@ import {
     stripNullFields,
     withInformationalResponse,
     withPostHogUrl,
+    withTextProjection,
 } from '@/tools/tool-utils'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
 
@@ -68,6 +69,45 @@ describe('utils', () => {
             expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('template-1')
             expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('template-1')
             expect(toJSON).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('withTextProjection', () => {
+        const listResult = {
+            count: 1,
+            results: [
+                {
+                    id: 'obs-1',
+                    session_id: 'sess-1',
+                    status: 'succeeded',
+                    summary_line: '[verdict=yes] Card rejected twice.',
+                    scanner_snapshot: { prompt: 'a very long frozen scanner configuration' },
+                    scanner_result: { model_output: { reasoning_segments: [{ timestamp_ms: 12000 }] } },
+                },
+            ],
+        }
+        const fields = ['id', 'session_id', 'status', 'summary_line']
+
+        it('narrows the text the model reads to the named fields', () => {
+            const projected = withTextProjection(listResult, fields)
+            const text = (projected as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY] as string
+
+            expect(text).toContain('obs-1')
+            expect(text).toContain('Card rejected twice.')
+            expect(text).not.toContain('frozen scanner configuration')
+            expect(text).not.toContain('reasoning_segments')
+        })
+
+        it('leaves the structured payload whole for the UI app that renders it', () => {
+            const projected = withTextProjection(listResult, fields)
+
+            expect(projected.results[0]).toEqual(listResult.results[0])
+            expect(Object.keys(projected)).toEqual(['count', 'results'])
+        })
+
+        it('passes through a result that carries no rows', () => {
+            const detail = { id: 'obs-1' }
+            expect(withTextProjection(detail, fields)).toBe(detail)
         })
     })
 
