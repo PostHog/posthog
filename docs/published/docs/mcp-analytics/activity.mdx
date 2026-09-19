@@ -1,0 +1,28 @@
+---
+title: Activity tab and recent activity
+---
+
+The **Activity** tab is where a new MCP analytics project lands until it has enough tool calls for the dashboard's charts to mean something.
+It answers "what are agents doing with my server?" one call at a time.
+
+## What is on the tab
+
+- A one-line summary of the last 30 days: calls, clients, the most used tool, and how many calls failed. Select the failure count to filter the feed to failed calls.
+- **Next steps**, shown only while something still needs doing. A step disappears once it is done.
+- The **live activity** feed: every tool call with its tool, agent intent, result, duration, client and a link to its session. It refreshes every minute. Expand a row to see the event's properties, and use the date range and property filters to narrow it.
+- **Who is calling your server**: the same share-of-calls-by-harness and by-model cards as the dashboard, over the last 30 days.
+
+## Next steps
+
+Each step reflects what the last 30 days of calls show:
+
+- **Capture what agents are trying to do** appears when fewer than half of your calls carry an agent intent. Select **Fix with your agent** for a prompt to paste into your coding agent, which updates the SDK and configures the intent fallback. The docs link covers the manual route.
+- **Get alerted when a tool call fails** appears when calls failed and no enabled failure alert exists. It opens the Notifications tab.
+- **Group tool calls into sessions** appears when almost every call is its own session, or calls carry no session ID. The agent prompt checks your server's transport before enabling conversation IDs.
+
+Steps only evaluate once a project has at least 10 calls.
+
+## Recent activity on the dashboard
+
+The dashboard ends with the 20 newest tool calls under the dashboard's date range, property filters and test-account setting.
+**View all tool calls** opens the Activity tab on the same filters.

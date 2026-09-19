@@ -22,7 +22,7 @@ from products.tasks.backend.logic.services.ai_run_defaults import (
     update_user_ai_run_preferences,
     validate_ai_run_preferences,
 )
-from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
+from products.tasks.backend.models import Task, TaskRun, TeamTasksConfig, UserTasksConfig
 from products.tasks.backend.presentation.serializers import TaskRunCreateRequestSerializer
 
 FACADE = "products.tasks.backend.facade.api"
@@ -434,6 +434,45 @@ class TestRunTaskWarmMatchingUnderDefaults(APIBaseTest):
 
         assert result is not None and result.error is None
         assert task.runs.count() == 1
+        warm_run.refresh_from_db()
+        assert "await_user_message" not in warm_run.state
+
+    def test_default_carrying_warm_run_is_activated_by_a_continue_from_an_import_run(self):
+        update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        import_run = task.create_run(mode="interactive", extra_state={"imported_from": "conversation"})
+        import_run.status = TaskRun.Status.COMPLETED
+        import_run.save(update_fields=["status"])
+        warm_run = task.create_run(
+            mode="interactive",
+            extra_state={
+                "await_user_message": True,
+                "resume_from_run_id": str(import_run.id),
+                "initial_permission_mode": "default",
+            },
+        )
+        assert warm_run.state["model"] == "claude-opus-4-8"
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": str(import_run.id),
+                    "pending_user_message": "go",
+                },
+            )
+
+        assert result is not None and result.error is None
+        assert task.runs.count() == 2
         warm_run.refresh_from_db()
         assert "await_user_message" not in warm_run.state
 

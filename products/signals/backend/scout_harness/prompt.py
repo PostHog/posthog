@@ -283,11 +283,11 @@ Surfacing a finding is half the job: nothing automatically tells you whether the
 
 If the `scout_fleet` roster shows `signals-scout-inbox-validation` running here with `emit` on, re-measuring **resolved inbox reports** is its territory, so keep yours to the follow-ups only you track. It enqueues only reports resolved in about the last 14 days, though, so an older one of yours is still yours: dropped by both is the outcome this queue exists to prevent."""
 
-# The check channel. `task:write` reaches the check tools from any posture, so the gate here is not
-# about scope like the re-surface clause: it is about having a report to hang a check on. A
-# signal-channel scout holds a finding id and no report, so it keeps the scratchpad queue as its
-# whole loop.
-_FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on the report.** A scratchpad entry is yours alone, so a run that never comes back to it leaves the loop open and nobody else can see that it is open. When the expectation sits on a report — one you authored, or one that covers your finding — write it onto the report with `scout-report-check-create` and let the coordinator do the re-measuring. A check carries the same expectation, probe, and validate-after date the entry above holds. Choose `metric_threshold` when one number settles the claim, and the coordinator measures it with no run at all. Choose `agent` when the claim needs investigating, and a run is dispatched to answer it later. Either way the verdict lands on the report where a person reads it. Read `scout-report-check-list` before you add one, since a report carries at most 5 open checks and a sibling may already watch your claim. Keep a scratchpad entry for what no report covers, and name the check id in the entry when you write both, so you never re-measure what the coordinator already measured.
+# The check channel. The check tools need `signal_scout_report:write` plus the `edit_report` tool
+# grant, which the caller below already checks. The extra gate here is about having a report to hang
+# a check on: a signal-channel scout holds a finding id and no report, so it keeps the scratchpad
+# queue as its whole loop.
+_FOLLOWUP_CHECK_ON_REPORT = """- **A follow-up that hangs on a report belongs on the report.** A scratchpad entry is yours alone, so a run that never comes back to it leaves the loop open and nobody else can see that it is open. When the expectation sits on a report — one you authored, or one that covers your finding — write it onto the report with `scout-report-check-create` and let the coordinator do the re-measuring. A check carries the same expectation, probe, and validate-after date the entry above holds. Choose `metric_threshold` when one number settles the claim, and the coordinator measures it with no run at all. Choose `agent` when the claim needs investigating, and a run is dispatched to answer it later. Either way the verdict lands on the report where a person reads it. Read `scout-report-check-list` before you add one, since a report carries at most 5 open checks and a sibling may already watch your claim. Keep a scratchpad entry for what no report covers, and name the check id in the entry when you write both, so you never re-measure what the coordinator already measured. Cancel a check you wrote in error with `scout-report-check-cancel`, before its first run.
 """
 
 _FOLLOWUP_RESURFACE_SIGNAL = (
@@ -632,7 +632,7 @@ _REPORT_CHARTS = f"""# Attaching charts
 - **A chart renders data, it does not run code.** HogVM `bytecode`, a nested `HogQuery`, `sendRawQuery`, and a nested `SuggestedQuestionsQuery` (whose runner would buy an LLM completion per reader) are each refused wherever they sit in the node. A warehouse query is fine through HogQL: keep `connectionId`, drop `sendRawQuery`.
 - **Place it from the summary.** A markdown link with a `chart:` target, `[Daily signups](chart:signups-drop)`, draws the chart at that point in the body; reference it once, since repeating doesn't draw a second copy, and an unreferenced chart still renders after the prose. Two references in one paragraph sit side by side, so give a pair you want compared a paragraph of their own; one inside a table cell or heading has no room to draw, so its chart falls to the end. The inbox sizes a chart from its query, so set `size` (`small`, `medium`, `large`) only when it gets that wrong.
 - **Write prose that stands on its own.** A report can also be delivered to Slack, where nothing draws a chart and a reference degrades to its plain label. "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
-- **Pin the window** to absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to days later.
+- **Pin the window** to absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to days later. This holds for charts alone. A metric and a follow-up check measure the period before each run, so each one needs a relative `dateRange.date_from` and an empty `date_to`. An absolute window is refused there.
 - **At most {MAX_REPORT_CHARTS} per report**, far more than most reports should use. Every chart runs its query when someone opens the report, so three charts a reader studies beat a dozen they scroll past.
 - **`charts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary, so to keep a chart send it again (`inbox-reports-retrieve` returns the current `charts` to start from). Leave `charts` out entirely and the report keeps the ones it has; send `charts: []` to take them all down, which is what you want once the finding has moved on and the old chart would mislead. When an edit advances the report's evidence window, re-send the chart under the same `chart_id` with a refreshed window: fresh numbers beside a chart still pinned to the original dates read as a report gone stale.
 
@@ -1345,7 +1345,7 @@ def build_run_prompt(
 - **team_id**: `{team_id}`, implicit on every MCP call.
 - **skill_name**: `{skill.name}`, your steering layer.
 - **skill_version**: `{skill.version}`, the version it is pinned to, written as a bare number and never `v`-prefixed. `skill_name` and `skill_version` are the two arguments the `skill-get` call in *First: read your skill* takes.{authors_line}
-- **run_id**: `{run_id}`, passed when calling `{emit_tool}`.
+- **run_id**: `{run_id}`, passed to every `scout-*` tool that takes it, including `{emit_tool}` and the report-check tools.
 - **started_at**: `{started_at_iso}`, when this run began (UTC). Informational; use current clock time for queries about "now"."""
     # Everything above this block is identical across runs of the same channel, so both runtimes'
     # prefix caches can reuse it. Every per-team and per-run interpolation belongs here, per-team
@@ -1367,7 +1367,7 @@ def build_run_prompt(
     return f"""{intro}
 # How to call tools
 
-Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP tools alike, is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, never as a direct tool call. Bare names like `skill-get`, `scout-project-profile-get`, or `{emit_tool}` are how you *refer* to a tool, so don't burn opening moves trying to invoke them directly. For any tool you haven't already used, `search <regex>` to find it and `info <tool_name>` to read its schema on that same interface, then `call` it. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name: `search scout` and call whichever name the catalog returns.
+Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP tools alike, is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, never as a direct tool call. Bare names like `skill-get`, `scout-project-profile-get`, or `{emit_tool}` are how you *refer* to a tool, so don't burn opening moves trying to invoke them directly. For any tool you haven't already used, `search <regex>` to find it and `info <tool_name>` to read its schema on that same interface, then `call` it. Search by prefix, one family at a time (`search ^scout-`, `search ^inbox-report`), and confirm a single name with `info <tool_name>`. Do not build one pattern that lists every tool you hold: `search` refuses a pattern over 800 characters. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name: `search scout` and call whichever name the catalog returns.
 
 # First: read your skill
 
