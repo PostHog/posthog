@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
@@ -309,6 +310,21 @@ def fetch_message_assets_for_person(
 
     results = cast(list, sync_execute(query, kwargs))
     return [_build_asset(row) for row in results]
+
+
+# A link in a captured email carries no target, so a click inside the viewer's iframe
+# navigates that iframe. Most destinations refuse to be framed, so the person who clicks a
+# link to check where it goes gets a broken page instead of the page. A `<base target="_blank">`
+# sends the click to a new tab. The tag has no href, so relative URLs resolve as before.
+_NEW_TAB_BASE_TAG = '<base target="_blank">'
+_HEAD_OPEN_TAG = re.compile(r"<head(?:\s[^>]*)?>", re.IGNORECASE)
+
+
+def with_new_tab_link_target(html: str) -> str:
+    head_open_tag = _HEAD_OPEN_TAG.search(html)
+    if head_open_tag is None:
+        return _NEW_TAB_BASE_TAG + html
+    return html[: head_open_tag.end()] + _NEW_TAB_BASE_TAG + html[head_open_tag.end() :]
 
 
 def fetch_message_asset_html(
