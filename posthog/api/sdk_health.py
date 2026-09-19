@@ -40,6 +40,14 @@ class SdkReleaseAssessmentSerializer(serializers.Serializer):
     max_timestamp = serializers.CharField(
         help_text="Timestamp of the most recent event seen for this version (ISO 8601)."
     )
+    hosts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Up to three hosts (the $host event property) that sent the most events on this version "
+            "in the last 7 days. Use it to tell which site or domain is still on an old version when "
+            "a project serves several. Empty for server-side SDKs, which send no host."
+        ),
+    )
     release_date = serializers.CharField(
         allow_null=True,
         help_text="When this version was published on GitHub (ISO 8601), or null if unknown.",

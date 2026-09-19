@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from django.conf import settings
 
@@ -73,6 +73,8 @@ class SdkVersionEntry(TypedDict):
     lib_version: str | None
     max_timestamp: str
     count: int
+    # Absent from snapshots cached before the host breakdown shipped, so always read it with .get().
+    hosts: NotRequired[list[str]]
 
 
 # Identity matching no longer persists tables on the ClickHouse cluster. Each run of

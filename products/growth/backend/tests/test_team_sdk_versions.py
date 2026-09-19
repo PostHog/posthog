@@ -29,8 +29,8 @@ class TestGetSdkVersionsForTeam(SimpleTestCase):
         mock_team_get.return_value = MagicMock()
         mock_run_query.return_value = MagicMock(
             results=[
-                (sdk_type, "1.2.0", "2026-07-14T00:00:00Z", 100),
-                (sdk_type, "1.10", "2026-07-14T00:00:00Z", 50),
+                (sdk_type, "1.2.0", "2026-07-14T00:00:00Z", 100, ()),
+                (sdk_type, "1.10", "2026-07-14T00:00:00Z", 50, ()),
             ]
         )
 
@@ -38,6 +38,19 @@ class TestGetSdkVersionsForTeam(SimpleTestCase):
 
         assert result is not None
         assert [entry["lib_version"] for entry in result[sdk_type]] == ["1.10", "1.2.0"]
+
+    @patch("products.growth.backend.team_sdk_versions.run_query")
+    @patch("products.growth.backend.team_sdk_versions.Team.objects.get")
+    def test_keeps_top_hosts_per_version(self, mock_team_get: MagicMock, mock_run_query: MagicMock) -> None:
+        mock_team_get.return_value = MagicMock()
+        mock_run_query.return_value = MagicMock(
+            results=[("web", "1.2.0", "2026-07-14T00:00:00Z", 100, ["shop.example.com", "docs.example.com"])]
+        )
+
+        result = get_sdk_versions_for_team(team_id=1)
+
+        assert result is not None
+        assert result["web"][0]["hosts"] == ["shop.example.com", "docs.example.com"]
 
 
 class TestGetAndCacheTeamSdkVersions(SimpleTestCase):

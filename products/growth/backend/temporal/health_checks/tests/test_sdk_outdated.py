@@ -20,8 +20,9 @@ def _make_ch_row(
     lib_version: str | None,
     max_timestamp: str = "2026-03-20 12:00:00",
     event_count: int = 5000,
+    top_hosts: tuple[str, ...] = (),
 ) -> tuple:
-    return (team_id, lib, lib_version, max_timestamp, event_count)
+    return (team_id, lib, lib_version, max_timestamp, event_count, top_hosts)
 
 
 def _patch_check(github: dict | None, rows: list[tuple]):
@@ -82,6 +83,16 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         assert issue.payload["usage"][0]["is_latest"] is False
         assert "status_reason" in issue.payload["usage"][0]
         assert issue.hash_keys == ["sdk_name"]
+
+    def test_carries_top_hosts_per_version_and_drops_unsafe_ones(self):
+        github = {"web": {"latestVersion": "2.0.0", "releaseDates": {"1.0.0": OLD_RELEASE}}}
+        rows = [
+            _make_ch_row(1, "web", "1.0.0", top_hosts=("shop.example.com", "docs example.com", "app.example.com")),
+        ]
+
+        results = self._run(github, rows, [1])
+
+        assert results[1][0].payload["usage"][0]["hosts"] == ["shop.example.com", "app.example.com"]
 
     def test_detects_legacy_java_without_version_and_recommends_migration(self):
         github = {

@@ -9,6 +9,7 @@ The single source of truth for SDK outdatedness detection. Consumed by:
 The frontend renders these pre-computed values.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from json import dumps as json_dumps
@@ -149,6 +150,7 @@ class UsageEntry:
     max_timestamp: str
     release_date: Optional[str] = None
     is_latest: bool = False
+    hosts: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -158,6 +160,7 @@ class ReleaseAssessment:
     version: str
     count: int
     max_timestamp: str
+    hosts: list[str]
     release_date: Optional[str]
     days_since_release: Optional[int]
     released_ago: Optional[str]
@@ -381,6 +384,27 @@ def _is_safe_for_interpolation(value: str) -> bool:
     return bool(value) and bool(_SAFE_INTERPOLATION_RE.match(value))
 
 
+# `$host` is an event property too, so it is as attacker-controlled as `$lib_version`. Keep only
+# what looks like a host name with an optional port; everything else is dropped rather than shown.
+_SAFE_HOST_RE: Pattern[str] = re_compile(r"^[A-Za-z0-9._\-]+(:\d+)?$")
+
+HOSTS_PER_RELEASE = 3
+
+
+def _safe_hosts(hosts: Optional[list[str]]) -> list[str]:
+    """Keep the leading host names that pass the allowlist, up to the per-release limit."""
+    return [host for host in hosts or [] if _SAFE_HOST_RE.match(host)][:HOSTS_PER_RELEASE]
+
+
+def _merge_hosts(host_lists: Iterable[Optional[list[str]]]) -> list[str]:
+    """Collapse several releases' host lists into one de-duplicated list, order preserved."""
+    merged: dict[str, None] = {}
+    for hosts in host_lists:
+        for host in _safe_hosts(hosts):
+            merged[host] = None
+    return list(merged)[:HOSTS_PER_RELEASE]
+
+
 def _build_sql_query(sdk_type: str, version: Optional[str]) -> str:
     """
     SQL drill-in for SDK usage, rendered as-is by the SDK Health UI and MCP tool.
@@ -556,6 +580,7 @@ def assess_release(
             version="<unsafe version redacted>",
             count=entry.count,
             max_timestamp=entry.max_timestamp,
+            hosts=entry.hosts,
             release_date=None,
             days_since_release=None,
             released_ago=None,
@@ -579,6 +604,7 @@ def assess_release(
             version=entry.lib_version,
             count=entry.count,
             max_timestamp=entry.max_timestamp,
+            hosts=entry.hosts,
             release_date=None,
             days_since_release=None,
             released_ago=None,
@@ -640,6 +666,7 @@ def assess_release(
         version=entry.lib_version,
         count=entry.count,
         max_timestamp=entry.max_timestamp,
+        hosts=entry.hosts,
         release_date=entry.release_date,
         days_since_release=days_since_release,
         released_ago=released_ago,
@@ -737,6 +764,7 @@ def _assess_legacy_java_sdk(
         version=LEGACY_JAVA_VERSION_LABEL,
         count=sum(int(entry.get("count", 0)) for entry in usage),
         max_timestamp=max((str(entry.get("max_timestamp") or "") for entry in usage), default=""),
+        hosts=_merge_hosts(entry.get("hosts") for entry in usage),
         release_date=None,
         days_since_release=None,
         released_ago=None,
@@ -879,6 +907,7 @@ def compute_sdk_health(
                     lib_version=entry["lib_version"],
                     count=int(entry.get("count", 0)),
                     max_timestamp=entry.get("max_timestamp", ""),
+                    hosts=_safe_hosts(entry.get("hosts")),
                     release_date=entry.get("release_date"),
                     is_latest=bool(entry.get("is_latest", False)),
                 )

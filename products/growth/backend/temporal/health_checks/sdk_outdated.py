@@ -48,7 +48,10 @@ SELECT
     `mat_$lib` AS lib,
     `mat_$lib_version` AS lib_version,
     max(timestamp) AS max_timestamp,
-    count(*) AS event_count
+    count(*) AS event_count,
+    -- topK samples more hosts than we keep, so dropping the blanks that server-side SDKs
+    -- send still usually leaves a full list of real hosts.
+    arraySlice(arrayFilter(h -> h != '', topK(5)(`mat_$host`)), 1, 3) AS top_hosts
 FROM events
 WHERE
     team_id IN %(team_ids)s
@@ -190,13 +193,14 @@ class SdkOutdatedCheck(HealthCheck):
         team_sdk_data: defaultdict[int, defaultdict[str, list[SdkVersionEntry]]] = defaultdict(
             lambda: defaultdict(list)
         )
-        for team_id, lib, lib_version, max_timestamp, event_count in rows:
+        for team_id, lib, lib_version, max_timestamp, event_count, top_hosts in rows:
             if lib in SDK_TYPES:
                 team_sdk_data[team_id][lib].append(
                     {
                         "lib_version": lib_version,
                         "max_timestamp": str(max_timestamp),
                         "count": event_count,
+                        "hosts": list(top_hosts),
                     }
                 )
 
@@ -240,6 +244,7 @@ def _build_combined_data(
                     "lib_version": entry["lib_version"],
                     "count": entry.get("count", 0),
                     "max_timestamp": entry["max_timestamp"],
+                    "hosts": entry.get("hosts"),
                     "release_date": release_dates.get(entry["lib_version"]),
                     "is_latest": entry["lib_version"] == latest_version,
                 }
@@ -280,6 +285,7 @@ def _build_health_result(assessment: SdkAssessment) -> HealthCheckResult:
                     "lib_version": release.version,
                     "count": release.count,
                     "max_timestamp": release.max_timestamp,
+                    "hosts": release.hosts,
                     "release_date": release.release_date,
                     "is_latest": release.version == assessment.latest_version,
                     "is_outdated": release.is_outdated,

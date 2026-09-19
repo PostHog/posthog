@@ -11,6 +11,7 @@ interface UsageEntry {
     count: number
     max_timestamp: string
     release_date: string | null
+    hosts?: string[]
     is_latest: boolean
     is_outdated?: boolean
     status_reason?: string
@@ -84,6 +85,9 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
                             <tr key={entry.lib_version} className="border-t border-border-light">
                                 <td className="py-1 pr-2">
                                     <code className="text-xs">{entry.lib_version}</code>
+                                    {!!entry.hosts?.length && (
+                                        <div className="text-muted">{entry.hosts.join(', ')}</div>
+                                    )}
                                 </td>
                                 <td className="text-right py-1 pr-2">{(entry.count ?? 0).toLocaleString()}</td>
                                 <td className="py-1 pr-2">
