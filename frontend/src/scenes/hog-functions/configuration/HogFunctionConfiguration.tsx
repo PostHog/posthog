@@ -13,7 +13,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
@@ -67,6 +69,7 @@ export function HogFunctionConfiguration({
         survey,
     } = useValues(logic)
     const { loadHogFunction } = useActions(logic)
+    const { openSupportForm } = useActions(supportLogic)
 
     // The section components attach the config blobs (code, inputs, filters) as unkeyed values; only a
     // keyed item renders its id into the context line, and the agent needs the id for cdp-functions-partial-update.
@@ -154,10 +157,22 @@ export function HogFunctionConfiguration({
                   hogFunction?.template?.status === 'alpha' ? (
                     <div>
                         <LemonBanner type="warning">
+                            {(templateId ?? hogFunction?.template?.id) === 'native-typesafe' ? (
+                                <p>
+                                    This transformation sends event names and properties to TypeSafe, except for
+                                    properties you exclude. TypeSafe is not on PostHog's list of subprocessors. Your
+                                    agreements with PostHog, including any DPA, BAA, or MSA, do not cover TypeSafe's
+                                    processing of this data. Only send data you are allowed to share with TypeSafe.
+                                </p>
+                            ) : null}
                             <p>
-                                This {humanizeHogFunctionType(type)} is currently in an experimental state. For many
-                                cases this will work just fine but for others there may be unexpected issues and we do
-                                not offer official customer support for it in these cases.
+                                This {humanizeHogFunctionType(type)} is experimental and may behave unexpectedly.{' '}
+                                <Link
+                                    data-attr="experimental-hog-function-contact-support"
+                                    onClick={() => openSupportForm({ kind: 'bug', isEmailFormOpen: true })}
+                                >
+                                    Contact support if you find an issue.
+                                </Link>
                             </p>
                             {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(
                                 templateId ?? hogFunction?.template?.id ?? ''
