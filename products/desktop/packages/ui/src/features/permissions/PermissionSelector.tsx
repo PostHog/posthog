@@ -7,6 +7,7 @@ import { ExecutePermission } from "./ExecutePermission";
 import { FetchPermission } from "./FetchPermission";
 import { McpPermission } from "./McpPermission";
 import { MovePermission } from "./MovePermission";
+import { readPermissionKind } from "./permissionKind";
 import { QuestionPermission } from "./QuestionPermission";
 import { ReadPermission } from "./ReadPermission";
 import { SearchPermission } from "./SearchPermission";
@@ -32,11 +33,10 @@ export function PermissionSelector({
   onCancel,
 }: PermissionSelectorProps) {
   const props = { toolCall, options, onSelect, onCancel };
-  const meta = toolCall._meta as { codeToolKind?: string } | undefined;
   if (readMcpToolName(toolCall._meta)) {
     return <McpPermission {...props} />;
   }
-  const kind = meta?.codeToolKind ?? (toolCall.kind as string);
+  const kind = readPermissionKind(toolCall);
 
   switch (kind) {
     case "execute":
