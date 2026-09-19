@@ -810,6 +810,16 @@ class TestPostgresSourceNonRetryableErrors:
                 "OperationalError: Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.",
                 "data transfer quota",
             ),
+            # Some refusals from the same family name no quota at all, so only the sentence they
+            # all end with is left to classify them by.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: ERROR:  Your account or project has exceeded the quota. Upgrade your plan to increase limits.',
+                "a plan quota",
+            ),
+            (
+                "OperationalError: Your account or project has exceeded the quota. Upgrade your plan to increase limits.",
+                "a plan quota",
+            ),
         ],
     )
     def test_exceeded_provider_quota_is_non_retryable_with_friendly_message(self, source, error_msg, expected_fragment):
