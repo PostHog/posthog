@@ -313,9 +313,34 @@ def escape_clickhouse_identifier(identifier: str) -> str:
     return quote_clickhouse_identifier(identifier)
 
 
+# ClickHouse misreads these words in an identifier position, so they are always backquoted. A clause
+# keyword is a syntax error: `SELECT top.tier FROM (...) AS top` fails because ClickHouse takes `TOP`
+# as its `SELECT TOP n` clause. A literal wins silently: bare `true`, `false`, `null`, `inf`,
+# `infinity` and `nan` read as the literal, so a column with one of those names returns the literal
+# instead of its stored value. `INFINITY` is the second spelling of the same HogQL token as `INF`.
+# Matched case-insensitively because ClickHouse keywords are. Re-derive after a major ClickHouse upgrade.
+CLICKHOUSE_KEYWORDS_UNSAFE_UNQUOTED = {
+    "ALL",
+    "DISTINCT",
+    "FALSE",
+    "INF",
+    "INFINITY",
+    "NAN",
+    "NOT",
+    "NULL",
+    "RECURSIVE",
+    "SELECT",
+    "TOP",
+    "TRUE",
+}
+
+
 def quote_clickhouse_identifier(identifier: str) -> str:
     """Quote an identifier without validating whether it is safe to interpolate into SQL."""
-    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
+    if (
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier)
+        and identifier.upper() not in CLICKHOUSE_KEYWORDS_UNSAFE_UNQUOTED
+    ):
         return identifier
     return backquote_clickhouse_identifier(identifier)
 

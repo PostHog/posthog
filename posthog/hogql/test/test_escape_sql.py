@@ -7,6 +7,7 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
+    CLICKHOUSE_KEYWORDS_UNSAFE_UNQUOTED,
     escape_clickhouse_identifier,
     escape_clickhouse_string,
     escape_hogql_identifier,
@@ -57,6 +58,8 @@ class TestPrintString(BaseTest):
         self.assertEqual(escape_clickhouse_identifier("0asd"), "`0asd`")
         self.assertEqual(escape_clickhouse_identifier("123"), "`123`")
         self.assertEqual(escape_clickhouse_identifier("event"), "event")
+        self.assertEqual(escape_clickhouse_identifier("top"), "`top`")
+        self.assertEqual(escape_clickhouse_identifier("TOP"), "`TOP`")
         self.assertEqual(escape_clickhouse_identifier("a b c"), "`a b c`")
         self.assertEqual(escape_clickhouse_identifier("a.b.c"), "`a.b.c`")
         self.assertEqual(escape_clickhouse_identifier("a-b-c"), "`a-b-c`")
@@ -220,3 +223,17 @@ class TestClickHouseIdentifierExecution(ClickhouseTestMixin, BaseTest):
         escaped = escape_clickhouse_identifier(identifier)
         _, columns = sync_execute(f"SELECT 1 AS {escaped}", with_column_types=True)
         self.assertEqual(columns[0][0], identifier)
+
+    @parameterized.expand([(keyword,) for keyword in sorted(CLICKHOUSE_KEYWORDS_UNSAFE_UNQUOTED)])
+    def test_escaped_keyword_identifier_parses_in_clause_position(self, keyword):
+        # Unquoted, ClickHouse reads these names as the start of a clause instead of an identifier.
+        escaped = escape_clickhouse_identifier(keyword.lower())
+        sync_execute(f"SELECT {escaped}.a FROM (SELECT 1 AS a) AS {escaped}")
+
+    @parameterized.expand([(keyword,) for keyword in sorted(CLICKHOUSE_KEYWORDS_UNSAFE_UNQUOTED)])
+    def test_escaped_keyword_identifier_reads_the_column_not_a_literal(self, keyword):
+        # Unquoted, names like `true` and `null` read as a literal in this position, so the column
+        # value never reaches the caller and nothing raises.
+        escaped = escape_clickhouse_identifier(keyword.lower())
+        results = sync_execute(f"SELECT {escaped} FROM (SELECT 4711 AS {escaped})")
+        self.assertEqual(results[0][0], 4711)
