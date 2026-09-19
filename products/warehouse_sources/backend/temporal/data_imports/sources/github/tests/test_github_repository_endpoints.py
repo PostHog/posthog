@@ -544,14 +544,30 @@ class TestMergeCommitSha:
         # GraphQL window outlasts.
         assert raised.value.retry_after == expected_retry_after
 
-    def test_pull_requests_still_sync_when_graphql_is_unavailable(self) -> None:
-        # The rest of the row is good, so a denied or unreachable GraphQL call must not fail the
-        # whole table.
+    def test_pull_requests_still_sync_when_graphql_is_closed_to_the_connection(self) -> None:
+        # A token with no GraphQL grant gets a 200 with null data on every run, so failing the sync
+        # would lose the whole table forever. The rest of the row is good: keep it.
+        denied = mock.Mock()
+        denied.status_code = 200
+        denied.headers = {}
+        denied.json.return_value = {"data": None, "errors": [{"type": "FORBIDDEN"}]}
+        page = _response([self._pull_request(7, merged=True)])
+
+        with mock.patch.object(github, "github_request", return_value=denied) as github_request:
+            rows, _calls = _run("pull_requests", {"api.github.com": page})
+
+        assert [(row["number"], row.get("merge_commit_sha")) for row in rows] == [(7, None)]
+        # Permanent, so it is not retried either.
+        github_request.assert_called_once()
+
+    def test_a_transient_graphql_failure_fails_the_walk(self) -> None:
+        # Merged pull requests rarely move `updated_at` again, and the newest-first watermark
+        # advances on any walk that completes. Syncing these rows without their SHA would strand
+        # them until a full refresh, so the walk fails and the next sync reads them again.
         page = _response([self._pull_request(7, merged=True)])
         with (
             mock.patch.object(github, "github_request", side_effect=requests.ConnectionError("boom")),
             mock.patch.object(github, "_github_backoff_wait", return_value=0.0),
         ):
-            rows, _calls = _run("pull_requests", {"api.github.com": page})
-
-        assert [(row["number"], row.get("merge_commit_sha")) for row in rows] == [(7, None)]
+            with pytest.raises(requests.ConnectionError):
+                _run("pull_requests", {"api.github.com": page})

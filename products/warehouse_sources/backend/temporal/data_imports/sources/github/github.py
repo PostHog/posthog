@@ -124,6 +124,14 @@ class GithubRepositoryTooLargeError(Exception):
     pass
 
 
+class GithubGraphqlUnavailableError(Exception):
+    """GraphQL answered, and gave no data for a reason that holds until the connection changes: no
+    GraphQL grant on the token, SSO enforcement, a rejected query. Retrying can never succeed, so
+    the merge-commit enrichment logs it and leaves the column empty rather than failing the sync."""
+
+    pass
+
+
 @dataclasses.dataclass
 class GithubResumeConfig:
     next_url: str
@@ -1354,9 +1362,11 @@ def _fetch_merge_commit_shas(
     pull_requests = (body.get("data") or {}).get("repository")
     if pull_requests is None:
         # GraphQL answers 200 with a null `data` and an `errors` array for the failures REST would
-        # have given a status code. Retry rather than read the empty body as "none of these pull
-        # requests has a merge commit".
-        raise GithubRetryableError(f"Github GraphQL returned no repository data: errors={body.get('errors')}")
+        # have given a status code. Never read the empty body as "none of these pull requests has a
+        # merge commit". The rate limit, the one transient member of that set, is already mapped
+        # above, so what is left — no GraphQL grant, SSO enforcement, a rejected query — holds for
+        # this connection until someone changes it, and is not worth retrying.
+        raise GithubGraphqlUnavailableError(f"Github GraphQL returned no repository data: errors={body.get('errors')}")
 
     errors = body.get("errors")
     if errors:
@@ -1384,11 +1394,11 @@ def _add_merge_commit_shas(
     egress_identity: GithubEgressIdentity | None = None,
 ) -> bool:
     """Fill in `merge_commit_sha` on the merged pull requests of one page, in place. False says
-    GraphQL is unreachable, so the caller can stop asking for the rest of the walk.
+    GraphQL is closed to this connection, so the caller can stop asking for the rest of the walk.
 
-    The enrichment never fails the sync: the rest of the pull request row is good, so a denied or
-    unreachable GraphQL call leaves the column as REST left it and says so in the log, rather than
-    losing the whole table."""
+    A permanent denial does not fail the sync: the rest of the pull request row is good, and failing
+    would lose the whole table on every run for a connection that can never answer. A transient
+    failure is raised instead, for the reason on the handler below."""
     pending: dict[int, dict[str, Any]] = {
         row["number"]: row
         for row in rows
@@ -1400,6 +1410,14 @@ def _add_merge_commit_shas(
     for batch in batched(pending, _MERGE_COMMIT_BATCH_SIZE, strict=False):
         try:
             shas = _fetch_merge_commit_shas(repository, list(batch), access_token, logger, egress_identity)
+        except _GITHUB_RETRYABLE_ERRORS:
+            # Transient, and still failing after five attempts: a rate-limit window, our own egress
+            # budget, or the network. Fail the walk. `pull_requests` sorts newest-first, so the
+            # watermark advances to the newest row as soon as a walk completes, and a merged pull
+            # request rarely moves `updated_at` again — a SHA skipped here would need a full refresh
+            # to recover. Failing holds the watermark where it is, so the next sync reads the same
+            # rows. This is what the REST walk already does with the same errors.
+            raise
         except Exception as error:
             logger.warning(
                 "Github: GraphQL is unavailable, so merged pull requests keep an empty merge_commit_sha: "
