@@ -5,7 +5,7 @@ importable without that baggage (activities loaded early in the package init, th
 the snapshot classes from here. `types.py` re-exports them for its existing importers.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError
@@ -15,6 +15,13 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+
+
+# How a monitor `yes` verdict is re-checked. Persisted as a plain str on the snapshot (see
+# `ScannerSnapshot.verify_positives`) so a retired value still loads; new code produces and matches these.
+VerifyPositivesMode = Literal["off", "shadow", "enforce"]
+# The modes that trigger a second draw; every other value (a typo, a retired mode) stays one-pass.
+VERIFY_DRAW_MODES: frozenset[VerifyPositivesMode] = frozenset({"shadow", "enforce"})
 
 
 class ScannerSnapshot(BaseModel, frozen=True):

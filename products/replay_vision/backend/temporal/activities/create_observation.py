@@ -13,6 +13,7 @@ from temporalio.exceptions import ApplicationError
 from posthog import redis
 from posthog.event_usage import groups
 from posthog.models.organization import OrganizationMembership
+from posthog.ph_client import get_feature_flag_or_none
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
@@ -21,7 +22,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.quota import (
     BillingPeriod,
@@ -40,7 +41,12 @@ from products.replay_vision.backend.temporal.metrics import (
     record_scanner_admission_busy,
     record_scanner_limit_reached,
 )
-from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot, ScannerSnapshot
+from products.replay_vision.backend.temporal.snapshots import (
+    VERIFY_DRAW_MODES,
+    BackfillScannerSnapshot,
+    ScannerSnapshot,
+    VerifyPositivesMode,
+)
 from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput
 
 # One event per scanner and reason per hour. Without a gate, an org past its limit emits one event
@@ -50,6 +56,26 @@ _SCAN_BLOCKED_DEDUP_TTL_SECONDS = 60 * 60
 
 def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
     return ScannerSnapshot.from_scanner(scanner).model_dump(mode="json")
+
+
+# Multivariate so the rollout can run as an experiment without a rename; resolved per organization.
+VERIFY_POSITIVES_FLAG = "replay-vision-verify-positives"
+
+
+def _monitor_verify_mode(scanner: ReplayScanner) -> VerifyPositivesMode:
+    """Flag-driven `verify_positives` value for monitors; any failure or unknown variant maps to `off`."""
+    variant = get_feature_flag_or_none(
+        VERIFY_POSITIVES_FLAG,
+        replay_vision_distinct_id(scanner.team_id),
+        groups={"organization": str(scanner.team.organization_id)},
+        # So a release condition on the organization id evaluates without a per-scan decide call.
+        group_properties={"organization": {"id": str(scanner.team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+    for mode in VERIFY_DRAW_MODES:
+        if variant == mode:
+            return mode
+    return "off"
 
 
 def _capture_scan_blocked(
@@ -264,11 +290,15 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     # Backfill applies run the frozen config, not the scanner's current one.
     if backfill is not None:
         frozen = BackfillScannerSnapshot.load_for_backfill(backfill.id, backfill.scanner_snapshot)
-        snapshot_dict = frozen.to_observation_snapshot().model_dump(mode="json")
+        snapshot = frozen.to_observation_snapshot()
         priced_model = frozen.model
     else:
-        snapshot_dict = _build_scanner_snapshot(scanner)
+        snapshot = ScannerSnapshot.from_scanner(scanner)
         priced_model = scanner.model
+
+    if snapshot.scanner_type == ScannerType.MONITOR:
+        snapshot = snapshot.model_copy(update={"verify_positives": _monitor_verify_mode(scanner)})
+    snapshot_dict = snapshot.model_dump(mode="json")
 
     # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
     # overshoot by at most the in-flight caps allow, which is accepted.
