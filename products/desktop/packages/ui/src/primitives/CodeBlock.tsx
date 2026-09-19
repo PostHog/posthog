@@ -49,7 +49,7 @@ export function CodeBlock({
   return (
     <div className="group relative">
       <pre
-        className={`m-0 mb-3 overflow-x-auto whitespace-pre rounded-(--radius-2) border border-(--gray-6) bg-(--gray-3) p-3 pr-10 font-[var(--code-font-family)] text-(--gray-12) ${sizeClass}`}
+        className={`m-0 mb-3 max-h-[50vh] overflow-x-auto overflow-y-auto whitespace-pre rounded-(--radius-2) border border-(--gray-6) bg-(--gray-3) p-3 pr-10 font-[var(--code-font-family)] text-(--gray-12) ${sizeClass}`}
       >
         {children}
       </pre>
