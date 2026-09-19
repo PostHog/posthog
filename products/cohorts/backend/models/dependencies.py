@@ -483,15 +483,15 @@ def _on_cohort_changed_full_warm(cohort: Cohort, always_invalidate: bool = False
 
 def _has_backfillable_filters(cohort: Cohort, kind: CohortBackfillKind) -> bool:
     from products.cohorts.backend.backfill.runs import (  # noqa: PLC0415 — avoids a model-load cycle
-        has_behavioral_filters,
+        behavioral_backfill_ineligibility_reason,
         person_backfill_ineligibility_reason,
     )
 
+    # Each creator's own predicate, so this cannot judge backfillable a cohort the creator will
+    # permanently refuse.
     if kind == CohortBackfillKind.PERSON_PROPERTY:
-        # The creator's own predicate, so this cannot judge backfillable a cohort the creator will
-        # permanently refuse (for example one that also carries a person_metadata leaf).
         return person_backfill_ineligibility_reason(cohort) is None
-    return has_behavioral_filters(cohort)
+    return behavioral_backfill_ineligibility_reason(cohort) is None
 
 
 def _trigger_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBackfillKind) -> None:

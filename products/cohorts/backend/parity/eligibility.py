@@ -236,8 +236,12 @@ def explain_unsupported_window(node: Mapping[str, Any]) -> str:
     return "relative_range_unsupported"
 
 
-def _behavioral_window_days(node: Mapping[str, Any], value: str) -> Optional[float]:
-    """The leaf's window in days, or None when the state variant is unsupported (drop)."""
+def behavioral_window_days(node: Mapping[str, Any], value: str) -> Optional[float]:
+    """The leaf's window in days, or ``None`` when the state variant is unsupported (drop).
+
+    Public so the backfill seedability gate (``backfill/pinning.py``) reads this grammar rather
+    than keeping a third copy of it.
+    """
     window = resolve_behavioral_window(node)
     if value == "performed_event":
         return window.days if window is not None else None
@@ -299,7 +303,7 @@ def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
         return "malformed_bytecode"
     if not isinstance(key, str) or not key:
         return "malformed_leaf"
-    window = _behavioral_window_days(node, value)
+    window = behavioral_window_days(node, value)
     if window is None:
         return "unsupported_state_variant"
     return _Leaf(kind="behavioral", negated=_explicit_negation(node), window_days=window)

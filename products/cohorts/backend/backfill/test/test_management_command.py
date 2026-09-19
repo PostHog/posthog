@@ -221,6 +221,46 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
         self.assertIn("Dry run", stdout.getvalue())
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
 
+    def test_behavioral_dry_run_names_every_refusal(self) -> None:
+        eligible = self._cohort("$pageview")
+        static = self._cohort("signup-static")
+        Cohort.objects.filter(id=static.id).update(is_static=True)
+        refused = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "signup",
+                            "event_type": "events",
+                            "value": "performed_event",
+                            "conditionHash": "hash-signup",
+                        }
+                    ],
+                }
+            },
+        )
+        stdout = StringIO()
+
+        call_command(
+            "create_cohort_backfill_run",
+            team_id=self.team.id,
+            trigger="team_enablement",
+            dry_run=True,
+            stdout=stdout,
+        )
+
+        self.assertIn(
+            f"{refused.id} (has a behavioral filter the seeder cannot pin (unsupported_state_variant))",
+            stdout.getvalue(),
+        )
+        self.assertIn(f"{static.id} (static)", stdout.getvalue())
+        self.assertIn("Dry run: 1 cohorts", stdout.getvalue())
+        self.assertNotIn(f"{eligible.id} (", stdout.getvalue())
+
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
     def test_non_allowlisted_team_errors(self) -> None:
         with self.assertRaisesMessage(CommandError, "realtime cohort allowlist"):
