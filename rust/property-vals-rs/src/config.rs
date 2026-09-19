@@ -62,6 +62,12 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub kafka_produce_timeout_secs: u64,
 
+    // How long to keep retrying the startup broker ping before giving up and
+    // exiting. Covers a broker outage without a restart; a misconfigured
+    // cluster still fails the pod once the budget is spent.
+    #[envconfig(default = "300")]
+    pub kafka_connect_retry_budget_secs: u64,
+
     #[envconfig(default = "clickhouse_groups")]
     pub groups_kafka_consumer_topic: String,
 
