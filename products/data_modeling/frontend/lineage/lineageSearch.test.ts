@@ -4,13 +4,14 @@ import {
     LineageSearchMode,
     buildAdjacencyMaps,
     edgesWithinNodes,
-    matchNodesByName,
+    matchNodes,
     nodeIdsForLineageSearch,
     parseLineageSearch,
     traverseLineage,
 } from './lineageSearch'
 
-const node = (id: string, name: string): DataModelingNode => ({ id, name, type: 'view' }) as DataModelingNode
+const node = (id: string, name: string, extra: Partial<DataModelingNode> = {}): DataModelingNode =>
+    ({ id, name, type: 'view', ...extra }) as DataModelingNode
 const edge = (source_id: string, target_id: string): DataModelingEdge =>
     ({ id: `${source_id}-${target_id}`, source_id, target_id }) as DataModelingEdge
 
@@ -45,9 +46,37 @@ describe('lineageSearch', () => {
         expect(traverseLineage('orders', maps, 'both').has('sessions')).toBe(false)
     })
 
-    it('anchors on the exact name over a longer one that contains it', () => {
-        const nodes = [node('1', 'orders_daily'), node('2', 'orders'), node('3', 'stripe_orders_raw')]
-        expect(matchNodesByName(nodes, 'orders')[0].name).toEqual('orders')
+    describe('matchNodes', () => {
+        const nodes = [
+            node('1', 'orders_daily'),
+            node('2', 'orders'),
+            node('3', 'stripe_orders_raw'),
+            node('4', 'sessions', { dag_name: 'Marketing', user_tag: 'nightly' }),
+        ]
+
+        it('anchors on the exact name over a longer one that contains it', () => {
+            expect(matchNodes(nodes, 'orders')[0].name).toEqual('orders')
+        })
+
+        it.each([
+            ['a typo', 'ordrs', 'orders'],
+            ['the DAG name', 'marketing', 'sessions'],
+            ['the tag', 'nightly', 'sessions'],
+        ])('matches on %s', (_label, term, expected) => {
+            expect(matchNodes(nodes, term).map((n) => n.name)).toContain(expected)
+        })
+
+        it('keeps a name hit above a fuzzy hit that scores better elsewhere', () => {
+            expect(
+                matchNodes(nodes, 'orders')
+                    .map((n) => n.name)
+                    .slice(0, 3)
+            ).toEqual(['orders', 'orders_daily', 'stripe_orders_raw'])
+        })
+
+        it('matches nothing for a term no model resembles', () => {
+            expect(matchNodes(nodes, 'zzzqqq')).toEqual([])
+        })
     })
 
     describe('nodeIdsForLineageSearch', () => {

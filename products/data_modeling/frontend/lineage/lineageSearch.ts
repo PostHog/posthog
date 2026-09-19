@@ -1,3 +1,5 @@
+import { createFuse } from 'lib/utils/fuseSearch'
+
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 export type LineageSearchMode = 'search' | 'upstream' | 'downstream' | 'both'
@@ -77,18 +79,39 @@ export function traverseLineage(startId: string, maps: AdjacencyMaps, mode: Line
     return reached
 }
 
-/** Nodes whose name contains the term, best match first so lineage anchors on the closest name. */
-export function matchNodesByName(nodes: DataModelingNode[], term: string): DataModelingNode[] {
-    const needle = term.toLowerCase()
+/** Read by the fuzzy pass. The name dominates, but a term can also name the DAG or the tag. */
+const FUZZY_KEYS = [
+    { name: 'name', weight: 3 },
+    { name: 'dag_name', weight: 1 },
+    { name: 'user_tag', weight: 1 },
+]
+
+/**
+ * Nodes matching the term, best match first so lineage anchors on the closest name.
+ *
+ * Substring hits rank above fuzzy hits, so an exact name is always the anchor. The fuzzy pass then
+ * adds what a substring test drops: a typo, a partial name, or a term naming the DAG or the tag.
+ */
+export function matchNodes(nodes: DataModelingNode[], term: string): DataModelingNode[] {
+    const needle = term.trim().toLowerCase()
     if (!needle) {
         return []
     }
-    return nodes
+
+    const substring = nodes
         .filter((node) => node.name.toLowerCase().includes(needle))
         .sort((a, b) => {
             const exact = Number(b.name.toLowerCase() === needle) - Number(a.name.toLowerCase() === needle)
             return exact !== 0 ? exact : a.name.length - b.name.length
         })
+
+    const matched = new Set(substring.map((node) => node.id))
+    const fuzzy = createFuse<DataModelingNode>(nodes, { keys: FUZZY_KEYS, ignoreLocation: true })
+        .search(needle)
+        .map((result) => result.item)
+        .filter((node) => !matched.has(node.id))
+
+    return [...substring, ...fuzzy]
 }
 
 /**
@@ -105,7 +128,7 @@ export function nodeIdsForLineageSearch(
     if (parsed.mode === 'search' || !parsed.term) {
         return null
     }
-    const anchor = matchNodesByName(nodes, parsed.term)[0]
+    const anchor = matchNodes(nodes, parsed.term)[0]
     return anchor ? traverseLineage(anchor.id, buildAdjacencyMaps(edges), parsed.mode) : new Set<string>()
 }
 
