@@ -109,30 +109,28 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
 
     const hogPositionClass = hogPosition === 'top-right' ? 'CheekyHogTopRight' : 'CheekyHogTopLeft'
 
-    const cardDisabled = planData.ctaAction === 'billing' && !!billingProductLoading
+    const cardBusy = planData.ctaAction === 'billing' && !!billingProductLoading
 
-    const activateCard = (): void => {
-        if (cardDisabled) {
-            return
-        }
-        if (planData.ctaAction === 'billing') {
-            startPaymentEntryFlow(product, window.location.pathname + window.location.search)
-        } else if (planData.ctaAction === 'next') {
-            reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
-            goToNextStep()
-        }
+    // Only a card that advances the step activates from its whole body. A card that starts payment
+    // activates from its own button, so a stray click on the price or the feature list cannot open
+    // the payment modal.
+    const cardActivates = planData.ctaAction === 'next'
+
+    const selectPlan = (): void => {
+        reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
+        goToNextStep()
     }
 
     const handleCardKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
-            activateCard()
+            selectPlan()
         }
     }
 
     return (
         <div className="relative" onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-            {!cardDisabled && (
+            {!cardBusy && (
                 <HedgehogHeart
                     width="100"
                     height="100"
@@ -144,19 +142,19 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                 />
             )}
             <div
-                role="button"
-                tabIndex={0}
-                aria-label={`Select ${planData.title} plan`}
-                aria-disabled={cardDisabled || undefined}
-                onClick={activateCard}
-                onKeyDown={handleCardKeyDown}
+                {...(cardActivates && {
+                    role: 'button',
+                    tabIndex: 0,
+                    'aria-label': `Select ${planData.title} plan`,
+                    onClick: selectPlan,
+                    onKeyDown: handleCardKeyDown,
+                })}
                 data-attr={`plan-card-${planData.plan}`}
                 className={clsx(
                     'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded-xs border transition-transform transform text-left',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-active',
-                    cardDisabled
-                        ? 'cursor-wait opacity-80'
-                        : 'cursor-pointer hover:scale-[1.02] hover:shadow-lg active:scale-[1.01]',
+                    cardBusy ? 'opacity-80' : 'hover:scale-[1.02] hover:shadow-lg',
+                    cardActivates &&
+                        'cursor-pointer active:scale-[1.01] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-active',
                     highlight ? 'border-2 border-accent-active' : 'border-gray-200 dark:border-gray-700'
                 )}
             >
@@ -208,13 +206,11 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                             disabledReason={billingProductLoading && 'Please wait...'}
                             disableClientSideRouting
                             loading={!!billingProductLoading}
-                            onClick={(event) => {
-                                event.stopPropagation()
+                            onClick={() =>
                                 startPaymentEntryFlow(product, window.location.pathname + window.location.search)
-                            }}
+                            }
                             data-attr="onboarding-subscribe-button"
                             fullWidth
-                            tabIndex={-1}
                         >
                             {ctaText}
                         </BillingUpgradeCTA>
@@ -227,8 +223,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                             status={highlight ? 'alt' : undefined}
                             onClick={(event) => {
                                 event.stopPropagation()
-                                reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
-                                goToNextStep()
+                                selectPlan()
                             }}
                             tabIndex={-1}
                         >
