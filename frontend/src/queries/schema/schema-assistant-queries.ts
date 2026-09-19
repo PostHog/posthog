@@ -717,6 +717,10 @@ export interface AssistantFunnelsActionsNode extends Omit<Node, 'response'>, Ass
      * Action name from the plan.
      */
     name: string
+    /**
+     * Optional custom name for the action if it is needed to be renamed.
+     */
+    custom_name?: string
 }
 
 /**

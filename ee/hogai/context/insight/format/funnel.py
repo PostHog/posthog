@@ -222,7 +222,10 @@ class FunnelResultsFormatter:
                 else:
                     series_labels.append(f"{node.event}")
             elif isinstance(node, AssistantFunnelsActionsNode | ActionsNode):
-                series_labels.append(f"{node.name} (action {node.id})")
+                if node.custom_name is not None:
+                    series_labels.append(f"{node.name} ({node.custom_name}) (action {node.id})")
+                else:
+                    series_labels.append(f"{node.name} (action {node.id})")
             elif isinstance(node, FunnelsDataWarehouseNode):
                 if node.custom_name is not None:
                     series_labels.append(f"{node.name} ({node.custom_name})")
