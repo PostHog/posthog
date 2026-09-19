@@ -23,6 +23,7 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+import redis.exceptions as redis_exceptions
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
@@ -41,6 +42,16 @@ API_QUERIES_BUDGET_ERRORS_COUNTER = Counter(
     "Errors swallowed by the fail-open api queries budget paths.",
     labelnames=["op"],
 )
+
+# A one second timeout makes a slow Redis minute time these calls out, and the query is admitted
+# anyway, so the counter above carries them and error tracking only gets what a reader must look at.
+_EXPECTED_ERRORS = (redis_exceptions.TimeoutError, TimeoutError)
+
+
+def _record_error(op: str, error: Exception) -> None:
+    API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op=op).inc()
+    if not isinstance(error, _EXPECTED_ERRORS):
+        capture_exception(error)
 
 
 @frozen
@@ -140,8 +151,7 @@ def refill_and_read(team_id: str, spec: BudgetSpec, now: Optional[float] = None)
         )
         return float(result)
     except Exception as e:
-        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read").inc()
-        capture_exception(e)
+        _record_error("read", e)
         return None
 
 
@@ -163,8 +173,7 @@ def debit(team_id: str, bytes_read: int) -> Optional[float]:
         )
         return float(result)
     except Exception as e:
-        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit").inc()
-        capture_exception(e)
+        _record_error("debit", e)
         return None
 
 
@@ -179,8 +188,7 @@ def claim_limited_event(team_id: str) -> bool:
             )
         )
     except Exception as e:
-        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event").inc()
-        capture_exception(e)
+        _record_error("limited_event", e)
         return False
 
 

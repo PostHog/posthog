@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+import redis.exceptions as redis_exceptions
 from parameterized import parameterized
 
 from posthog.api_queries_budget import (
@@ -29,6 +30,13 @@ from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_quer
 from posthog.redis import get_client
 
 SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
+
+# A socket timeout is the expected shape of a slow Redis, so it is counted but not captured.
+BUDGET_REDIS_ERRORS = [
+    ("redis_timeout", redis_exceptions.TimeoutError("timed out"), False),
+    ("socket_timeout", TimeoutError("timed out"), False),
+    ("unexpected", Exception("redis down"), True),
+]
 
 
 @override_settings(
@@ -92,14 +100,19 @@ class TestTokenBucket(BaseTest):
     def test_disabled_budget_does_not_debit(self):
         assert debit("team-a", 1000) is None
 
-    def test_redis_errors_fail_open_and_count(self):
+    @parameterized.expand(BUDGET_REDIS_ERRORS)
+    def test_redis_errors_fail_open_and_count(self, _name, error, captured):
         read_before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read")._value.get()
         debit_before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get()
-        with patch("posthog.api_queries_budget.get_client", side_effect=Exception("redis down")):
+        with (
+            patch("posthog.api_queries_budget.get_client", side_effect=error),
+            patch("posthog.api_queries_budget.capture_exception") as capture,
+        ):
             assert refill_and_read("team-a", SPEC) is None
             assert debit("team-a", 1) is None
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read")._value.get() == read_before + 1
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get() == debit_before + 1
+        assert capture.call_count == (2 if captured else 0)
 
 
 class TestLimitedEventClaim(SimpleTestCase):
@@ -110,11 +123,16 @@ class TestLimitedEventClaim(SimpleTestCase):
         assert claim_limited_event(team_b) is True
         assert get_client().ttl(f"{BUDGET_KEY_PREFIX}limited-event/{team_a}") > 0
 
-    def test_redis_errors_skip_the_event_and_count(self):
+    @parameterized.expand(BUDGET_REDIS_ERRORS)
+    def test_redis_errors_skip_the_event_and_count(self, _name, error, captured):
         before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get()
-        with patch("posthog.api_queries_budget.get_client", side_effect=Exception("redis down")):
+        with (
+            patch("posthog.api_queries_budget.get_client", side_effect=error),
+            patch("posthog.api_queries_budget.capture_exception") as capture,
+        ):
             assert claim_limited_event(f"team-{uuid4()}") is False
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get() == before + 1
+        assert capture.call_count == (1 if captured else 0)
 
 
 class TestRequestQueryCost(SimpleTestCase):
