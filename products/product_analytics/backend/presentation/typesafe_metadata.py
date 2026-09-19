@@ -166,6 +166,7 @@ _INTERVAL_ADJECTIVES: dict[str, str] = {
 
 _RELATIVE_RANGE = re.compile(r"^-(\d+)([hdwmqy])$")
 _RANGE_UNITS: dict[str, str] = {"h": "hour", "d": "day", "w": "week", "m": "month", "q": "quarter", "y": "year"}
+_PERIOD_ADJECTIVES: dict[str, str] = {"hour": "Hourly", "day": "Daily", "week": "Weekly", "month": "Monthly"}
 _START_RANGES: dict[str, str] = {
     "dStart": "today",
     "wStart": "this week",
@@ -295,7 +296,7 @@ def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
         period = str(getattr(retention_filter, "period", None) or "week").lower()
         return [
             f"Retention after {target}",
-            f"{period.capitalize()}ly retention: {target} → {returning}",
+            f"{_PERIOD_ADJECTIVES.get(period, period.capitalize())} retention: {target} → {returning}",
             f"Users who return to {returning} after {target}",
             f"{sentence_case(target)} retention",
         ]
@@ -365,7 +366,7 @@ def _viz_description_candidates(query: InsightVizNode) -> list[str | None]:
         period = str(getattr(retention_filter, "period", None) or "week").lower()
         return [
             f"Shows how many users who did {target} come back to do {returning} in the following {period}s.",
-            f"{period.capitalize()}ly retention of users after {target}.",
+            f"{_PERIOD_ADJECTIVES.get(period, period.capitalize())} retention of users after {target}.",
             f"Tracks whether users keep coming back after {target}.",
         ]
     if kind == "StickinessQuery" and series:

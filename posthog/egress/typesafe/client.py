@@ -110,6 +110,9 @@ def _parse_answer(key: str, question: ChoiceQuestion | NoulQuestion, raw: object
     answer = _as_mapping(raw)
     if answer is None:
         raise TypesafeCallFailed(f"TypeSafe returned no answer for {key!r}")
+    expected_type = "noul" if isinstance(question, NoulQuestion) else "choice"
+    if answer.get("type") != expected_type:
+        raise TypesafeCallFailed(f"TypeSafe answered {key!r} with the wrong question type")
     if isinstance(question, NoulQuestion):
         probability = _as_probability(answer.get("noul"))
         if probability is None:

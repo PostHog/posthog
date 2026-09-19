@@ -74,7 +74,12 @@ class TestTypesafeEgress(SimpleTestCase):
     @parameterized.expand(
         [
             ("unknown_option", 200, _answers(choice="zzz")),
-            ("missing_answer", 200, {"answers": {"pick": {"choice": "a", "confidence": 0.5}}}),
+            ("missing_answer", 200, {"answers": {"pick": {"type": "choice", "choice": "a", "confidence": 0.5}}}),
+            (
+                "wrong_type",
+                200,
+                {"answers": {"pick": {"type": "noul", "noul": 0.9}, "holds": {"type": "noul", "noul": 0.1}}},
+            ),
             ("http_error", 429, {"error": "slow down"}),
             ("no_answers", 200, {"model": JEV_MODEL}),
         ]

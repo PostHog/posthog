@@ -4,7 +4,7 @@ from typing import TypeVar, cast
 from django.db import models
 
 from drf_spectacular.utils import OpenApiResponse
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -38,6 +38,11 @@ _MAX_TILE_NAMES = 100
 _MAX_DASHBOARDS = 254
 
 T = TypeVar("T")
+
+
+class TypesafeBusy(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "TypeSafe suggestions are busy right now. Try again in a minute."
 
 
 class TypesafeSuggestionSubject(models.TextChoices):
@@ -79,6 +84,11 @@ class TypesafeSubjectSerializer(serializers.Serializer):
         max_length=_MAX_TILE_NAMES,
         help_text="For a dashboard, the names of the insights on it. Ignored for an insight.",
     )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        if attrs.get("subject") == TypesafeSuggestionSubject.INSIGHT and not attrs.get("query"):
+            raise ValidationError({"query": "An insight needs its query so candidates can be built from it."})
+        return attrs
 
 
 class TypesafeDashboardCandidateSerializer(serializers.Serializer):
@@ -273,7 +283,7 @@ class TypesafeSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except TypesafeNotConfigured as error:
             raise PermissionDenied("TypeSafe suggestions are not enabled for this project") from error
         except TypesafeEgressBudgetExhausted as error:
-            raise APIException("TypeSafe suggestions are busy right now. Try again in a minute.") from error
+            raise TypesafeBusy() from error
         except Exception as error:
             capture_exception(error)
             raise APIException("Couldn't get a suggestion from TypeSafe. Try again.") from error
