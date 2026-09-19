@@ -76,6 +76,121 @@ describe('apiSurveyLogic', () => {
         unmount()
     })
 
+    it('keeps the caller submission ID across reopening and retries, with a new ID for a new interaction', async () => {
+        const client = exampleSurveyClient()
+        const capture = jest.spyOn(client, 'capture')
+        const firstId = '00000000-0000-4000-8000-000000000123'
+        const nextId = '00000000-0000-4000-8000-000000000456'
+        for (const submissionId of [firstId, firstId, nextId]) {
+            const logic = apiSurveyLogic({
+                surveyId: exampleApiSurvey.id,
+                instanceId: 'dialog',
+                submissionId,
+                client,
+                context: { $survey_submission_id: 'cannot-override' },
+            })
+            const unmount = logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setAnswer('goal', 'Find the settings')
+            logic.actions.setAnswer('outcome', 'Yes')
+            capture.mockReturnValueOnce(undefined)
+            logic.actions.submit()
+            logic.actions.submit()
+            expect(capture.mock.calls.slice(-3).map(([, properties]) => properties?.$survey_submission_id)).toEqual([
+                submissionId,
+                submissionId,
+                submissionId,
+            ])
+            unmount()
+        }
+    })
+
+    it.each([true, false])('keeps the initial rating with partial responses enabled: %s', async (partial) => {
+        const survey = {
+            ...structuredClone(exampleApiSurvey),
+            enable_partial_responses: partial,
+            questions: [
+                {
+                    id: 'rating',
+                    type: SurveyQuestionType.Rating,
+                    question: 'How useful?',
+                    display: 'number',
+                    scale: 10,
+                    lowerBoundLabel: 'Not useful',
+                    upperBoundLabel: 'Very useful',
+                } as const,
+                ...exampleApiSurvey.questions,
+            ],
+        }
+        const client = exampleSurveyClient([survey])
+        const capture = jest.spyOn(client, 'capture')
+        const logic = apiSurveyLogic({ surveyId: survey.id, instanceId: 'rating', client })
+        const unmount = logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.submitRating('11')
+        expect(logic.values.ratingAccepted).toBe(false)
+        if (partial) {
+            capture.mockReturnValueOnce(undefined)
+        }
+        logic.actions.submitRating('0')
+        expect(logic.values.ratingAccepted).toBe(!partial)
+        expect(Boolean(logic.values.error)).toBe(partial)
+        capture.mockClear()
+        logic.actions.submitRating('0')
+        logic.actions.submitRating('5')
+        expect(logic.values.ratingAccepted).toBe(true)
+        expect(logic.values.completed).toBe(false)
+        expect(logic.values.answers.rating).toBe('0')
+        const partialEvent = [
+            'survey sent',
+            expect.objectContaining({
+                $survey_response_rating: '0',
+                $survey_completed: false,
+                $survey_submission_id: logic.values.submissionId,
+            }),
+        ]
+        expect(capture.mock.calls).toEqual(partial ? [partialEvent] : [])
+        logic.actions.setAnswer('goal', 'Find the settings')
+        logic.actions.setAnswer('outcome', 'Yes')
+        logic.actions.submit()
+        expect(capture.mock.calls.at(-1)).toEqual([
+            'survey sent',
+            expect.objectContaining({
+                $survey_response_rating: '0',
+                $survey_response_outcome: 'Yes',
+                $survey_completed: true,
+                $survey_submission_id: logic.values.submissionId,
+            }),
+        ])
+        unmount()
+    })
+
+    it('completes a rating-only survey immediately', async () => {
+        const survey = {
+            ...exampleApiSurvey,
+            questions: [
+                {
+                    id: 'rating',
+                    type: SurveyQuestionType.Rating,
+                    question: 'Helpful?',
+                    display: 'emoji',
+                    scale: 2,
+                    lowerBoundLabel: 'Helpful',
+                    upperBoundLabel: 'Not helpful',
+                } as const,
+            ],
+        }
+        const client = exampleSurveyClient([survey])
+        const capture = jest.spyOn(client, 'capture')
+        const logic = apiSurveyLogic({ surveyId: survey.id, instanceId: 'only-rating', client })
+        const unmount = logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.submitRating('1')
+        expect(logic.values.completed).toBe(true)
+        expect(capture.mock.calls.at(-1)?.[1]).toMatchObject({ $survey_response_rating: '1', $survey_completed: true })
+        unmount()
+    })
+
     it.each(['missing', 'duplicate IDs', 'branching', 'validation', 'link'] as const)(
         'does not show an incompatible or %s survey',
         async (kind) => {

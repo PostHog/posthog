@@ -2,7 +2,8 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { exampleApiSurvey, exampleSurveyClient } from './apiSurvey.fixtures'
+import { exampleApiSurvey, exampleSurveyClient, exampleRatingSurvey, exampleFeedbackRating } from './apiSurvey.fixtures'
+import { APISurveyFeedback } from './APISurveyFeedback'
 import { APISurveyForm } from './APISurveyForm'
 
 const meta: Meta<typeof APISurveyForm> = {
@@ -57,3 +58,33 @@ export const KeyboardNavigation: Story = {
         </div>
     ),
 }
+
+export const Dialog: Story = {
+    args: { client: exampleSurveyClient([exampleRatingSurvey]) },
+    render: (args) => <APISurveyFeedback {...args} />,
+}
+
+export const NumericRating: Story = {
+    ...Dialog,
+    args: {
+        client: exampleSurveyClient([
+            {
+                ...exampleRatingSurvey,
+                questions: [
+                    {
+                        ...exampleFeedbackRating,
+                        display: 'number',
+                        scale: 10,
+                        question: 'How likely are you to recommend this?',
+                        lowerBoundLabel: 'Not likely',
+                        upperBoundLabel: 'Very likely',
+                    },
+                    ...exampleRatingSurvey.questions.slice(1),
+                ],
+            },
+        ]),
+    },
+}
+
+export const FeedbackLoading: Story = { ...Dialog, args: Loading.args, parameters: Loading.parameters }
+export const FeedbackUnavailable: Story = { ...Dialog, args: Unavailable.args }
