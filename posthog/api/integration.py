@@ -1171,6 +1171,11 @@ class GitHubAvailableInstallationSerializer(serializers.Serializer):
         "Null when the installation isn't linked to any project yet — it was found via the user's "
         "personal GitHub link and can be adopted by linking it here.",
     )
+    source_team_name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the project in source_team_id, so the picker can say where the "
+        "installation comes from. Null for an installation no project has linked yet.",
+    )
 
 
 class GitHubAvailableInstallationsResponseSerializer(serializers.Serializer):
