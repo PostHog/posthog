@@ -501,6 +501,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     "task_id": self.context.task_id,
                     "team_id": self.context.team_id,
                     "origin_product": self.context.origin_product,
+                    "unattended": self.context.unattended,
                     "sandbox_id": sandbox_id,
                     "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
