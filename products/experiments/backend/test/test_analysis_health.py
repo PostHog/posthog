@@ -2,7 +2,7 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from posthog.schema import BiasRisk, MultipleVariantHandling
+from posthog.schema import BiasRisk, MultipleVariantHandling, MultiVariantBiasKind
 
 from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
 
@@ -13,7 +13,7 @@ AUTO_EVEN_3WAY = [{"rollout_percentage": 34}, {"rollout_percentage": 33}, {"roll
 
 
 class TestEvaluateBiasRisk(TestCase):
-    def test_observed_bias_returns_populated_risk(self):
+    def test_uneven_split_returns_asymmetric_exclusion_risk(self):
         # 20 / (800 + 200 + 20) ≈ 1.96%, well above the 0.1% threshold.
         result = evaluate_bias_risk(
             UNEVEN_2WAY, MultipleVariantHandling.EXCLUDE, {"control": 800, "test": 200, "$multiple": 20}
@@ -21,22 +21,35 @@ class TestEvaluateBiasRisk(TestCase):
         self.assertIsInstance(result, BiasRisk)
         assert result is not None
         self.assertAlmostEqual(result.multiple_variant_percentage, 20 / 1020 * 100, places=5)
+        self.assertEqual(result.kind, MultiVariantBiasKind.ASYMMETRIC_EXCLUSION)
 
-    def test_auto_even_3way_is_treated_as_even(self):
-        # 34/33/33 is what the auto-distribution produces — must NOT be flagged as uneven.
+    def test_even_split_above_threshold_returns_identity_churn_risk(self):
+        # An even split no longer suppresses the warning — a high `$multiple` share still
+        # drops a non-random population, reported as identity churn.
+        result = evaluate_bias_risk(
+            EVEN_2WAY, MultipleVariantHandling.EXCLUDE, {"control": 500, "test": 500, "$multiple": 50}
+        )
+        assert result is not None
+        self.assertEqual(result.kind, MultiVariantBiasKind.IDENTITY_CHURN)
+
+    def test_auto_even_3way_is_identity_churn(self):
+        # 34/33/33 is what the auto-distribution produces — treated as even, so a high
+        # `$multiple` share reports as identity churn, not asymmetric exclusion.
         result = evaluate_bias_risk(
             AUTO_EVEN_3WAY, MultipleVariantHandling.EXCLUDE, {"a": 340, "b": 330, "c": 330, "$multiple": 50}
         )
-        self.assertIsNone(result)
+        assert result is not None
+        self.assertEqual(result.kind, MultiVariantBiasKind.IDENTITY_CHURN)
 
-    def test_reordered_auto_even_is_uneven(self):
+    def test_reordered_auto_even_is_asymmetric_exclusion(self):
         # 33/34/33 doesn't match the auto-distribution result (34/33/33) — counts as uneven,
         # mirroring the frontend's positional `isEvenlyDistributed` check.
         reordered = [{"rollout_percentage": 33}, {"rollout_percentage": 34}, {"rollout_percentage": 33}]
         result = evaluate_bias_risk(
             reordered, MultipleVariantHandling.EXCLUDE, {"a": 330, "b": 340, "c": 330, "$multiple": 50}
         )
-        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.kind, MultiVariantBiasKind.ASYMMETRIC_EXCLUSION)
 
     @parameterized.expand(
         [
@@ -45,12 +58,6 @@ class TestEvaluateBiasRisk(TestCase):
                 UNEVEN_2WAY,
                 MultipleVariantHandling.FIRST_SEEN,
                 {"control": 800, "test": 200, "$multiple": 50},
-            ),
-            (
-                "even_2way_split",
-                EVEN_2WAY,
-                MultipleVariantHandling.EXCLUDE,
-                {"control": 500, "test": 500, "$multiple": 50},
             ),
             (
                 "zero_multiple_share",

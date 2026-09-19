@@ -25,7 +25,7 @@ name — it carries the same properties, so nothing else changes.
 
 ## Contents
 
-- A1 — Multi-variant exclusion bias on uneven split (the in-app banner)
+- A1 — Multi-variant exclusion bias (the in-app banner)
 - A2 — Sample ratio mismatch (SRM)
 - A3 — Identity fragmentation (users in both control and test)
 - A4 — Bootstrap × `/decide` variant disagreement
@@ -34,15 +34,23 @@ name — it carries the same properties, so nothing else changes.
 - A7 — Non-randomized assignment via release conditions (incl. forced-group arm starvation)
 - A8 — Migrating the `distinct_id` strategy during a running experiment
 
-## A1 — Multi-variant exclusion bias on uneven split [HIGH]
+## A1 — Multi-variant exclusion bias (the in-app banner) [HIGH]
 
-This is the in-app bias-warning banner's signal. Triggers when **all three** hold:
+This is the in-app bias-warning banner's signal. Triggers when **both** hold:
 
 - `multiple_variant_handling == "exclude"` (the default)
-- variant rollouts are uneven
-- there are _any_ observed `$multiple` exposures (the backend warning fires above **0.1%**
-  multi-variant share — `MULTIPLE_VARIANT_BIAS_THRESHOLD` in
+- observed `$multiple` share is above **0.1%** (`MULTIPLE_VARIANT_BIAS_THRESHOLD` in
   `products/experiments/backend/analysis_health.py`)
+
+The variant split does **not** gate the banner — it only selects which failure mode the banner
+reports:
+
+- **Uneven split → asymmetric exclusion.** The smaller variant loses a larger fraction of its
+  assignments (the mechanism below).
+- **Even split → identity churn.** The dropped `$multiple` share is still non-random: one person can
+  get different distinct IDs before and after login, hash into different variants, and get dropped
+  (this is the A3 mechanism). An even split cannot remove it, so `first_seen` handling is the only
+  in-product mitigation.
 
 **The warning-vs-visible gap.** The backend warning banner fires at > 0.1% `$multiple` share, but
 the Exposures tab in the UI hides the `$multiple` row when share is ≤ 0.5%
@@ -53,12 +61,12 @@ the user reports this disconnect, lead with: the warning is real; the row is hid
 share is between 0.1% and 0.5%. Pull the exact share from the Step 1.5 snapshot so the
 explanation is concrete, not abstract.
 
-**Mechanism.** Multi-variant users are dropped, but the smaller variant loses a _larger fraction_ of its
-assignments than the larger variant. Multi-device / multi-session / signup-flow users tend to be
-high-intent — so the smaller variant keeps a low-intent slice and looks worse than it should. This is
-asymmetric exclusion bias, not a UI bug.
+**Mechanism (uneven split).** Multi-variant users are dropped, but the smaller variant loses a
+_larger fraction_ of its assignments than the larger variant. Multi-device / multi-session /
+signup-flow users tend to be high-intent — so the smaller variant keeps a low-intent slice and looks
+worse than it should. This is asymmetric exclusion bias, not a UI bug.
 
-**Recommend (in this order):**
+**Recommend — uneven split (asymmetric exclusion), in this order:**
 
 1. **Switch to an equal split.** See `configuring-experiment-rollout`. On a draft experiment this is
    free. Mid-run it's an anti-pattern — prefer reset or end+restart over changing the split mid-run.
@@ -68,6 +76,15 @@ asymmetric exclusion bias, not a UI bug.
    unbiased: it counts the first variant a user saw and ignores later ones, which still
    asymmetrically discounts engaged multi-session users. There is no clean fix for the underlying
    problem; the trade-off is between which bias the user prefers.
+
+**Recommend — even split (identity churn):** switching the split is a no-op, the split is already
+even. The dropped share comes from identity fragmentation, so:
+
+1. **Switch `multiple_variant_handling` to `"first_seen"`.** Keeps each person on the first variant
+   they saw, so multi-variant users stay in the analysis. This is the only in-product mitigation.
+2. **Fix the identity fragmentation at the source.** Follow A3 — audit `identify()` / `reset()`
+   ordering, and for logged-out → logged-in flows consider device-ID bucketing or flag persistence
+   across authentication. This reduces the `$multiple` share itself rather than reweighting it.
 
 ## A2 — Sample ratio mismatch (SRM) [HIGH]
 

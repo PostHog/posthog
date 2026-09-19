@@ -2055,6 +2055,11 @@ class MultiQuestionFormQuestionType(StrEnum):
     MULTI_FIELD = "multi_field"
 
 
+class MultiVariantBiasKind(StrEnum):
+    ASYMMETRIC_EXCLUSION = "asymmetric_exclusion"
+    IDENTITY_CHURN = "identity_churn"
+
+
 class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
