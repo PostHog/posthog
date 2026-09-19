@@ -416,6 +416,15 @@ class MetricQueryRunner:
         if aggregation == "histogram_quantile":
             if quantile is None or not 0.0 < quantile < 1.0:
                 raise ValueError("histogram_quantile requires a quantile in (0, 1)")
+            # A summary stores quantile->value pairs in histogram_bounds/histogram_counts,
+            # not bucket counts, and scalar gauge/sum rows carry no distribution at all.
+            # Reading either as a bucket distribution returns garbage, so require an
+            # explicit histogram-compatible type rather than only rejecting summary.
+            if metric_type not in (MetricType.HISTOGRAM.value, MetricType.EXPONENTIAL_HISTOGRAM.value):
+                raise ValueError(
+                    "histogram_quantile requires metric_type to be histogram or exponential_histogram; "
+                    "summary metrics store quantile pairs (use p95) and scalar metrics have no distribution"
+                )
 
         self.team = team
         self.metric_name = metric_name

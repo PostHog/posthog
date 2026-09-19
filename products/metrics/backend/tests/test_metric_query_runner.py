@@ -141,6 +141,42 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 interval="second",
             )
 
+    @parameterized.expand(
+        [
+            # An untyped request admits summary rows, whose quantile->value pairs
+            # would be read as bucket counts.
+            ("untyped", None),
+            ("summary", "summary"),
+            # Gauge and sum rows have no bucket distribution to interpolate.
+            ("gauge", "gauge"),
+            ("sum", "sum"),
+        ]
+    )
+    def test_rejects_histogram_quantile_for_non_histogram_types(self, _name: str, metric_type: str | None):
+        with self.assertRaises(ValueError):
+            MetricQueryRunner(
+                team=self.team,
+                metric_name="request_duration",
+                aggregation="histogram_quantile",
+                date_from=timezone.now() - dt.timedelta(hours=1),
+                date_to=timezone.now(),
+                quantile=0.95,
+                metric_type=metric_type,
+            )
+
+    @parameterized.expand([("histogram", "histogram"), ("exponential_histogram", "exponential_histogram")])
+    def test_accepts_histogram_quantile_for_histogram_types(self, _name: str, metric_type: str):
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="request_duration",
+            aggregation="histogram_quantile",
+            date_from=timezone.now() - dt.timedelta(hours=1),
+            date_to=timezone.now(),
+            quantile=0.95,
+            metric_type=metric_type,
+        )
+        self.assertEqual(runner.metric_type, metric_type)
+
     def test_rejects_invalid_regex_filter(self):
         now = timezone.now()
         runner = MetricQueryRunner(
@@ -1337,6 +1373,12 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             self._run(quantile=None)
         with self.assertRaises(ValueError):
             self._run(quantile=1.5)
+
+    def test_rejects_summary_metric_type(self):
+        # A summary stores quantile->value pairs in histogram_bounds/histogram_counts,
+        # not bucket counts. Interpolating them as a distribution returns garbage.
+        with self.assertRaisesRegex(ValueError, "summary"):
+            self._run(metric_type="summary")
 
     def test_group_by_service_name_column(self):
         # Pass `service_name` to the outer group-by.
