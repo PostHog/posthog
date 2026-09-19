@@ -26,7 +26,6 @@ from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
-    ActivityPage,
     Change,
     Detail,
     dict_changes_between,
@@ -35,14 +34,12 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
-from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
 from posthog.models.utils import generate_random_token
 from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers
-from posthog.utils import format_query_params_absolute_url
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.plugin import (
@@ -600,24 +597,6 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
-
-    @staticmethod
-    def _activity_page_response(
-        activity_page: ActivityPage, limit: int, page: int, request: request.Request
-    ) -> Response:
-        return Response(
-            {
-                "results": ActivityLogSerializer(activity_page.results, many=True).data,
-                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
-                if activity_page.has_next
-                else None,
-                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
-                if activity_page.has_previous
-                else None,
-                "total_count": activity_page.total_count,
-            },
-            status=status.HTTP_200_OK,
-        )
 
 
 class PluginConfigSerializer(serializers.ModelSerializer):

@@ -3692,7 +3692,6 @@ export namespace Schemas {
       next: string | null;
       /** @nullable */
       previous: string | null;
-      total_count: number;
     }
 
     export interface ActorsPropertyTaxonomyResponse {

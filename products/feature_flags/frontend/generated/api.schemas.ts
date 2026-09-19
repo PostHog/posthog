@@ -1203,7 +1203,6 @@ export interface ActivityLogPaginatedResponseApi {
     next: string | null
     /** @nullable */
     previous: string | null
-    total_count: number
 }
 
 export interface DependentFlagApi {

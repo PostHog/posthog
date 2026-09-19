@@ -12,7 +12,6 @@ class ActivityLogPaginatedResponseSerializer(serializers.Serializer):
     results = ActivityLogSerializer(many=True)
     next = serializers.URLField(allow_null=True)
     previous = serializers.URLField(allow_null=True)
-    total_count = serializers.IntegerField()
 
 
 class ActivityQueryParamsSerializer(serializers.Serializer):
@@ -44,7 +43,6 @@ def activity_page_response(
             "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
             if activity_page.has_previous
             else None,
-            "total_count": activity_page.total_count,
         },
         status=status.HTTP_200_OK,
     )
