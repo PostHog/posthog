@@ -39,8 +39,11 @@ the virtual properties don't expose.
 
 ### Virtual properties (insight builder, filters, breakdowns)
 
-These read the user agent for you (falling back from `$raw_user_agent` to `$user_agent`),
-so you don't pass anything in. Available wherever you pick an event property.
+These read `$raw_user_agent` and `$ip` for you, so you don't pass anything in — the IP
+signal catches crawlers that use real browser user agents from operator-published IP
+ranges (e.g. Google's mobile rendering service). Available wherever you pick an event
+property. (`$user_agent` without `$raw_user_agent` is intentionally not read — it has no
+materialized column; such events classify via the empty-UA path.)
 
 | Property                 | Value                                                                                                                                                                                          |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -53,20 +56,23 @@ so you don't pass anything in. Available wherever you pick an event property.
 
 ### HogQL functions (raw SQL)
 
-Pass the user agent explicitly. Use `coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)`
-to cover both server-side (`$raw_user_agent`) and JS SDK (`$user_agent`) captures. The `nullIf`
-keeps an empty `$raw_user_agent` from shadowing a real `$user_agent` and being misread as a bot —
-this mirrors the expression the virtual properties use internally.
+Pass the user agent explicitly — `properties.$raw_user_agent`. All functions also take an
+optional client IP (matched against operator-published bot IP ranges) and an optional Web
+Bot Auth Signature-Agent value (matched against known signed agents like ChatGPT agent):
+`isLikelyBot(ua[, ip[, signature_agent]])`. Signal precedence is UA, then signature
+agent, then IP. The signature-agent signal is only reachable through the explicit
+three-argument form — the virtual properties do not read `$signature_agent` because the
+property has no materialized column.
 
-| Function                 | Returns                                                                      |
-| ------------------------ | ---------------------------------------------------------------------------- |
-| `isLikelyBot(ua)`        | `true` if the UA matches a bot/automation pattern (empty UA counts as a bot) |
-| `getTrafficType(ua)`     | `AI Agent` / `Bot` / `Automation` / `Regular`                                |
-| `getTrafficCategory(ua)` | subcategory; `regular` for humans                                            |
-| `getBotType(ua)`         | same subcategory but empty string for humans — handy for filtering           |
-| `getBotName(ua)`         | bot name; empty for humans                                                   |
-| `getBotOperator(ua)`     | operator/company; empty for humans                                           |
-| `getAgentSource(ua)`     | stable agent slug (`claude-browser`, `gptbot`, …); empty for humans          |
+| Function                              | Returns                                                             |
+| ------------------------------------- | ------------------------------------------------------------------- |
+| `isLikelyBot(ua[, ip[, sig]])`        | `true` if any signal matches a bot (empty UA counts as a bot)       |
+| `getTrafficType(ua[, ip[, sig]])`     | `AI Agent` / `Bot` / `Automation` / `Regular`                       |
+| `getTrafficCategory(ua[, ip[, sig]])` | subcategory; `regular` for humans                                   |
+| `getBotType(ua[, ip[, sig]])`         | same subcategory but empty string for humans — handy for filtering  |
+| `getBotName(ua[, ip[, sig]])`         | bot name; empty for humans                                          |
+| `getBotOperator(ua[, ip[, sig]])`     | operator/company; empty for humans                                  |
+| `getAgentSource(ua[, ip[, sig]])`     | stable agent slug (`claude-browser`, `gptbot`, …); empty for humans |
 
 ## Traffic types — what to keep vs drop
 
@@ -137,16 +143,16 @@ which tools (OpenAI, Anthropic, Perplexity, …) read your site and which pages 
 SELECT count() AS human_pageviews
 FROM events
 WHERE event = '$pageview'
-    AND NOT isLikelyBot(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent))
+    AND NOT isLikelyBot(properties.$raw_user_agent, properties.$ip)
 
 -- top bots by hits
 SELECT
-    getBotName(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)) AS bot,
-    getBotOperator(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)) AS operator,
+    getBotName(properties.$raw_user_agent, properties.$ip) AS bot,
+    getBotOperator(properties.$raw_user_agent, properties.$ip) AS operator,
     count() AS hits
 FROM events
 WHERE event = '$pageview'
-    AND isLikelyBot(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent))
+    AND isLikelyBot(properties.$raw_user_agent, properties.$ip)
 GROUP BY bot, operator
 ORDER BY hits DESC
 ```
@@ -190,11 +196,13 @@ the capture API) before building bot insights.
 
 ## Gotchas
 
-- **Needs a captured user agent.** Classification is computed at query time from the event's
-  `$raw_user_agent` / `$user_agent`, so it works on any historical event — there's no need to
-  restrict `dateRange.date_from`. The one requirement is that a user agent was captured; events
-  from sources that never set one can't be classified (and empty UAs fall through to
-  `Automation` / `no_user_agent`, below).
+- **Needs a captured `$raw_user_agent`.** Classification is computed at query time, so it
+  works on any historical event — no need to restrict `dateRange.date_from`. Events whose
+  source never sets `$raw_user_agent` (including SDKs that only send `$user_agent`) fall
+  through to `Automation` / `no_user_agent`, below. The IP signal additionally needs
+  `properties.$ip`; the signature-agent signal needs a server forwarding the
+  `Signature-Agent` header as `$signature_agent` (only reachable via the explicit
+  three-argument functions, not the virtual properties).
 - **`isLikelyBot` is "likely".** Detection is a user-agent heuristic — some bots spoof
   real browser UAs, and some legit tools use bot-like ones. Treat it as best-effort, not
   ground truth.

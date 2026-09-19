@@ -10,6 +10,7 @@ from posthog.hogql.database.schema.traffic_type import (
     create_is_bot_field,
     create_traffic_category_field,
     create_traffic_type_field,
+    signature_agent_expr,
     user_agent_expr,
 )
 
@@ -39,6 +40,14 @@ class TestClientIPExpr:
 
     def test_custom_properties_path(self):
         assert client_ip_expr(["poe", "properties"]) == ast.Field(chain=["poe", "properties", "$ip"])
+
+
+class TestSignatureAgentExpr:
+    def test_default_properties_path(self):
+        assert signature_agent_expr() == ast.Field(chain=["properties", "$signature_agent"])
+
+    def test_custom_properties_path(self):
+        assert signature_agent_expr(["poe", "properties"]) == ast.Field(chain=["poe", "properties", "$signature_agent"])
 
 
 class TestExpressionFieldFactories:

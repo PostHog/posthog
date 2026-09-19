@@ -3263,6 +3263,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$signature_agent": {
+            "label": "Signature agent",
+            "description": "The Web Bot Auth Signature-Agent header of the request, identifying a signed bot or AI agent (e.g. ChatGPT agent). Sent by servers that forward request headers.",
+            "examples": ['"https://chatgpt.com"'],
+        },
         "$virt_agent_source": {
             "label": "Agent source",
             "description": "Stable identifier of the AI agent or bot that generated the event, detected from the user agent or from operator-published bot IP ranges. Empty for regular traffic.",
