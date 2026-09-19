@@ -5,7 +5,6 @@ from uuid import UUID
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
-from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import EmptyPage, Paginator
 from django.db import models, transaction
@@ -177,53 +176,35 @@ class ActivityLog(UUIDTModel):
                 condition=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
+        # Every row pays for every index here on write, and the writes run inline in the request
+        # that triggered them, so an index only stays if a query can use it. Postgres uses a partial
+        # index only when the query's own WHERE clause implies the index predicate, which makes an
+        # unmatched predicate the worst of both: full maintenance cost, no read ever served.
         indexes = [
             models.Index(fields=["team_id", "scope", "item_id"]),
             models.Index(
                 fields=["organization_id", "scope", "-created_at"],
-                name="idx_alog_org_scope_created_at",
-                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+                name="idx_alog_org_scope_time",
             ),
-            models.Index(
-                fields=["organization_id"],
-                name="idx_alog_org_detail_exists",
-                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
-            ),
-            # Serves whole-column containment (`detail @> ...`), the only detail lookup an index
-            # can answer. Key-path lookups and the `detail::text` search are not GIN-servable
-            # under any opclass. `jsonb_path_ops` stores one hash per root-to-leaf path, so it is
-            # smaller and cheaper to maintain than `jsonb_ops`, whose only extra operators are the
-            # key-existence family (`?`, `?|`, `?&`) that no query path uses. It also stores no
-            # entry for a JSON structure that holds no scalar, so containment against an empty
-            # object or array (`detail @> '{"changes": []}'`) falls back to a full index scan.
-            GinIndex(
-                name="idx_alog_detail_gin_path_ops",
-                fields=["detail"],
-                opclasses=["jsonb_path_ops"],
-            ),
-            # User-specific filtered queries
+            # `my_notifications` reads team + activity + scope + user, with no ordering.
             models.Index(
                 fields=["team_id", "activity", "scope", "user"],
-                name="idx_alog_team_act_scope_usr",
-                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+                name="idx_alog_team_act_scope_user",
             ),
-            # Advanced activity logs: team-scoped queries with ordering
+            # `load_activity`, the welcome screen and the scout profile all read team + scope
+            # newest-first.
             models.Index(
                 fields=["team_id", "scope", "-created_at"],
-                name="idx_alog_team_scope_created",
-                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+                name="idx_alog_team_scope_time",
             ),
             # Advanced activity logs: team queries with activity filter
             models.Index(
                 fields=["team_id", "scope", "activity", "-created_at"],
-                name="idx_alog_team_scp_act_crtd",
-                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+                name="idx_alog_team_scope_act_time",
             ),
             # Advanced activity logs default list ordering. The org- and team-scoped list
             # endpoints order by -created_at with no scope filter, so the scope-led indexes
-            # above can't serve the sort, and the org indexes above are partial on a detail
-            # predicate the list query never carries. These full indexes let the LIMITed
-            # ordered scan walk created_at directly instead of sorting the whole partition.
+            # above can't serve the sort.
             models.Index(
                 fields=["organization_id", "-created_at"],
                 name="idx_alog_org_created_at",
