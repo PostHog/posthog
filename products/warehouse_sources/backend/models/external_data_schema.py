@@ -40,6 +40,9 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 type IncrementalFieldValue = str | int | float | None
+# A stored cursor after process_incremental_value: the serialized form above, widened by the
+# datetime or date a DateTime, Timestamp or Date field parses to.
+type ProcessedIncrementalValue = datetime | date | str | int | float
 
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
@@ -924,6 +927,31 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
         # `_get_before_update` SELECT (see save()).
         self.save(skip_activity_log=True)
+
+    def staged_incremental_last_value_for_run(self, workflow_run_id: str) -> ProcessedIncrementalValue | None:
+        """Return the highest `last_value` any attempt of `workflow_run_id` has staged, or None.
+
+        Each attempt stages under `{workflow_run_id}-a{attempt}`. A newer attempt displaces the live
+        slot, and an older attempt's cursor may sit in the parked list, so both are read.
+        """
+        entries = [
+            self.sync_type_config.get("incremental_staged"),
+            *self.sync_type_config.get("incremental_staged_pending", []),
+        ]
+        values: list[ProcessedIncrementalValue] = []
+        for entry in entries:
+            if not entry or "last_value" not in entry:
+                continue
+            run_uuid = str(entry.get("run_uuid", ""))
+            if run_uuid != workflow_run_id and not run_uuid.startswith(f"{workflow_run_id}-a"):
+                continue
+            value = process_incremental_value(entry["last_value"], self.incremental_field_type)
+            if value is not None:
+                values.append(value)
+        try:
+            return max(values) if values else None
+        except TypeError:
+            return None
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
         staged = self.sync_type_config.get("incremental_staged")

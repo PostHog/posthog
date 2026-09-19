@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from redis import exceptions as redis_exceptions
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
     _get_redis,
+    finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
     handle_reset_or_full_refresh,
@@ -27,13 +29,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     report_heartbeat_timeout,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
+    seed_desc_sort_incremental_value,
     trim_source_job_inputs,
+    update_incremental_field_values,
     validate_incremental_sync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MissingPrimaryKeysException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -291,6 +297,64 @@ class TestReportHeartbeatTimeoutRecording(BaseTest):
         assert "other-team-schema" not in serialized_row and "run-neighbour" not in serialized_row
         # The culprit rule then discounts this row: a strictly larger co-tenant makes us the victim.
         assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
+
+
+# transaction=True: the staging writes run on the async thread pool (database_sync_to_async_pool),
+# which can't see an atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestDescSortIncrementalHandoff:
+    def _schema(self, team) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Persona"
+        )
+        return ExternalDataSchema.objects.create(
+            name="inquiries",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created_at",
+                "incremental_field_type": IncrementalFieldType.DateTime,
+            },
+        )
+
+    def _batch(self, *created_at: datetime) -> pa.Table:
+        return pa.table({"id": list(range(len(created_at))), "created_at": list(created_at)})
+
+    def test_a_resumed_attempt_promotes_the_high_water_mark_of_the_whole_run(self, team):
+        # Newest-first: attempt 1 yields the newest rows and dies. Attempt 2 resumes below them and
+        # only ever sees older rows. The promoted watermark must be attempt 1's newest row, otherwise
+        # the next run re-reads everything newer than the resume point.
+        schema = self._schema(team)
+        resource = SourceResponse(name="inquiries", items=lambda: iter([]), primary_keys=["id"], sort_mode="desc")
+        logger = MagicMock(adebug=AsyncMock())
+        newest = datetime(2026, 3, 1, tzinfo=UTC)
+        resume_point = datetime(2026, 1, 1, tzinfo=UTC)
+
+        values = async_to_sync(update_incremental_field_values)(
+            schema, self._batch(newest, resume_point), resource, None, None, logger, staging_run_uuid="wf-1-a1"
+        )
+        assert values.last_value == newest
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_staged"]["last_value"] == newest.isoformat()
+
+        seed = async_to_sync(seed_desc_sort_incremental_value)(resource, schema, "wf-1", True, logger)
+        assert seed == newest
+
+        values = async_to_sync(update_incremental_field_values)(
+            schema,
+            self._batch(datetime(2025, 12, 1, tzinfo=UTC)),
+            resource,
+            seed,
+            None,
+            logger,
+            staging_run_uuid="wf-1-a2",
+        )
+        async_to_sync(finalize_desc_sort_incremental_value)(
+            resource, schema, values.last_value, logger, staging_run_uuid="wf-1-a2"
+        )
+        assert schema.promote_staged_incremental_values("wf-1-a2") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == newest.isoformat()
 
 
 # transaction=True: handle_corrupted_delta_log writes to the DB from the async thread pool
