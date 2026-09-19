@@ -71,7 +71,7 @@ class MessageCategoryViewSet(
     def safely_get_queryset(self, queryset):
         return queryset.filter(
             deleted=False,
-        )
+        ).order_by("-created_at", "-id")
 
     @action(detail=False, methods=["post"])
     def import_from_customerio(self, request, **kwargs):
