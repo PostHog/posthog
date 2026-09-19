@@ -67,6 +67,7 @@ These are compatibility checks, not automatic blockers:
 - **Provider deployment:** Fireworks and Baseten host support exists in Go, but the target environment must declare the required host and credentials. Baseten also requires approved-subprocessor status before deployment.
 - **Provider behavior:** operator routing policy, health-aware provider ordering, or strict `X-PostHog-Provider` pinning matches the caller's fallback requirements.
 - **Wire behavior:** request fields, streaming chunks, errors, timeouts, and retries match what the caller handles.
+- **Message content parts:** Python rejects a user content part outside the OpenAI set on the Modal chat-completions path, and rejects an image for a model the cost map declares has no vision. Go does not read message content on that path, so the same request reaches the backend and the caller gets whatever the backend answers. Go does check content parts on the Responses-to-chat bridge, and has no vision capability at all.
 - **Metadata:** Python per-key property and feature flag headers are converted to the Go JSON properties header.
 
 ## Parity map
