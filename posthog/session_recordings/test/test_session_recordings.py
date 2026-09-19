@@ -791,12 +791,38 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "snapshot_library": None,
             # ingestion just happened in this test, so the session still counts as ongoing
             "ongoing": True,
-            "activity_score": None,
+            "activity_score": 0.0,
             "external_references": [],
             "matches_filters": True,
             "total_size": 0,
             "event_count": 0,
         }
+
+    def test_activity_score_matches_between_listing_and_single_recording(self):
+        session_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+            distinct_id="d1",
+            click_count=8,
+            keypress_count=12,
+            mouse_activity_count=20,
+            active_milliseconds=25000,
+            console_error_count=2,
+            console_log_count=3,
+            console_warn_count=1,
+        )
+
+        listing = self.client.get(
+            f'/api/projects/{self.team.id}/session_recordings?session_ids=["{session_id}"]'
+        ).json()["results"]
+        single = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}").json()
+
+        assert listing[0]["activity_score"] > 0
+        assert single["activity_score"] == listing[0]["activity_score"]
 
     def test_single_session_recording_clamps_negative_inactive_seconds(self):
         create_person(team=self.team, distinct_ids=["d1"], properties={"email": "bob@bob.com"})

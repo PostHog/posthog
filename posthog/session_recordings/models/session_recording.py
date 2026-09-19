@@ -134,6 +134,7 @@ class SessionRecording(UUIDTModel):
         self.ongoing = metadata["ongoing"]
         self.total_size = metadata["total_size"]
         self.event_count = metadata["event_count"]
+        self.activity_score = metadata["activity_score"]
 
         return True
 
