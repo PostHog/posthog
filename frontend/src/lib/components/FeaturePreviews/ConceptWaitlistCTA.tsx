@@ -13,6 +13,8 @@ export interface ConceptWaitlistCTAProps {
     dataAttr?: string
     /** Skipped for impersonated sessions, where the sign-up itself is refused. */
     onSignUp?: () => void
+    /** Off: one-click sign-up tied to the logged-in account, even when the feature links a waitlist survey. */
+    collectEmail?: boolean
 }
 
 export function ConceptWaitlistCTA({
@@ -20,6 +22,7 @@ export function ConceptWaitlistCTA({
     size = 'small',
     dataAttr,
     onSignUp,
+    collectEmail = true,
 }: ConceptWaitlistCTAProps): JSX.Element {
     const { waitlistSurveysEnabled, conceptSurveySubmissions } = useValues(featurePreviewsLogic)
     const { submitConceptSurvey, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
@@ -27,7 +30,7 @@ export function ConceptWaitlistCTA({
 
     const { flagKey, enabled } = feature
 
-    const hasWaitlistSurvey = waitlistSurveysEnabled && !!feature.payload?.survey_id
+    const hasWaitlistSurvey = collectEmail && waitlistSurveysEnabled && !!feature.payload?.survey_id
 
     const notifySignUp = (): void => {
         // submitConceptSurvey and the enrollment listener both refuse impersonated sessions, so

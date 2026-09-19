@@ -104,27 +104,15 @@ describe('RealtimeCohortsWaitlistBanner', () => {
         expect(mockLoadEarlyAccessFeatures).toHaveBeenCalled()
         expect(screen.getByText('Realtime cohorts are coming soon')).toBeInTheDocument()
         expect(screen.getByText('Beta')).toBeInTheDocument()
-        expect(screen.getByPlaceholderText('email@yourcompany.com')).toBeInTheDocument()
         expect(screen.getByText('Get notified')).toBeInTheDocument()
         expect(screen.getByLabelText('close')).toBeInTheDocument()
         expect(screen.getByTestId('viewed-realtime-cohorts-waitlist-banner-shown')).toBeInTheDocument()
     })
 
-    it('confirms the sign-up with a toast', () => {
+    // The account already identifies the user, so the banner never asks for an email, even when the
+    // feature links a waitlist survey and the surveys flag is on.
+    it('collects interest with one click and no email field', () => {
         setupMocks([CONCEPT_FEATURE])
-
-        render(<RealtimeCohortsWaitlistBanner />)
-        fireEvent.change(screen.getByPlaceholderText('email@yourcompany.com'), {
-            target: { value: 'user@example.com' },
-        })
-        fireEvent.click(screen.getByText('Get notified'))
-
-        expect(mockSubmitConceptSurvey).toHaveBeenCalledWith(FEATURE_FLAGS.REALTIME_COHORTS, 'user@example.com')
-        expect(lemonToast.success).toHaveBeenCalled()
-    })
-
-    it('offers one-click sign-up when no waitlist survey is linked', () => {
-        setupMocks([{ ...CONCEPT_FEATURE, payload: {} }])
 
         render(<RealtimeCohortsWaitlistBanner />)
 
@@ -136,6 +124,8 @@ describe('RealtimeCohortsWaitlistBanner', () => {
             true,
             'concept'
         )
+        expect(mockSubmitConceptSurvey).not.toHaveBeenCalled()
+        expect(lemonToast.success).toHaveBeenCalled()
     })
 
     it.each([

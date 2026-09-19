@@ -63,6 +63,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
                     <ConceptWaitlistCTA
                         feature={feature}
                         dataAttr="realtime-cohorts-waitlist-signup"
+                        collectEmail={false}
                         // Signing up flips `feature.enabled` and unmounts the banner, so its inline
                         // confirmation never shows; the toast outlives it.
                         onSignUp={() =>
