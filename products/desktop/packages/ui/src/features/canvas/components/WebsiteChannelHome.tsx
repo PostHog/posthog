@@ -372,7 +372,7 @@ export function WebsiteChannelHome({
         />
       ) : isWork ? (
         // The right slot is the pull requests until a row opens its dock there.
-        <SpacePullRequestsColumn tasks={tasks} />
+        <SpacePullRequestsColumn tasks={tasks} isLoading={isLoading} />
       ) : null}
 
       {channelName && (

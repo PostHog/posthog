@@ -2,12 +2,15 @@ import { cn } from "@posthog/quill";
 import type { ReactElement, ReactNode } from "react";
 
 /** A leading button carries its own padding; leading text does not. */
-type ChromeBarInset = "control" | "text" | "even";
+type ChromeBarInset = "control" | "text" | "even" | "page";
 
 const INSET_CLASS: Record<ChromeBarInset, string> = {
   control: "pr-2 pl-1",
   text: "pr-2 pl-3",
   even: "px-3",
+  // A pane whose body starts at its own margin: the bar, whatever sits under
+  // it, and that body all share one left edge.
+  page: "pr-2 pl-6",
 };
 
 /**

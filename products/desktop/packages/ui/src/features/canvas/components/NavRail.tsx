@@ -34,7 +34,10 @@ import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { railPaneFoldsIntoWork } from "@posthog/ui/features/canvas/railPane";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { useWorkActivityStore } from "@posthog/ui/features/canvas/stores/workActivityStore";
+import {
+  closeWorkActivity,
+  useWorkActivityStore,
+} from "@posthog/ui/features/canvas/stores/workActivityStore";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -259,12 +262,16 @@ function NavRailImpl() {
       if (workLayout) {
         // Work shows its column and Activity opens the notification center;
         // neither moves the tab you are in.
-        if (destination.pane === "spaces") {
-          destination.onPick();
-          return;
-        }
         if (destination.pane === "activity") {
           toggleWorkActivity();
+          return;
+        }
+        // Every other destination stands the notification column down first:
+        // it covers the column they are asking for, so leaving it up is a
+        // click that appears to do nothing.
+        closeWorkActivity();
+        if (destination.pane === "spaces") {
+          destination.onPick();
           return;
         }
       }

@@ -2,14 +2,15 @@ import { WebsiteChannelLoops } from "@posthog/ui/features/canvas/components/Webs
 import { SpaceTabbedPage } from "@posthog/ui/features/canvas/components/work/SpaceTabbedPage";
 import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import {
-  ChannelSkeleton,
+  SpaceContextSkeleton,
+  spaceRouteSkeleton,
   withRouteSkeleton,
 } from "@posthog/ui/router/routeSkeletons";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_shell/spaces/$channelId/loops")({
   component: ChannelLoopsRoute,
-  ...withRouteSkeleton(ChannelSkeleton),
+  ...withRouteSkeleton(spaceRouteSkeleton(SpaceContextSkeleton)),
 });
 
 function ChannelLoopsRoute() {

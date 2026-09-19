@@ -1,6 +1,7 @@
 import {
   CaretDownIcon,
   CaretRightIcon,
+  CaretUpIcon,
   DotsThreeIcon,
   PlusIcon,
 } from "@phosphor-icons/react";
@@ -412,17 +413,7 @@ export function WorkColumn() {
             label="Recent"
             expanded={recentOpen}
             onToggle={() => setRecentOpen((value) => !value)}
-            trailing={
-              recentOpen && canExpandRecent ? (
-                <button
-                  type="button"
-                  className="rounded-sm px-1 text-[11px] text-muted-foreground tabular-nums transition-colors hover:text-foreground"
-                  onClick={() => setRecentExpanded((value) => !value)}
-                >
-                  {recentExpanded ? "Fewer" : `All ${matchingItems.length}`}
-                </button>
-              ) : null
-            }
+            trailing={null}
           />
           {recentOpen && (
             <div className="flex items-center gap-1 px-1 pt-0.5 pb-1">
@@ -486,10 +477,22 @@ export function WorkColumn() {
               </p>
             ) : (
               <div className="flex flex-col gap-px">
-                {shownSections.map((section) => (
+                {shownSections.map((section, index) => (
                   <Fragment key={section.key}>
                     {section.label && (
-                      <div className="px-2 pt-2 pb-0.5 pl-[30px] text-[11px] text-muted-foreground/70">
+                      // A day sits at the rows' own left edge, so the list has
+                      // one margin rather than two. A hairline above it is
+                      // what separates the groups; the label itself stays
+                      // sentence case, which is what keeps it from reading as
+                      // another section heading.
+                      <div
+                        className={cn(
+                          "px-2 pb-1 font-medium text-[11px] text-muted-foreground",
+                          index === 0
+                            ? "pt-1"
+                            : "mt-2 border-border/70 border-t pt-2",
+                        )}
+                      >
                         {section.label}
                       </div>
                     )}
@@ -507,6 +510,26 @@ export function WorkColumn() {
                 ))}
               </div>
             ))}
+          {recentOpen && canExpandRecent && (
+            <button
+              type="button"
+              aria-expanded={recentExpanded}
+              className="group/expand mt-0.5 flex h-6 w-full items-center justify-center gap-1 rounded-md text-[11px] text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
+              onClick={() => setRecentExpanded((value) => !value)}
+            >
+              {recentExpanded ? (
+                <>
+                  <CaretUpIcon size={11} weight="bold" />
+                  Show fewer
+                </>
+              ) : (
+                <>
+                  <CaretDownIcon size={11} weight="bold" />
+                  {matchingItems.length - shownItems.length} more
+                </>
+              )}
+            </button>
+          )}
 
           <div className="mt-2">
             <SectionHeading

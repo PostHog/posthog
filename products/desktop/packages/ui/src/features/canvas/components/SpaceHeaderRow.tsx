@@ -1,5 +1,6 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { ActivityDetailCloseButton } from "@posthog/ui/features/canvas/components/ActivityDetailCloseButton";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { useActiveTabTiled } from "@posthog/ui/features/tab-tiling/useActiveTabTiled";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
@@ -13,13 +14,16 @@ import { useHeaderStore } from "@posthog/ui/shell/headerStore";
  */
 export function SpaceHeaderRow({ task }: { task?: Task }) {
   const content = useHeaderStore((s) => s.content);
+  // The Work layout gives the pane one left edge, shared by this bar, a tab
+  // strip under it and the page's own body.
+  const workLayout = useWorkLayout();
   const activitySelection = useActivitySelection();
   const tiled = useActiveTabTiled();
   const showsActivitySession = activitySelection?.kind === "task";
   if (tiled || (!content && !task && !showsActivitySession)) return null;
 
   return (
-    <ChromeBar inset="control">
+    <ChromeBar inset={workLayout ? "page" : "control"}>
       <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
         {content}
       </div>

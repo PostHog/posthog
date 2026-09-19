@@ -130,9 +130,7 @@ export function SpaceTabbedPage({
   useSetHeaderContent(
     useMemo(
       () => (
-        // The chrome bar insets for a leading control; this is text, so it
-        // takes the tab strip's own inset and the two line up.
-        <div className="flex min-w-0 items-center gap-1.5 pl-5">
+        <div className="flex min-w-0 items-center gap-1.5">
           <span className="shrink-0 text-muted-foreground">
             {channelGlyph(channel?.name, {
               size: 14,
