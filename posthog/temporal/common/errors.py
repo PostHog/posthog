@@ -15,6 +15,15 @@ class NonReportableError(Exception):
     retrying can't resolve, so a tracked exception would only be noise."""
 
 
+class NonReportableApplicationError(ApplicationError, NonReportableError):
+    """An ApplicationError the activity interceptor must not report to error tracking.
+
+    Raise it instead of ApplicationError for a failure that Temporal still has attempts left to
+    retry, and that reporting per attempt would only duplicate. The caller decides, because only
+    it knows the retry policy the activity runs under: the last attempt raises a plain
+    ApplicationError, so the failure is reported once when the retry chain ends."""
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000
