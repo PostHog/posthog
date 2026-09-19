@@ -101,6 +101,9 @@ const ORG_LIMIT_PATTERNS = [
   "user sustained rate limit exceeded",
 ] as const;
 
+const PROVIDER_CREDENTIAL_ERROR_FIELD_REGEX =
+  /"(?:type|code)"\s*:\s*"provider_credentials_rejected"/i;
+
 const FATAL_SESSION_ERROR_PATTERNS = [
   "internal error",
   "process exited",
@@ -165,6 +168,14 @@ export function isRateLimitError(
   );
 }
 
+export function isProviderCredentialError(
+  errorMessage: string,
+  errorDetails?: string,
+): boolean {
+  const value = [errorMessage, errorDetails].filter(Boolean).join(" ");
+  return PROVIDER_CREDENTIAL_ERROR_FIELD_REGEX.test(value);
+}
+
 export function classifyGatewayLimitError(
   errorMessage: string,
   errorDetails?: string,
@@ -208,6 +219,7 @@ export function isTurnEndedWithoutResponseError(
 
 export type PromptFailureKind =
   | "usage_limit"
+  | "provider_credentials"
   | "transient"
   | "authentication"
   | "fatal_session"
@@ -226,6 +238,19 @@ export function classifyPromptFailure(
   errorType?: string,
 ): PromptFailure {
   const message = getErrorMessage(error) || String(error);
+  // Checked before the limit patterns: a rejected gateway credential is not the caller's
+  // limit, and retrying it only repeats the same refusal.
+  if (
+    errorType === "provider_credentials_rejected" ||
+    isProviderCredentialError(message, errorDetails)
+  ) {
+    return {
+      kind: "provider_credentials",
+      message,
+      retryable: false,
+      limitCause: null,
+    };
+  }
   const limitCause = classifyGatewayLimitError(message, errorDetails);
   if (limitCause !== null || isRateLimitError(message, errorDetails)) {
     return {
@@ -294,6 +319,7 @@ export function isFatalSessionError(
     return false;
   }
   if (isRateLimitError(errorMessage, errorDetails)) return false;
+  if (isProviderCredentialError(errorMessage, errorDetails)) return false;
   if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) return false;
   if (isTransientUpstreamError(errorMessage, errorDetails)) return false;
   if (classifyGatewayLimitError(errorMessage, errorDetails) !== null) {

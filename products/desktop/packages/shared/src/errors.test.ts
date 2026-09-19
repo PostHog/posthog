@@ -178,6 +178,36 @@ describe("classifyPromptFailure", () => {
       true,
     ],
     ["Authentication required", undefined, "authentication", true],
+    [
+      "PostHog's openai credentials were rejected. This is a problem with the PostHog gateway, not a usage limit on your account. Retries fail until PostHog fixes it.",
+      undefined,
+      "unknown",
+      false,
+    ],
+    [
+      `API Error: 400 {"error":{"message":"PostHog's openai credentials were rejected.","type":"provider_credentials_rejected","code":"provider_credentials_rejected"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    [
+      `API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`,
+      undefined,
+      "authentication",
+      true,
+    ],
+    [
+      `API Error: 400 {"error":{"message":"Model 'provider_credentials_rejected' is not supported","type":"invalid_request_error","code":"model_not_supported"}}`,
+      undefined,
+      "unknown",
+      false,
+    ],
+    [
+      `API Error: 400 {"error":{"message":"Model 'authentication_error' is not supported","type":"invalid_request_error","code":"model_not_supported"}}`,
+      undefined,
+      "authentication",
+      true,
+    ],
     ["process exited", undefined, "fatal_session", true],
     [
       "Internal error: This conversation is too large to continue.",
@@ -251,6 +281,14 @@ describe("isFatalSessionError", () => {
       isFatalSessionError(
         "internal error",
         "API Error: the operation timed out",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat a rejected gateway credential as fatal", () => {
+    expect(
+      isFatalSessionError(
+        `Internal error: API Error: 401 {"error":{"code":"provider_credentials_rejected"}}`,
       ),
     ).toBe(false);
   });
