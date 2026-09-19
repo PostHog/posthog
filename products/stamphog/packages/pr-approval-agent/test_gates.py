@@ -527,6 +527,7 @@ def test_resolver_owner_normalization(
     expected_individuals: list[str],
     expected_owned: int,
 ) -> None:
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text(owners_yaml)
@@ -541,6 +542,7 @@ def test_resolver_owner_normalization(
 
 
 def test_ownership_cross_team_and_unowned(tmp_path: Path) -> None:
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text("owners:\n  - team-a\n  - team-b\n")
@@ -561,6 +563,7 @@ def test_ownership_counts_a_products_generated_directory_and_nothing_wider(tmp_p
     # changes anywhere in the repo, so a team owning only those was not touched by the change. The
     # match names one directory shape on purpose: AGENTS.md rules out a general harmless-file rule,
     # and a bare `generated/` match would catch hand-editable code elsewhere in the tree.
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text("owners:\n  - team-a\n")

@@ -6,11 +6,11 @@
 #   "opentelemetry-api~=1.27",
 #   "opentelemetry-sdk~=1.27",
 #   "opentelemetry-exporter-otlp-proto-http~=1.27",
-#   "posthog-owners",
+#   "owners-yaml",
 # ]
 #
 # [tool.uv.sources]
-# posthog-owners = { path = "../../tools/owners" }
+# owners-yaml = { path = "../../tools/owners" }
 # ///
 """Emit OTLP traces from CI JUnit XML artifacts.
 
@@ -65,7 +65,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import Status, StatusCode
-from posthog_owners import OwnersResolver, first_team_owner
+from owners_yaml import OwnersResolver, first_team_owner
 
 logger = logging.getLogger("report_test_timings")
 

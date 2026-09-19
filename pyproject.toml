@@ -149,7 +149,7 @@ dependencies = [
     # Distributed owners.yaml resolver. A runtime dependency, not just tooling: stamphog's digest
     # reads a repo's team -> Slack channel registry through it (products/stamphog/backend/logic/
     # channel_resolution.py). Adds no third-party code — its own deps, pyyaml and click, are here.
-    "posthog-owners",
+    "owners-yaml",
     "umap-learn~=0.5.0",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "whitenoise~=6.10.0",
@@ -314,7 +314,7 @@ members = ["tools/hogli", "tools/owners"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
-posthog-owners = { workspace = true }
+owners-yaml = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).

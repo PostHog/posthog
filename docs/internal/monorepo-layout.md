@@ -36,14 +36,14 @@ common/                # Shared code — holding pen, NOT a destination (goal: s
 tools/                 # Developer/CI tooling, with one exception noted below
   hogli/               # Developer CLI framework (PyPI-publishable; uv workspace member)
   hogli-commands/      # PostHog-specific hogli commands (consumed via hogli.yaml)
-  owners/              # owners.yaml resolver (posthog_owners) — also a RUNTIME dependency
+  owners/              # owners.yaml resolver (owners_yaml) — also a RUNTIME dependency
 
 devenv/                # Developer environment config (intent map, process model)
 ```
 
 `tools/` is developer and CI tooling by default, and one directory in it is not. `tools/owners` is
 installed into the production venv, because stamphog's digest resolves a team's Slack channel through
-`posthog_owners` rather than reparsing `owners.yaml` itself. It is also copied into the production
+`owners_yaml` rather than reparsing `owners.yaml` itself. It is also copied into the production
 image as source, alongside stamphog's review engine at
 `products/stamphog/packages/pr-approval-agent/`, because stamphog ships both into its review sandbox
 at runtime.

@@ -36,7 +36,7 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
 .github/scripts/codeowners.js @PostHog/team-security
 # The distributed-ownership resolver the auto-assigner executes on that same
-# pull_request_target event (via `python -m posthog_owners`), with tools/owners
+# pull_request_target event (via `python -m owners_yaml`), with tools/owners
 # as the privileged sys.path root. Anything importable placed in that tree can
 # shadow stdlib/pyyaml for the privileged process — top-level modules (yaml.py),
 # shadow packages (yaml/__init__.py), and extension modules (yaml.so, *.pyd)

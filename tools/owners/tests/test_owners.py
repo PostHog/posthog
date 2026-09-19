@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from posthog_owners import (
+from click.testing import CliRunner
+from owners_yaml import (
     census,
     first_team_owner,
     fmt as fmt_module,
@@ -17,113 +18,16 @@ from posthog_owners import (
     runner_for_path,
     spellings,
 )
-from posthog_owners.cli import _consolidation_suggestions, _live_scope, _reserved_location_error
-from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
-from posthog_owners.matcher import path_matches_pattern
-from posthog_owners.resolver import OwnersResolver, team_channel
-from posthog_owners.schema import TeamEntry, is_simple_owners_file, parse_owners_file
-
-
-@pytest.mark.parametrize(
-    "pattern,path,expected",
-    [
-        ("/foo/bar", "foo/bar", True),
-        ("/foo/bar", "foo/bar/baz.py", True),
-        ("/foo/bar", "x/foo/bar", False),
-        ("foo", "a/b/foo", True),
-        ("foo", "a/b/foo/c", True),
-        ("*.js", "a/b/c.js", True),
-        ("*.js", "a/b/c.ts", False),
-        ("/docs/*", "docs/x.md", True),
-        ("/docs/*", "docs/a/b.md", False),
-        ("a/**/b", "a/b", True),
-        ("a/**/b", "a/x/y/b", True),
-        ("a/**/b", "a/b/c", True),
-        ("**/foo", "a/foo", True),
-        ("**", "anything/x", True),
-        ("docs/", "docs/x/y", True),
-        ("docker-compose*.yml", "a/b/docker-compose.dev.yml", True),
-    ],
-)
-def test_matcher_vectors(pattern: str, path: str, expected: bool) -> None:
-    assert path_matches_pattern(pattern, path) is expected
+from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
+from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
+from owners_yaml.resolver import OwnersResolver, team_channel
+from owners_yaml.schema import TOP_LEVEL_KEYS, CodeownersSettings, TeamEntry, is_simple_owners_file, parse_owners_file
 
 
 def _write(root: Path, rel: str, text: str) -> None:
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(text)
-
-
-@pytest.fixture
-def resolver_repo(tmp_path: Path) -> Path:
-    _write(
-        tmp_path,
-        "owners.yaml",
-        "version: 1\nowners: null\nrules:\n  - match: Dockerfile\n    owners: [team-devex]\n",
-    )
-    _write(
-        tmp_path,
-        "posthog/owners.yaml",
-        "version: 1\nowners: [team-a]\n"
-        "rules:\n  - match: '/vendor/**'\n    owners: null\n  - match: legacy.py\n    owners: [team-legacy]\n",
-    )
-    _write(tmp_path, "posthog/sub/owners.yaml", "version: 1\nowners: [team-b]\n")
-    _write(tmp_path, "posthog/noinherit/owners.yaml", "version: 1\ninherit: false\nowners: [team-c]\n")
-    _write(tmp_path, "products/foo/product.yaml", "name: Foo\nowners:\n  - team-foo\n")
-    _write(tmp_path, "products/bar/product.yaml", "name: Bar\nowners:\n  - team-CHANGEME\n")
-    return tmp_path
-
-
-@pytest.mark.parametrize(
-    "path,owners,unowned_by_design",
-    [
-        ("Dockerfile", ["team-devex"], False),
-        ("README.md", None, True),
-        ("posthog/x.py", ["team-a"], False),
-        ("posthog/legacy.py", ["team-legacy"], False),
-        ("posthog/vendor/lib.py", None, True),
-        ("posthog/sub/y.py", ["team-b"], False),
-        ("posthog/sub/legacy.py", ["team-b"], False),
-        ("posthog/noinherit/z.py", ["team-c"], False),
-        ("products/foo/thing.py", ["team-foo"], False),
-        ("products/bar/thing.py", None, True),
-        ("other/legacy.py", None, True),
-    ],
-)
-def test_resolver_precedence(resolver_repo: Path, path: str, owners: list[str] | None, unowned_by_design: bool) -> None:
-    r = OwnersResolver(repo_root=resolver_repo).resolve(path)
-    assert r.owners == owners
-    assert r.unowned_by_design is unowned_by_design
-
-
-def test_rule_level_inherit_false_cuts_ancestors_for_matching_paths_only(tmp_path: Path) -> None:
-    _write(tmp_path, "a/owners.yaml", "version: 1\nowners: [team-a]\n")
-    _write(
-        tmp_path,
-        "a/b/owners.yaml",
-        "version: 1\nowners: []\nrules:\n  - match: '/cut/'\n    owners: [team-b]\n    inherit: false\n",
-    )
-    resolver = OwnersResolver(repo_root=tmp_path)
-    cut = resolver.resolve("a/b/cut/x.py")
-    assert cut.owners == ["team-b"]  # rule-level inherit:false + own owners win
-    other = resolver.resolve("a/b/other.py")
-    assert other.owners == ["team-a"]  # non-matching path still inherits the ancestor
-
-
-def test_rule_level_inherit_true_restores_ancestors_under_file_level_cut(tmp_path: Path) -> None:
-    # The inverse direction: the file cuts inheritance, a rule opts its paths
-    # back in. The cut must apply after rule overrides — applying it while
-    # collecting files made this documented override a silent no-op.
-    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-root]\n")
-    _write(
-        tmp_path,
-        "a/owners.yaml",
-        "version: 1\nowners: []\ninherit: false\nrules:\n  - match: '/keep/'\n    inherit: true\n",
-    )
-    resolver = OwnersResolver(repo_root=tmp_path)
-    assert resolver.resolve("a/x.py").owners is None  # file-level cut holds
-    assert resolver.resolve("a/keep/x.py").owners == ["team-root"]  # rule restores
 
 
 def test_invalid_rule_glob_is_a_schema_error_not_a_crash(tmp_path: Path) -> None:
@@ -197,23 +101,6 @@ def test_multi_match_validation_errors_drop_the_rule(tmp_path: Path, rules_yaml:
     assert parsed is not None and parsed.rules == []
 
 
-def test_multi_match_rule_wins_and_loses_under_last_match(tmp_path: Path) -> None:
-    # The exploded patterns take part in last-match-wins like any rule: the later
-    # multi-match rule overrides the earlier `*.yml` for its patterns only.
-    _write(
-        tmp_path,
-        "owners.yaml",
-        "version: 1\nowners: [team-a]\n"
-        "rules:\n  - match: '*.yml'\n    owners: [team-yaml]\n"
-        "  - match: [Dockerfile, 'docker-compose*.yml']\n    owners: [team-infra]\n",
-    )
-    resolver = OwnersResolver(repo_root=tmp_path)
-    assert resolver.resolve("Dockerfile").owners == ["team-infra"]
-    assert resolver.resolve("docker-compose.dev.yml").owners == ["team-infra"]  # beats earlier *.yml
-    assert resolver.resolve("other.yml").owners == ["team-yaml"]  # only *.yml matches
-    assert resolver.resolve("main.py").owners == ["team-a"]  # no rule matches
-
-
 def test_resolver_no_contribution_is_unowned_not_exempt(tmp_path: Path) -> None:
     _write(tmp_path, "posthog/owners.yaml", "version: 1\nowners: [team-a]\n")
     resolver = OwnersResolver(repo_root=tmp_path)
@@ -221,19 +108,6 @@ def test_resolver_no_contribution_is_unowned_not_exempt(tmp_path: Path) -> None:
     assert r.owners is None
     assert r.unowned_by_design is False
     assert resolver.unowned(["other/file.py", "posthog/x.py"]) == ["other/file.py"]
-
-
-@pytest.mark.parametrize(
-    "path,slack",
-    [
-        ("posthog/x.py", "#team-a"),
-        ("posthog/sub/y.py", "#team-b"),
-        ("posthog/noinherit/z.py", "#team-c"),
-        ("products/foo/thing.py", "#team-foo"),
-    ],
-)
-def test_resolver_slack_derivation_and_fallthrough(resolver_repo: Path, path: str, slack: str) -> None:
-    assert OwnersResolver(repo_root=resolver_repo).resolve(path).slack == slack
 
 
 @pytest.fixture
@@ -254,29 +128,58 @@ def registry_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@pytest.mark.parametrize(
-    "path,purpose,slack",
-    [
-        ("reg/x.py", "slack", "#registry-chan"),  # registry hit for the primary owner beats derived
-        ("silent/x.py", "slack", None),  # registry false suppresses derivation
-        ("derive/x.py", "slack", "#team-nonreg"),  # no registry entry: derive #<primary owner>
-        ("indiv/x.py", "slack", None),  # primary owner is an @handle: registry ignored, no derive
-        ("split/x.py", "slack", "#split-people"),  # a declared notifications channel stays off the people lookup
-        ("split/x.py", "notifications", "#split-bots"),  # automation resolves to the declared bot channel
-        ("reg/x.py", "notifications", "#registry-chan"),  # no notifications entry: automation follows the people
-    ],
-)
-def test_slack_registry_precedence(registry_repo: Path, path: str, purpose: str, slack: str | None) -> None:
-    assert OwnersResolver(repo_root=registry_repo, purpose=purpose).resolve(path).slack == slack
-
-
-def test_teams_registry_is_root_only(tmp_path: Path) -> None:
-    text = "version: 1\nowners: [team-a]\nteams:\n  team-a:\n    slack: '#a'\n"
+def test_teams_registry_and_settings_are_root_only(tmp_path: Path) -> None:
+    text = (
+        "version: 1\nowners: [team-a]\ngithub_org: acme\nproducers: [bot]\n"
+        "reserved_dirs: ['gen/**']\nalias_files: [package.yaml]\ncodeowners:\n  jest_root: web\n"
+        "teams:\n  team-a:\n    slack: '#a'\n"
+    )
     _, sub_errors = parse_owners_file(text, path=tmp_path / "sub/owners.yaml", directory="sub")
-    assert any("only allowed in the repo-root" in e for e in sub_errors)
+    assert sorted(e.split("'")[1] for e in sub_errors if "only allowed in the repo-root" in e) == [
+        "alias_files",
+        "codeowners",
+        "github_org",
+        "producers",
+        "reserved_dirs",
+        "teams",
+    ]
     root, root_errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert root_errors == []
     assert root is not None and root.teams == {"team-a": TeamEntry(slack="#a")}
+    assert root.settings.github_org == "acme"
+    assert root.settings.producers == frozenset({"bot"})
+    assert root.settings.reserved_dirs == ("gen/**",)
+    assert root.settings.alias_files == ("package.yaml",)
+    assert root.settings.codeowners == CodeownersSettings(jest_root="web")
+
+
+def test_json_schema_accepts_the_same_top_level_keys_as_the_parser() -> None:
+    schema = json.loads((Path(__file__).parent.parent / "owners.schema.json").read_text())
+    assert set(schema["properties"]) == TOP_LEVEL_KEYS
+
+
+@pytest.mark.parametrize(
+    "settings_yaml,needle",
+    [
+        ("github_org: acme/repo\n", "'github_org' must be a GitHub organization name"),
+        ("producers: bot\n", "'producers' must be a list"),
+        ("reserved_dirs: ['a***b']\n", "reserved_dirs: invalid pattern"),
+        ("alias_files: ['pkg/product.yaml']\n", "must be a bare file name"),
+        ("alias_files: ['..\\..\\outside.yaml']\n", "must be a bare file name"),
+        ("alias_files: ['..']\n", "must be a bare file name"),
+        ("alias_files: [owners.yaml]\n", "is the ownership file, not an alias"),
+        ("alias_files: [a, b, c, d, e, f, g, h, i]\n", "at most 8 names"),
+        ("alias_files: [a.yaml, b.yaml, a.yaml]\n", "is listed twice"),
+        ("alias_files: [a, b, c, d, e, f, g, h, a]\n", "at most 8 names"),
+        ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
+    ],
+)
+def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: str, needle: str) -> None:
+    file, errors = parse_owners_file(
+        "version: 1\nowners: []\n" + settings_yaml, path=tmp_path / "owners.yaml", directory=""
+    )
+    assert any(needle in e for e in errors), errors
+    assert file is not None
 
 
 @pytest.mark.parametrize(
@@ -297,7 +200,7 @@ def test_teams_registry_is_root_only(tmp_path: Path) -> None:
     ],
 )
 def test_teams_registry_invalid_shapes(tmp_path: Path, teams_yaml: str, needle: str) -> None:
-    text = "version: 1\nowners: []\n" + teams_yaml
+    text = "version: 1\nowners: []\nproducers: [stamphog, visual_review]\n" + teams_yaml
     file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert any(needle in e for e in errors)
     assert file is not None  # a bad registry entry doesn't make the file unusable
@@ -355,13 +258,28 @@ def test_team_channel_derives_for_an_unregistered_slug() -> None:
     )
 
 
-def test_an_unreadable_producer_map_registers_as_silence(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "notifications_yaml",
+    [
+        "      stamphogg: false\n",
+        "      stamphog: '#a-bots'\n      stamphogg: false\n",
+    ],
+    ids=["only-entry-rejected", "one-of-two-entries-rejected"],
+)
+def test_an_unreadable_producer_map_registers_as_silence(tmp_path: Path, notifications_yaml: str) -> None:
     # Dropping the key instead would fall through to the derived channel, so a typo in a repo our
     # lint never reads would post the digest the team asked to be left out of.
-    text = "version: 1\nowners: []\nteams:\n  team-a:\n    notifications:\n      stamphogg: false\n"
+    text = "version: 1\nowners: []\nproducers: [stamphog]\nteams:\n  team-a:\n    notifications:\n" + notifications_yaml
     file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert any("unknown producer" in e for e in errors)
     assert file is not None and file.teams == {"team-a": TeamEntry(notifications=False)}
+
+
+def test_a_repo_without_a_producers_list_accepts_any_producer(tmp_path: Path) -> None:
+    text = "version: 1\nowners: []\nteams:\n  team-a:\n    notifications:\n      reviewbot: '#a-bots'\n"
+    file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    assert errors == []
+    assert file is not None and file.teams == {"team-a": TeamEntry(notifications={"reviewbot": "#a-bots"})}
 
 
 def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
@@ -385,7 +303,7 @@ def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
     ],
 )
 def test_reserved_location_error(rel: str, reserved: bool) -> None:
-    assert (_reserved_location_error(rel) is not None) is reserved
+    assert (_reserved_location_error(rel, ("products/**/mcp/**",)) is not None) is reserved
 
 
 @pytest.mark.parametrize(
@@ -485,16 +403,28 @@ def test_fmt_never_exiles_singleton_rules_on_overflow(tmp_path: Path, monkeypatc
     assert plan.creations == []
 
 
-def test_fmt_product_yaml_is_a_free_carrier(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "extra_files,alias_setting",
+    [
+        ({}, "[product.yaml]"),
+        # The second alias sorts after the first in tracked order, so a formatter that takes the
+        # last one models a directory the resolver never reads, and the proof fails.
+        ({"products/foo/zz.yaml": "owners:\n  - team-other\n"}, "[product.yaml, zz.yaml]"),
+    ],
+    ids=["one-alias", "two-aliases-in-one-dir"],
+)
+def test_fmt_product_yaml_is_a_free_carrier(tmp_path: Path, extra_files: dict[str, str], alias_setting: str) -> None:
     # The product manifest already declares ownership, so no dedicated owners.yaml is
     # proposed and nothing is added — a single-statement product is not flagged.
     plan = _fmt_plan(
         tmp_path,
         {
+            "owners.yaml": f"version: 1\nowners: []\nalias_files: {alias_setting}\n",
             "products/foo/product.yaml": "name: Foo\nowners:\n  - team-foo\n",
             "products/foo/x.py": "x",
             "r1.py": "x",
             "r2.py": "x",
+            **extra_files,
         },
     )
     assert plan.is_canonical
@@ -508,6 +438,7 @@ def test_fmt_never_places_rules_on_a_product_yaml_dir(tmp_path: Path) -> None:
     plan = _fmt_plan(
         tmp_path,
         {
+            "owners.yaml": "version: 1\nowners: []\nalias_files: [product.yaml]\n",
             "products/foo/product.yaml": "name: Foo\nowners:\n  - team-foo\n",
             "products/foo/x.py": "x",
             "products/foo/sub/owners.yaml": "version: 1\nowners: [team-bar]\n",
@@ -623,7 +554,7 @@ def test_fmt_reports_stale_rule_removals(tmp_path: Path) -> None:
     plan = _fmt_plan(
         tmp_path,
         {
-            "owners.yaml": "version: 1\nowners: []\n",
+            "owners.yaml": "version: 1\nowners: []\nalias_files: [product.yaml]\n",
             "products/foo/product.yaml": "name: Foo\nowners:\n    - team-p\n",
             "products/foo/x.py": "x",
             "products/foo/backend/owners.yaml": (
@@ -765,6 +696,49 @@ def test_resolver_reads_through_an_injected_source() -> None:
     assert resolver.resolve("posthog/temporal/test_run.py").source == "posthog/temporal/owners.yaml"
 
 
+@pytest.mark.parametrize(
+    "root_text,expected_prefetch",
+    [
+        ("version: 1\nowners: [team-root]\n", ["a/b/owners.yaml", "a/owners.yaml", "owners.yaml"]),
+        (
+            "version: 1\nowners: [team-root]\nalias_files: [product.yaml]\n",
+            [
+                "a/b/owners.yaml",
+                "a/b/product.yaml",
+                "a/owners.yaml",
+                "a/product.yaml",
+                "owners.yaml",
+            ],
+        ),
+    ],
+)
+def test_map_prefetches_a_batch_through_read_all_before_the_per_path_reads(
+    root_text: str, expected_prefetch: list[str]
+) -> None:
+    calls: list[tuple[str, object]] = []
+
+    class BatchDictSource:
+        def read(self, path: str) -> str | None:
+            calls.append(("read", path))
+            return root_text if path == "owners.yaml" else None
+
+        def read_all(self, paths: list[str]) -> None:
+            calls.append(("read_all", list(paths)))
+
+    resolver = OwnersResolver(source=BatchDictSource())
+    resolver.map(["a/b/x.py"])
+
+    # The root file is prefetched on its own first, because it names the alias files the batch
+    # needs. A source that only serves what read_all fetched must never see a read before that.
+    assert [argument for kind, argument in calls if kind == "read_all"] == [["owners.yaml"], expected_prefetch]
+    fetched: set[str] = set()
+    for kind, argument in calls:
+        if kind == "read_all":
+            fetched.update(argument)  # type: ignore[arg-type]
+        else:
+            assert argument in fetched, f"read {argument!r} before a read_all covering it"
+
+
 def test_census_counts_test_files_per_team_and_folds_gaps_into_unowned(tmp_path: Path) -> None:
     _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
     _write(tmp_path, "products/a/owners.yaml", "version: 1\nowners: [team-a]\n")
@@ -794,7 +768,7 @@ def test_first_team_owner_skips_handles() -> None:
 
 def _run_entrypoint(repo: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "posthog_owners", *args],
+        [sys.executable, "-m", "owners_yaml", *args],
         cwd=repo,
         input=stdin,
         capture_output=True,
@@ -809,7 +783,8 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
     result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo), "reg/x.py")
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {
+    response = json.loads(result.stdout)
+    assert response == {
         "reg/x.py": {
             "owners": ["team-registry"],
             "status": "active",
@@ -817,6 +792,9 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
             "source": "reg/owners.yaml",
         }
     }
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads((Path(__file__).parent.parent / "resolution.schema.json").read_text())
+    jsonschema.validate(response, schema)
 
 
 def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry_repo: Path) -> None:
@@ -865,7 +843,11 @@ def _codeowners_lookup(rendered: str, path: str) -> list[str]:
 
 @pytest.fixture
 def projection_repo(tmp_path: Path) -> Path:
-    _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
+    _write(
+        tmp_path,
+        "owners.yaml",
+        "version: 1\nowners: []\ngithub_org: PostHog\n",
+    )
     _write(tmp_path, "posthog/security/owners.yaml", "version: 1\nowners: [team-security]\n")
     _write(tmp_path, "posthog/security/test/owners.yaml", "version: 1\nowners: null\n")
     _write(tmp_path, "products/alpha/owners.yaml", "version: 1\nowners: [team-alpha, '@someone']\n")
@@ -873,6 +855,11 @@ def projection_repo(tmp_path: Path) -> Path:
     _write(tmp_path, "frontend/owners.yaml", "version: 1\nowners: [team-web]\n")
     _write(tmp_path, "nodejs/owners.yaml", "version: 1\nowners: [team-pipeline]\n")
     return tmp_path
+
+
+JEST_ROOT_SETTINGS = CodeownersSettings(
+    jest_root="frontend", jest_root_tests="products/**/frontend/**", jest_root_packages="products"
+)
 
 
 @pytest.mark.parametrize(
@@ -888,7 +875,8 @@ def projection_repo(tmp_path: Path) -> Path:
     ids=["pytest-runs-from-the-repo-root", "jest-runs-from-its-package", "product-frontends-run-from-frontend"],
 )
 def test_spellings_cover_how_each_runner_writes_the_file_attribute(path: str, expected: list[str]) -> None:
-    assert spellings(path, package_dirs_from(["frontend/package.json", "products/alpha/package.json"])) == expected
+    package_dirs = package_dirs_from(["frontend/package.json", "products/alpha/package.json"])
+    assert spellings(path, package_dirs, JEST_ROOT_SETTINGS) == expected
 
 
 def test_projection_resolves_every_spelling_to_what_the_resolver_says(projection_repo: Path) -> None:
@@ -905,14 +893,16 @@ def test_projection_resolves_every_spelling_to_what_the_resolver_says(projection
     ]
     resolver = OwnersResolver(projection_repo)
 
-    projection = project(tracked, resolver, package_dirs_from(tracked))
+    projection = project(
+        tracked, resolver, org="PostHog", package_dirs=package_dirs_from(tracked), settings=JEST_ROOT_SETTINGS
+    )
     rendered = projection.render()
 
     for path in tracked:
         if runner_for_path(path) is None:
             continue
-        expected = [owner_handle(owner) for owner in resolver.resolve(path).owners or []]
-        for spelling in spellings(path, package_dirs_from(tracked)):
+        expected = [owner_handle(owner, "PostHog") for owner in resolver.resolve(path).owners or []]
+        for spelling in spellings(path, package_dirs_from(tracked), JEST_ROOT_SETTINGS):
             assert _codeowners_lookup(rendered, spelling) == expected, f"{spelling} resolved wrongly"
     assert projection.owned_file_count == 5
     assert projection.unowned_file_count == 1
@@ -929,7 +919,9 @@ def test_projection_drops_a_spelling_two_teams_would_both_claim(projection_repo:
         "frontend/src/solo.test.ts",
     ]
 
-    projection = project(tracked, OwnersResolver(projection_repo), package_dirs_from(tracked))
+    projection = project(
+        tracked, OwnersResolver(projection_repo), org="PostHog", package_dirs=package_dirs_from(tracked)
+    )
     rendered = projection.render()
 
     assert projection.ambiguous_spellings == ["src/shared.test.ts"]
@@ -937,3 +929,61 @@ def test_projection_drops_a_spelling_two_teams_would_both_claim(projection_repo:
     assert _codeowners_lookup(rendered, "src/solo.test.ts") == ["@PostHog/team-web"]
     assert _codeowners_lookup(rendered, "frontend/src/shared.test.ts") == ["@PostHog/team-web"]
     assert _codeowners_lookup(rendered, "nodejs/src/shared.test.ts") == ["@PostHog/team-pipeline"]
+
+
+def test_cli_lint_reports_no_alias_conflict_the_resolver_does_not_see(tmp_path: Path) -> None:
+    # An alias in the root never applies, and a manifest without an owners list counts as absent —
+    # so neither is a conflict with the owners.yaml next to it.
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\nalias_files: [package.yaml]\n")
+    _write(tmp_path, "package.yaml", "name: root\nowners:\n  - team-root-manifest\n")
+    _write(tmp_path, "web/owners.yaml", "version: 1\nowners: [team-web]\n")
+    _write(tmp_path, "web/package.yaml", "name: web\nversion: 2.0.0\n")
+    _write(tmp_path, "web/app.ts", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "has both" not in result.output
+
+
+def test_cli_lint_reports_two_aliases_with_owners_in_one_directory(tmp_path: Path) -> None:
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\nalias_files: [product.yaml, package.yaml]\n")
+    _write(tmp_path, "web/product.yaml", "owners:\n  - team-web\n")
+    _write(tmp_path, "web/package.yaml", "owners:\n  - team-other\n")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert "web: has both" in result.output
+
+
+def test_cli_lints_a_tree_that_is_not_a_git_worktree(registry_repo: Path) -> None:
+    _write(registry_repo, "reg/code.py", "")
+    _write(registry_repo, "loose/code.py", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(registry_repo)])
+
+    assert result.exit_code == 0, result.output
+    # The walk finds the six ownership files plus the two code files, and only loose/code.py is unowned.
+    assert "coverage: 2 of 8 tracked file(s) resolve to unowned" in result.output
+
+
+@pytest.mark.parametrize(
+    "args,message",
+    [
+        (["lint"], "not inside a git worktree"),
+        (["codeowners", "--repo-root", "."], "no GitHub organization"),
+        (["lint", "--live", "--repo-root", "."], "no GitHub organization"),
+    ],
+    ids=["no-repo-root", "codeowners-without-org", "live-lint-without-org"],
+)
+def test_cli_reports_missing_context_without_a_traceback(tmp_path: Path, args: list[str], message: str) -> None:
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\n")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path) as cwd:
+        _write(Path(cwd), "owners.yaml", "version: 1\nowners: [team-a]\n")
+        result = runner.invoke(main, args)
+
+    assert result.exit_code == 1
+    assert message in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)

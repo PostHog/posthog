@@ -118,7 +118,7 @@ export function resolveOwners(items, toRepoPaths = repoPathResolver()) {
     let resolved = {}
     if (allPaths.length > 0) {
         try {
-            const out = execFileSync('python3', ['-m', 'posthog_owners', '--purpose', 'notifications'], {
+            const out = execFileSync('python3', ['-m', 'owners_yaml', '--purpose', 'notifications'], {
                 encoding: 'utf8',
                 input: allPaths.join('\n'),
                 env: { ...process.env, PYTHONPATH: 'tools/owners' },

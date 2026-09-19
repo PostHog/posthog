@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/PostHog/posthog/blob/master/tools/owners/resolution.schema.json",
+    "title": "owners.yaml resolver response",
+    "description": "The JSON object a resolver writes for a resolution request, keyed by normalized path. See SPEC.md section 7.",
+    "type": "object",
+    "additionalProperties": {
+        "type": "object",
+        "required": ["owners", "status", "slack", "source"],
+        "properties": {
+            "owners": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "description": "The resolved owners, primary owner first. Empty when the path is unowned or unowned by design."
+            },
+            "status": { "enum": ["active", "deprecated", "generated", "vendored"] },
+            "slack": {
+                "type": ["string", "null"],
+                "pattern": "^#",
+                "description": "The channel for the requested purpose."
+            },
+            "source": {
+                "type": ["string", "null"],
+                "minLength": 1,
+                "description": "The repository-relative path of the file that set the owners."
+            }
+        }
+    }
+}

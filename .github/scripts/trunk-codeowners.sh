@@ -42,10 +42,10 @@ generate() {
     # uv first, because CI images carry uv more often than a python with pyyaml, and --no-project
     # keeps it off this repo's own dependency sync. The entrypoint needs stdlib plus pyyaml only.
     if command -v uv >/dev/null 2>&1; then
-        uv run --no-project --with pyyaml python -m posthog_owners --codeowners "$target" && return 0
+        uv run --no-project --with pyyaml python -m owners_yaml --codeowners "$target" && return 0
     fi
     if command -v python3 >/dev/null 2>&1; then
-        python3 -m posthog_owners --codeowners "$target" && return 0
+        python3 -m owners_yaml --codeowners "$target" && return 0
     fi
     return 1
 }

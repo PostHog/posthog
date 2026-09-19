@@ -1612,20 +1612,20 @@ def _ship_engine(sandbox: SandboxBase) -> None:
 
 
 def _ship_owners_package(sandbox: SandboxBase) -> None:
-    """Ship the posthog-owners resolver package the engine's ownership format imports.
+    """Ship the owners-yaml resolver package the engine's ownership format imports.
 
     The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
-    ``posthog_owners`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
+    ``owners_yaml`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
     posture as the engine: always our copy, which overwrites whatever the PR head carried at that
     path. Repos without
     owners.yaml/product.yaml files simply resolve to "no ownership-source match".
     """
-    # Repo root rather than a sibling of the engine. posthog_owners is a shared tool, so it stays
+    # Repo root rather than a sibling of the engine. owners_yaml is a shared tool, so it stays
     # under tools/ while the engine lives in the product.
-    package_dir = Path(__file__).resolve().parents[4] / "tools" / "owners" / "posthog_owners"
+    package_dir = Path(__file__).resolve().parents[4] / "tools" / "owners" / "owners_yaml"
     if not package_dir.is_dir():
         raise RuntimeError(f"owners package source dir not found: {package_dir}")
-    target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/posthog_owners"
+    target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/owners_yaml"
     quoted = shlex.quote(STAMPHOG_SANDBOX_OWNERS_DIR)
     sandbox.execute(f"rm -rf {quoted} && mkdir -p {shlex.quote(target)}", timeout_seconds=30)
     for path in sorted(package_dir.glob("*.py")):
