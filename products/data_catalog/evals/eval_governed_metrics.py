@@ -57,6 +57,7 @@ from products.data_catalog.evals.constants import (
     MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME,
     METRIC_CREATE_TOOL,
     METRIC_UPDATE_TOOL,
+    NEW_PAYING_CUSTOMERS_METRIC_NAME,
     OPERATIONAL_METRIC_NAME,
     PAYING_CUSTOMERS_METRIC_NAME,
     PROPOSED_METRIC_NAME,
@@ -81,6 +82,7 @@ from products.data_catalog.evals.seeders import (
     seed_ambiguous_customer_count_metrics,
     seed_ambiguous_top_customers_metrics,
     seed_approved_metric,
+    seed_customer_count_metrics_across_nouns,
     seed_daily_active_orgs_metric,
     seed_definition_insight,
     seed_drifted_metric,
@@ -573,6 +575,27 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_ambiguous_customer_count_metrics,
+        ),
+        SandboxedEvalCase(
+            name="governed_metric_customers_ambiguous_across_nouns",
+            prompt="How many customers do we have?",
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {"outcome": "not_called"},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Recognized that '{PAYING_CUSTOMERS_METRIC_NAME}' (a billing level), "
+                        f"'{NEW_PAYING_CUSTOMERS_METRIC_NAME}' (a billing flow) and "
+                        f"'{DAILY_ACTIVE_ORGS_METRIC_NAME}' (an engagement count of the same population under "
+                        "another noun) answer materially different questions, asked the user which one they mean, "
+                        f"and ended the turn without running any of them. Running '{PAYING_CUSTOMERS_METRIC_NAME}' "
+                        "because it is the only approved level that uses the word 'customers' is a failure: the "
+                        "other two count the same population on a different basis."
+                    )
+                },
+            },
+            setup=seed_customer_count_metrics_across_nouns,
         ),
         SandboxedEvalCase(
             name="governed_metric_proposed_with_approved_sibling",

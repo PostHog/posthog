@@ -18,7 +18,7 @@ Read the selected tool's description and schema when they are not already in con
 
 #### Choosing the right query tool
 
-Bare "retention" and "customers" are catalog terms that may have several approved definitions. Consult the catalog and clarify materially different matches instead of routing directly to an insight query.
+Bare "retention" and "customers" are catalog terms that may have several approved definitions. Consult the catalog and clarify materially different matches instead of routing directly to an insight query. Ambiguity follows what the user could mean, not how the catalog names things: a bare population noun is ambiguous when approved metrics count it on different bases (billing against engagement, new against total, one window against another), including under another noun such as orgs or accounts. The most natural reading is not the exact match.
 
 For tasks that need these native analyses:
 
