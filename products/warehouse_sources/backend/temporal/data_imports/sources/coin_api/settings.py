@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 EndpointKind = Literal["reference", "exchange_rate", "timeseries"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class CoinApiEndpointConfig:
     name: str
     path: str  # may contain `{symbol_id}` / `{base}` placeholders, resolved from config
@@ -30,6 +30,9 @@ class CoinApiEndpointConfig:
     requires_quote_asset: bool = False
     # Aggregated history endpoints additionally need a `period_id` param (e.g. 1DAY).
     needs_period: bool = False
+    # CoinAPI documents `time_end` as required on some history endpoints, and rejects the request
+    # without it. The transport bounds those at the sync's start time.
+    needs_time_end: bool = False
     should_sync_default: bool = True
 
 
@@ -117,6 +120,7 @@ COIN_API_ENDPOINTS: dict[str, CoinApiEndpointConfig] = {
         partition_key="time_period_start",
         requires_quote_asset=True,
         needs_period=True,
+        needs_time_end=True,
         should_sync_default=False,
     ),
     # Per-symbol derivative metrics (funding rate, open interest and the rest of the metrics_listing

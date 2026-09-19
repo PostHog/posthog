@@ -226,7 +226,7 @@ class TestResolveTimeseriesRequest:
                 "assets_in_path",
                 "exchange_rates_history",
                 "/v1/exchangerate/USD/BTC/history",
-                {"period_id": "1DAY"},
+                {"period_id": "1DAY", "time_end": "2024-06-01T00:00:00Z"},
                 {"asset_id_base": "USD", "asset_id_quote": "BTC", "period_id": "1DAY"},
             ),
             (
@@ -241,14 +241,16 @@ class TestResolveTimeseriesRequest:
     def test_resolves_path_params_and_row_defaults(
         self, _name: str, endpoint: str, path: str, params: dict, row_defaults: dict
     ) -> None:
-        assert _resolve_timeseries_request(
+        request = _resolve_timeseries_request(
             config=COIN_API_ENDPOINTS[endpoint],
             symbol_id="SYM",
             period_id="1DAY",
             metric_id="FUNDING_RATE",
             exchange_rate_base_asset="USD",
             exchange_rate_quote_asset="BTC",
-        ) == (path, params, row_defaults)
+            time_end="2024-06-01T00:00:00Z",
+        )
+        assert (request.path, request.params, request.row_defaults) == (path, params, row_defaults)
 
 
 class TestTimeseriesEndpoint:
@@ -294,6 +296,8 @@ class TestTimeseriesEndpoint:
                 exchange_rate_quote_asset="BTC",
             )
         assert session.requested_urls[0].startswith(f"{BASE_URL}/v1/exchangerate/EUR/BTC/history?")
+        # CoinAPI rejects this endpoint without time_end, so every page must carry one.
+        assert "time_end=" in session.requested_urls[0]
         assert batches[0][0]["asset_id_base"] == "EUR"
         assert batches[0][0]["asset_id_quote"] == "BTC"
 

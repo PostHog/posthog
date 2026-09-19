@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.settings import (
     COIN_API_ENDPOINTS,
     CoinApiEndpointConfig,
@@ -110,6 +112,15 @@ def _initial_time_start(
     return _format_time(datetime.now(UTC) - timedelta(days=DEFAULT_LOOKBACK_DAYS))
 
 
+@frozen
+class CoinApiTimeseriesRequest:
+    path: str
+    # Query params constant across every page of the sync.
+    params: dict[str, Any]
+    # Columns injected into each row because the response omits them.
+    row_defaults: dict[str, Any]
+
+
 def _resolve_timeseries_request(
     config: CoinApiEndpointConfig,
     symbol_id: str,
@@ -117,8 +128,8 @@ def _resolve_timeseries_request(
     metric_id: str,
     exchange_rate_base_asset: str,
     exchange_rate_quote_asset: str,
-) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    """Resolve an endpoint's path, its constant query params, and the columns injected into each row."""
+    time_end: str,
+) -> CoinApiTimeseriesRequest:
     path = config.path
     params: dict[str, Any] = {}
     row_defaults: dict[str, Any] = {}
@@ -139,8 +150,10 @@ def _resolve_timeseries_request(
     if config.needs_period:
         params["period_id"] = period_id
         row_defaults["period_id"] = period_id
+    if config.needs_time_end:
+        params["time_end"] = time_end
 
-    return path, params, row_defaults
+    return CoinApiTimeseriesRequest(path=path, params=params, row_defaults=row_defaults)
 
 
 def _get_timeseries_rows(
@@ -254,13 +267,16 @@ def get_rows(
             f"on the source (e.g. BTC) to sync this table."
         )
 
-    path, extra_params, row_defaults = _resolve_timeseries_request(
+    request = _resolve_timeseries_request(
         config=config,
         symbol_id=symbol_id,
         period_id=period_id or "1DAY",
         metric_id=metric_id,
         exchange_rate_base_asset=exchange_rate_base_asset or "USD",
         exchange_rate_quote_asset=exchange_rate_quote_asset,
+        # Bounded once per sync. Rows arriving after this point are picked up by the next sync,
+        # which starts from the watermark this one leaves behind.
+        time_end=_format_time(datetime.now(UTC)),
     )
 
     cursor = incremental_field or config.incremental_fields[0]["field"]
@@ -270,9 +286,9 @@ def get_rows(
         config=config,
         logger=logger,
         fetch=fetch,
-        path=path,
-        extra_params=extra_params,
-        row_defaults=row_defaults,
+        path=request.path,
+        extra_params=request.params,
+        row_defaults=request.row_defaults,
         incremental_field=cursor,
         initial_time_start=initial_time_start,
         resumable_source_manager=resumable_source_manager,
