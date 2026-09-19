@@ -101,6 +101,18 @@ case "$RS_SVC" in
     export LOG_LEVEL=debug
     export DEBUG=1
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
+    # v1 sink for `/i/v1/ai/events`, the lane Django's capture_ai_internal uses.
+    # Every topic var is required by the sink config; the analytics-only ones are
+    # never produced to in `ai` mode. Local has no separate AI overflow topic.
+    export CAPTURE_V1_SINKS=${CAPTURE_V1_SINKS:-msk}
+    export CAPTURE_V1_SINK_MSK_KAFKA_HOSTS=${CAPTURE_V1_SINK_MSK_KAFKA_HOSTS:-$DEFAULT_KAFKA}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN:-events_plugin_ingestion_ai}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL:-events_plugin_ingestion_ai}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW:-events_plugin_ingestion_ai}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ:-events_plugin_ingestion_dlq}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION:-ingestion-errortracking-main}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP:-heatmaps_ingestion}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING:-ingestion-clientwarnings-main-1}
     ;;
 
   capture-logs)
