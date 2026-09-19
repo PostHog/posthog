@@ -129,6 +129,23 @@ describe("ActivityRow", () => {
     expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
   });
 
+  it("shows the full waiting status in a tooltip", () => {
+    render(
+      <ActivityRow
+        menu={taskMenu()}
+        item={item({ activityKind: "awaiting_input" })}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={new Set(["task-1"])}
+        compact
+      />,
+    );
+
+    expect(
+      screen.getByTitle("just now · Agent is waiting for your reply"),
+    ).toBeInTheDocument();
+  });
+
   it.each([
     { label: "unread", isUnread: true, laneClass: "pr-14" },
     { label: "read", isUnread: false, laneClass: "pr-8" },
