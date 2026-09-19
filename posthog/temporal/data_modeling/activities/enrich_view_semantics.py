@@ -5,6 +5,7 @@ from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
@@ -34,9 +35,13 @@ async def enrich_view_semantics_activity(inputs: EnrichViewSemanticsInputs) -> d
                 inputs.team_id, inputs.saved_query_id
             )
         except Exception as e:
-            # Surface unexpected failures (DB errors, etc.) to error tracking and structured logs — keyed
-            # by saved_query_id/team_id — then re-raise so Temporal retries.
-            capture_exception(e)
+            # Surface unexpected failures to error tracking and structured logs — keyed by
+            # saved_query_id/team_id — then re-raise so Temporal retries. The activity interceptor
+            # (posthog/temporal/common/posthog_client.py) already keeps a transient app-DB blip out of
+            # error tracking via is_transient_db_error, but only for an exception that reaches it
+            # unreported, so apply the same classifier here instead of capturing every exception.
+            if not is_transient_db_error(e):
+                capture_exception(e)
             logger.exception(
                 "view_enrichment.activity_failed",
                 team_id=inputs.team_id,
