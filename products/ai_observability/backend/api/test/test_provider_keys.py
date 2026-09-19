@@ -11,6 +11,8 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.proxy import models_cache_key
@@ -1506,3 +1508,60 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(LLMProviderKey.objects.filter(id=key.id).count(), 1)
+
+
+class TestLLMProviderKeyScopedTokenAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.UNKNOWN,
+            encrypted_config={"api_key": "sk-test-key"},
+            created_by=self.user,
+        )
+        self.client.logout()
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        value = f"phx_{uuid4()}"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    @parameterized.expand(
+        [
+            ("write_scope", ["llm_provider_key:write"], status.HTTP_200_OK),
+            ("read_scope_only", ["llm_provider_key:read"], status.HTTP_403_FORBIDDEN),
+            ("unrelated_scope", ["feature_flag:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_validate_requires_write_scope(self, _name: str, scopes: list[str], expected_status: int, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.key.id}/validate/",
+            HTTP_AUTHORIZATION=f"Bearer {self._personal_api_key(scopes)}",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand(
+        [
+            ("read_scope", ["llm_provider_key:read"], status.HTTP_200_OK),
+            ("write_scope", ["llm_provider_key:write"], status.HTTP_200_OK),
+            ("unrelated_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_dependent_configs_requires_read_scope(self, _name: str, scopes: list[str], expected_status: int):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.key.id}/dependent_configs/",
+            HTTP_AUTHORIZATION=f"Bearer {self._personal_api_key(scopes)}",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())

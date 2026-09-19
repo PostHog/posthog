@@ -268,6 +268,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
 class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_provider_key"
+    scope_object_read_actions = ["list", "retrieve", "dependent_configs"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "validate"]
     permission_classes = [TeamMemberStrictManagementPermission]
     serializer_class = LLMProviderKeySerializer
     queryset = LLMProviderKey.objects.all()
