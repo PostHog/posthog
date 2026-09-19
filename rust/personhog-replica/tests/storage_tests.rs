@@ -3,7 +3,9 @@ mod common;
 use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
-use personhog_replica::storage::{GroupKey, TombstonedDeleteOutcome};
+use personhog_replica::storage::{
+    DeletePersonsMode, GroupKey, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+};
 use rand::Rng;
 use rstest::rstest;
 use std::time::{Duration, Instant};
@@ -405,6 +407,274 @@ async fn test_delete_persons_clears_cohort_memberships() {
         cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
         0
     );
+
+    ctx.cleanup().await.ok();
+}
+
+async fn tombstone_state(
+    pool: &sqlx::PgPool,
+    team_id: i64,
+    person_id: i64,
+) -> (bool, i64, serde_json::Value, Vec<(bool, i64)>) {
+    let (is_deleted, version, properties): (bool, i64, serde_json::Value) = sqlx::query_as(
+        "SELECT is_deleted, version, properties FROM posthog_person WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(person_id)
+    .fetch_one(pool)
+    .await
+    .expect("person row should still exist");
+    let distinct_ids: Vec<(bool, i64)> = sqlx::query_as(
+        "SELECT is_deleted, version FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2 ORDER BY id",
+    )
+    .bind(team_id)
+    .bind(person_id)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    (is_deleted, version, properties, distinct_ids)
+}
+
+async fn hash_key_override_count(pool: &sqlx::PgPool, team_id: i64, person_id: i64) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2",
+    )
+    .bind(team_id)
+    .bind(person_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 8802;
+    let person = ctx
+        .insert_person(
+            "tombstone_a@example.com",
+            Some(serde_json::json!({"email": "tombstone_a@example.com"})),
+        )
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "tombstone_b")
+        .await
+        .unwrap();
+    ctx.add_person_to_cohort(person.id, cohort_id)
+        .await
+        .unwrap();
+    ctx.insert_hash_key_override(person.id, "flag", "hash")
+        .await
+        .unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .await
+        .expect("delete persons")
+        .deleted;
+    assert_eq!(deleted, 1);
+
+    // The rows survive as tombstones: the counter continued from 0 to 1 on
+    // every row and the properties are gone.
+    let (is_deleted, version, properties, distinct_ids) =
+        tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 1);
+    assert_eq!(properties, serde_json::json!({}));
+    assert_eq!(distinct_ids, vec![(true, 1), (true, 1)]);
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
+        0
+    );
+    assert_eq!(
+        hash_key_override_count(&ctx.pool, ctx.team_id, person.id).await,
+        0
+    );
+
+    // Reads treat a tombstone as absent.
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, person.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "tombstone_b")
+        .await
+        .unwrap()
+        .is_none());
+
+    // Deleting again is a no-op: no second version bump.
+    let deleted = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .await
+        .unwrap()
+        .deleted;
+    assert_eq!(deleted, 0);
+    let (_, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert_eq!(version, 1);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_with_mode_reports_the_tombstone_versions() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("versions_a", None).await.unwrap();
+    ctx.add_distinct_id_to_person(person.id, "versions_b")
+        .await
+        .unwrap();
+
+    let outcome = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.deleted, 1);
+    // The versions the caller publishes to ClickHouse: exactly what the rows now hold.
+    assert_eq!(
+        outcome.tombstones,
+        Some(vec![TombstonedPerson {
+            uuid: person.uuid,
+            version: 1,
+            distinct_ids: vec![
+                TombstonedDistinctId {
+                    distinct_id: "versions_a".to_string(),
+                    version: 1,
+                },
+                TombstonedDistinctId {
+                    distinct_id: "versions_b".to_string(),
+                    version: 1,
+                },
+            ],
+        }])
+    );
+    let (is_deleted, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 1);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("retry_versions", None).await.unwrap();
+
+    let first = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .await
+        .unwrap();
+    // A caller that lost the first response must get the same versions back, or
+    // its ClickHouse tombstones never get published.
+    let retry = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .await
+        .unwrap();
+
+    assert_eq!(first.deleted, 1);
+    assert_eq!(retry.deleted, 0);
+    assert_eq!(retry.tombstones, first.tombstones);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_hard_mode_reports_no_versions() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("hard_mode", None).await.unwrap();
+
+    let outcome = ctx
+        .storage
+        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Hard)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.deleted, 1);
+    assert_eq!(outcome.tombstones, None);
+    assert!(!ctx.person_row_exists(person.id).await.unwrap());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_hard_deletes_by_default() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("hard_delete", None).await.unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+    assert_eq!(deleted, 1);
+
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_person WHERE team_id = $1 AND id = $2")
+            .bind(ctx.team_id)
+            .bind(person.id)
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_removes_tombstoned_rows() {
+    let ctx = TestContext::new().await;
+    let live = ctx.insert_person("batch_live", None).await.unwrap();
+    let tombstoned = ctx.insert_person("batch_tombstoned", None).await.unwrap();
+    ctx.storage
+        .delete_persons_with_mode(
+            ctx.team_id,
+            &[tombstoned.uuid],
+            DeletePersonsMode::Tombstone,
+        )
+        .await
+        .unwrap();
+    let (is_deleted, _, _, _) = tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;
+    assert!(is_deleted);
+
+    // Team teardown removes every row, tombstoned or not, and terminates.
+    let mut counts = Vec::new();
+    for _ in 0..2 {
+        counts.push(
+            ctx.storage
+                .delete_persons_batch_for_team(ctx.team_id, 10)
+                .await
+                .unwrap(),
+        );
+    }
+    assert_eq!(counts, vec![2, 0]);
+
+    for person in [&live, &tombstoned] {
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM posthog_person WHERE team_id = $1 AND id = $2",
+        )
+        .bind(ctx.team_id)
+        .bind(person.id)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining, 0);
+        let mappings: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2",
+        )
+        .bind(ctx.team_id)
+        .bind(person.id)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+        assert_eq!(mappings, 0);
+    }
 
     ctx.cleanup().await.ok();
 }
