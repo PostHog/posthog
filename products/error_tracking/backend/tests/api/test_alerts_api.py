@@ -149,6 +149,20 @@ class TestErrorTrackingAlerts(APIBaseTest):
 
         assert response.status_code == 201, response.json()
 
+    def test_alert_accepts_issue_property_filters(self):
+        integration = self._create_slack_integration()
+        leaf = {"key": "severity", "value": ["critical"], "operator": "exact", "type": "error_tracking_issue"}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/",
+            data=self._valid_payload(integration, filters={"properties": [leaf]}),
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["filters"]["properties"] == [leaf]
+        assert response.json()["filters"]["bytecode"]
+
     def test_alert_create_rejects_uncompilable_filters(self):
         integration = self._create_slack_integration()
 
@@ -234,6 +248,96 @@ class TestErrorTrackingAlerts(APIBaseTest):
             (
                 "person_property_filter",
                 {"filters": {"properties": [{"key": "email", "value": "@example.com", "type": "person"}]}},
+            ),
+            (
+                "unknown_issue_property_filter",
+                {"filters": {"properties": [{"key": "owner", "value": "x", "type": "error_tracking_issue"}]}},
+            ),
+            (
+                "cleared_assignee_filter",
+                {
+                    "filters": {
+                        "properties": [
+                            {"key": "assignee", "value": "null", "operator": "exact", "type": "error_tracking_issue"}
+                        ]
+                    }
+                },
+            ),
+            (
+                "empty_assignee_filter",
+                {
+                    "filters": {
+                        "properties": [
+                            {"key": "assignee", "value": [], "operator": "exact", "type": "error_tracking_issue"}
+                        ]
+                    }
+                },
+            ),
+            (
+                "assignee_filter_with_null_id",
+                {
+                    "filters": {
+                        "properties": [
+                            {
+                                "key": "assignee",
+                                "value": ['{"type": "user", "id": null}'],
+                                "operator": "exact",
+                                "type": "error_tracking_issue",
+                            }
+                        ]
+                    }
+                },
+            ),
+            (
+                "same_field_as_issue_and_exception_property",
+                {
+                    "filters": {
+                        "properties": [
+                            {"key": "issue_description", "value": "a", "type": "error_tracking_issue"},
+                            {"key": "description", "value": "b", "type": "event"},
+                        ]
+                    }
+                },
+            ),
+            (
+                "same_field_under_its_issue_page_spelling",
+                {
+                    "filters": {
+                        "properties": [
+                            {"key": "issue_description", "value": "a", "type": "error_tracking_issue"},
+                            {"key": "issue_description", "value": "b", "type": "event"},
+                        ]
+                    }
+                },
+            ),
+            (
+                "relative_first_seen",
+                {
+                    "filters": {
+                        "properties": [
+                            {
+                                "key": "first_seen",
+                                "value": "-7d",
+                                "operator": "is_date_after",
+                                "type": "error_tracking_issue",
+                            }
+                        ]
+                    }
+                },
+            ),
+            (
+                "relative_event_date",
+                {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$error_tracking_issue_created",
+                                "type": "events",
+                                "properties": [{"key": "first_seen", "value": ["-1w"], "operator": "is_date_before"}],
+                            }
+                        ]
+                    }
+                },
             ),
             (
                 "action_filters",

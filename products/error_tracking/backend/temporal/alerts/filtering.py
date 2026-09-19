@@ -8,11 +8,17 @@ the triggering exception's properties are flattened under the lifecycle event's
 own properties, with the lifecycle properties winning on key collisions.
 """
 
+from django.db.models import Min
+
 import structlog
 
 from posthog.models import Team
 
-from products.error_tracking.backend.models import ErrorTrackingAlert
+from products.error_tracking.backend.models import (
+    ErrorTrackingAlert,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+)
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.event_properties import fetch_event_properties
 
@@ -22,11 +28,70 @@ from common.hogvm.python.stl import BLOCKING_FUNCTIONS
 logger = structlog.get_logger(__name__)
 
 
+# Issue fields the filter reads from the database rather than the workflow payload: the
+# payload truncates the text for rendering and carries the issue's created_at as first
+# seen, while the issues page shows the earliest fingerprint's first seen.
+ISSUE_ROW_KEYS = frozenset({"name", "issue_description", "first_seen"})
+
+
 def has_configured_filters(alert: ErrorTrackingAlert) -> bool:
     # Empty filters still carry trivially-true compiled bytecode, so look at the
     # configured predicate keys instead.
     filters = alert.filters or {}
     return any(filters.get(key) for key in ("events", "actions", "properties", "filter_test_accounts"))
+
+
+def _property_leaves(alert: ErrorTrackingAlert) -> list[dict]:
+    filters = alert.filters or {}
+    leaves = [leaf for leaf in filters.get("properties") or [] if isinstance(leaf, dict)]
+    for entity in filters.get("events") or []:
+        if isinstance(entity, dict):
+            leaves.extend(leaf for leaf in entity.get("properties") or [] if isinstance(leaf, dict))
+    return leaves
+
+
+def needs_exception_properties(alert: ErrorTrackingAlert) -> bool:
+    """Whether evaluating the alert needs the triggering exception at all.
+
+    An alert filtered on issue fields alone reads the lifecycle snapshot, so a missing
+    exception must not make it undecided.
+    """
+    filters = alert.filters or {}
+    if any(filters.get(key) for key in ("actions", "filter_test_accounts")):
+        return True
+    # An event entity's own predicate reads the lifecycle event name, not the exception.
+    return any(leaf.get("type") != "error_tracking_issue" for leaf in _property_leaves(alert))
+
+
+def _issue_leaf_keys(alert: ErrorTrackingAlert) -> set[str]:
+    return {
+        key
+        for leaf in _property_leaves(alert)
+        if leaf.get("type") == "error_tracking_issue" and isinstance(key := leaf.get("key"), str)
+    }
+
+
+def references_issue_row(alert: ErrorTrackingAlert) -> bool:
+    return bool(_issue_leaf_keys(alert) & ISSUE_ROW_KEYS)
+
+
+def fetch_issue_fields(inputs: AlertDeliveryWorkflowInputs) -> dict[str, object]:
+    """Issue fields as the issues page shows them, overriding the payload's copies."""
+    row = (
+        ErrorTrackingIssue.objects.filter(id=inputs.issue_id, team_id=inputs.team_id)
+        .values_list("name", "description")
+        .first()
+    )
+    if row is None:
+        return {}
+    name, description = row
+    fields: dict[str, object] = {"name": name, "description": description, "issue_description": description}
+    first_seen = ErrorTrackingIssueFingerprintV2.objects.filter(
+        issue_id=inputs.issue_id, team_id=inputs.team_id
+    ).aggregate(first_seen=Min("first_seen"))["first_seen"]
+    if first_seen is not None:
+        fields["first_seen"] = first_seen.isoformat()
+    return fields
 
 
 def _coerce_numeric(value: str) -> object:
@@ -66,11 +131,19 @@ def _filter_property_keys(alert: ErrorTrackingAlert, event: str) -> set[str]:
     for entity in filters.get("events") or []:
         if isinstance(entity, dict) and entity.get("id") == event:
             leaves.extend(entity.get("properties") or [])
-    return {leaf["key"] for leaf in leaves if isinstance(leaf, dict) and isinstance(leaf.get("key"), str)}
+    # Issue-typed leaves read the issue row or snapshot, never the exception.
+    return {
+        leaf["key"]
+        for leaf in leaves
+        if isinstance(leaf, dict) and isinstance(leaf.get("key"), str) and leaf.get("type") != "error_tracking_issue"
+    }
 
 
 def alert_filters_match(
-    alert: ErrorTrackingAlert, inputs: AlertDeliveryWorkflowInputs, exception_properties: dict[str, object] | None
+    alert: ErrorTrackingAlert,
+    inputs: AlertDeliveryWorkflowInputs,
+    exception_properties: dict[str, object] | None,
+    issue_fields: dict[str, object] | None = None,
 ) -> bool:
     """Whether the transition passes the alert's filters.
 
@@ -123,6 +196,16 @@ def alert_filters_match(
             )
             return False
         exception_properties = {}
+    # Issue-typed leaves see the issue, not the shared property namespace: unassigned is
+    # an explicit null even if the exception carries an `assignee`, and text and first
+    # seen come from the row when this alert asks for them. Event-typed leaves keep the
+    # CDP plane's semantics untouched, whatever sibling alerts are configured.
+    issue_keys = _issue_leaf_keys(alert)
+    if "assignee" in issue_keys:
+        lifecycle_properties["assignee"] = inputs.assignee
+    for key, value in (issue_fields or {}).items():
+        if key in issue_keys or (key == "description" and "issue_description" in issue_keys):
+            lifecycle_properties[key] = value
     filter_globals = {
         "event": inputs.event,
         "distinct_id": inputs.issue_id,

@@ -1,5 +1,7 @@
 """CRUD and validation for error tracking alert configurations."""
 
+import re
+import json
 from typing import Any, Optional
 from uuid import UUID
 
@@ -238,6 +240,55 @@ def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
     return deleted > 0
 
 
+# Issue fields the delivery globals carry on every lifecycle event, so an issue-level
+# leaf compiles to `properties.<key>` exactly like the taxonomy's Issues group emits it.
+ISSUE_FILTER_KEYS = frozenset({"name", "issue_description", "severity", "first_seen", "assignee"})
+
+
+# The issue page stores description filters under `issue_description`; the same field
+# reaches the event namespace as `description`. Both spellings name one field.
+_ISSUE_KEY_IN_EVENT_NAMESPACE = {"issue_description": "description"}
+_DATE_OPERATORS = ("is_date_before", "is_date_after", "is_date_exact")
+# Same shape the HogQL compiler treats as relative ("-7d", "-10m").
+_RELATIVE_DATE = re.compile(r"^-?[0-9]+[hdwmqysHDWMQY]")
+
+
+def _reject_relative_dates(property_filter: dict[str, Any]) -> None:
+    # Filters compile to bytecode once, on save, and the compiler resolves a relative
+    # date to that moment's wall clock. "In the last 7 days" would silently mean
+    # "after the day this alert was saved" forever.
+    if property_filter.get("operator") not in _DATE_OPERATORS:
+        return
+    values = property_filter.get("value")
+    for value in values if isinstance(values, list) else [values]:
+        if isinstance(value, str) and _RELATIVE_DATE.match(value):
+            raise AlertValidationError(
+                f"Relative dates such as {value} are fixed when the alert is saved; use an absolute date."
+            )
+
+
+def _validate_issue_leaf(property_filter: dict[str, Any]) -> None:
+    key = property_filter["key"]
+    if key not in ISSUE_FILTER_KEYS:
+        raise AlertValidationError(f"Unknown issue property in alert filters: {key}.")
+    if key != "assignee" or property_filter.get("operator") in ("is_set", "is_not_set"):
+        return
+    # The assignee picker stores the JSON string "null" when its selection is cleared,
+    # and an empty list or a null id are the same cleared state; no issue ever carries
+    # those values, so the filter would never match.
+    values = property_filter.get("value")
+    values = values if isinstance(values, list) else [values]
+    if not values:
+        raise AlertValidationError("Choose an assignee for the assignee filter, or remove it.")
+    for value in values:
+        try:
+            parsed = json.loads(value) if isinstance(value, str) else None
+        except ValueError:
+            parsed = None
+        if not isinstance(parsed, dict) or parsed.get("id") in (None, ""):
+            raise AlertValidationError("Choose an assignee for the assignee filter, or remove it.")
+
+
 def _validate_filter_surface(filters: dict[str, Any]) -> None:
     # Delivery evaluates filters without person, group, or cohort context, and
     # native alerts have no bytecode refresh when actions or test-account
@@ -258,6 +309,8 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
             if not isinstance(entity.get("id"), str) or not entity["id"]:
                 raise AlertValidationError("Alert event filters must name an event.")
             property_lists.append(entity.get("properties") or [])
+    issue_keys: set[str] = set()
+    event_keys: set[str] = set()
     for property_list in property_lists:
         # The compiler accepts an object here and iterating it would only yield keys,
         # so the leaf checks below would never run.
@@ -266,11 +319,19 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
         for property_filter in property_list:
             # A leaf without a key makes the compiler fall back to a constant-true
             # branch, turning a "filtered" alert into a match-all.
-            if not isinstance(property_filter, dict) or not isinstance(property_filter.get("key"), str):
+            key = property_filter.get("key") if isinstance(property_filter, dict) else None
+            if not isinstance(property_filter, dict) or not isinstance(key, str):
                 raise AlertValidationError("Each alert property filter must be an object with a key.")
-            if property_filter.get("type") not in (None, "event"):
+            property_type = property_filter.get("type")
+            _reject_relative_dates(property_filter)
+            if property_type == "error_tracking_issue":
+                _validate_issue_leaf(property_filter)
+                issue_keys.add(_ISSUE_KEY_IN_EVENT_NAMESPACE.get(key, key))
+            elif property_type in (None, "event"):
+                event_keys.add(_ISSUE_KEY_IN_EVENT_NAMESPACE.get(key, key))
+            else:
                 raise AlertValidationError(
-                    f"Alert filters support event properties only, got: {property_filter.get('type')}."
+                    f"Alert filters support event and issue properties only, got: {property_type}."
                 )
             # A leaf with a key but no value compiles to constant-true as well. An empty
             # string is a real comparison value and stays allowed.
@@ -281,6 +342,12 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
                 raise AlertValidationError(
                     f"Alert property filter on {property_filter['key']} needs a value, or an is set / is not set operator."
                 )
+    # Both kinds evaluate under one property namespace, so one alert cannot ask for the
+    # issue's value and the exception's value of the same field.
+    if issue_keys & event_keys:
+        raise AlertValidationError(
+            f"Filter on {', '.join(sorted(issue_keys & event_keys))} as an issue property or an exception property, not both."
+        )
 
 
 def _compile_filters(team_id: int, filters: dict[str, Any]) -> dict[str, Any]:
