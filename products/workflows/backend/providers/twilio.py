@@ -29,14 +29,13 @@ class TwilioProvider:
     def get_phone_numbers(self) -> list[dict]:
         """
         Get all phone numbers owned by the account.
+
+        An account that owns no numbers gets an empty list. A Twilio failure raises, so that
+        callers can tell the two apart.
         """
-        try:
-            endpoint = "/IncomingPhoneNumbers.json"
-            response = self._make_request("GET", endpoint)
-            return response.get("incoming_phone_numbers", [])
-        except requests.exceptions.HTTPError as e:
-            capture_exception(Exception(f"TwilioIntegration: Failed to list twilio phone numbers: {e}"))
-            return []
+        endpoint = "/IncomingPhoneNumbers.json"
+        response = self._make_request("GET", endpoint)
+        return response.get("incoming_phone_numbers", [])
 
     def get_account_info(self) -> dict:
         """

@@ -21,12 +21,8 @@ class TwilioIntegration:
         )
 
     def list_twilio_phone_numbers(self) -> list[dict]:
-        twilio_phone_numbers = self.twilio_provider.get_phone_numbers()
-
-        if not twilio_phone_numbers:
-            raise Exception(f"There was an internal error")
-
-        return twilio_phone_numbers
+        """List the phone numbers the account owns. An account that owns none gets an empty list."""
+        return self.twilio_provider.get_phone_numbers()
 
     def integration_from_keys(self) -> model.Integration:
         account_info = self.twilio_provider.get_account_info()
