@@ -136,3 +136,117 @@ export function isPromptTooLongError(error: unknown): boolean {
     /API Error:\s*413\b/i.test(message)
   );
 }
+
+// A provider rate limit arrives as a 429 inside `upstream_provider_failure`, the
+// same classification as a 5xx. The two need different retry schedules: a 5xx is a
+// blip that clears in seconds, a rate limit holds for a window, so the sanitized
+// cause is re-read here to tell them apart.
+const UPSTREAM_RATE_LIMIT_STATUS_PATTERN =
+  /(?:API Error:\s*|unexpected status\s*)429\b/i;
+
+export function isUpstreamRateLimitFailure(
+  classification: AgentErrorClassification,
+  cause: string | undefined,
+): boolean {
+  return (
+    classification === "upstream_provider_failure" &&
+    !!cause &&
+    UPSTREAM_RATE_LIMIT_STATUS_PATTERN.test(cause)
+  );
+}
+
+/**
+ * A provider's own "wait this long" hint, in milliseconds, or null when it sent
+ * none. OpenAI puts it in the 429 body ("Please try again in 1.5s"); a
+ * retry-after header survives when an adapter inlines it into the message. Only
+ * the raw message carries this, because sanitizeAgentErrorCause strips the body
+ * down to the bare status, so callers must pass the unsanitized text.
+ *
+ * RFC 9110 allows Retry-After to hold either delay-seconds or an HTTP-date, so
+ * both are read. A date already in the past, or one that does not parse, counts
+ * as no hint rather than as zero delay. `now` is injectable for tests.
+ */
+export function parseUpstreamRetryAfterMs(
+  message: string | undefined,
+  now: () => number = Date.now,
+): number | null {
+  if (!message) return null;
+  const header = message.match(/retry-after(?:-ms)?["'\s:=]+(\d+(?:\.\d+)?)/i);
+  if (header) {
+    const value = Number(header[1]);
+    // `retry-after-ms` is already milliseconds; bare `retry-after` is seconds.
+    return /retry-after-ms/i.test(header[0]) ? value : value * 1000;
+  }
+  // An HTTP-date carries commas and spaces, so it is matched to the end of the
+  // line rather than by token.
+  const date = message.match(/retry-after["'\s:=]+([A-Za-z][^\n\r]*)/i);
+  if (date) {
+    const parsed = Date.parse(date[1].trim());
+    if (!Number.isNaN(parsed)) {
+      const remaining = parsed - now();
+      return remaining > 0 ? remaining : null;
+    }
+  }
+  const prose = message.match(
+    /try again in\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|secs?|seconds?|m|mins?|minutes?)\b/i,
+  );
+  if (prose) {
+    const value = Number(prose[1]);
+    const unit = prose[2].toLowerCase();
+    if (unit.startsWith("ms") || unit.startsWith("milli")) return value;
+    if (unit.startsWith("m")) return value * 60_000;
+    return value * 1000;
+  }
+  return null;
+}
+
+// Retry schedule for a transient upstream failure. A 5xx keeps the flat delay
+// this loop was tuned for; a rate limit gets a longer, growing one, because the
+// limit window outlives a few seconds and retrying inside it just burns the
+// budget. Jitter is what keeps the concurrent unattended runs of one deployment
+// from retrying in lockstep and re-tripping the same account-wide limit together.
+const UPSTREAM_RETRY_BASE_DELAY_MS = 5_000;
+const UPSTREAM_RATE_LIMIT_BASE_DELAY_MS = 20_000;
+// Per-wait ceiling. The unattended turn budget has to stay well under the
+// dropped-finalization salvage floor (STALE_TURN_SALVAGE_SECONDS, 300s), so a
+// backed-off turn is never mistaken for one that fell silent.
+const UPSTREAM_RETRY_MAX_DELAY_MS = 45_000;
+
+/**
+ * How long to wait before retry number `attempt` (1-based) of a turn that hit
+ * `classification`. `message` is the raw, unsanitized error text, read only for
+ * a provider retry-after hint. `random` is injectable so tests can pin jitter.
+ *
+ * Only a rate limit gets the backoff. Everything else keeps the flat delay it
+ * always had, because a 5xx or a transport cut clears in seconds and growing
+ * that wait would slow down the common recovery for no gain.
+ */
+export function upstreamRetryDelayMs({
+  classification,
+  attempt,
+  cause,
+  message,
+  random = Math.random,
+  now = Date.now,
+}: {
+  classification: AgentErrorClassification;
+  attempt: number;
+  cause?: string;
+  message?: string;
+  random?: () => number;
+  now?: () => number;
+}): number {
+  if (!isUpstreamRateLimitFailure(classification, cause)) {
+    return UPSTREAM_RETRY_BASE_DELAY_MS;
+  }
+  const exponential =
+    UPSTREAM_RATE_LIMIT_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1);
+  const cappedBackoff = Math.min(exponential, UPSTREAM_RETRY_MAX_DELAY_MS);
+  // Decorrelated jitter over the lower half of the window, so every run still
+  // waits a useful minimum but no two wake at the same instant.
+  const jittered = Math.round(cappedBackoff * (0.5 + 0.5 * random()));
+  // The jitter must not pull the wait below what the provider asked for, so the
+  // hint is a floor applied after it, not a value to jitter.
+  const hinted = parseUpstreamRetryAfterMs(message, now);
+  return Math.min(Math.max(jittered, hinted ?? 0), UPSTREAM_RETRY_MAX_DELAY_MS);
+}

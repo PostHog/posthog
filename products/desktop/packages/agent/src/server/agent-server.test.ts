@@ -2408,6 +2408,39 @@ describe("AgentServer HTTP Mode", () => {
       }
     });
 
+    it("wakes a pending retry backoff when the run is cancelled", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi
+          .fn()
+          .mockRejectedValue(new Error("API Error: 429 rate limited"));
+        const testServer = createRetryTestServer(prompt);
+
+        const resultPromise = testServer.runRetryWrappedTurn(() =>
+          testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          }),
+        );
+        // Let the first attempt fail so the rate-limit backoff is pending.
+        await vi.advanceTimersByTimeAsync(0);
+        expect(prompt).toHaveBeenCalledTimes(1);
+
+        await testServer.executeCommand("cancel", {});
+
+        // One tick, not the backoff. A rate-limit wait runs tens of seconds, so
+        // a non-abortable one would still be pending here.
+        await vi.advanceTimersByTimeAsync(1);
+
+        await expect(resultPromise).resolves.toEqual({
+          stopReason: "cancelled",
+        });
+        expect(prompt).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("persists structured turn completion notifications", () => {
       const appendRawLine = vi.fn();
       const testServer = new AgentServer({
