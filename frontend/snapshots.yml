@@ -9781,9 +9781,9 @@ snapshots:
     scenes-app-oauth-authorize--all-scopes-required--light:
         hash: v1.k794b7964.e0efa4768af4e4c1ac0f741d9c62bde840d3a205fa98742ef1b53771a957cfbb.G3POhS2LJF7fk8IJh0zmM17bx9mR4IS2PjieRGrhRmU
     scenes-app-oauth-authorize--default-scopes--dark:
-        hash: v1.k794b7964.986767f854575bc076567098bc9284bebe23bb9d6cb98e9ce5f1615d7df0c1c8.kbh-ZWkN26OjfOLfAvKWancysKB5gLTFVfm-WayZRWY
+        hash: v1.k794b7964.4ede4b460b1ada27b1ddf360b23eb101f2936dfafc18ab817c83e6b1814a44ac.hG-JtEzp7lgW5gZC_7w6rI0zXHIEoD6BOOR4t4OgZ20
     scenes-app-oauth-authorize--default-scopes--light:
-        hash: v1.k794b7964.247a8dd0c0990f5be55cd872c28380228cebbab4aaf3fc7278452d920da1b723.fuVL1CbsVt1WsMMm7c5dBlEzWjr1phCEyV9cWtQL54Q
+        hash: v1.k794b7964.b74ce51fdad39b6b4849dab33c2151f9c3138696716ab7adb4091f62a1c669bb.DgVBWT_xj8j32uWhcNcRQeKgOdxyEEwB5JZm-zFIc7c
     scenes-app-oauth-authorize--every-scope-requested--dark:
         hash: v1.k794b7964.5b544e241fa57ad7971a6872fce18c2d3e9dbbcfd5c6b4e2a861cc60683a7eda.SymJ-itmx0Mon5EALqTxh99r_VbtywIv8gFXju-9wRs
     scenes-app-oauth-authorize--every-scope-requested--light:
@@ -9791,7 +9791,11 @@ snapshots:
     scenes-app-oauth-authorize--every-scope-requested-scrolled-to-end--dark:
         hash: v1.k794b7964.5b544e241fa57ad7971a6872fce18c2d3e9dbbcfd5c6b4e2a861cc60683a7eda.gLSvVEeKbmA7YUlD7Jw056daksT3C2VpGN86wBKJkMU
     scenes-app-oauth-authorize--every-scope-requested-scrolled-to-end--light:
-        hash: v1.k794b7964.44941f1c545b5bbfd22ead5b060e347364df80978d620f78ad4ca95676aa5312.e3Uvl_ZP1tnSSMFZU-GzcBepe2Nz90xOVFtxOe0Q3SA
+        hash: v1.k794b7964.238f7ce66141023589a5f50812a8f4fe05022bf96569cdec5bfb5aa2a385f5f6.QSUMFvFn8dz52CWyDfHydM-BDTgb3OVG8d0KnvPOCIU
+    scenes-app-oauth-authorize--identity-only-scopes--dark:
+        hash: v1.k794b7964.d3709da69b5399ed5ebead357f9c3ad67e11dc3eb3a89686761993305f94167d.8U0NZ8D9-3xXyeSO9Yg8MyssixvCv_dmjquZSIcXlks
+    scenes-app-oauth-authorize--identity-only-scopes--light:
+        hash: v1.k794b7964.f9da299cdeeb3397023e1680fa42457beaf7a77f86a3e7facc6af59af48529f5.ZqNX58ui2RSkxwFxkibjyFAnUCEQkdTPLoTlZ7PK9xY
     scenes-app-oauth-authorize--many-optional-scopes--dark:
         hash: v1.k794b7964.ed7236b791f1885a80c8e308825334ea9c1fb33c67cbae1aa98c6fae12ff8c6d.wjzy_8MW69AdymaJU2hQR00ZPRM87GUk2hGbQuI-sE8
     scenes-app-oauth-authorize--many-optional-scopes--light:
