@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -24,7 +26,52 @@ use tonic::transport::Channel;
 use tonic::Request;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// A delete call drives its saga to completion before answering, and the
+/// service keeps driving for up to 30 s before it answers Busy, so the
+/// client has to wait past that to see the service's own verdict.
+const DELETE_TIMEOUT: Duration = Duration::from_secs(35);
 const HARNESS_CLIENT_NAME: &str = "personhog-test-harness";
+
+/// `channels` lazy connections to `url`. A Kubernetes Service pins each
+/// connection to one pod for its lifetime, so a caller that should spread
+/// over a fleet opens several and rotates over them per request.
+fn lazy_channels(
+    url: &str,
+    timeout: Duration,
+    channels: usize,
+    what: &str,
+) -> Result<Vec<Channel>> {
+    (0..channels.max(1))
+        .map(|_| {
+            Ok(Channel::from_shared(url.to_string())
+                .with_context(|| format!("invalid {what} URL"))?
+                .timeout(timeout)
+                .connect_timeout(Duration::from_secs(5))
+                .tcp_nodelay(true)
+                .connect_lazy())
+        })
+        .collect()
+}
+
+#[derive(Clone)]
+struct RoundRobin<T> {
+    clients: Vec<T>,
+    next: Arc<AtomicUsize>,
+}
+
+impl<T: Clone> RoundRobin<T> {
+    fn new(clients: Vec<T>) -> Self {
+        Self {
+            clients,
+            next: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn pick(&self) -> T {
+        let index = self.next.fetch_add(1, Ordering::Relaxed) % self.clients.len();
+        self.clients[index].clone()
+    }
+}
 
 fn with_client_name<T>(message: T) -> Request<T> {
     let mut request = Request::new(message);
@@ -140,20 +187,21 @@ impl HarnessClient {
 /// router forwards these paths verbatim when it fronts the service.
 #[derive(Clone)]
 pub struct IdentityClient {
-    inner: PersonHogIdentityClient<Channel>,
+    inner: RoundRobin<PersonHogIdentityClient<Channel>>,
 }
 
 impl IdentityClient {
     pub async fn connect(url: &str) -> Result<Self> {
-        let channel = Channel::from_shared(url.to_string())
-            .context("invalid identity URL")?
-            .timeout(REQUEST_TIMEOUT)
-            .connect_timeout(Duration::from_secs(5))
-            .tcp_nodelay(true)
-            .connect_lazy();
+        Self::connect_with_channels(url, 1).await
+    }
 
+    pub async fn connect_with_channels(url: &str, channels: usize) -> Result<Self> {
+        let clients = lazy_channels(url, REQUEST_TIMEOUT, channels, "identity")?
+            .into_iter()
+            .map(PersonHogIdentityClient::new)
+            .collect();
         Ok(Self {
-            inner: PersonHogIdentityClient::new(channel),
+            inner: RoundRobin::new(clients),
         })
     }
 
@@ -163,7 +211,7 @@ impl IdentityClient {
     ) -> Result<Vec<GetOrCreatePersonResult>> {
         let resp = self
             .inner
-            .clone()
+            .pick()
             .get_or_create_persons_by_distinct_ids(with_client_name(
                 GetOrCreatePersonsByDistinctIdsRequest { entries },
             ))
@@ -192,7 +240,7 @@ impl IdentityClient {
     ) -> Result<MergePersonsResponse> {
         let resp = self
             .inner
-            .clone()
+            .pick()
             .merge_persons(with_client_name(MergePersonsRequest {
                 team_id,
                 target_distinct_id: target_distinct_id.to_string(),
@@ -221,20 +269,21 @@ impl IdentityClient {
 /// server's address.
 #[derive(Clone)]
 pub struct LifecycleClient {
-    inner: PersonHogLifecycleClient<Channel>,
+    inner: RoundRobin<PersonHogLifecycleClient<Channel>>,
 }
 
 impl LifecycleClient {
     pub async fn connect(url: &str) -> Result<Self> {
-        let channel = Channel::from_shared(url.to_string())
-            .context("invalid lifecycle URL")?
-            .timeout(REQUEST_TIMEOUT)
-            .connect_timeout(Duration::from_secs(5))
-            .tcp_nodelay(true)
-            .connect_lazy();
+        Self::connect_with_channels(url, 1).await
+    }
 
+    pub async fn connect_with_channels(url: &str, channels: usize) -> Result<Self> {
+        let clients = lazy_channels(url, DELETE_TIMEOUT, channels, "lifecycle")?
+            .into_iter()
+            .map(PersonHogLifecycleClient::new)
+            .collect();
         Ok(Self {
-            inner: PersonHogLifecycleClient::new(channel),
+            inner: RoundRobin::new(clients),
         })
     }
 
@@ -249,7 +298,7 @@ impl LifecycleClient {
     ) -> Result<Vec<(i64, DeletePersonOutcome)>> {
         let resp = self
             .inner
-            .clone()
+            .pick()
             .delete_persons(with_client_name(DeletePersonsRequest {
                 team_id,
                 person_ids,

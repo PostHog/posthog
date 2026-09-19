@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
+mod bulk_delete;
 mod cli;
 mod client;
 mod pool;
@@ -42,5 +43,6 @@ async fn main() -> Result<()> {
         Command::Consistency(args) => scenarios::consistency::run(args).await,
         Command::Gate(args) => scenarios::gate::run(*args).await,
         Command::Traffic(args) => scenarios::traffic::run(*args).await,
+        Command::BulkDelete(args) => scenarios::bulk_delete::run(args).await,
     }
 }
