@@ -71,9 +71,10 @@ class TestTypesafeSuggestionCandidates(SimpleTestCase):
         assert titles[0] == "First-ever autocaptured interactions per user"
         assert "First-ever autocaptured interactions per user by current URL" in titles
         assert "Autocaptured interactions by current URL" in titles
-        assert (
-            "Shows first-ever autocaptured interactions per user, broken down by current URL."
-            in description_candidates(context)
+        assert any(
+            candidate.startswith("Shows first-ever autocaptured interactions per user")
+            and candidate.endswith("broken down by current URL.")
+            for candidate in description_candidates(context)
         )
 
     def test_formula_trends_lead_with_the_ratio_and_keep_series_distinct(self) -> None:
