@@ -14,6 +14,20 @@ from posthog.tasks.utils import CeleryQueue
 logger = structlog.get_logger(__name__)
 
 
+def _load_or_build_remote_config(team_id: int) -> RemoteConfig | None:
+    """Return the team's RemoteConfig, an unsaved one if it has none, or None if the team is gone."""
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.exception("Team does not exist", team_id=team_id)
+        return None
+
+    try:
+        return RemoteConfig.objects.get(team=team)
+    except RemoteConfig.DoesNotExist:
+        return RemoteConfig(team=team)
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
@@ -22,18 +36,26 @@ logger = structlog.get_logger(__name__)
 )
 @skip_team_scope_audit
 def update_team_remote_config(team_id: int, bypass_recordings_quota_cache: bool = False) -> None:
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        logger.exception("Team does not exist", team_id=team_id)
+    remote_config = _load_or_build_remote_config(team_id)
+    if remote_config is None:
         return
 
-    try:
-        remote_config = RemoteConfig.objects.get(team=team)
-    except RemoteConfig.DoesNotExist:
-        remote_config = RemoteConfig(team=team)
-
     remote_config.sync(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    soft_time_limit=300,
+    time_limit=360,
+)
+@skip_team_scope_audit
+def sync_team_remote_config_after_token_change(team_id: int, old_token: str) -> None:
+    remote_config = _load_or_build_remote_config(team_id)
+    if remote_config is None:
+        return
+
+    remote_config.sync_after_token_change(old_token)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

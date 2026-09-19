@@ -23,6 +23,7 @@ from prometheus_client import Counter
 from posthog.celery_task_names import (
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
     VERIFY_FLAGS_CACHE_TASK_NAME,
+    VERIFY_REMOTE_CONFIG_CACHE_TASK_NAME,
     VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
 )
 from posthog.exceptions_capture import capture_exception
@@ -42,7 +43,7 @@ from products.feature_flags.backend.local_evaluation import (
 
 logger = structlog.get_logger(__name__)
 
-CacheType = Literal["flags", "team_metadata"]
+CacheType = Literal["flags", "team_metadata", "remote_config"]
 
 # Each task locks for its own hard time limit, passed in as ``self.time_limit``. A
 # crashed task that never runs its finally block still releases the lock when the
@@ -235,6 +236,11 @@ def _run_cache_verification(
                 FLAGS_HYPERCACHE_MANAGEMENT_CONFIG as config,
                 verify_team_flags as verify_fn,
             )
+        elif cache_type == "remote_config":
+            from posthog.storage.remote_config_cache import (
+                REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG as config,
+                verify_team_remote_config as verify_fn,
+            )
         else:
             from posthog.storage.team_metadata_cache import (
                 TEAM_HYPERCACHE_MANAGEMENT_CONFIG as config,
@@ -333,3 +339,28 @@ def verify_and_fix_flag_definitions_cache_task(self: PushGatewayTask) -> None:
     posthog_hypercache_verification_incomplete_runs_total{cache_type="flag_definitions", reason="..."}
     """
     _run_flag_definitions_verification(self.soft_time_limit, self.time_limit)
+
+
+@shared_task(
+    bind=True,
+    base=PushGatewayTask,
+    ignore_result=True,
+    name=VERIFY_REMOTE_CONFIG_CACHE_TASK_NAME,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    soft_time_limit=35 * 60,  # 35 min soft limit
+    time_limit=40 * 60,  # 40 min hard limit (< the hourly schedule; also the lock timeout)
+)
+def verify_and_fix_remote_config_cache_task(self: PushGatewayTask) -> None:
+    """
+    Periodic task to verify the array/config.json HyperCache and fix issues.
+
+    Runs hourly at minute 10. A missing entry here takes session replay, surveys,
+    heatmaps and exception autocapture offline for the team while flags and ingestion
+    keep working, so nothing else reports it.
+
+    Metrics: posthog_hypercache_verify_fixes_total{cache_type="remote_config", issue_type="..."},
+    posthog_hypercache_verification_incomplete_runs_total{cache_type="remote_config", reason="..."}
+    """
+    _run_cache_verification(
+        "remote_config", settings.REMOTE_CONFIG_CACHE_VERIFICATION_CHUNK_SIZE, self.soft_time_limit, self.time_limit
+    )

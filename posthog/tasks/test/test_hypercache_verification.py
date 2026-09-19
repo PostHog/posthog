@@ -20,6 +20,7 @@ from posthog.tasks.hypercache_verification import (
     DEADLINE_HEADROOM_SECONDS,
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flags_cache_task,
+    verify_and_fix_remote_config_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
 from posthog.tasks.test.utils import PushGatewayTaskTestMixin
@@ -251,6 +252,27 @@ class TestVerifyAndFixTeamMetadataCacheTaskDisabled(TestCase):
         verify_and_fix_team_metadata_cache_task()
 
         mock_run_verification.assert_not_called()
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestVerifyAndFixRemoteConfigCacheTask(PushGatewayTaskTestMixin, TestCase):
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_verifies_the_remote_config_cache(self, mock_run_verification: MagicMock) -> None:
+        from posthog.storage.remote_config_cache import (
+            REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG,
+            verify_team_remote_config,
+        )
+
+        mock_run_verification.return_value = VerificationResult()
+
+        verify_and_fix_remote_config_cache_task()
+
+        call_kwargs = mock_run_verification.call_args[1]
+        assert call_kwargs["cache_type"] == "remote_config"
+        # Routing to the wrong branch would verify another cache under this label, and
+        # array/config.json would stay unmonitored with the metrics looking healthy.
+        assert call_kwargs["config"] is REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG
+        assert call_kwargs["verify_team_fn"] is verify_team_remote_config
 
 
 class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCase):

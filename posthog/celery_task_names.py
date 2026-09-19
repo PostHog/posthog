@@ -16,9 +16,11 @@ VERIFY_TEAM_METADATA_CACHE_TASK_NAME = "posthog.tasks.hypercache_verification.ve
 VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME = (
     "posthog.tasks.hypercache_verification.verify_and_fix_flag_definitions_cache_task"
 )
+VERIFY_REMOTE_CONFIG_CACHE_TASK_NAME = "posthog.tasks.hypercache_verification.verify_and_fix_remote_config_cache_task"
 
 LIVENESS_ALERTED_TASK_NAMES = (
     VERIFY_FLAGS_CACHE_TASK_NAME,
     VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
+    VERIFY_REMOTE_CONFIG_CACHE_TASK_NAME,
 )

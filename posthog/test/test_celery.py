@@ -10,11 +10,7 @@ from prometheus_client import REGISTRY
 
 import posthog.celery
 from posthog.celery import _initialize_worker_metrics, on_worker_process_shutdown
-from posthog.celery_task_names import (
-    VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
-    VERIFY_FLAGS_CACHE_TASK_NAME,
-    VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
-)
+from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
 from posthog.tasks.tasks import clickhouse_errors_count
 
 
@@ -79,11 +75,7 @@ class TestWorkerMetricsInitialization(TestCase):
     def test_seeds_hypercache_verification_task_series(self) -> None:
         _initialize_worker_metrics()
 
-        for task_name in (
-            VERIFY_FLAGS_CACHE_TASK_NAME,
-            VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
-            VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
-        ):
+        for task_name in LIVENESS_ALERTED_TASK_NAMES:
             for sample_name in (
                 "posthog_celery_task_pre_run_total",
                 "posthog_celery_task_success_total",
