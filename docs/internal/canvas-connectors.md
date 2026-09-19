@@ -17,6 +17,9 @@ The selected model determines the runtime adapter; reasoning effort requires an 
 Omit both fields to retain the viewer's defaults. These fields do not change saved run preferences.
 Retries with the same `idempotency_key` return the existing task, even if the requested settings change.
 Generate a new key for each additional task linked to the same canvas card.
+The returned run status is a snapshot, not live progress.
+Canvases without task syncing should show the thread link without storing or displaying that status.
+Keep manual board columns separate from thread state.
 
 `ph.openExternal(url)` accepts HTTPS GitHub PR links as well as PostHog HTTPS URLs. GitHub links
 must use `github.com`, with no credentials, custom port, or query string. PR overview, files,

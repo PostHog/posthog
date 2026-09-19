@@ -217,7 +217,8 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
                 "Use a 'Start cloud task' button and disable it while the request is pending. "
                 "Generate a UUID for idempotency_key once per intended task and reuse it on retries; "
                 "a retry returns the existing task and latest run without starting another run. "
-                "Use the returned status in the result message. A queued run has not finished. "
+                "Link to the returned task. The returned status is a snapshot, not live progress; "
+                "canvases without task syncing should omit it from cards and result messages. "
                 "Declare this verb separately from tasks.create, which still creates a task without a run."
             ),
         ),
