@@ -911,7 +911,10 @@ export interface sessionRecordingsPlaylistLogicMeta {
         logicProps: (arg: any) => SessionRecordingPlaylistLogicProps
         allowEventPropertyExpansion: (featureFlags: FeatureFlagsSet) => boolean
         exposureSkipExperimentId: (filters: RecordingUniversalFilters) => number | undefined
-        matchingEventsMatchType: (filters: RecordingUniversalFilters) => MatchingEventsMatchType
+        matchingEventsMatchType: (
+            filters: RecordingUniversalFilters,
+            featureFlags: FeatureFlagsSet
+        ) => MatchingEventsMatchType
         activeSessionRecordingId: (
             selectedRecordingId: string | null,
             recordings: SessionRecordingType[],
