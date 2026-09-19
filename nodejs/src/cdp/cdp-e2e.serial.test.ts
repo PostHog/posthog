@@ -493,9 +493,12 @@ describe('CDP Consumer loop', () => {
             // we expect both to fire, but we only inspect the Kinesis ones.
             await eventsConsumer.processBatch([globals])
 
+            // The retry only lands after the injected 1.5s delay, the fetch backoff, and
+            // two Kafka roundtrips through the cyclotron queue. That leaves 5s no room
+            // for CI jitter, so this wait and the test budget are wider than the suite's.
             await waitForExpect(() => {
                 expect(sigv4FetchCalls.length).toBeGreaterThanOrEqual(2)
-            }, 5000).catch((e) => {
+            }, 15000).catch((e) => {
                 logger.warn('[TESTS] Expected two Kinesis fetch attempts (initial + retry)', {
                     sigv4FetchCount: sigv4FetchCalls.length,
                     allFetchCalls: mockFetch.mock.calls.length,
@@ -531,7 +534,7 @@ describe('CDP Consumer loop', () => {
             // signature window.
             expect(sigv4AmzDates[0]).not.toEqual(sigv4AmzDates[1])
             expect(sigv4Authorizations[0]).not.toEqual(sigv4Authorizations[1])
-        })
+        }, 30000)
 
         // E2E coverage for Standard Webhooks signing, driven by the shipped webhook
         // template rather than hand-written Hog. Three things only reachable here:
