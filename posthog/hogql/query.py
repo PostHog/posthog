@@ -70,7 +70,12 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
-from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorTooManyRedirects,
+    ExposedCHQueryError,
+)
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -818,8 +823,8 @@ class HogQLQueryExecutor:
             try:
                 try:
                     self.results, self.types = run_clickhouse_query()
-                except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
-                    # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
+                except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, CHQueryErrorTooManyRedirects):
+                    # Object storage can replace a file mid-read or redirect a listing; one retry re-lists
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
             except Exception as e:
