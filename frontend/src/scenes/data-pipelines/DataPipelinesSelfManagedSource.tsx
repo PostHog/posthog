@@ -4,6 +4,7 @@ import { DataWarehouseTable } from '~/types'
 
 import { SelfManagedSourceForm } from 'products/data_warehouse/frontend/scenes/NewSourceScene/components/SelfManagedSourceForm'
 import { selfManagedSourceLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/selfManagedSourceLogic'
+import { SelfManagedColumnsSection } from 'products/data_warehouse/frontend/scenes/SourceScene/SelfManagedColumnsSection'
 
 interface SelfManagedProps {
     id: string
@@ -51,6 +52,7 @@ export function DataPipelinesSelfManagedSourceTable({ table, updateTable }: Prop
                     }
                 />
             </div>
+            {table.id && <SelfManagedColumnsSection table={table} />}
         </>
     )
 }
