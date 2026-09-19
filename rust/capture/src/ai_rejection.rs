@@ -16,9 +16,11 @@
 use std::fmt;
 
 use crate::api::CaptureError;
+use crate::v0_request::AI_LANE_NAME_PREFIX;
 
-/// Event names the endpoint accepts. Anything else is a client sending ordinary
-/// analytics to the AI path.
+/// Event names the endpoint accepts under `AiLanePredicate::Allowlist`. Under
+/// `Prefix` any `$ai_*` name is accepted instead. Anything else is a client
+/// sending ordinary analytics to the AI path.
 pub const ALLOWED_AI_EVENTS: [&str; 6] = [
     "$ai_generation",
     "$ai_trace",
@@ -81,8 +83,11 @@ pub enum AiRejection {
     EventUuidRequired,
     EventUuidInvalid(String),
 
-    // AI-specific validation
+    // AI-specific validation. Which name rejection fires depends on the
+    // deployment's `AiLanePredicate`: `EventNameNotAllowed` under `Allowlist`,
+    // `EventNameNotAiPrefixed` under `Prefix`.
     EventNameNotAllowed(String),
+    EventNameNotAiPrefixed(String),
     AiModelMissing,
     AiModelNotString,
     AiModelEmpty,
@@ -141,6 +146,9 @@ impl AiRejection {
                 ALLOWED_AI_EVENTS.join(", "),
                 event_name
             ),
+            Self::EventNameNotAiPrefixed(event_name) => format!(
+                "Event name must start with '{AI_LANE_NAME_PREFIX}', got '{event_name}'"
+            ),
             Self::AiModelMissing => "Event properties must contain '$ai_model'".to_string(),
             Self::AiModelNotString => "$ai_model must be a string".to_string(),
             Self::AiModelEmpty => "$ai_model cannot be empty".to_string(),
@@ -179,6 +187,7 @@ impl AiRejection {
             | Self::EventUuidRequired
             | Self::EventUuidInvalid(_)
             | Self::EventNameNotAllowed(_)
+            | Self::EventNameNotAiPrefixed(_)
             | Self::AiModelMissing
             | Self::AiModelNotString
             | Self::AiModelEmpty => ErrorKind::Parsing,
@@ -295,6 +304,10 @@ pub(crate) fn all_variants_with_messages() -> Vec<(AiRejection, &'static str)> {
                 "Event name must be one of: $ai_generation, $ai_trace, $ai_span, $ai_embedding, $ai_metric, $ai_feedback, got '$pageview'",
             ),
             (
+                AiRejection::EventNameNotAiPrefixed("$pageview".to_string()),
+                "Event name must start with '$ai_', got '$pageview'",
+            ),
+            (
                 AiRejection::AiModelMissing,
                 "Event properties must contain '$ai_model'",
             ),
@@ -395,7 +408,7 @@ mod tests {
         );
         assert_eq!(
             listed.len(),
-            29,
+            30,
             "variant count changed — add the new variant to all_variants_with_messages \
              and update this expected count"
         );
