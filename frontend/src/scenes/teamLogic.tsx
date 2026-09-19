@@ -28,7 +28,7 @@ import {
     type ProductIntentContext,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, ProjectType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
 
 import type { FeatureFlagsSet } from '../lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
@@ -627,12 +627,36 @@ export const teamLogic = kea<teamLogicType>([
                 }
                 const frequentMistakes: FrequentMistakeAdvice[] = []
 
+                const personPropertiesMode =
+                    currentTeam.modifiers?.personsOnEventsMode ?? currentTeam.default_modifiers?.personsOnEventsMode
+                const readsPersonPropertiesFromEvents =
+                    personPropertiesMode === 'person_id_override_properties_on_events' ||
+                    personPropertiesMode === 'person_id_no_override_properties_on_events'
+
                 for (const filter of currentTeam.test_account_filters || []) {
                     if (filter.key === 'email' && filter.type === 'event') {
                         frequentMistakes.push({
                             key: 'email',
                             type: 'event',
                             fix: 'it is more common to filter email by person properties, not event properties',
+                        })
+                    }
+                    // distinct_id reads the real events.distinct_id column, not stored person
+                    // properties, and is_not_set matches identically at any point in time, so
+                    // personsOnEventsMode never changes what either one matches.
+                    if (
+                        readsPersonPropertiesFromEvents &&
+                        filter.type === 'person' &&
+                        filter.key &&
+                        filter.key !== 'distinct_id' &&
+                        filter.operator !== PropertyOperator.IsNotSet
+                    ) {
+                        frequentMistakes.push({
+                            key: filter.key,
+                            type: 'person',
+                            fix:
+                                'this project reads person properties from the time of the event, so the filter only applies to events received after you set the property. ' +
+                                'To also filter earlier events, turn on "Use person properties from query time" in the advanced options of an insight',
                         })
                     }
                 }
