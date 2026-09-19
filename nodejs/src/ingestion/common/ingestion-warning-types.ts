@@ -76,9 +76,8 @@ export const INGESTION_WARNING_TYPES = {
     // rather than a JSON batch.
     invalid_ai_event: { category: 'event', severity: 'error', captureProduced: true },
     invalid_ai_payload: { category: 'event', severity: 'error', captureProduced: true },
-    // A non-AI event reached the AI lane's batch endpoint (/i/v1/ai/events). That
-    // deployment can only write to the AI topic, so the event is dropped per event
-    // and the rest of the batch is accepted.
+    // Non-AI event sent to /i/v1/ai/events. capture-ai can only write the AI topic,
+    // so it drops that event and keeps the rest of the batch.
     misrouted_event: { category: 'event', severity: 'error', captureProduced: true },
     // Severity is 'warning', not 'error': the OTLP export succeeded and only
     // non-AI spans were in it, so nothing the AI pipeline owns was dropped. The

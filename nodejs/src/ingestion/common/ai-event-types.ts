@@ -1,14 +1,13 @@
-// Capture routes by the same prefix, so the AI pipeline admits every `$ai_*` event, including
-// names it has never seen. The query-routing list in posthog/hogql_queries/ai/ai_table_resolver.py
-// stays exact on purpose: ai_events lacks full history for anything but the core types.
+// Capture routes on this prefix too, so any `$ai_*` name is admitted here. The query-routing
+// list in posthog/hogql_queries/ai/ai_table_resolver.py stays exact: ai_events lacks history
+// for anything but the core types.
 export const AI_EVENT_NAME_PREFIX = '$ai_'
 
 export function isAiEventName(event: string): boolean {
     return event.startsWith(AI_EVENT_NAME_PREFIX)
 }
 
-// Exact names the analytics-lane usage records bill under the AI key. Only billing reads
-// this; ingestion routes and enriches by `isAiEventName`.
+// Billing only (billable-events.ts); ingestion uses `isAiEventName`.
 export const AI_EVENT_TYPES = new Set([
     '$ai_generation',
     '$ai_embedding',
