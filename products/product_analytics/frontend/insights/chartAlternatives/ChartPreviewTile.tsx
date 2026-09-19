@@ -11,6 +11,23 @@ import { ChartDisplayIcon } from './ChartDisplayIcon'
 import { ChartPreviewCanvas } from './ChartPreviewCanvas'
 import type { ChartPreview } from './chartPreviewsLogic'
 
+function getPreviewBody(inView: boolean, preview: ChartPreview, reason?: string): JSX.Element {
+    const { option, query, response, uniqueKey } = preview
+
+    if (response && inView) {
+        return <ChartPreviewCanvas uniqueKey={uniqueKey} query={query} response={response} />
+    }
+
+    return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-secondary">
+            <span className="text-4xl opacity-40">
+                <ChartDisplayIcon icon={option.icon} />
+            </span>
+            {reason ? <span className="text-xs">{reason}</span> : null}
+        </div>
+    )
+}
+
 export function ChartPreviewTile({
     disabledReason,
     onSelect,
@@ -20,24 +37,12 @@ export function ChartPreviewTile({
     onSelect: () => void
     preview: ChartPreview
 }): JSX.Element {
-    const { option, query, response, sample, uniqueKey } = preview
+    const { option, sample } = preview
     const reason = disabledReason ?? option.disabledReason
     const disabled = !!reason
     const { ref: previewRef, inView } = useInView({ triggerOnce: true })
 
-    let body: JSX.Element
-    if (response && inView) {
-        body = <ChartPreviewCanvas uniqueKey={uniqueKey} query={query} response={response} />
-    } else {
-        body = (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-secondary">
-                <span className="text-4xl opacity-40">
-                    <ChartDisplayIcon icon={option.icon} />
-                </span>
-                {reason ? <span className="text-xs">{reason}</span> : null}
-            </div>
-        )
-    }
+    const body = getPreviewBody(inView, preview, reason)
 
     const tile = (
         <button
