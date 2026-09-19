@@ -281,6 +281,10 @@ def validate_endpoint_request(data: EndpointRequest, team: Team, user: User, str
     if not query and strict:
         raise ValidationError({"query": "This field is required."})
 
+    # Materialization only rejects an unsupported value once it reaches the query transform,
+    # where it raises a plain ValueError and surfaces as a 500 instead of a 400.
+    validate_bucket_overrides(data.bucket_overrides)
+
     name = data.name
     if not name:
         if name is not None or strict:
@@ -302,6 +306,29 @@ def validate_endpoint_request(data: EndpointRequest, team: Team, user: User, str
     validate_optional_breakdown_properties(data.optional_breakdown_properties, query)
 
 
+def _inherited_bucket_overrides(
+    data: EndpointRequest, endpoint: Endpoint | None, version_number: int | None
+) -> dict[str, str] | None:
+    """The overrides a query change would carry over from the current version.
+
+    The service substitutes these when the payload omits the field, and it only reaches
+    that point after the new version has committed.
+    """
+    if endpoint is None or version_number is not None or data.query is None:
+        return None
+    if data.is_materialized is False:
+        return None
+    try:
+        current_version = endpoint.get_version()
+    except EndpointVersion.DoesNotExist:
+        return None
+    if current_version.saved_query_id is None:
+        return None
+    if not endpoint.has_query_changed(data.query.model_dump()):
+        return None
+    return current_version.bucket_overrides
+
+
 def validate_update_request(
     data: EndpointRequest,
     team: Team,
@@ -311,12 +338,16 @@ def validate_update_request(
 ) -> None:
     """Validate an update payload against the endpoint's resulting state."""
     validate_data_freshness(data.data_freshness_seconds)
+    validate_bucket_overrides(data.bucket_overrides)
 
     # Determine final states after this request (for validation)
     will_be_active = data.is_active if data.is_active is not None else (endpoint.is_active if endpoint else True)
 
     if not will_be_active and data.is_materialized is True:
         raise ValidationError({"is_materialized": "Cannot enable materialization on inactive endpoint."})
+
+    if data.bucket_overrides is None and will_be_active:
+        validate_bucket_overrides(_inherited_bucket_overrides(data, endpoint, version_number))
 
     if data.is_materialized is True:
         # Fail fast on queries that can't be materialized. The service re-checks against
