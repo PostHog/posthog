@@ -2,11 +2,14 @@ import uuid
 import asyncio
 import datetime as dt
 import contextlib
+from http.client import IncompleteRead
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 import aiohttp
+import pyarrow as pa
+import urllib3.exceptions
 
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.temporal.common.clickhouse import (
@@ -20,8 +23,10 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
     ClickHouseTooManySimultaneousQueriesError,
+    TailCapturingStream,
     add_log_comment_param,
     encode_clickhouse_data,
+    extract_clickhouse_exception,
 )
 
 pytestmark = pytest.mark.django_db
@@ -658,3 +663,164 @@ async def test_astream_query_as_arrow_keeps_the_stream_error_when_no_query_id(cl
         with pytest.raises(aiohttp.ClientPayloadError):
             async for _ in clickhouse_client.astream_query_as_arrow("SELECT 1"):
                 pass
+
+
+class _FakeRawStream:
+    """Stands in for `response.raw`: hands out bytes, then ends the way ClickHouse did."""
+
+    def __init__(self, payload: bytes, error: Exception | None = None):
+        self._payload = payload
+        self._error = error
+        self.closed = False
+
+    def read(self, size: int = -1) -> bytes:
+        if size < 0:
+            size = len(self._payload)
+
+        if not self._payload:
+            if self._error is not None:
+                raise self._error
+            return b""
+
+        data, self._payload = self._payload[:size], self._payload[size:]
+        return data
+
+    def tell(self) -> int:
+        return 0
+
+    def close(self) -> None:
+        self.closed = True
+
+
+# An export streams event properties and distinct IDs. A recovered error is stored on the
+# run, logged, and emitted as an event, so none of these bytes may reach it.
+EVENT_PAYLOAD_MARKER = "properties-of-a-person@example.com"
+
+
+def _arrow_stream_bytes() -> bytes:
+    batch = pa.record_batch([pa.array([EVENT_PAYLOAD_MARKER] * 512)], names=["properties"])
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, batch.schema) as writer:
+        writer.write_batch(batch)
+    # Drop the end-of-stream marker, which a cut connection never carries.
+    return sink.getvalue().to_pybytes()[:-8]
+
+
+@pytest.mark.parametrize(
+    "payload,raw_error,recorded,expected_type,expected_fragment,reads_log",
+    [
+        (_arrow_stream_bytes() + CLICKHOUSE_TRAILER, None, None, ClickHouseMemoryLimitExceededError, "241", False),
+        (
+            _arrow_stream_bytes(),
+            urllib3.exceptions.ProtocolError("Connection broken: IncompleteRead"),
+            "Code: 307. DB::Exception: Limit for bytes to read exceeded. (TOO_MANY_BYTES)",
+            ClickHouseTooManyBytesError,
+            "307",
+            True,
+        ),
+        (
+            _arrow_stream_bytes(),
+            urllib3.exceptions.ProtocolError("Connection broken: IncompleteRead"),
+            None,
+            urllib3.exceptions.ProtocolError,
+            "IncompleteRead",
+            True,
+        ),
+        (
+            _arrow_stream_bytes(),
+            urllib3.exceptions.ProtocolError("Connection broken", IncompleteRead(CLICKHOUSE_TRAILER)),
+            None,
+            ClickHouseMemoryLimitExceededError,
+            "241",
+            False,
+        ),
+    ],
+    ids=[
+        "trailer_names_the_error",
+        "cut_first_log_answers",
+        "cut_first_log_silent",
+        "cut_keeps_the_trailer_in_the_failed_read",
+    ],
+)
+async def test_stream_query_as_arrow_reports_why_the_query_stopped(
+    clickhouse_client, payload, raw_error, recorded, expected_type, expected_fragment, reads_log
+):
+    """The sync Arrow path must name the query's error, not the transport's.
+
+    ClickHouse sends 200 before it streams, so a later failure reaches this reader as a
+    torn stream. The reason is either in the tail of the response or in the query log, and
+    when neither holds it the transport error stays, because "we could not find out" is
+    not "the query ran fine".
+    """
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raw = _FakeRawStream(payload, raw_error)
+
+    @contextlib.contextmanager
+    def mock_post(*args, **kwargs):
+        yield mock_response
+
+    log_reads = []
+
+    def mock_query_log(query_id):
+        log_reads.append(query_id)
+        return recorded
+
+    with (
+        patch.object(clickhouse_client, "post_query", mock_post),
+        patch.object(clickhouse_client, "get_query_exception_from_query_log", mock_query_log),
+        patch("posthog.temporal.common.clickhouse.QUERY_LOG_FLUSH_WAIT_SECONDS", 0),
+    ):
+        with pytest.raises(expected_type) as exc_info:
+            for _ in clickhouse_client.stream_query_as_arrow("SELECT 1", query_id="some-query-id"):
+                pass
+
+    assert expected_fragment in str(exc_info.value)
+    assert EVENT_PAYLOAD_MARKER not in str(exc_info.value)
+    # Waiting out a flush interval for an answer already in hand would be wasted latency.
+    assert bool(log_reads) is reads_log
+
+
+async def test_stream_query_as_arrow_keeps_the_stream_error_when_no_query_id(clickhouse_client):
+    """Without a query id there is nothing to look up, so the caller keeps the error it got."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raw = _FakeRawStream(
+        _arrow_stream_bytes(), urllib3.exceptions.ProtocolError("Connection broken: IncompleteRead")
+    )
+
+    @contextlib.contextmanager
+    def mock_post(*args, **kwargs):
+        yield mock_response
+
+    def fail_if_called(query_id):
+        raise AssertionError("must not look up a query log entry without a query id")
+
+    with (
+        patch.object(clickhouse_client, "post_query", mock_post),
+        patch.object(clickhouse_client, "get_query_exception_from_query_log", fail_if_called),
+    ):
+        with pytest.raises(urllib3.exceptions.ProtocolError):
+            for _ in clickhouse_client.stream_query_as_arrow("SELECT 1"):
+                pass
+
+
+@pytest.mark.parametrize(
+    "payload_size,read_size",
+    [(20000, 64), (8130, 4065)],
+    ids=["many_reads_below_the_limit", "two_reads_below_the_limit"],
+)
+def test_tail_capturing_stream_keeps_the_last_bytes_it_read(payload_size, read_size):
+    """A query that dies before it fills a record batch hands the trailer over in small reads.
+
+    Every read then stays below the window, so the trim runs on the accumulated tail
+    instead of on one block, and the error line has to survive it.
+    """
+    payload = b"x" * (payload_size - len(CLICKHOUSE_TRAILER)) + CLICKHOUSE_TRAILER
+    stream = TailCapturingStream(_FakeRawStream(payload))
+
+    while stream.read(read_size):
+        pass
+
+    assert stream.tail == payload[-8192:]
+    assert extract_clickhouse_exception(stream.tail) is not None
