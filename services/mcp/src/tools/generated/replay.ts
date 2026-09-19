@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, redactResponseUrls, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SessionRecordingBulkDeleteSchema = () => {
@@ -73,7 +73,9 @@ const sessionRecordingGet = (): ToolBase<
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
             })
-            const filtered = omitResponseFields(result, ['person.properties']) as typeof result
+            const filtered = redactResponseUrls(omitResponseFields(result, ['person.properties']), [
+                'start_url',
+            ]) as typeof result
             return await withPostHogUrl(context, filtered, `/replay/${filtered.id}`)
         },
     })
@@ -668,5 +670,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         schema: AssistantRecordingsQuery,
         kind: 'RecordingsQuery',
         urlPrefix: '/replay',
+        redactUrlPaths: ['start_url'],
     }),
 }

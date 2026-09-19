@@ -1596,6 +1596,19 @@ describe('buildResponseFilter', () => {
         expect(result.helperImports).toEqual(['omitResponseFields', 'stripNullFields'])
     })
 
+    it('wraps the exclude expression in redactResponseUrls for response.redact_urls', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { exclude: ['person.properties'], redact_urls: ['start_url'] },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain(
+            "redactResponseUrls(omitResponseFields(result, ['person.properties']), ['start_url'])"
+        )
+        expect(result.helperImports).toEqual(['omitResponseFields', 'redactResponseUrls'])
+    })
+
     it('generates stripNullFields alone when no include or exclude is configured', () => {
         const config: ToolConfig = {
             operation: 'things_retrieve',
