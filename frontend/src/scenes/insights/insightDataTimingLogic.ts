@@ -84,8 +84,7 @@ export interface insightDataTimingLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -116,7 +115,6 @@ export interface insightDataTimingLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
-            | undefined
     } // dataNodeLogic
     removeQuery: (queryId: string) => {
         queryId: string
