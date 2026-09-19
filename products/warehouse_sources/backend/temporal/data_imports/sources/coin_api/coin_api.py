@@ -110,12 +110,46 @@ def _initial_time_start(
     return _format_time(datetime.now(UTC) - timedelta(days=DEFAULT_LOOKBACK_DAYS))
 
 
+def _resolve_timeseries_request(
+    config: CoinApiEndpointConfig,
+    symbol_id: str,
+    period_id: str,
+    metric_id: str,
+    exchange_rate_base_asset: str,
+    exchange_rate_quote_asset: str,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """Resolve an endpoint's path, its constant query params, and the columns injected into each row."""
+    path = config.path
+    params: dict[str, Any] = {}
+    row_defaults: dict[str, Any] = {}
+
+    if config.requires_symbol:
+        if "{symbol_id}" in path:
+            path = path.replace("{symbol_id}", symbol_id)
+        else:
+            params["symbol_id"] = symbol_id
+        row_defaults["symbol_id"] = symbol_id
+    if config.requires_metric:
+        params["metric_id"] = metric_id
+        row_defaults["metric_id"] = metric_id
+    if config.requires_quote_asset:
+        path = path.replace("{base}", exchange_rate_base_asset).replace("{quote}", exchange_rate_quote_asset)
+        row_defaults["asset_id_base"] = exchange_rate_base_asset
+        row_defaults["asset_id_quote"] = exchange_rate_quote_asset
+    if config.needs_period:
+        params["period_id"] = period_id
+        row_defaults["period_id"] = period_id
+
+    return path, params, row_defaults
+
+
 def _get_timeseries_rows(
     config: CoinApiEndpointConfig,
     logger: FilteringBoundLogger,
     fetch: Any,
-    symbol_id: str,
-    period_id: str,
+    path: str,
+    extra_params: dict[str, Any],
+    row_defaults: dict[str, Any],
     incremental_field: str,
     initial_time_start: str,
     resumable_source_manager: ResumableSourceManager[CoinApiResumeConfig],
@@ -125,23 +159,17 @@ def _get_timeseries_rows(
     if resume is not None and resume.time_start:
         logger.debug(f"CoinAPI: resuming {config.name} from time_start={time_start}")
 
-    path = config.path.replace("{symbol_id}", symbol_id)
-
     while True:
-        params: dict[str, Any] = {"time_start": time_start, "limit": PAGE_LIMIT}
-        if config.needs_period:
-            params["period_id"] = period_id
+        params: dict[str, Any] = {**extra_params, "time_start": time_start, "limit": PAGE_LIMIT}
 
         data = fetch(_build_url(path, params))
         if not isinstance(data, list) or not data:
             break
 
-        # OHLCV rows omit the symbol/period they belong to; injecting them keeps the primary key
-        # columns present and the table self-describing.
+        # Aggregated history rows omit the symbol / period / metric / assets they belong to; injecting
+        # them keeps the primary key columns present and the table self-describing.
         for row in data:
-            row["symbol_id"] = symbol_id
-            if config.needs_period:
-                row["period_id"] = period_id
+            row.update(row_defaults)
 
         yield data
 
@@ -172,7 +200,9 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[CoinApiResumeConfig],
     symbol_id: str = "",
     period_id: str = "1DAY",
+    metric_id: str = "",
     exchange_rate_base_asset: str = "USD",
+    exchange_rate_quote_asset: str = "",
     start_date: str = "",
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
@@ -208,11 +238,30 @@ def get_rows(
         return
 
     # Time-series endpoint.
-    if not symbol_id:
+    if config.requires_symbol and not symbol_id:
         raise ValueError(
             f"CoinAPI endpoint '{endpoint}' requires a symbol_id. Set the Symbol ID field on the source "
             f"(e.g. BITSTAMP_SPOT_BTC_USD) to sync this table."
         )
+    if config.requires_metric and not metric_id:
+        raise ValueError(
+            f"CoinAPI endpoint '{endpoint}' requires a metric_id. Set the Metric ID field on the source "
+            f"(e.g. FUNDING_RATE, from the metrics_listing table) to sync this table."
+        )
+    if config.requires_quote_asset and not exchange_rate_quote_asset:
+        raise ValueError(
+            f"CoinAPI endpoint '{endpoint}' requires a quote asset. Set the Exchange rate quote asset field "
+            f"on the source (e.g. BTC) to sync this table."
+        )
+
+    path, extra_params, row_defaults = _resolve_timeseries_request(
+        config=config,
+        symbol_id=symbol_id,
+        period_id=period_id or "1DAY",
+        metric_id=metric_id,
+        exchange_rate_base_asset=exchange_rate_base_asset or "USD",
+        exchange_rate_quote_asset=exchange_rate_quote_asset,
+    )
 
     cursor = incremental_field or config.incremental_fields[0]["field"]
     initial_time_start = _initial_time_start(should_use_incremental_field, db_incremental_field_last_value, start_date)
@@ -221,8 +270,9 @@ def get_rows(
         config=config,
         logger=logger,
         fetch=fetch,
-        symbol_id=symbol_id,
-        period_id=period_id or "1DAY",
+        path=path,
+        extra_params=extra_params,
+        row_defaults=row_defaults,
         incremental_field=cursor,
         initial_time_start=initial_time_start,
         resumable_source_manager=resumable_source_manager,
@@ -236,7 +286,9 @@ def coin_api_source(
     resumable_source_manager: ResumableSourceManager[CoinApiResumeConfig],
     symbol_id: str = "",
     period_id: str = "1DAY",
+    metric_id: str = "",
     exchange_rate_base_asset: str = "USD",
+    exchange_rate_quote_asset: str = "",
     start_date: str = "",
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -253,7 +305,9 @@ def coin_api_source(
             resumable_source_manager=resumable_source_manager,
             symbol_id=symbol_id,
             period_id=period_id,
+            metric_id=metric_id,
             exchange_rate_base_asset=exchange_rate_base_asset,
+            exchange_rate_quote_asset=exchange_rate_quote_asset,
             start_date=start_date,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
