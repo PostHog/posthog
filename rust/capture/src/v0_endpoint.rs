@@ -48,12 +48,14 @@ pub async fn event(
     )
     .await
     {
-        Err(CaptureError::BillingLimit) => {
+        Err(CaptureError::BillingLimit(resource)) => {
             // Short term: return OK here to avoid clients retrying over and over
             // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
+            // The status stays 200, but `quota_limited` names the paused
+            // bucket, so a client can tell a quota pause from a good ingest.
             Ok(CaptureResponse {
                 status: CaptureResponseCode::Ok,
-                quota_limited: None,
+                quota_limited: Some(vec![resource.as_str().to_string()]),
             })
         }
 
@@ -145,9 +147,9 @@ pub async fn recording(
     )
     .await
     {
-        Err(CaptureError::BillingLimit) => Ok(CaptureResponse {
+        Err(CaptureError::BillingLimit(resource)) => Ok(CaptureResponse {
             status: CaptureResponseCode::Ok,
-            quota_limited: Some(vec!["recordings".to_string()]),
+            quota_limited: Some(vec![resource.as_str().to_string()]),
         }),
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
