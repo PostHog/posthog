@@ -28,7 +28,7 @@ class SimplifyFilterMixin:
         result: Any = self_any.shallow_clone({"is_simplified": True})
 
         if getattr(result, "filter_test_accounts", False):
-            new_group = {"type": "AND", "values": team.test_account_filters}
+            new_group = {"type": "AND", "values": team.resolvable_test_account_filters}
             prop_group = (
                 {"type": "AND", "values": [new_group, result.property_groups.to_dict()]}
                 if result.property_groups.to_dict()

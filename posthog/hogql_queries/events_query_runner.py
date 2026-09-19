@@ -316,7 +316,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             if self.query.filterTestAccounts:
                 with self.timings.measure("test_account_filters"):
                     where_exprs.extend(
-                        property_to_expr(prop, self.team) for prop in self.team.test_account_filters or []
+                        property_to_expr(prop, self.team) for prop in self.team.resolvable_test_account_filters
                     )
             return where_exprs
 

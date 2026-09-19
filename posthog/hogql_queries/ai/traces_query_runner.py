@@ -667,7 +667,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
         if self.query.filterTestAccounts:
             with self.timings.measure("test_account_filters"):
-                for prop in self.team.test_account_filters or []:
+                for prop in self.team.resolvable_test_account_filters:
                     where_exprs.append(property_to_expr(prop, self.team))
 
         if self.query.filterSupportTraces:

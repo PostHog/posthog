@@ -96,8 +96,7 @@ def _project_environment_teams(team: Team) -> list[Team]:
 
 
 def _test_account_filter_expr(team: Team) -> ast.Expr:
-    filters = team.test_account_filters if isinstance(team.test_account_filters, list) else []
-    return test_account_filter_expr(test_account_filters=filters, team=team)
+    return test_account_filter_expr(test_account_filters=team.resolvable_test_account_filters, team=team)
 
 
 def evaluate_cumulative_pageviews(ctx: EvalContext) -> int:

@@ -208,14 +208,11 @@ class ExposureQueryBuilder:
         return query
 
     def build_test_accounts_filter(self) -> ast.Expr:
-        if (
-            self.context.filter_test_accounts
-            and isinstance(self.context.team.test_account_filters, list)
-            and len(self.context.team.test_account_filters) > 0
-        ):
+        if self.context.filter_test_accounts and self.context.team.resolvable_test_account_filters:
             return ast.And(
                 exprs=[
-                    property_to_expr(property, self.context.team) for property in self.context.team.test_account_filters
+                    property_to_expr(property, self.context.team)
+                    for property in self.context.team.resolvable_test_account_filters
                 ]
             )
         return ast.Constant(value=True)

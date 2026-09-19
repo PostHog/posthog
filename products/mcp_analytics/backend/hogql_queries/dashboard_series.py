@@ -50,7 +50,7 @@ def _dashboard_where(
     ]
     all_properties = list(properties or [])
     if filter_test_accounts:
-        all_properties += team.test_account_filters or []
+        all_properties += team.resolvable_test_account_filters
     if all_properties:
         exprs.append(property_to_expr(all_properties, team))
     return ast.And(exprs=exprs)
