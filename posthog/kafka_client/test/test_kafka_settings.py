@@ -173,6 +173,38 @@ class ResolveProfileTest(TestCase):
         with patch.dict("os.environ", {"KAFKA_CYCLOTRON_HOSTS": "broker:9092"}, clear=True):
             self.assertTrue(kafka_settings._resolve_profile("cyclotron").hosts_configured)
 
+    @parameterized.expand(
+        [
+            ("no_user", {"SASL_USER": None}, "KAFKA_CYCLOTRON_SASL_USER"),
+            ("no_password", {"SASL_PASSWORD": None}, "KAFKA_CYCLOTRON_SASL_PASSWORD"),
+            ("no_mechanism", {"SASL_MECHANISM": None}, "KAFKA_CYCLOTRON_SASL_MECHANISM"),
+        ]
+    )
+    def test_sasl_profile_without_a_credential_names_the_env_var(self, _name, unset, expected_name):
+        """The client library reports this config without the profile or the env var."""
+        env = {
+            "KAFKA_CYCLOTRON_HOSTS": "broker:9092",
+            "KAFKA_CYCLOTRON_SECURITY_PROTOCOL": "SASL_SSL",
+            "KAFKA_CYCLOTRON_SASL_MECHANISM": "SCRAM-SHA-512",
+            "KAFKA_CYCLOTRON_SASL_USER": "cyclotron",
+            "KAFKA_CYCLOTRON_SASL_PASSWORD": "secret",
+        }
+        for suffix in unset:
+            del env[f"KAFKA_CYCLOTRON_{suffix}"]
+        with patch.dict("os.environ", env, clear=True):
+            profile = kafka_settings._resolve_profile("cyclotron")
+
+        with self.assertRaises(kafka_settings.KafkaProfileConfigurationError) as raised:
+            profile.check_sasl_credentials()
+        self.assertIn("cyclotron", str(raised.exception))
+        self.assertIn(expected_name, str(raised.exception))
+
+    @parameterized.expand([("plaintext", {}), ("ssl", {"KAFKA_CYCLOTRON_SECURITY_PROTOCOL": "SSL"})])
+    def test_profile_without_sasl_needs_no_credentials(self, _name, env):
+        with patch.dict("os.environ", env, clear=True):
+            profile = kafka_settings._resolve_profile("cyclotron")
+        profile.check_sasl_credentials()
+
     def test_resolves_full_profile_settings(self):
         with patch.dict(
             "os.environ",
@@ -193,6 +225,7 @@ class ResolveProfileTest(TestCase):
         self.assertEqual(profile.sasl_password, "secret")
         # Code default for warehouse_sources is still present.
         self.assertEqual(profile.producer_settings["acks"], "all")
+        profile.check_sasl_credentials()
 
 
 class KafkaProfilesMapTest(TestCase):
