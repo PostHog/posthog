@@ -37,13 +37,16 @@ export const HealthIssueCard = ({
     return (
         <div className="px-4 py-3 bg-surface-primary">
             <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center flex-wrap gap-x-2 gap-y-1 min-w-0">
                     <span className="text-sm font-medium">{kindToLabel(issue.kind)}</span>
                     <LemonTag type={severityToTagType(issue.severity)} size="small" className="shrink-0">
                         {severityLabel(issue.severity)}
                     </LemonTag>
                     <span className="text-xs text-muted shrink-0">
-                        <TZLabel time={issue.created_at} />
+                        Detected <TZLabel time={issue.created_at} />
+                    </span>
+                    <span className="text-xs text-muted shrink-0">
+                        Last checked <TZLabel time={issue.updated_at} />
                     </span>
                     <HealthIssueSnoozedTag issue={issue} />
                 </div>
