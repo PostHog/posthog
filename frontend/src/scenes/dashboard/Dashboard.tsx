@@ -1,6 +1,7 @@
 import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
@@ -15,6 +16,7 @@ import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -23,7 +25,10 @@ import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import {
+    DASHBOARD_AGENT_HEADLINES,
+    dashboardAgentContextForPlacement,
+} from 'products/dashboards/frontend/dashboardAgentContext'
 
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
@@ -116,9 +121,17 @@ function DashboardScene({
     const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
-    useAttachedContext(
-        dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
+    const agentContextItems = useMemo(
+        () => dashboardAgentContextForPlacement(dashboard ?? null, placement),
+        [dashboard, placement]
     )
+
+    useSceneAgentPanel({
+        sceneKey: 'dashboard',
+        contextItems: agentContextItems,
+        headlines: DASHBOARD_AGENT_HEADLINES,
+        active: !!agentContextItems && !dashboardFailedToLoad && !accessDeniedToDashboard,
+    })
 
     useFileSystemLogView({
         type: 'dashboard',
