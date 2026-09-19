@@ -1,5 +1,7 @@
 import { Meta } from '@storybook/react'
 
+import { markChunkFailureReload } from 'lib/utils/chunkReloadGuard'
+
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 
 const meta: Meta<typeof AuthenticatedShellFallback> = {
@@ -19,5 +21,8 @@ const meta: Meta<typeof AuthenticatedShellFallback> = {
 export default meta
 
 export function StuckShell(): JSX.Element {
+    // Stamp the shared reload guard, so the fallback shows the prompt a person gets after the
+    // automatic reload instead of reloading the Storybook page.
+    markChunkFailureReload()
     return <AuthenticatedShellFallback showSpinner />
 }
