@@ -500,7 +500,8 @@ class _Introspection:
 
             scope: Optional[ast.SelectQueryType] = None
             try:
-                scope = resolve_table_scope(table_name.replace("`", "").split("."), self.context, "hogql")
+                with self.context.schema_only_resolution():
+                    scope = resolve_table_scope(table_name.replace("`", "").split("."), self.context, "hogql")
             except BaseHogQLError:
                 scope = None  # genuinely unresolvable table — expected, fall back quietly
             except Exception as e:
