@@ -61,10 +61,12 @@ FAN_OUT_PARENT_CAP_HITS = Counter(
 # for clock skew between the two before trusting it to skip a parent.
 _RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
-# GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. The header is
-# the only version-dependent part for the endpoints we sync — response shapes are compatible across
-# these versions. Every caller — sync, credential validation, webhook management — passes the
-# source's resolved pin; this constant is only the fallback for callers outside a source instance.
+# GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. Every caller —
+# sync, credential validation, webhook management — passes the source's resolved pin; this constant
+# is only the fallback for callers outside a source instance. Response shapes are not compatible
+# across these versions: 2026-03-10 drops `merge_commit_sha` from the pull request object, which
+# `_add_merge_commit_shas` puts back. Read a new version's breaking changes against the columns we
+# land before adding it to supported_versions.
 GITHUB_DEFAULT_API_VERSION = "2022-11-28"
 
 # Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, the "Repository
@@ -1438,6 +1440,12 @@ def _add_merge_commit_shas(
     A permanent denial does not fail the sync: the rest of the pull request row is good, and failing
     would lose the whole table on every run for a connection that can never answer. A transient
     failure is raised instead, for the reason on the handler below."""
+    # Land the column whatever happens. The curated engineering analytics views select
+    # `merge_commit_sha` by name, so a page that resolves nothing must still carry an empty column
+    # rather than drop it from the table and break the read.
+    for row in rows:
+        row.setdefault("merge_commit_sha", None)
+
     pending: dict[int, dict[str, Any]] = {
         row["number"]: row
         for row in rows

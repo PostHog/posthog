@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import pyarrow as pa
@@ -534,11 +534,16 @@ class TestMergeCommitSha:
             "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}],
         }
 
-        with freeze_time(now), mock.patch.object(github, "github_request", return_value=rate_limited):
+        with (
+            time_machine.travel(now, tick=False),
+            mock.patch.object(github, "github_request", return_value=rate_limited),
+        ):
             with pytest.raises(GitHubRateLimitError) as raised:
                 # Called past the retry decorator, so the assertion does not wait out the reset it
                 # is asserting on.
-                github._fetch_merge_commit_shas.__wrapped__("acme/widgets", [7], "tok", mock.Mock())
+                github._fetch_merge_commit_shas.__wrapped__(  # type: ignore[attr-defined]
+                    "acme/widgets", [7], "tok", mock.Mock()
+                )
 
         # A GithubRetryableError here would fall to the backoff capped at 30s, which the hourly
         # GraphQL window outlasts.
@@ -556,7 +561,9 @@ class TestMergeCommitSha:
         with mock.patch.object(github, "github_request", return_value=denied) as github_request:
             rows, _calls = _run("pull_requests", {"api.github.com": page})
 
-        assert [(row["number"], row.get("merge_commit_sha")) for row in rows] == [(7, None)]
+        # Indexed, not `.get`: the curated views select the column by name, so it has to land empty
+        # rather than go missing from the table.
+        assert [(row["number"], row["merge_commit_sha"]) for row in rows] == [(7, None)]
         # Permanent, so it is not retried either.
         github_request.assert_called_once()
 
