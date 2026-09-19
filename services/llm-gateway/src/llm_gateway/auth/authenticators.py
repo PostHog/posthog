@@ -62,7 +62,8 @@ class PersonalApiKeyAuthenticator(Authenticator):
         async with acquire_connection(pool) as conn:
             row = await conn.fetchrow(
                 """
-                SELECT pak.id, pak.user_id, pak.scopes, u.current_team_id, u.distinct_id, u.is_staff
+                SELECT pak.id, pak.user_id, pak.scopes, u.current_team_id, u.distinct_id, u.is_staff,
+                       u.llm_gateway_access_blocked
                 FROM posthog_personalapikey pak
                 JOIN posthog_user u ON pak.user_id = u.id
                 WHERE pak.secure_value = $1 AND u.is_active = true
@@ -77,6 +78,9 @@ class PersonalApiKeyAuthenticator(Authenticator):
 
             scopes = row["scopes"] or []
             if not has_required_scope(scopes):
+                return None
+
+            if row["llm_gateway_access_blocked"]:
                 return None
 
             return AuthenticatedUser(
@@ -113,7 +117,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 SELECT oat.id, oat.user_id, oat.scope, oat.expires,
                        oat.application_id, oat.scoped_teams, oat.scoped_organizations,
                        oat.sandbox_task_id,
-                       u.current_team_id, u.distinct_id, u.is_staff
+                       u.current_team_id, u.distinct_id, u.is_staff, u.llm_gateway_access_blocked
                 FROM posthog_oauthaccesstoken oat
                 JOIN posthog_user u ON oat.user_id = u.id
                 WHERE oat.token_checksum = $1 AND u.is_active = true
@@ -134,6 +138,9 @@ class OAuthAccessTokenAuthenticator(Authenticator):
 
             scopes = row["scope"].split() if row["scope"] else []
             if not has_required_scope(scopes, allow_wildcard=True):
+                return None
+
+            if row["llm_gateway_access_blocked"]:
                 return None
 
             return AuthenticatedUser(

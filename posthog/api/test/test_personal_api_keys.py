@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
@@ -1222,21 +1222,35 @@ class TestPersonalAPIKeyLLMGatewayFeatureFlag(APIBaseTest):
         }
         mock_feature_enabled.assert_called_once()
 
+    @parameterized.expand([("allowed", False, 201), ("account_blocked", True, 403)])
     @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
-    def test_create_llm_gateway_scope_allowed_when_flag_enabled(self, mock_feature_enabled):
+    def test_create_llm_gateway_scope_allowed_when_flag_enabled(
+        self, _name: str, blocked: bool, expected_status: int, mock_feature_enabled: MagicMock
+    ) -> None:
         mock_feature_enabled.return_value = True
+        self.user.llm_gateway_access_blocked = blocked
+        self.user.save(update_fields=["llm_gateway_access_blocked"])
 
         response = self.client.post(
             "/api/personal_api_keys",
             {"label": "test key", "scopes": ["llm_gateway:read"], "scoped_organizations": [], "scoped_teams": []},
         )
-        assert response.status_code == 201
-        assert response.json()["scopes"] == ["llm_gateway:read"]
-        mock_feature_enabled.assert_called_once()
+        assert response.status_code == expected_status
+        if blocked:
+            assert response.json()["code"] == "provisioned_account_gateway_disabled"
+            mock_feature_enabled.assert_not_called()
+        else:
+            assert response.json()["scopes"] == ["llm_gateway:read"]
+            mock_feature_enabled.assert_called_once()
 
+    @parameterized.expand([("allowed", False, 200), ("account_blocked", True, 403)])
     @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
-    def test_update_existing_key_with_llm_gateway_scope_allowed_when_flag_disabled(self, mock_feature_enabled):
+    def test_update_existing_key_with_llm_gateway_scope_allowed_when_flag_disabled(
+        self, _name: str, blocked: bool, expected_status: int, mock_feature_enabled: MagicMock
+    ) -> None:
         mock_feature_enabled.return_value = False
+        self.user.llm_gateway_access_blocked = blocked
+        self.user.save(update_fields=["llm_gateway_access_blocked"])
 
         key = PersonalAPIKey.objects.create(
             label="Test",
@@ -1249,9 +1263,12 @@ class TestPersonalAPIKeyLLMGatewayFeatureFlag(APIBaseTest):
             f"/api/personal_api_keys/{key.id}",
             {"label": "updated label", "scopes": ["llm_gateway:read"]},
         )
-        assert response.status_code == 200
-        assert response.json()["label"] == "updated label"
-        assert response.json()["scopes"] == ["llm_gateway:read"]
+        assert response.status_code == expected_status
+        if blocked:
+            assert response.json()["code"] == "provisioned_account_gateway_disabled"
+        else:
+            assert response.json()["label"] == "updated label"
+            assert response.json()["scopes"] == ["llm_gateway:read"]
         mock_feature_enabled.assert_not_called()
 
     @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")

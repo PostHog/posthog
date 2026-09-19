@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from posthog.api.email_verification import email_verification_pending
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_access import GatewayAccessBlocked, require_gateway_access
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
@@ -229,6 +230,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
             refuse("team_missing", exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND), user=user)
         posture = wizard_posture(team.organization, team)
 
+        try:
+            require_gateway_access(user)
+        except GatewayAccessBlocked as exc:
+            refuse(exc.default_code, exc, user=user)
+
         # Named ahead of the generic authorization check so the CLI can tell the user what to do.
         if email_verification_pending(user):
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="email_unverified").inc()
@@ -410,6 +416,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.PermissionDenied("You don't have access to this project.")
 
         user = cast(User, request.user)
+        require_gateway_access(user)
         # The sandbox this starts mints its own gateway token. Refused before the
         # attempt is reserved, so a ban does not also cost a daily slot.
         if wizard_identity_blocked(

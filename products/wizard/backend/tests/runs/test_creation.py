@@ -1,8 +1,12 @@
+from contextlib import nullcontext
+
 import pytest
 from unittest.mock import patch
 
 from django.db import IntegrityError, transaction
 from django.db.models import NOT_PROVIDED
+
+from posthog.llm.gateway_access import GatewayAccessBlocked
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.config import DEFAULT_WIZARD_VERSION
@@ -140,7 +144,10 @@ def test_create_run_rejects_unsupported_environment_workspace(team, user) -> Non
 
 
 @pytest.mark.django_db
-def test_cloud_run_starts_created(team, user) -> None:
+@pytest.mark.parametrize("gateway_blocked", [False, True])
+def test_cloud_run_starts_created(team, user, gateway_blocked: bool) -> None:
+    user.llm_gateway_access_blocked = gateway_blocked
+    user.save(update_fields=["llm_gateway_access_blocked"])
     with (
         patch(
             "products.wizard.backend.logic.runs.repository_access.repo_selection.resolve_team_github_integration_id",
@@ -150,6 +157,7 @@ def test_cloud_run_starts_created(team, user) -> None:
             "products.wizard.backend.logic.runs.repository_access.repo_selection.repository_accessible_via_integration",
             return_value=True,
         ),
+        pytest.raises(GatewayAccessBlocked) if gateway_blocked else nullcontext(),
     ):
         run = wizard_facade.create_run(
             CreateWizardRunInput(
@@ -162,8 +170,11 @@ def test_cloud_run_starts_created(team, user) -> None:
             )
         )
 
-    assert run.status == WizardRunStatus.CREATED
-    assert run.workspace == GitRepositoryWorkspace(repository="posthog/posthog")
+    if gateway_blocked:
+        assert not WizardRun.objects.for_team(team.id).exists()
+    else:
+        assert run.status == WizardRunStatus.CREATED
+        assert run.workspace == GitRepositoryWorkspace(repository="posthog/posthog")
 
 
 @pytest.mark.django_db(transaction=True)

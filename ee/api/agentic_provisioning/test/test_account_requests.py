@@ -11,8 +11,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.user import User
+from posthog.storage.gateway_credential_cache import oauth_credential_authorized
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
@@ -65,6 +66,52 @@ class TestAccountRequests(ProvisioningTestBase):
         self._post_account_request(self._account_request_payload())
         user = User.objects.get(email="newuser@example.com")
         assert user.is_email_verified is False
+        assert not user.llm_gateway_access_blocked
+
+    @parameterized.expand(
+        [
+            ("us_metadata_in_eu", "https://us.posthog.com/api/oauth/wizard/client-metadata", "https://eu.posthog.com"),
+            ("eu_metadata_in_us", "https://eu.posthog.com/api/oauth/wizard/client-metadata", "https://us.posthog.com"),
+            (
+                "self_hosted_metadata",
+                "https://example.com/api/oauth/wizard/client-metadata",
+                "https://example.com",
+            ),
+            ("us_cli", "c4Rdw8DIxgtQfA80IiSnGKlNX8QN00cFWF00QQhM", "https://us.posthog.com"),
+            ("eu_cli", "bx2C5sZRN03TkdjraCcetvQFPGH6N2Y9vRLkcKEy", "https://eu.posthog.com"),
+        ]
+    )
+    @override_settings(WIZARD_GATEWAY_CLIENT_IDS=[])
+    def test_wizard_account_cannot_use_gateway_after_verifying_email(
+        self, _name: str, client_id: str, site_url: str
+    ) -> None:
+        self.partner.client_id = client_id
+        self.partner.save(update_fields=["client_id"])
+        with override_settings(SITE_URL=site_url):
+            response = self._post_account_request(self._account_request_payload())
+        assert response.status_code == 200
+        assert response.json()["type"] == "oauth"
+
+        user = User.objects.get(email="newuser@example.com")
+        user.is_email_verified = True
+        user.save(update_fields=["is_email_verified"])
+        token = OAuthAccessToken.objects.create(
+            user=user,
+            application=self.partner,
+            token="pha_wizard_provisioning_test",
+            scope="llm_gateway:read",
+            scoped_teams=[user.team.id],
+            expires=timezone.now() + timedelta(hours=1),
+        )
+
+        assert not oauth_credential_authorized(token, user.team)
+
+        existing = self._post_account_request(
+            self._account_request_payload(email=self.user.email, code_challenge=VALID_CODE_CHALLENGE)
+        )
+        assert existing.json()["type"] == "requires_auth"
+        self.user.refresh_from_db()
+        assert not self.user.llm_gateway_access_blocked
 
     def test_new_user_auth_code_cached_with_issued_at(self):
         res = self._post_account_request(self._account_request_payload())

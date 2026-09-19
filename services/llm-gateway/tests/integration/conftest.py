@@ -131,6 +131,7 @@ def create_mock_db_pool():
             "scopes": ["llm_gateway:read"],
             "distinct_id": "test-distinct-id",
             "is_staff": False,
+            "llm_gateway_access_blocked": False,
         }
     )
     pool.acquire = AsyncMock(return_value=conn)

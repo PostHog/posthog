@@ -11,6 +11,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
+from posthog.llm.gateway_access import require_gateway_access
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
 from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
@@ -50,6 +51,7 @@ def validate_personal_api_key_scopes(
 
         # Check feature flag for llm_gateway scope - block if newly adding this scope
         if scope_parts[0] == "llm_gateway":
+            require_gateway_access(requesting_user)
             existing_has_llm_gateway = existing_scopes is not None and any(
                 s.startswith("llm_gateway:") for s in existing_scopes
             )

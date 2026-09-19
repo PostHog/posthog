@@ -7,11 +7,13 @@ import secrets
 from typing import Any
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
@@ -28,6 +30,7 @@ from ee.api.agentic_provisioning.constants import (
     AUTH_CODE_TTL_SECONDS,
     PENDING_AUTH_CACHE_PREFIX,
     PENDING_AUTH_TTL_SECONDS,
+    WIZARD_PROVISIONING_CLIENT_IDS,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
@@ -241,6 +244,11 @@ def handle_new_user(
             password=None,
             first_name=first_name,
             is_email_verified=False,
+            llm_gateway_access_blocked=(
+                partner.client_id == f"{settings.SITE_URL.rstrip('/')}/{WIZARD_METADATA_PATH}"
+                or partner.client_id in WIZARD_PROVISIONING_CLIENT_IDS
+                or partner.client_id in settings.WIZARD_GATEWAY_CLIENT_IDS
+            ),
         )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)

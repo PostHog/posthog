@@ -55,10 +55,21 @@ degrades toward a floor with nothing to alert on.
 
 ## Refusals
 
+New accounts created through the Wizard's provisioning clients use installation skills with the user's own coding agent.
+Provisioning sets `User.llm_gateway_access_blocked` before it returns credentials.
+Email verification, OAuth refresh, a different OAuth application, and project changes do not clear the restriction.
+Existing accounts linked through consent and accounts created by other provisioning partners retain their existing access.
+
+The restriction applies to wizard token mints, direct gateway credentials, gateway scope grants, and cloud wizard runs.
+The mint endpoint returns `403` with code `provisioned_account_gateway_disabled`, which selects the CLI's skill handoff.
+Staff can change the policy in Django admin; saving it reprojects the user's OAuth credentials and project keys.
+Product backends that use their own service credentials are outside this account credential policy.
+Deploy the user field migration before the gateway code, and keep account creation disabled until the CLI handoff is released.
+
 The endpoint answers one outcome per request, counted on
 `posthog_wizard_gateway_token_requests_total{outcome}`: `unconfigured`,
 `invalid_token`, `not_wizard_app`, `scope_missing`, `team_ambiguous`,
-`team_missing`, `unauthorized`, `blocked`, `not_rolled_out`, `program_unknown`,
+`team_missing`, `unauthorized`, `blocked`, `provisioned_account_gateway_disabled`, `not_rolled_out`, `program_unknown`,
 `throttled`, `mint_failed`, or `minted`.
 
 Refusals that an older CLI absorbed by falling back to the legacy gateway

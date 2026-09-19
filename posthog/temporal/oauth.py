@@ -625,6 +625,8 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     Gated here rather than only at the HTTP kickoff, which a workflow retry or
     resume reaches with no request in front of it.
     """
+    if user.llm_gateway_access_blocked:
+        raise WizardIdentityBlockedError("Gateway access is disabled for this account.")
     if wizard_identity_blocked(
         distinct_id=str(user.distinct_id),
         email=user.email,

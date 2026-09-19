@@ -493,6 +493,19 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         assert set(access_token.scope.split()) == set(scopes)
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    def test_gateway_disabled_account_cannot_mint_wizard_token(self) -> None:
+        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
+        user, team = self._create_user_and_team()
+        user.llm_gateway_access_blocked = True
+        user.is_email_verified = True
+        user.save(update_fields=["llm_gateway_access_blocked", "is_email_verified"])
+
+        with pytest.raises(WizardIdentityBlockedError):
+            create_wizard_oauth_access_token_for_user(user, team.id)
+
+        assert not OAuthAccessToken.objects.exists()
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_requires_existing_app(self) -> None:
         user, team = self._create_user_and_team()
 

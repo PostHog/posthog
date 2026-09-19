@@ -4,6 +4,15 @@ from __future__ import annotations
 
 import re
 
+WIZARD_PROVISIONING_CLIENT_IDS = frozenset(
+    {
+        "c4Rdw8DIxgtQfA80IiSnGKlNX8QN00cFWF00QQhM",
+        "bx2C5sZRN03TkdjraCcetvQFPGH6N2Y9vRLkcKEy",
+        "https://us.posthog.com/api/oauth/wizard/client-metadata",
+        "https://eu.posthog.com/api/oauth/wizard/client-metadata",
+    }
+)
+
 AUTH_CODE_CACHE_PREFIX = "provisioning_auth_code:"
 PENDING_AUTH_CACHE_PREFIX = "provisioning_pending_auth:"
 GITHUB_GRANT_CACHE_PREFIX = "provisioning_github_grant:"
