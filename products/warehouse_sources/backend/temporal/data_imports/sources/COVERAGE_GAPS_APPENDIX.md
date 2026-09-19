@@ -1592,7 +1592,7 @@ The chat entry stays open on purpose: those endpoints exist only on ClickUp's v3
 
 ## Clockify — gaps
 
-Today (13): `clients`, `custom_fields`, `expense_categories`, `expenses`, `invoice_payments`, `invoices`, `projects`, `tags`, `tasks`, `time_entries`, `time_off_requests`, `users`, `workspaces`
+Today (15): `approval_requests`, `clients`, `custom_fields`, `expense_categories`, `expenses`, `invoice_payments`, `invoices`, `projects`, `tags`, `tasks`, `time_entries`, `time_off_requests`, `user_groups`, `users`, `workspaces`
 
 Diffed against: <https://docs.clockify.me/>
 
@@ -1601,13 +1601,15 @@ Diffed against: <https://docs.clockify.me/>
 - [x] `POST /v1/workspaces/{workspaceId}/time-off/requests` — time off requests - required to separate absence from unlogged time in capacity analysis (high)
 - [ ] `GET /v1/workspaces/{workspaceId}/projects/{projectId}/memberships` — project-to-user membership join table; today projects and users cannot be linked (high)
 - [x] `GET /v1/workspaces/{workspaceId}/custom-fields` — custom field definitions resolving the custom field IDs stored on time entries and projects (high)
-- [ ] `GET /v1/workspaces/{workspaceId}/approval-requests` — timesheet approval state and history per user and period (medium)
-- [ ] `GET /v1/workspaces/{workspaceId}/user-groups (+ /{userGroupId}/users)` — team grouping and its membership rows for rolling time up by team (medium)
+- [x] `GET /v1/workspaces/{workspaceId}/approval-requests` — timesheet approval state and history per user and period (medium)
+- [x] `GET /v1/workspaces/{workspaceId}/user-groups (+ /{userGroupId}/users)` — team grouping and its membership rows for rolling time up by team (medium)
 - [ ] `GET /v1/workspaces/{workspaceId}/time-off/policies` — policy lookup that resolves the policy IDs on time off requests and balances (medium)
 - [ ] `GET /v1/workspaces/{workspaceId}/time-off/balance/user/{userId}` — accrued vs used leave balances per user (medium)
 - [ ] `GET /v1/workspaces/{workspaceId}/holidays` — holiday calendar needed to compute working days and utilization denominators (medium)
 - [ ] `GET /v1/workspaces/{workspaceId}/scheduling/assignments/all` — planned/scheduled assignments to compare planned against tracked time (medium)
 - [ ] `GET /v1/workspaces/{workspaceId}/audit-log` — workspace audit event stream for admin and compliance reporting (medium)
+
+Note: `/projects/{projectId}/memberships` serves POST and PATCH only — there is no GET, so no `project_memberships` table. The project-to-user link is already synced: every `projects` row carries a `memberships` array of user id, membership status and rate. `/user-groups/{userGroupId}/users` is likewise POST and DELETE only, and unnecessary — the group's members arrive as `userIds` on the `user_groups` row. `/audit-log` is a POST report, not a listing: the request body must carry an explicit allow-list of audit action types (so a type Clockify adds later is silently dropped), an author filter, and a bounded date window, the rows carry no identifier to merge on, and nothing is recorded at all unless the workspace turns auditing on per entity type. Left out on the same grounds as the other POST reports below.
 
 Note: Also present but below the cut: POST reports (detailed, summary, weekly, attendance), hourly/cost rate endpoints, and /entities/created|updated|deleted change feeds. Webhooks, addons, templates and shared reports excluded as plumbing/config. Invoice line items have no list endpoint — `/invoices/{invoiceId}/items` serves POST and DELETE only, and the items are embedded in the single-invoice response, so no `invoice_items` table. The time off listing is a POST whose filters travel in the request body, not the GET the diff assumed.
 
