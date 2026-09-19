@@ -1797,14 +1797,14 @@ Note: The whole public REST API is four doc pages (applications, artifacts, buil
 
 ## Codescene — **thin**
 
-Today (3): `Components`, `Files`, `Projects`
+Today (7): `Analyses`, `AuthorStatistics`, `Components`, `Files`, `Issues`, `Projects`, `TechnicalDebt`
 
 Diffed against: <https://docs.enterprise.codescene.io/latest/integrations/rest-api.html>
 
-- [ ] `projects/{project-id}/analyses` — the analysis-run history; without it every synced table is a single 'latest' snapshot with no trend and no way to pin an analysis id (high)
-- [ ] `projects/{project-id}/analyses/latest/issues` — code health issues (hotspots, brain classes) - the product's core finding table (high)
-- [ ] `projects/{project-id}/analyses/latest/technical-debt` — technical debt and refactoring targets, CodeScene's headline metric (high)
-- [ ] `projects/{project-id}/analyses/latest/author-statistics` — per-author contribution stats; the only way to join code health to people (high)
+- [x] `projects/{project-id}/analyses` — the analysis-run history; without it every synced table is a single 'latest' snapshot with no trend and no way to pin an analysis id (high)
+- [x] `projects/{project-id}/analyses/latest/issues` — issues from the project management integration, with status, cycle time and the commits and files changed while each was open (high)
+- [x] `projects/{project-id}/analyses/latest/technical-debt` — technical debt and refactoring targets, CodeScene's headline metric (high)
+- [x] `projects/{project-id}/analyses/latest/author-statistics` — per-author contribution stats; the only way to join code health to people (high)
 - [ ] `projects/{project-id}/analyses/latest/commits` — commit-level rows underpinning every aggregate CodeScene reports (medium)
 - [ ] `projects/{project-id}/analyses/latest/commit-activity` — commit activity time series for delivery-rate dashboards (medium)
 - [ ] `projects/{project-id}/analyses/latest/branch-statistics` — per-branch stats for branching-strategy and lead-time analysis (medium)
@@ -1814,7 +1814,7 @@ Diffed against: <https://docs.enterprise.codescene.io/latest/integrations/rest-a
 - [ ] `active-authors` — authoritative author roster; a lookup table for the author ids appearing in analyses (medium)
 - [ ] `projects/{project-id}/analyses/latest/experience/languages` — author language experience, used for knowledge-risk and bus-factor reporting (low)
 
-Note: Static endpoint list; no dynamic table discovery in products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py (three hardcoded CODESCENE_ENDPOINTS). The v2 API exposes ~100 paths; PostHog covers 3, and notably syncs only the 'latest' analysis with no analysis history.
+Note: Static endpoint list; no dynamic table discovery in products/warehouse_sources/backend/temporal/data_imports/sources/codescene/settings.py (hardcoded CODESCENE_ENDPOINTS). The v2 API exposes ~100 paths; PostHog covers 7. The per-analysis tables still read the 'latest' analysis only, but `Analyses` now carries the run history so an analysis id can be pinned.
 
 ## Cody — adequate
 
