@@ -141,6 +141,7 @@ export class TeamManager {
                 t.anonymize_ips,
                 t.api_token,
                 t.secret_api_token,
+                t.secret_api_token_backup,
                 t.session_recording_opt_in,
                 t.person_processing_opt_out,
                 t.heatmaps_opt_in,
