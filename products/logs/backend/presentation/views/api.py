@@ -25,6 +25,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import is_mcp_request
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -72,6 +73,7 @@ from products.logs.backend.presentation.views.sampling_api import LogsSamplingRu
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
 from products.logs.backend.services_query_runner import ServicesQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
+from products.logs.backend.url_secret_redaction import redact_secrets
 
 __all__ = [
     "LogsViewSet",
@@ -1343,6 +1345,18 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sessionId=query_data.get("sessionId", None),
         )
 
+    def finalize_response(self, request: Request, response: Response, *args, **kwargs) -> Response:
+        """Strip credential-shaped URL parameters from what the MCP server serves.
+
+        Log bodies and URL attributes hold request URLs verbatim, so an OAuth callback line
+        carries a live token, and an agent stores and repeats what a tool returns. Redacting
+        here rather than per action covers every log-reading endpoint of this viewset, and a
+        new one inherits it. A person reading the logs scene still gets the values whole.
+        """
+        if isinstance(response, Response) and is_mcp_request(request):
+            response.data = redact_secrets(response.data)
+        return super().finalize_response(request, response, *args, **kwargs)
+
     @staticmethod
     def _filter_analytics_props(query_data: dict) -> dict:
         """The filter-shape properties every logs aggregation action reports."""
@@ -1988,7 +2002,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             span.set_attribute("result_count", len(result.results))
             return Response(
-                {"results": [r.model_dump() for r in result.results], "refreshing": False},
+                {
+                    "results": [r.model_dump() for r in result.results],
+                    "refreshing": False,
+                },
                 status=status.HTTP_200_OK,
             )
 
