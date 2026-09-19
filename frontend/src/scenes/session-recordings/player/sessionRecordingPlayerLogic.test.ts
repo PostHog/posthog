@@ -1811,6 +1811,65 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('pausing media in the replay iframe', () => {
+        // setRootFrame clears innerHTML, so append the iframe after it runs
+        const attachIframe = (): HTMLIFrameElement => {
+            const rootFrame = document.createElement('div')
+            logic.actions.setRootFrame(rootFrame)
+            const iframe = document.createElement('iframe')
+            rootFrame.appendChild(iframe)
+            return iframe
+        }
+
+        it('pauses media in a same-origin replay iframe', () => {
+            const iframe = attachIframe()
+            const iframeDocument = document.implementation.createHTMLDocument()
+            const video = iframeDocument.createElement('video')
+            iframeDocument.body.appendChild(video)
+            const pause = jest.spyOn(video, 'pause').mockImplementation(() => {})
+            Object.defineProperty(iframe, 'contentDocument', { get: () => iframeDocument })
+
+            logic.actions.setPause()
+
+            expect(pause).toHaveBeenCalledTimes(1)
+        })
+
+        it('forgets media to resume once the iframe document becomes unreachable', () => {
+            const iframe = attachIframe()
+            const iframeDocument = document.implementation.createHTMLDocument()
+            const video = iframeDocument.createElement('video')
+            iframeDocument.body.appendChild(video)
+            jest.spyOn(video, 'pause').mockImplementation(() => {})
+            const play = jest.spyOn(video, 'play').mockResolvedValue(undefined)
+            Object.defineProperty(video, 'currentTime', { get: () => 1 })
+            Object.defineProperty(video, 'paused', { get: () => false })
+            Object.defineProperty(video, 'readyState', { get: () => 4 })
+            let reachable = true
+            Object.defineProperty(iframe, 'contentDocument', { get: () => (reachable ? iframeDocument : null) })
+
+            logic.actions.setPause()
+            reachable = false
+            logic.actions.setPause()
+            logic.actions.restartIframePlayback()
+
+            expect(play).not.toHaveBeenCalled()
+        })
+
+        it('skips pausing media in a cross-origin replay iframe', () => {
+            const iframe = attachIframe()
+            Object.defineProperty(iframe, 'contentDocument', { get: () => null })
+            Object.defineProperty(iframe, 'contentWindow', {
+                get: () => ({
+                    get document(): Document {
+                        throw new DOMException('Blocked a frame from accessing a cross-origin frame', 'SecurityError')
+                    },
+                }),
+            })
+
+            expect(() => logic.actions.setPause()).not.toThrow()
+        })
+    })
+
     describe('exportRecording', () => {
         it('uses the player skip-inactivity setting', () => {
             // setRootFrame clears innerHTML, so append the iframe after it runs

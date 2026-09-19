@@ -3323,18 +3323,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')
-            const iframeDocument = iframe?.contentWindow?.document
-            if (!iframeDocument) {
-                return
+            try {
+                // `contentWindow.document` throws SecurityError on a cross-origin frame, before optional
+                // chaining can help. `contentDocument` returns null for that frame instead.
+                const iframeDocument = iframe?.contentDocument
+                if (!iframeDocument) {
+                    // Media captured from an earlier document must not be resumed once that document is gone.
+                    cache.pausedMediaElements = []
+                    return
+                }
+
+                const audioElements = Array.from(iframeDocument.getElementsByTagName('audio')) as HTMLAudioElement[]
+                const videoElements = Array.from(iframeDocument.getElementsByTagName('video')) as HTMLVideoElement[]
+                const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
+                const playingElements = mediaElements.filter(isMediaElementPlaying)
+
+                mediaElements.forEach((el) => el.pause())
+                cache.pausedMediaElements = values.endReached ? [] : playingElements
+            } catch {
+                // Any other foreign-document access must not break the pause path. Skip pausing media.
+                cache.pausedMediaElements = []
             }
-
-            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio')) as HTMLAudioElement[]
-            const videoElements = Array.from(iframeDocument.getElementsByTagName('video')) as HTMLVideoElement[]
-            const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
-            const playingElements = mediaElements.filter(isMediaElementPlaying)
-
-            mediaElements.forEach((el) => el.pause())
-            cache.pausedMediaElements = values.endReached ? [] : playingElements
         },
         restartIframePlayback: () => {
             cache.pausedMediaElements?.forEach((el: HTMLMediaElement) => el.play())
