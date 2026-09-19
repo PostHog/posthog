@@ -55,6 +55,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         source_product: null,
         source_id: null,
         created_at: '2026-06-11T09:00:00Z',
+        updated_at: '2026-06-11T09:00:00Z',
         ...overrides,
     }
 }
