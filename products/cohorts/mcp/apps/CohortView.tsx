@@ -11,7 +11,7 @@ export interface CohortData {
     is_calculating?: boolean
     count?: number | null
     created_at?: string
-    created_by?: { first_name?: string; email?: string } | null
+    created_by?: { id?: number; first_name?: string; email?: string } | null
     filters?: Record<string, unknown>
     _posthogUrl?: string
 }
@@ -21,6 +21,9 @@ export interface CohortViewProps {
 }
 
 export function CohortView({ cohort }: CohortViewProps): ReactElement {
+    // The MCP response keeps only created_by.id, so the object can be truthy without a displayable name.
+    // Show the creator row only when a name or email is present, to avoid a false "Unknown" label.
+    const createdBy = cohort.created_by?.first_name || cohort.created_by?.email
     return (
         <div className="p-4">
             <div className="flex flex-col gap-3">
@@ -46,15 +49,7 @@ export function CohortView({ cohort }: CohortViewProps): ReactElement {
                                 ...(cohort.created_at
                                     ? [{ label: 'Created', value: formatDate(cohort.created_at) }]
                                     : []),
-                                ...(cohort.created_by
-                                    ? [
-                                          {
-                                              label: 'Created by',
-                                              value:
-                                                  cohort.created_by.first_name || cohort.created_by.email || 'Unknown',
-                                          },
-                                      ]
-                                    : []),
+                                ...(createdBy ? [{ label: 'Created by', value: createdBy }] : []),
                             ]}
                         />
                     </CardContent>
