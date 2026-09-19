@@ -103,6 +103,20 @@ describe("activityPresentation", () => {
     });
   });
 
+  it("stops asking for a reply once the agent has taken it", () => {
+    expect(
+      activityPresentation(
+        item({ activityKind: "awaiting_input" }),
+        "me@posthog.com",
+        true,
+      ),
+    ).toEqual({
+      metadata: "just now · Agent is working",
+      agentIcon: "chat",
+      spaceLabel: null,
+    });
+  });
+
   it.each([
     [
       "shared channel",
