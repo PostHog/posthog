@@ -65,7 +65,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
     filterset_class = ChangeRequestFilterSet
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.select_related("created_by", "applied_by").prefetch_related("approvals")
+        return queryset.select_related("created_by", "applied_by", "team").prefetch_related("approvals")
 
     @extend_schema(
         request=ChangeRequestApproveSerializer,
