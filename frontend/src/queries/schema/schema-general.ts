@@ -4375,6 +4375,8 @@ export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'i
 export interface ErrorTrackingExternalReference {
     id: string
     external_url: string
+    external_id: string
+    title: string
     integration: ErrorTrackingExternalReferenceIntegration
 }
 

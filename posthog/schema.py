@@ -17354,9 +17354,11 @@ class ErrorTrackingExternalReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    external_id: str
     external_url: str
     id: str
     integration: ErrorTrackingExternalReferenceIntegration
+    title: str
 
 
 class ErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
