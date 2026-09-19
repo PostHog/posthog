@@ -87,6 +87,7 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
     high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
+    misrouted_event: 'discarded-ai-events',
 }
 
 export const WARNING_TYPE_RENDERER = {

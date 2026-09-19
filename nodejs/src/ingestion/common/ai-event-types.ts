@@ -1,9 +1,6 @@
-// An event belongs to the AI lane iff its name starts with this prefix. Capture routes by
-// the same rule, so the AI pipeline admits and enriches every `$ai_*` event, including
-// names it has never seen. The Python query-routing list in
-// posthog/hogql_queries/ai/ai_table_resolver.py intentionally stays exact: ai_events lacks
-// full history for anything but the core types, so their queries stay on the shared events
-// table to avoid the resolver misreading the missing rows as expired data.
+// Capture routes by the same prefix, so the AI pipeline admits every `$ai_*` event, including
+// names it has never seen. The query-routing list in posthog/hogql_queries/ai/ai_table_resolver.py
+// stays exact on purpose: ai_events lacks full history for anything but the core types.
 export const AI_EVENT_NAME_PREFIX = '$ai_'
 
 export function isAiEventName(event: string): boolean {
