@@ -13,9 +13,8 @@ interface ApprovalActionConfig {
     label: string
     description: string
     contextDescriptions?: Partial<Record<ApprovalContext, string>>
-    /** What the gate compares, spelled out where a policy is picked. */
+    /** What the gate compares: the long form for the picker, the summary for the policy list. */
     coverage?: string
-    /** The same scope in a few words, for the policy list. */
     coverageSummary?: string
 }
 
