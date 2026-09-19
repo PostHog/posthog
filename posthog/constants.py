@@ -7,9 +7,8 @@ FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted ver
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 POSTHOG_INTERNAL_EMAIL_SUFFIX = "@posthog.com"
 
-# Every event whose name carries this prefix is an AI event: capture and the AI ingestion
-# pipeline route on it, and billing meters it on the LLM analytics meter, never the product
-# analytics one. nodejs `AI_EVENT_NAME_PREFIX` and Rust `AI_LANE_NAME_PREFIX` pin the same literal.
+# Any `$ai_*` event is an AI event: capture and the AI pipeline route on it, and billing meters
+# it as LLM analytics. nodejs `AI_EVENT_NAME_PREFIX` and Rust `AI_LANE_NAME_PREFIX` pin the same literal.
 AI_EVENT_NAME_PREFIX = "$ai_"
 
 
