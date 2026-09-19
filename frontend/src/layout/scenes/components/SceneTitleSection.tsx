@@ -507,6 +507,11 @@ export function SceneName({
         onChange?.(value)
     }, renameDebounceMs)
 
+    // A debounce of 0 must commit in the same tick as the keystroke. A 0ms timer still runs after
+    // the click that follows it, so a form that validates its own value can read an empty field.
+    const commitName = renameDebounceMs === 0 ? onChange : debouncedOnChange
+    const commitNameOnBlur = renameDebounceMs === 0 ? onChange : debouncedOnBlurSave
+
     useEffect(() => {
         return () => {
             debouncedOnBlurSave.flush()
@@ -520,7 +525,7 @@ export function SceneName({
             return
         }
         if (saveOnBlur && !isGeneratingMetadata && name !== initialName) {
-            debouncedOnBlurSave(name || '')
+            commitNameOnBlur?.(name || '')
         } else if (!saveOnBlur) {
             // Commit any pending debounced change synchronously so a submit or
             // validation that immediately follows blur reads the value the user sees.
@@ -549,7 +554,7 @@ export function SceneName({
                                 if (forceEdit && !saveOnBlur) {
                                     onChange?.(e.target.value)
                                 } else if (!saveOnBlur) {
-                                    debouncedOnChange(e.target.value)
+                                    commitName?.(e.target.value)
                                 }
                             }}
                             data-attr="scene-title-textarea"
