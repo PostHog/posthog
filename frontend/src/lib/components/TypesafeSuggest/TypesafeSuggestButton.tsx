@@ -4,7 +4,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export const TYPESAFE_DATA_NOTICE =
-    'This sends the name, description, query, tags, and the names of related insights and dashboards to TypeSafe. TypeSafe is not on the PostHog list of subprocessors, so your agreements with PostHog do not cover it.'
+    'This sends the name, description, tags, a plain-language outline of the query (events, filter keys, breakdown, dates, but no filter values), and the names of related insights and dashboards to TypeSafe. TypeSafe is not on the PostHog list of subprocessors, so your agreements with PostHog do not cover it.'
 
 export interface TypesafeSuggestButtonProps {
     /** What the button fills in, shown as the tooltip title. Example: "Suggest a title". */
