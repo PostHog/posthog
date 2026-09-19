@@ -313,6 +313,18 @@ class ClickHousePrinter(BasePrinter):
         filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
         return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
 
+    def _print_exchange_rate_date(self, date_node: ast.Expr, printed_date: str) -> str:
+        # The dictionary range key only accepts a non-nullable Date, but most ways to write a
+        # date in HogQL are nullable: `toDate` maps to `toDateOrNull`, and warehouse date
+        # columns read back nullable. A null date falls back to today(), as no date does.
+        if self._resolves_to(date_node, ast.StringType):
+            # accurateCastOrNull cannot read a string that carries a zone ('Z' or an offset), and
+            # it rolls an impossible calendar date over instead of rejecting it. Both would pick
+            # the wrong rate without failing. Fix the zone to UTC so the rate does not depend on
+            # the team's timezone.
+            printed_date = f"parseDateTime64BestEffortOrNull({printed_date}, 3, 'UTC')"
+        return f"ifNull(accurateCastOrNull({printed_date}, 'Date'), today())"
+
     def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
         args = [self.visit(arg) for arg in node.args]
 
@@ -336,7 +348,7 @@ class ClickHousePrinter(BasePrinter):
         elif node.name == "convertCurrency":
             # convertCurrency(from_currency, to_currency, amount, timestamp?)
             from_currency, to_currency, amount, *_rest = args
-            date = args[3] if len(args) > 3 and args[3] else "today()"
+            date = self._print_exchange_rate_date(node.args[3], args[3]) if len(args) > 3 and args[3] else "today()"
             db = django_settings.CLICKHOUSE_DATABASE
             scale = EXCHANGE_RATE_DECIMAL_PRECISION
             # Build rate lookup expressions
@@ -653,14 +665,17 @@ class ClickHousePrinter(BasePrinter):
     def _parse_zoned_datetime_constant(node: ast.Expr) -> datetime | None:
         return parse_zoned_datetime_string(node.value) if isinstance(node, ast.Constant) else None
 
-    def _resolves_to_datetime(self, node: ast.Expr) -> bool:
+    def _resolves_to(self, node: ast.Expr, expected: type[ast.ConstantType]) -> bool:
         if node.type is None:
             return False
         try:
             constant_type = node.type.resolve_constant_type(self.context)
         except Exception:
             return False
-        return isinstance(constant_type, ast.DateTimeType)
+        return isinstance(constant_type, expected)
+
+    def _resolves_to_datetime(self, node: ast.Expr) -> bool:
+        return self._resolves_to(node, ast.DateTimeType)
 
     def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
         traverser = GetFieldsTraverser(node)
