@@ -53,7 +53,7 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
@@ -473,6 +473,28 @@ class TestEvaluateAlert:
         # Only prepare-time validate_alert_config failures call disable_invalid_alert.
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
+
+    async def test_unavailable_data_records_error_without_disabling(self, alert_with_user) -> None:
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=AlertDataUnavailableError("SQL history is incomplete"),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.calculated_value is None
+        assert check.error == {"message": "SQL history is incomplete"}
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is True
+        mock_capture.assert_not_called()
+        mock_notify.assert_not_called()
 
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_extraction_error(self, alert_with_user) -> None:
         # A misconfigured query (wrong shape / bad config) fails loud with AlertExtractionError. That's
