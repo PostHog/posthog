@@ -20,7 +20,7 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
-  useInboxReportArtefacts: () => ({
+  useInboxReportSuggestedReviewerArtefacts: () => ({
     data: { count: 0, results: [] },
     isLoading: false,
     isError: false,

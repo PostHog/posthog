@@ -3,7 +3,9 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
-  useInboxReportArtefacts: () => ({ data: { count: 0, results: [] } }),
+  useInboxReportSuggestedReviewerArtefacts: () => ({
+    data: { count: 0, results: [] },
+  }),
   useUpdateSuggestedReviewers: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 

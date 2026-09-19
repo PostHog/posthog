@@ -17,7 +17,7 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { SuggestedReviewersList } from "@posthog/ui/features/inbox/components/SuggestedReviewersList";
 import { SuggestedReviewerAvatar } from "@posthog/ui/features/inbox/components/utils/SuggestedReviewerAvatar";
 import {
-  useInboxReportArtefacts,
+  useInboxReportSuggestedReviewerArtefacts,
   useUpdateSuggestedReviewers,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
@@ -47,7 +47,7 @@ export function SuggestedReviewerAvatarStack({
 }: SuggestedReviewerAvatarStackProps) {
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
-  const { data } = useInboxReportArtefacts(report.id, {
+  const { data } = useInboxReportSuggestedReviewerArtefacts(report.id, {
     enabled: artefacts === undefined,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,

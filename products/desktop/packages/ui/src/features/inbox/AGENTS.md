@@ -170,8 +170,9 @@ Detail screens layer additional data on top of the base report:
 
 - `useInboxReportById(reportId)` for the report record.
 - `useInboxReportSignals(reportId)` for contributing findings.
-- `useInboxReportArtefacts(reportId)` for structured outputs such as suggested reviewers.
-- `useReportTasks(reportId, status)` for linked research/implementation tasks.
+- `useInboxReportArtefacts(reportId, { types })` for structured outputs. Pass `types` to download only the artefact types you read; every reader of one shape shares one query key and one fetch. Only the detail Activity section reads the whole log.
+- `useInboxReportSuggestedReviewerArtefacts(reportId)` for the current suggested reviewers. The reviewer stack, sidebar, and search dialog all read this one `suggested_reviewers` query.
+- `useReportTasks(reportId, status)` for linked research/implementation tasks. It fills and reads the shared `task_run` artefacts query, then derives the task ids from it.
 - The repository a report selected is `report.repo_slug` on the list row, so cards and menus need no artefact fetch for it.
 
 Ready and pending-input report details offer Resolve and Dismiss beside the other report actions. Resolve records why the work is done; Dismiss records why the report should leave the inbox. Reviewer detail lives in the sidebar, not the title header.
@@ -190,7 +191,7 @@ The Inbox reads from PostHog Cloud's Self-driving backend, currently implemented
 - `GET /api/projects/{teamId}/signals/reports/{id}/`: single report detail.
 - `GET /api/projects/{teamId}/signals/reports/{id}/signals/`: contributing findings.
 - `GET /api/projects/{teamId}/signals/reports/{id}/artefacts/`: structured report artefacts.
-- `GET /api/projects/{teamId}/signals/reports/{id}/tasks/`: tasks linked to a report.
+- `GET /api/projects/{teamId}/tasks/{id}/`: one linked task. There is no report-tasks endpoint: the link lives in the report's `task_run` artefacts.
 
 The shared renderer type for the report is `SignalReport` in `packages/shared/src/domain-types.ts`. If the backend serializer changes, update that type and the client methods in `packages/api-client/src/posthog-client.ts` together.
 
