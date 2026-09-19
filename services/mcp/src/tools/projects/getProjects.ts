@@ -6,7 +6,8 @@ import type { Context, ToolBase } from '@/tools/types'
 const schema = ProjectGetAllSchema
 
 // Credentials never belong in a discovery response; `id` is enough to correlate
-// a project. `project-get` and `project-settings-update` drop the same fields.
+// a project. A caller that needs the public token asks `project-get` for one
+// project, which is the only tool that still returns it.
 const CREDENTIAL_FIELDS = [
     'api_token',
     'secret_api_token',

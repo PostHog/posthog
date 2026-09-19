@@ -11,36 +11,40 @@ import type { Context } from '@/tools/types'
 const ORG_ID = 'org-1'
 const PROJECT_ID = 42
 
-// `project-get` is the surface whose exclude list is reviewed when a credential
-// field is added to the project serializer. Deriving the fixture from it means a
-// new secret there also has to be dropped by the other project surfaces, instead
-// of leaking until someone notices the lists drifted apart.
+// `project-get` is the surface whose exclude list is reviewed when a secret is
+// added to the project serializer. Deriving the fixture from it means a new
+// secret there also has to be dropped by the other project surfaces, instead of
+// leaking until someone notices the lists drifted apart.
 const coreDefinitions = parseYaml(fs.readFileSync(path.resolve(__dirname, '../../definitions/core.yaml'), 'utf-8'))
 const SECRET_FIELDS: string[] = (coreDefinitions.tools['project-get'].response.exclude as string[]).filter(
     (field) => field.includes('token') || field.includes('secret')
 )
 
+const secretValue = (field: string): string => `SECRET_VALUE_${field}`
+const API_TOKEN = 'phc_public_write_key'
+
 const PROJECT_WITH_CREDENTIALS = {
     id: PROJECT_ID,
     name: 'My project',
     organization: ORG_ID,
-    ...Object.fromEntries(SECRET_FIELDS.map((field) => [field, `SECRET_VALUE_${field}`])),
+    api_token: API_TOKEN,
+    ...Object.fromEntries(SECRET_FIELDS.map((field) => [field, secretValue(field)])),
 }
 
-function expectNoCredentials(payload: unknown): void {
+function expectNoSecrets(payload: unknown): void {
     const serialized = JSON.stringify(payload)
     for (const field of SECRET_FIELDS) {
-        expect(serialized).not.toContain(`SECRET_VALUE_${field}`)
+        expect(serialized).not.toContain(secretValue(field))
     }
 }
 
 describe('project tools do not expose credentials', () => {
-    it('derives a non-empty credential set from the project-get exclude list', () => {
-        expect(SECRET_FIELDS).toContain('api_token')
-        expect(SECRET_FIELDS.length).toBeGreaterThan(1)
+    it('derives a non-empty secret set that excludes the public token', () => {
+        expect(SECRET_FIELDS).toContain('secret_api_token')
+        expect(SECRET_FIELDS).not.toContain('api_token')
     })
 
-    it('projects-get strips credentials from every listed project', async () => {
+    it('projects-get strips secrets and the API token from every listed project', async () => {
         const context = {
             stateManager: { getOrgID: vi.fn().mockResolvedValue(ORG_ID) },
             api: {
@@ -56,10 +60,11 @@ describe('project tools do not expose credentials', () => {
 
         expect(projects).toHaveLength(1)
         expect(projects[0]!.id).toBe(PROJECT_ID)
-        expectNoCredentials(projects)
+        expectNoSecrets(projects)
+        expect(JSON.stringify(projects)).not.toContain(API_TOKEN)
     })
 
-    it('project-get strips credentials from the retrieved project', async () => {
+    it('project-get strips secrets but keeps the API token callers ask it for', async () => {
         const context = {
             stateManager: {
                 getOrgID: vi.fn().mockResolvedValue(ORG_ID),
@@ -71,10 +76,13 @@ describe('project tools do not expose credentials', () => {
         const project = await GENERATED_TOOL_MAP['project-get']!().handler(context, {})
 
         expect((project as { id: number }).id).toBe(PROJECT_ID)
-        expectNoCredentials(project)
+        expectNoSecrets(project)
+        // The setup wizard in products/tasks reads the public token from here;
+        // it is the only tool that still returns it.
+        expect((project as { api_token: string }).api_token).toBe(API_TOKEN)
     })
 
-    it('project-settings-update strips credentials from the updated project', async () => {
+    it('project-settings-update strips secrets and the API token from the updated project', async () => {
         const context = {
             stateManager: { getOrgID: vi.fn().mockResolvedValue(ORG_ID) },
             api: { request: vi.fn().mockResolvedValue(PROJECT_WITH_CREDENTIALS) },
@@ -86,6 +94,7 @@ describe('project tools do not expose credentials', () => {
         })
 
         expect((project as { id: number }).id).toBe(PROJECT_ID)
-        expectNoCredentials(project)
+        expectNoSecrets(project)
+        expect(JSON.stringify(project)).not.toContain(API_TOKEN)
     })
 })

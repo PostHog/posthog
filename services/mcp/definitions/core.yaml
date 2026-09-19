@@ -387,7 +387,9 @@ tools:
             idempotent: true
         title: Get project
         description: |
-            Retrieve a project and its settings. Omit the ID to get the caller's active project.
+            Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool
+            that returns the project API token, which is safe to put in client-side code. Project listing, project
+            updates and the session context leave it out, so ask for a single project when you need the token.
         param_overrides:
             id:
                 description: Project ID. If omitted, returns the caller's active project.
@@ -396,7 +398,6 @@ tools:
                 cast: string-int
         response:
             exclude:
-                - api_token
                 - secret_api_token
                 - secret_api_token_backup
                 - live_events_token
