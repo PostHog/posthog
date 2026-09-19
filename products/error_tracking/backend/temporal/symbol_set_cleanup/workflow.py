@@ -67,7 +67,7 @@ def _bucketed_activity_inputs(inputs: SymbolSetCleanupInputs, bucket_offset: int
 
 
 def _bucket_offset(inputs: SymbolSetCleanupInputs) -> int:
-    # Each run starts where the last one stopped, so consecutive runs cover the whole bucket range in turn.
+    # The offset follows the clock, not the last run's progress, so a skipped run leaves its slice to the next cycle.
     rotation_index = int(workflow.now().timestamp() / BUCKET_ROTATION_INTERVAL.total_seconds())
     return (rotation_index * inputs.sweep_size()) % SYMBOL_SET_CLEANUP_BUCKET_COUNT
 
