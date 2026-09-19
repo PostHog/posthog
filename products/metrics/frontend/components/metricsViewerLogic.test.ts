@@ -25,7 +25,7 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { metricsViewerLogic } from './metricsViewerLogic'
+import { createViewerClause, metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -148,6 +148,113 @@ describe('metricsViewerLogic', () => {
 
     it('produces no MetricsQuery node without a metric name', () => {
         expect(logic.values.metricsQueryNode).toBeNull()
+    })
+
+    // A latency-over-time heatmap is only meaningful for a distribution metric — offering it
+    // for a gauge or counter would render a meaningless all-in-one-bucket chart.
+    it.each([
+        ['request_duration', 'histogram', true],
+        ['queue_depth', 'gauge', false],
+        ['requests_total', 'sum', false],
+    ])('heatmap eligibility for %s (%s) is %s', (metricName, _type, expected) => {
+        logic.actions.setMetricName(metricName)
+        expect(logic.values.heatmapEligible).toBe(expected)
+    })
+
+    // The heatmap reads a single distribution: a multi-series or formula query has no one
+    // histogram to grid, so the option is ineligible there too.
+    it('is not heatmap-eligible for multi-series or formula queries', () => {
+        logic.actions.setMetricName('request_duration')
+        expect(logic.values.heatmapEligible).toBe(true)
+
+        logic.actions.setFormula('a / 2')
+        expect(logic.values.heatmapEligible).toBe(false)
+        logic.actions.setFormula('')
+
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.heatmapEligible).toBe(false)
+    })
+
+    // The heatmap runs a MetricsHistogramQuery built from the same clause and window as the
+    // time-series MetricsQuery, so the tile re-runs exactly what the viewer shows.
+    it('maps the active histogram clause to a MetricsHistogramQuery node', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setFilterGroup(
+            filterGroupWith([{ key: 'namespace', operator: PropertyOperator.Exact, value: ['posthog'] }])
+        )
+        logic.actions.setDateFrom('-24h')
+
+        expect(logic.values.histogramQueryNode).toEqual({
+            kind: NodeKind.MetricsHistogramQuery,
+            metricName: 'request_duration',
+            metricType: 'histogram',
+            filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
+            dateRange: { date_from: '-24h' },
+        })
+    })
+
+    it('produces no MetricsHistogramQuery node when the query is not heatmap-eligible', () => {
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.histogramQueryNode).toBeNull()
+    })
+
+    // "Save as insight" on the heatmap persists the histogram query node, not the time-series
+    // node, so the saved tile renders the same heatmap the viewer showed.
+    it('saves the histogram query node when the heatmap display is selected', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setDisplayType('heatmap')
+
+        expect(logic.values.savedQueryNode?.kind).toBe(NodeKind.MetricsHistogramQuery)
+        expect(logic.values.metricsQueryNode?.kind).toBe(NodeKind.MetricsQuery)
+    })
+
+    // Mirrors the needsGroupBy fallback: a query that stops being heatmap-eligible (a metric
+    // switch to a gauge, a formula added) cannot stay on a display type that no longer applies.
+    it('falls back to the default display when the query stops being heatmap-eligible', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setDisplayType('heatmap')
+        expect(logic.values.displayType).toBe('heatmap')
+
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.displayType).toBe('line')
+    })
+
+    // The heatmap grids one distribution as-is; the histogram query has no grouping field,
+    // so a grouped clause would render its heatmap with the grouping silently dropped.
+    it('is not heatmap-eligible for a grouped clause', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setGroupByKeys(['container'])
+
+        expect(logic.values.heatmapEligible).toBe(false)
+        expect(logic.values.histogramQueryNode).toBeNull()
+    })
+
+    // The display latches only at metric-switch time, so every other change that makes the
+    // query ineligible (a formula, a second clause, a URL restore, a group-by) must fall
+    // back too — otherwise the viewer keeps "heatmap" selected while rendering a time
+    // series, and saving silently does nothing (savedQueryNode is null).
+    it('falls back to the default display from heatmap on any eligibility loss', () => {
+        const expectHeatmapFallback = (act: () => void): void => {
+            logic.actions.setClauses([createViewerClause('a')], '')
+            logic.actions.setMetricName('request_duration')
+            logic.actions.setDisplayType('heatmap')
+            expect(logic.values.displayType).toBe('heatmap')
+
+            act()
+            expect(logic.values.displayType).toBe('line')
+        }
+
+        expectHeatmapFallback(() => logic.actions.setFormula('a / 2'))
+        expectHeatmapFallback(() => {
+            logic.actions.addClause()
+            logic.actions.setMetricName('queue_depth')
+        })
+        expectHeatmapFallback(() => logic.actions.duplicateClause(0))
+        expectHeatmapFallback(() => logic.actions.setGroupByKeys(['container']))
+        expectHeatmapFallback(() =>
+            logic.actions.setClauses([createViewerClause('a'), createViewerClause('b')], 'a / 2')
+        )
     })
 
     // Guards the multi-series save path: each clause carries its own metric/aggregation,

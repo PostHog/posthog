@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
@@ -22,6 +24,7 @@ import {
     metricsNamesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 
+import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsGroupByButton } from './MetricsGroupByButton'
 import { MetricsViewer } from './MetricsViewer'
 import { metricsViewerLogic } from './metricsViewerLogic'
@@ -56,14 +59,34 @@ describe('MetricsViewer', () => {
                 [AccessControlResourceType.Insight]: AccessControlLevel.Editor,
             },
         } as AppContext
-        useMocks({ get: { '/api/environments/:team_id/dashboards/': { count: 0, results: [] } } })
+        useMocks({
+            get: { '/api/environments/:team_id/dashboards/': { count: 0, results: [] } },
+            post: {
+                // The generic query endpoint the heatmap's MetricsHistogramQuery runs against.
+                '/api/environments/:team_id/query/': { times: [], bounds: [], counts: [] },
+            },
+        })
         initKeaTests()
-        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: [] })
+        // The picker list feeds each clause's latched OTel type; the heatmap option keys off it.
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({
+            results: [
+                { name: 'queue_depth', metric_type: 'gauge' },
+                { name: 'request_duration', metric_type: 'histogram' },
+                { name: 'http.server.duration', metric_type: 'histogram' },
+            ],
+        })
         jest.mocked(metricsQueryCreate).mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({ results: [], count: 0 })
         jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as QueryBasedInsightModel)
         logic = metricsViewerLogic()
         logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS_DASHBOARD_PANELS]: true })
+        // Load the picker list so metric switches latch the OTel type (drives heatmap eligibility).
+        metricNamePickerLogic.actions.loadItemsSuccess([
+            { name: 'queue_depth', metric_type: 'gauge' },
+            { name: 'request_duration', metric_type: 'histogram' },
+            { name: 'http.server.duration', metric_type: 'histogram' },
+        ] as any)
     })
 
     afterEach(() => {
@@ -107,6 +130,47 @@ describe('MetricsViewer', () => {
 
         expect(await screen.findByPlaceholderText('Formula, e.g. (a - b) / a')).toBeInTheDocument()
         expect(logic.values.viewerClauses).toHaveLength(2)
+    })
+
+    // The heatmap option only makes sense for a distribution metric; the picker disables it
+    // (with the reason as its tooltip) for gauges, counters, and multi-series/formula queries.
+    it('disables the heatmap option for a non-histogram metric and enables it for a histogram', async () => {
+        logic.actions.setMetricName('queue_depth') // a gauge
+        render(
+            <Provider>
+                <MetricsViewer />
+            </Provider>
+        )
+
+        const heatmapMenuItem = (): Element | null =>
+            Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) =>
+                el.textContent?.includes('Heatmap')
+            ) ?? null
+
+        fireEvent.click(document.querySelector('[data-attr="metrics-viewer-display-type"]') as Element)
+        expect(heatmapMenuItem()?.getAttribute('aria-disabled')).toBe('true')
+
+        fireEvent.click(document.querySelector('[data-attr="metrics-viewer-display-type"]') as Element) // close
+        logic.actions.setMetricName('request_duration') // a histogram
+        fireEvent.click(document.querySelector('[data-attr="metrics-viewer-display-type"]') as Element)
+        expect(heatmapMenuItem()?.getAttribute('aria-disabled')).not.toBe('true')
+    })
+
+    // Selecting the heatmap runs the histogram query and renders the grid, not the shared
+    // time-series chart the other panels draw from.
+    it('renders the histogram node when the heatmap display is selected on a histogram metric', async () => {
+        logic.actions.setMetricName('request_duration')
+        render(
+            <Provider>
+                <MetricsViewer />
+            </Provider>
+        )
+
+        logic.actions.setDisplayType('heatmap')
+
+        // The histogram endpoint returned an empty grid, so the node renders its empty state
+        // rather than the time-series chart or the generic "no metric" prompt.
+        expect(await screen.findByText('No data for this metric in the selected range.')).toBeInTheDocument()
     })
 
     // "Add to dashboard" saves the query as an insight, then hands off to the shared dashboard

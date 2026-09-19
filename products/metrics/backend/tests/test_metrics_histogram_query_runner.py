@@ -28,11 +28,11 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
 
     def _seed_histogram(self, points_with_counts, temporality="delta", bounds=None, **kwargs):
+        kwargs.setdefault("metric_type", "histogram")
         for timestamp, counts in points_with_counts:
             seed_metric(
                 team_id=self.team.id,
                 metric_name="latency",
-                metric_type="histogram",
                 aggregation_temporality=temporality,
                 histogram_bounds=bounds or self.BOUNDS,
                 histogram_counts=counts,
@@ -85,6 +85,18 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run()
         self.assertEqual(response.bounds, [])
         self.assertEqual(response.counts, [])
+
+    # The viewer latches the OTel type at pick time and sends it as `metricType` — the
+    # runner must filter on it, or one metric name stored as two types (a histogram and
+    # an exponential histogram) blends into one heatmap.
+    def test_metric_type_filters_to_that_type(self):
+        self._seed_histogram([(self.anchor, [10, 10, 10, 0])])
+        self._seed_histogram([(self.anchor, [5, 5, 5, 0])], metric_type="exponential_histogram")
+
+        response = self._run(metricType="exponential_histogram")
+
+        second_minute = [response.counts[b][1] for b in range(len(self.BOUNDS))]
+        self.assertEqual(second_minute, [5, 5, 5])
 
     def test_rejects_mixed_bucket_layouts(self):
         self._seed_histogram([(self.anchor, [10, 0, 0, 0])], bounds=[0.1, 0.5, 1.0])

@@ -137,6 +137,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 filters=filters,
                 interval=interval,
                 quantile=0.5,  # unused by the grid query; required by the constructor
+                # One metric name can hold series of more than one OTel type; the
+                # heatmap must grid only the distribution the viewer picked.
+                metric_type=self.query.metricType.value if self.query.metricType else None,
             )
         except ValueError as exc:
             # The runner signals user errors (inverted range, too-wide span, unknown
