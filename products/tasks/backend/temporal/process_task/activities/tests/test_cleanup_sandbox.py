@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox_usage import SandboxDestroyOutcome
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 
@@ -42,6 +43,7 @@ def test_cleanup_sandbox_records_cpu_usage_before_destroy(activity_environment, 
     close_session.assert_called_once_with(
         "sandbox-123",
         reason="cleanup",
+        destroy_outcome=SandboxDestroyOutcome.SUCCEEDED,
         cpu_usage_usec=12_345_678,
         billed_cpu_usage_usec=15_000_000,
         cpu_usage_measured_at=mocker.ANY,
@@ -106,6 +108,7 @@ def test_cleanup_sandbox_retries_when_final_destroy_fails(activity_environment, 
     close_session.assert_called_once_with(
         "sandbox-123",
         reason="cleanup",
+        destroy_outcome=SandboxDestroyOutcome.FAILED,
         cpu_usage_usec=12_345_678,
         billed_cpu_usage_usec=15_000_000,
         cpu_usage_measured_at=mocker.ANY,
@@ -176,6 +179,9 @@ def test_cleanup_sandbox_completes_stream_when_sandbox_is_already_gone(activity_
     publish_complete = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
     )
+    close_session = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.close_sandbox_session"
+    )
 
     async_to_sync(activity_environment.run)(
         cleanup_sandbox,
@@ -187,6 +193,7 @@ def test_cleanup_sandbox_completes_stream_when_sandbox_is_already_gone(activity_
     )
 
     publish_complete.assert_called_once_with(run_id, False)
+    assert close_session.call_args.kwargs["destroy_outcome"] == SandboxDestroyOutcome.SANDBOX_NOT_FOUND
 
 
 @pytest.mark.skipif(

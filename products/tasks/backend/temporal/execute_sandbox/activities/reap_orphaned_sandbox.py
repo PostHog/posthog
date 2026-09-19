@@ -22,8 +22,10 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_usage import (
+    SandboxDestroyOutcome,
     close_sandbox_session,
     measure_sandbox_billed_cpu_usage,
     measure_sandbox_cpu_usage,
@@ -68,6 +70,7 @@ def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandbo
             return ReapOrphanedSandboxResult(reaped_sandbox_id=None, destroy_succeeded=True)
 
         destroy_succeeded = True
+        destroy_outcome = SandboxDestroyOutcome.SUCCEEDED
         cpu_usage_usec = None
         billed_cpu_usage_usec = None
         cpu_usage_measured_at = None
@@ -76,10 +79,16 @@ def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandbo
             cpu_usage_usec, cpu_usage_measured_at = measure_sandbox_cpu_usage(sandbox)
             billed_cpu_usage_usec = measure_sandbox_billed_cpu_usage(sandbox)
             sandbox.destroy()
+        except SandboxNotFoundError:
+            # An orphan is usually already gone, because the provider TTL got there
+            # first. Counting that as a destroy failure would bury the real ones.
+            destroy_succeeded = False
+            destroy_outcome = SandboxDestroyOutcome.SANDBOX_NOT_FOUND
         except Exception:
             # Modal TTL is the backstop; we still clear state below so the
             # next start doesn't re-reap a dead id forever.
             destroy_succeeded = False
+            destroy_outcome = SandboxDestroyOutcome.FAILED
 
         # Best-effort usage-ledger end stamp (swallows its own failures), regardless of
         # destroy outcome — the TTL kills any undead sandbox anyway, and the ledger
@@ -87,6 +96,7 @@ def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandbo
         close_sandbox_session(
             sandbox_id,
             reason=SandboxSession.EndedReason.REAPED,
+            destroy_outcome=destroy_outcome,
             cpu_usage_usec=cpu_usage_usec,
             billed_cpu_usage_usec=billed_cpu_usage_usec,
             cpu_usage_measured_at=cpu_usage_measured_at,
