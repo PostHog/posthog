@@ -477,4 +477,34 @@ describe('query', () => {
             })
         })
     })
+
+    describe('polling through a transient gateway failure', () => {
+        const gatewayFailure = (): ApiError => new ApiError('Non-OK response', 504)
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('keeps polling when the gateway cannot reach the backend', async () => {
+            jest.spyOn(api.queryStatus, 'get')
+                .mockRejectedValueOnce(gatewayFailure())
+                .mockResolvedValueOnce({ query_status: { complete: true, results: ['ok'] } } as any)
+
+            await expect(pollForResults('test-query-id')).resolves.toMatchObject({
+                complete: true,
+                results: ['ok'],
+            })
+        })
+
+        it('gives up once the gateway keeps failing', async () => {
+            const statusSpy = jest.spyOn(api.queryStatus, 'get').mockRejectedValue(gatewayFailure())
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                status: 504,
+                queryId: 'test-query-id',
+            })
+
+            expect(statusSpy).toHaveBeenCalledTimes(4)
+        })
+    })
 })
