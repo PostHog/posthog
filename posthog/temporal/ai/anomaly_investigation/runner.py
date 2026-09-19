@@ -157,11 +157,8 @@ class _InvestigationRunner:
                 response = await self._llm_with_tools.ainvoke(self.messages, config=self._config)
             except Exception as err:
                 logger.warning("anomaly_investigation.llm_invoke_error", extra={"error": str(err)})
-                return InvestigationRunResult(
-                    report=_fallback_report(f"LLM tool-calling loop failed: {err}"),
-                    tool_calls_used=self.tool_calls_used,
-                    model=AGENT_MODEL,
-                )
+                report = _fallback_report(f"LLM tool-calling loop failed: {err}")
+                return _result(report, self.tool_calls_used)
             self.messages.append(response)
 
             tool_calls = getattr(response, "tool_calls", None) or []
