@@ -2,7 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { TileFilters } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    DashboardPlacement,
+    DashboardTile,
+    InsightColor,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -488,4 +495,32 @@ export const AccessControlMixedPermissions: Story = {
             </div>
         )
     },
+}
+
+// A dashboard tile in collapse view is a quarter of its normal height, which can leave the header
+// taller than the whole tile. CardMeta is opaque and sits on --z-raised, so a header it fails to
+// clip paints over the tile below it. Stacking two short tiles puts that overlap in the snapshot.
+export const ShortTileWithLongDescription: Story = {
+    render: () => (
+        <div className="flex flex-col gap-4 w-[30rem]">
+            {[EXAMPLE_TRENDS, EXAMPLE_TRENDS_TABLE].map((example, index) => (
+                <InsightCardComponent
+                    key={index}
+                    tile={defaultTile}
+                    insight={
+                        {
+                            ...example,
+                            name: 'Weekly active accounts',
+                            description:
+                                'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+                        } as unknown as QueryBasedInsightModel
+                    }
+                    style={{ height: '7rem' }}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement={DashboardPlacement.Dashboard}
+                />
+            ))}
+        </div>
+    ),
 }
