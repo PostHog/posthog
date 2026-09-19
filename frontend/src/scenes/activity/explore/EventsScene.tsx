@@ -15,6 +15,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { buildExploreAgentContext } from '../activityAgentContext'
 import { eventsSceneLogic } from './eventsSceneLogic'
+import { ExploreEmptyStateHint } from './ExploreEmptyStateHint'
 
 export function EventsScene(): JSX.Element {
     const { query } = useValues(eventsSceneLogic())
@@ -43,6 +44,7 @@ export function EventsScene(): JSX.Element {
                     dataTableMaxPaginationLimit: 200,
                     // A live-data explorer over captured events, so it keeps the hidden ones selectable.
                     includeHiddenEvents: true,
+                    emptyStateDetail: <ExploreEmptyStateHint />,
                 }}
             />
         </SceneContent>
