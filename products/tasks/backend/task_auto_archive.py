@@ -6,10 +6,10 @@ from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone as django_timezone
 
 import structlog
-import psycopg.errors
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 
+from posthog.db_schema_lag import is_schema_lag_error
 from posthog.exceptions_capture import capture_exception
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -90,7 +90,7 @@ def sweep_inactive_tasks_task() -> None:
     except SoftTimeLimitExceeded:
         raise
     except ProgrammingError as exc:
-        if isinstance(exc.__cause__, psycopg.errors.UndefinedTable | psycopg.errors.UndefinedColumn):
+        if is_schema_lag_error(exc):
             logger.debug("task_auto_archive.sweep_missing_schema", exception=exc)
             return
         capture_exception(exc)

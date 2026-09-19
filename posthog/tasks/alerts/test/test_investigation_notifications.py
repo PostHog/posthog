@@ -4,6 +4,10 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import ProgrammingError, connection
+from django.test.utils import CaptureQueriesContext
+
+import psycopg
 from parameterized import parameterized
 
 from posthog.schema import AlertState
@@ -177,6 +181,55 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         notified = run_investigation_notification_safety_net()
         assert notified == 0
         mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
+
+    @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
+    def test_schema_lag_while_dispatching_is_not_swallowed(self, mock_dispatch: object) -> None:
+        # Dispatch reaches tables beyond the alert itself. A missing column there must reach the
+        # caller, which counts it, instead of being logged as this one check's failure.
+        error = ProgrammingError("column does not exist")
+        error.__cause__ = psycopg.errors.UndefinedColumn("column does not exist")
+        mock_dispatch.side_effect = error  # type: ignore[attr-defined]
+        self._make_check(
+            age_minutes=INVESTIGATION_NOTIFY_GRACE_MINUTES + 60,
+            investigation_status=InvestigationStatus.DONE,
+        )
+
+        with self.assertRaises(ProgrammingError):
+            run_investigation_notification_safety_net()
+
+    def test_sweeps_when_an_alert_column_it_does_not_read_is_missing(self) -> None:
+        # Stands in for a deploy where the worker image runs ahead of an alerts migration.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "ALTER TABLE posthog_alertconfiguration "
+                "RENAME COLUMN investigation_inconclusive_action TO investigation_inconclusive_action__hidden"
+            )
+
+        assert run_investigation_notification_safety_net() == 0
+
+    @patch("posthog.tasks.alerts.investigation_notifications.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
+    def test_alert_reads_do_not_scale_with_the_candidate_count(
+        self, mock_dispatch: object, mock_prepare: object
+    ) -> None:
+        # The sweep runs every minute and has no candidate ceiling, so a backlog must not
+        # turn into one alert query per candidate.
+        mock_prepare.return_value = None  # type: ignore[attr-defined]
+        mock_dispatch.return_value = [  # type: ignore[attr-defined]
+            AlertDelivery(channel="email", target="alerts@example.com", at="2026-08-11T00:00:00+00:00")
+        ]
+        for _ in range(3):
+            self._make_check(
+                age_minutes=INVESTIGATION_NOTIFY_GRACE_MINUTES + 60,
+                investigation_status=InvestigationStatus.DONE,
+            )
+
+        with CaptureQueriesContext(connection) as captured:
+            assert run_investigation_notification_safety_net() == 3
+
+        # The scan only joins the table, so a SELECT from it is a candidate's alert being loaded.
+        alert_reads = [q for q in captured.captured_queries if 'FROM "posthog_alertconfiguration"' in q["sql"]]
+        assert len(alert_reads) == 1
 
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
     def test_skips_already_suppressed_check(self, mock_dispatch: object) -> None:
