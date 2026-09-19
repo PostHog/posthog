@@ -129,7 +129,8 @@ describe('useChartInteraction — tooltip pinning', () => {
     function renderInteraction(
         pinnable = true,
         onPointClick?: (data: unknown) => void,
-        resolveClickToNearestSeries = false
+        resolveClickToNearestSeries = false,
+        isPointClickable?: (dataIndex: number) => boolean
     ): RenderHookResult<ReturnType<typeof useChartInteraction>, unknown> {
         return renderHook(() =>
             useChartInteraction({
@@ -143,6 +144,7 @@ describe('useChartInteraction — tooltip pinning', () => {
                 pinnable,
                 resolveClickToNearestSeries,
                 onPointClick: onPointClick as never,
+                isPointClickable,
                 resolveValue: (s, i) => s.data[i],
             })
         )
@@ -546,6 +548,30 @@ describe('useChartInteraction — tooltip pinning', () => {
         simulateTap(result, refs, 200, 100)
         expect(onPointClick).toHaveBeenCalledTimes(1)
         expect(onPointClick.mock.calls[0][0].dataIndex).toBe(1)
+    })
+
+    // Touch reaches the click action by two different routes, and `isPointClickable` has to
+    // hold on both: the second tap on a non-pinnable chart, and the nearest-series shortcut
+    // that fires on the first tap.
+    it('a second touch tap does not fire onPointClick for a rejected point', () => {
+        const onPointClick = jest.fn()
+        const { result } = renderInteraction(false, onPointClick, false, () => false)
+
+        simulateTap(result, refs, 200, 100)
+        simulateTap(result, refs, 200, 100)
+
+        expect(onPointClick).not.toHaveBeenCalled()
+    })
+
+    it('a single touch tap does not take the nearest-series shortcut on a rejected point', () => {
+        const onPointClick = jest.fn()
+        const { result } = renderInteraction(true, onPointClick, true, () => false)
+
+        simulateTap(result, refs, 200, 100)
+
+        expect(onPointClick).not.toHaveBeenCalled()
+        // Falls through to the pin, so the point stays inspectable.
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
     })
 
     // Mirrors the mouse-click resolveClickToNearestSeries test above: a single tap on a
