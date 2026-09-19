@@ -1,0 +1,367 @@
+{
+    "flags": [
+        {
+            "id": "@flag:many_contexts",
+            "team_id": "@team",
+            "name": "Flag carrying several evaluation contexts",
+            "key": "parity-many-contexts",
+            "filters": {
+                "groups": [
+                    {
+                        "variant": null,
+                        "sort_key": "unknown-key-passthrough",
+                        "properties": [
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "person@example.com",
+                                "operator": "exact"
+                            }
+                        ],
+                        "rollout_percentage": 40
+                    }
+                ],
+                "payloads": {},
+                "super_groups": null
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": true,
+            "version": 3,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": "device_id",
+            "evaluation_contexts": [
+                "api-backend",
+                "mobile-app",
+                "web-frontend"
+            ],
+            "has_experiment": false
+        },
+        {
+            "id": "@flag:absent_optionals",
+            "team_id": "@team",
+            "name": "",
+            "key": "parity-absent-optionals",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": []
+                    }
+                ]
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": null,
+            "version": null,
+            "evaluation_runtime": null,
+            "bucketing_identifier": null,
+            "evaluation_contexts": [],
+            "has_experiment": false
+        },
+        {
+            "id": "@flag:multivariate",
+            "team_id": "@team",
+            "name": "Multivariate flag",
+            "key": "parity-multivariate",
+            "filters": {
+                "groups": [
+                    {
+                        "variant": null,
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "payloads": {
+                    "control": "{\"layout\": \"control\"}"
+                },
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 34
+                        },
+                        {
+                            "key": "compact",
+                            "name": null,
+                            "rollout_percentage": 33
+                        },
+                        {
+                            "key": "roomy",
+                            "name": "Roomy",
+                            "rollout_percentage": 33
+                        }
+                    ]
+                },
+                "aggregation_group_type_index": null
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "version": 2,
+            "evaluation_runtime": "server",
+            "bucketing_identifier": "distinct_id",
+            "evaluation_contexts": [
+                "api-backend"
+            ],
+            "has_experiment": false
+        },
+        {
+            "id": "@flag:cohort_targeted",
+            "team_id": "@team",
+            "name": "Cohort targeted flag",
+            "key": "parity-cohort-targeted",
+            "filters": {
+                "groups": [
+                    {
+                        "variant": null,
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": "@cohort:engaged_eu_visitors",
+                                "operator": "in"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "payloads": {}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": [],
+            "has_experiment": false
+        },
+        {
+            "id": "@flag:with_experiment",
+            "team_id": "@team",
+            "name": "Flag behind a running experiment",
+            "key": "parity-with-experiment",
+            "filters": {
+                "groups": [
+                    {
+                        "variant": null,
+                        "properties": [],
+                        "rollout_percentage": 50
+                    }
+                ],
+                "payloads": {}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": [],
+            "has_experiment": true
+        },
+        {
+            "id": "@flag:disabled_referenced",
+            "team_id": "@team",
+            "name": "Disabled flag someone still depends on",
+            "key": "parity-disabled-referenced",
+            "filters": {
+                "groups": []
+            },
+            "deleted": false,
+            "active": false,
+            "ensure_experience_continuity": false,
+            "version": 5,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": [],
+            "has_experiment": false
+        },
+        {
+            "id": "@flag:dependent",
+            "team_id": "@team",
+            "name": "Flag depending on a disabled flag",
+            "key": "parity-dependent",
+            "filters": {
+                "groups": [
+                    {
+                        "variant": null,
+                        "properties": [
+                            {
+                                "key": "@flag_str:disabled_referenced",
+                                "type": "flag",
+                                "label": "parity-disabled-referenced",
+                                "value": false,
+                                "operator": "flag_evaluates_to"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "payloads": {}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": [],
+            "has_experiment": false
+        },
+        {
+            "id": "@flag:missing_dependency",
+            "team_id": "@team",
+            "name": "Flag depending on nothing that exists",
+            "key": "parity-missing-dependency",
+            "filters": {
+                "groups": [
+                    {
+                        "variant": null,
+                        "properties": [
+                            {
+                                "key": "2147483600",
+                                "type": "flag",
+                                "label": "gone",
+                                "value": true,
+                                "operator": "flag_evaluates_to"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "payloads": {}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": [],
+            "has_experiment": false
+        }
+    ],
+    "evaluation_metadata": {
+        "dependency_stages": [
+            [
+                "@flag:many_contexts",
+                "@flag:absent_optionals",
+                "@flag:multivariate",
+                "@flag:cohort_targeted",
+                "@flag:with_experiment",
+                "@flag:disabled_referenced",
+                "@flag:missing_dependency"
+            ],
+            [
+                "@flag:dependent"
+            ]
+        ],
+        "flags_with_missing_deps": [
+            "@flag:missing_dependency"
+        ],
+        "transitive_deps": {
+            "@flag:many_contexts": [],
+            "@flag:absent_optionals": [],
+            "@flag:multivariate": [],
+            "@flag:cohort_targeted": [],
+            "@flag:with_experiment": [],
+            "@flag:disabled_referenced": [],
+            "@flag:dependent": [
+                "@flag:disabled_referenced"
+            ],
+            "@flag:missing_dependency": []
+        }
+    },
+    "cohorts": [
+        {
+            "id": "@cohort:eu_visitors",
+            "name": "EU visitors",
+            "description": "Visitors whose person properties place them in the EU",
+            "team_id": "@team",
+            "deleted": false,
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$geoip_continent_code",
+                                    "type": "person",
+                                    "value": "EU",
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            },
+            "query": null,
+            "version": 4,
+            "pending_version": null,
+            "count": 17,
+            "is_calculating": false,
+            "is_static": false,
+            "errors_calculating": 0,
+            "groups": [],
+            "created_by_id": null,
+            "cohort_type": null,
+            "condition_type": {
+                "cohorts": false,
+                "lifecycle": false,
+                "behavioral": false,
+                "person_properties": true
+            },
+            "last_backfill_person_properties_at": "2026-01-15T12:00:00+00:00",
+            "last_backfill_events_at": null,
+            "last_realtime_cohort_calculation_at": null
+        },
+        {
+            "id": "@cohort:engaged_eu_visitors",
+            "name": "Engaged EU visitors",
+            "description": "EU visitors who also opened the changelog",
+            "team_id": "@team",
+            "deleted": false,
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": "@cohort:eu_visitors",
+                                    "negation": false
+                                }
+                            ]
+                        }
+                    ]
+                }
+            },
+            "query": null,
+            "version": null,
+            "pending_version": null,
+            "count": null,
+            "is_calculating": false,
+            "is_static": false,
+            "errors_calculating": 0,
+            "groups": [],
+            "created_by_id": null,
+            "cohort_type": null,
+            "condition_type": {
+                "cohorts": true,
+                "lifecycle": false,
+                "behavioral": false,
+                "person_properties": false
+            },
+            "last_backfill_person_properties_at": null,
+            "last_backfill_events_at": null,
+            "last_realtime_cohort_calculation_at": null
+        }
+    ]
+}
