@@ -209,6 +209,15 @@ export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh:
     return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
 }
 
+/**
+ * `Dashboard.last_refresh` is shared by all viewers, so one person's refresh can start a block
+ * window for everybody while the tiles keep showing old data. In that state the block must give way.
+ */
+export function isEffectiveRefreshStale(effectiveLastRefresh: Dayjs | null): boolean {
+    const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
+    return ageMinutes !== null && ageMinutes >= DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES
+}
+
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
