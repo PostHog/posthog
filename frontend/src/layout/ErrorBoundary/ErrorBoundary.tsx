@@ -12,7 +12,11 @@ import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Suppor
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { ChunkLoadFallback } from './ChunkLoadFallback'
+import { reportChunkLoadError } from './reportChunkLoadError'
 
 const DOM_MUTATION_PATTERNS = [
     "Failed to execute 'removeChild' on 'Node'",
@@ -199,7 +203,14 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                 )
             }}
         >
-            {children}
+            {/* Inside the reporter, so a stale-deploy chunk failure reloads once instead of being
+                captured on every remount of the subtree that failed to load. */}
+            <ChunkLoadErrorBoundary
+                onChunkLoadError={(error) => reportChunkLoadError(error, currentTeamId)}
+                fallback={() => <ChunkLoadFallback className={className} />}
+            >
+                {children}
+            </ChunkLoadErrorBoundary>
         </PostHogErrorBoundary>
     )
 }
