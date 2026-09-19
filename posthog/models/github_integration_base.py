@@ -8,14 +8,14 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 import json
 import time
 import uuid
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypedDict, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.db.models import Count, F, Func, JSONField, Value
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -23,7 +23,13 @@ from django.utils import timezone
 import jwt
 import requests
 import structlog
+from django_redis import get_redis_connection
+from django_redis.cache import RedisCache
+from django_redis.exceptions import ConnectionInterrupted
+from opentelemetry import trace
 from prometheus_client import Counter
+from redis.exceptions import RedisError
+from redis.lock import Lock
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
@@ -33,6 +39,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # This client always knows its installation, so it records under source="integration" with a real id.
 _OBSERVABILITY_SOURCE = "integration"
@@ -49,6 +56,17 @@ GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 # Branch cache: 10-minute staleness, 24-hour eviction timeout.
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
+# Each page has a 10-second request timeout and one retry. The owner renews the lease after every page.
+GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS = 60
+GITHUB_BRANCH_CACHE_COLD_WAIT_SECONDS = 2
+
+_PUBLISH_BRANCH_CACHE_IF_OWNER_SCRIPT = """
+if redis.call('get', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+redis.call('psetex', KEYS[2], ARGV[3], ARGV[2])
+return 1
+"""
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
@@ -2354,7 +2372,7 @@ class GitHubIntegrationBase:
             response = fetch(current_page)
         except GitHubIntegrationError:
             logger.warning("GitHubIntegration: list_branches request failed", repo=repo, exc_info=True)
-            return [], False
+            raise
 
         if response.status_code != 200:
             logger.warning(
@@ -2362,19 +2380,19 @@ class GitHubIntegrationBase:
                 status_code=response.status_code,
                 repo=repo,
             )
-            return [], False
+            raise GitHubIntegrationError("GitHubIntegration: failed to list branches")
 
         try:
             body = response.json()
-        except Exception:
+        except Exception as exc:
             logger.warning(
                 "GitHubIntegration: list_branches non-JSON response",
                 status_code=response.status_code,
             )
-            return [], False
+            raise GitHubIntegrationError("GitHubIntegration: list_branches non-JSON response") from exc
 
         if not isinstance(body, list):
-            return [], False
+            raise GitHubIntegrationError("GitHubIntegration: list_branches invalid response")
 
         all_fetched = extract_names(body)
         has_next_page = 'rel="next"' in response.headers.get("Link", "")
@@ -2385,21 +2403,27 @@ class GitHubIntegrationBase:
             try:
                 response = fetch(current_page)
             except GitHubIntegrationError:
-                break
+                logger.warning(
+                    "GitHubIntegration.list_branches pagination failed",
+                    page=current_page,
+                    repo=repo,
+                    exc_info=True,
+                )
+                raise
             if response.status_code != 200:
                 logger.warning(
-                    "GitHubIntegration.list_branches pagination stopped",
+                    "GitHubIntegration.list_branches pagination failed",
                     status_code=response.status_code,
                     page=current_page,
                     repo=repo,
                 )
-                break
+                raise GitHubIntegrationError("GitHubIntegration: list_branches pagination failed")
             try:
                 body = response.json()
-            except Exception:
-                break
+            except Exception as exc:
+                raise GitHubIntegrationError("GitHubIntegration: list_branches pagination non-JSON response") from exc
             if not isinstance(body, list):
-                break
+                raise GitHubIntegrationError("GitHubIntegration: list_branches pagination invalid response")
             all_fetched.extend(extract_names(body))
             has_next_page = 'rel="next"' in response.headers.get("Link", "")
 
@@ -2408,7 +2432,7 @@ class GitHubIntegrationBase:
 
         return result, has_more
 
-    def list_all_branches(self, repo: str) -> list[str]:
+    def list_all_branches(self, repo: str, *, renew_refresh_claim: Callable[[], bool] | None = None) -> list[str]:
         """Fetch all branches for a repository, paginating through GitHub's API."""
         all_branches: list[str] = []
         offset = 0
@@ -2417,6 +2441,8 @@ class GitHubIntegrationBase:
         while True:
             branches, has_more = self.list_branches(repo, limit=page_size, offset=offset)
             all_branches.extend(branches)
+            if renew_refresh_claim is not None and not renew_refresh_claim():
+                raise GitHubIntegrationError("GitHub branch cache refresh claim expired")
 
             if not has_more or not branches:
                 return all_branches
@@ -2601,8 +2627,29 @@ class GitHubIntegrationBase:
     def _get_branch_cache_key(self, repo: str) -> str:
         return f"github_integration:branches:{self._installation_cache_scope()}:{repo.lower()}"
 
-    def _get_branch_cache(self, repo: str) -> dict[str, Any] | None:
-        cached = cache.get(self._get_branch_cache_key(repo))
+    def _get_branch_cache_refresh_claim_key(self, repo: str) -> str:
+        return f"{self._get_branch_cache_key(repo)}:refresh"
+
+    def _get_branch_cache_refresh_lock(self, repo: str) -> Lock:
+        # Redis Lock stores an owner token and only deletes or renews the lease when that token matches.
+        return get_redis_connection("default").lock(
+            cache.make_key(self._get_branch_cache_refresh_claim_key(repo)),
+            timeout=GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS,
+        )
+
+    def _get_branch_cache(self, repo: str, *, from_writer: bool = False) -> dict[str, Any] | None:
+        cache_backend = caches["default"]
+        try:
+            if from_writer and isinstance(cache_backend, RedisCache):
+                cached = cache_backend.client.get(
+                    self._get_branch_cache_key(repo),
+                    client=get_redis_connection("default"),
+                )
+            else:
+                cached = cache.get(self._get_branch_cache_key(repo))
+        except (ConnectionInterrupted, RedisError):
+            logger.warning("GitHubIntegration: failed to read branch cache", exc_info=True)
+            return None
         if not isinstance(cached, dict):
             return None
 
@@ -2622,14 +2669,17 @@ class GitHubIntegrationBase:
             "updated_at": updated_at,
         }
 
-    def branch_cache_is_stale(self, repo: str) -> bool:
-        cached = self._get_branch_cache(repo)
+    @staticmethod
+    def _branch_cache_snapshot_is_stale(cached: dict[str, Any] | None) -> bool:
         if cached is None:
             return True
         return time.time() - float(cached["updated_at"]) >= GITHUB_BRANCH_CACHE_TTL_SECONDS
 
-    def sync_branch_cache(self, repo: str) -> tuple[list[str], str | None]:
-        branches = self.list_all_branches(repo)
+    @tracer.start_as_current_span("github.branches.refresh")
+    def sync_branch_cache(
+        self, repo: str, *, renew_refresh_claim: Callable[[], bool] | None = None
+    ) -> tuple[list[str], str | None]:
+        branches = self.list_all_branches(repo, renew_refresh_claim=renew_refresh_claim)
         cached = self._get_branch_cache(repo)
         cached_default_branch = None if cached is None else cast(str | None, cached.get("default_branch"))
 
@@ -2649,32 +2699,118 @@ class GitHubIntegrationBase:
             branches = [branch for branch in branches if branch != default_branch]
             branches.insert(0, default_branch)
 
-        cache.set(
-            self._get_branch_cache_key(repo),
-            {
-                "branches": branches,
-                "default_branch": default_branch,
-                "updated_at": time.time(),
-            },
-            timeout=GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS,
-        )
+        span = trace.get_current_span()
+        span.set_attribute("github.branches.count", len(branches))
+        span.set_attribute("github.default_branch.present", default_branch is not None)
 
         return branches, default_branch
 
-    def list_cached_branches(
-        self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
-    ) -> tuple[list[str], str | None, bool]:
-        cached = self._get_branch_cache(repo)
-        should_refresh = cached is None or self.branch_cache_is_stale(repo)
-        self._record_github_cache_access("branches", "miss" if should_refresh else "hit", repo)
+    @staticmethod
+    def _acquire_branch_cache_refresh_claim(
+        refresh_lock: Lock, owner_token: str, *, blocking_timeout: float | None = None
+    ) -> Literal["acquired", "contended", "redis_error"]:
+        try:
+            acquired = (
+                refresh_lock.acquire(blocking=False, token=owner_token)
+                if blocking_timeout is None
+                else refresh_lock.acquire(blocking=True, blocking_timeout=blocking_timeout, token=owner_token)
+            )
+        except RedisError:
+            logger.warning("GitHubIntegration: failed to acquire branch cache refresh claim", exc_info=True)
+            return "redis_error"
+        return "acquired" if acquired else "contended"
 
-        if should_refresh:
+    @staticmethod
+    def _renew_branch_cache_refresh_claim(refresh_lock: Lock) -> bool:
+        try:
+            return refresh_lock.reacquire()
+        except RedisError:
+            logger.warning("GitHubIntegration: failed to renew branch cache refresh claim", exc_info=True)
+            return False
+
+    @staticmethod
+    def _release_branch_cache_refresh_claim(refresh_lock: Lock) -> None:
+        try:
+            refresh_lock.release()
+        except RedisError:
+            logger.warning("GitHubIntegration: branch cache refresh claim no longer owned", exc_info=True)
+
+    def _publish_branch_cache_snapshot(self, repo: str, snapshot: dict[str, Any], owner_token: str) -> bool:
+        cache_backend = caches["default"]
+        if not isinstance(cache_backend, RedisCache):
+            raise TypeError("The GitHub branch cache requires the default Redis cache backend")
+
+        encoded_snapshot = cache_backend.client.encode(snapshot)
+        try:
+            return bool(
+                get_redis_connection("default").eval(
+                    _PUBLISH_BRANCH_CACHE_IF_OWNER_SCRIPT,
+                    2,
+                    cache_backend.make_key(self._get_branch_cache_refresh_claim_key(repo)),
+                    cache_backend.make_key(self._get_branch_cache_key(repo)),
+                    owner_token,
+                    encoded_snapshot,
+                    GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS * 1000,
+                )
+            )
+        except RedisError:
+            logger.warning("GitHubIntegration: failed to publish branch cache snapshot", exc_info=True)
+            return False
+
+    def _refresh_branch_cache_with_fallback(self, repo: str, cached: dict[str, Any] | None) -> dict[str, Any] | None:
+        refresh_lock = self._get_branch_cache_refresh_lock(repo)
+        owner_token = uuid.uuid4().hex
+        claim_result = self._acquire_branch_cache_refresh_claim(refresh_lock, owner_token)
+
+        if claim_result == "contended" and cached is None:
+            claim_result = self._acquire_branch_cache_refresh_claim(
+                refresh_lock,
+                owner_token,
+                blocking_timeout=GITHUB_BRANCH_CACHE_COLD_WAIT_SECONDS,
+            )
+            if claim_result == "contended":
+                filled_during_wait = self._get_branch_cache(repo, from_writer=True)
+                if filled_during_wait is not None:
+                    trace.get_current_span().set_attribute("github.branch_cache.refresh", "filled_during_wait")
+                    return filled_during_wait
+                trace.get_current_span().set_attribute("github.branch_cache.refresh", "cold_wait_timeout")
+                raise GitHubIntegrationError("GitHub branch cache refresh already in progress")
+
+        refresh_claimed = claim_result == "acquired"
+
+        try:
+            if refresh_claimed:
+                latest = self._get_branch_cache(repo, from_writer=True)
+                if not self._branch_cache_snapshot_is_stale(latest):
+                    trace.get_current_span().set_attribute("github.branch_cache.refresh", "filled_before_claim")
+                    return latest
+                cached = latest or cached
+            elif cached is None:
+                cached = self._get_branch_cache(repo)
+
+            trace.get_current_span().set_attribute(
+                "github.branch_cache.refresh",
+                "owner" if refresh_claimed else "redis_error" if claim_result == "redis_error" else "in_progress",
+            )
+
+            if not refresh_claimed and cached is not None:
+                return cached
+
+            renew_refresh_claim = (
+                (lambda: self._renew_branch_cache_refresh_claim(refresh_lock)) if refresh_claimed else None
+            )
             try:
-                branches, default_branch = self.sync_branch_cache(repo)
-                cached = {
+                branches, default_branch = self.sync_branch_cache(repo, renew_refresh_claim=renew_refresh_claim)
+                snapshot = {
                     "branches": branches,
                     "default_branch": default_branch,
+                    "updated_at": time.time(),
                 }
+                if not refresh_claimed:
+                    return snapshot
+                if self._publish_branch_cache_snapshot(repo, snapshot, owner_token):
+                    return snapshot
+                return self._get_branch_cache(repo, from_writer=True) or cached or snapshot
             except Exception:
                 logger.warning(
                     "GitHubIntegration: failed to refresh branch cache",
@@ -2684,8 +2820,14 @@ class GitHubIntegrationBase:
                 )
                 if cached is None:
                     raise
+                return cached
+        finally:
+            if refresh_claimed:
+                self._release_branch_cache_refresh_claim(refresh_lock)
 
-        assert cached is not None
+    def _filter_and_paginate_branch_cache(
+        self, cached: dict[str, Any], *, search: str, limit: int, offset: int
+    ) -> tuple[list[str], str | None, bool]:
         branches = cast(list[str], cached["branches"])
         default_branch = cast(str | None, cached.get("default_branch"))
 
@@ -2696,7 +2838,33 @@ class GitHubIntegrationBase:
 
         result = filtered_branches[offset : offset + limit]
         has_more = offset + limit < len(filtered_branches)
+        span = trace.get_current_span()
+        span.set_attribute("github.branches.returned", len(result))
+        span.set_attribute("github.branches.has_more", has_more)
         return result, default_branch, has_more
+
+    @tracer.start_as_current_span("github.branches.cache")
+    def list_cached_branches(
+        self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
+    ) -> tuple[list[str], str | None, bool]:
+        span = trace.get_current_span()
+        span.set_attribute("github.branches.search", bool(search.strip()))
+        span.set_attribute("github.branches.limit", limit)
+        span.set_attribute("github.branches.offset", offset)
+
+        cached = self._get_branch_cache(repo)
+        should_refresh = self._branch_cache_snapshot_is_stale(cached)
+        self._record_github_cache_access("branches", "miss" if should_refresh else "hit", repo)
+        span.set_attribute("github.branch_cache.result", "miss" if should_refresh else "hit")
+        span.set_attribute("github.branch_cache.snapshot_present", cached is not None)
+
+        if should_refresh:
+            cached = self._refresh_branch_cache_with_fallback(repo, cached)
+        else:
+            span.set_attribute("github.branch_cache.refresh", "not_needed")
+
+        assert cached is not None
+        return self._filter_and_paginate_branch_cache(cached, search=search, limit=limit, offset=offset)
 
     def get_access_token(self) -> str:
         """Return a valid installation access token, refreshing it past the half-life threshold."""
