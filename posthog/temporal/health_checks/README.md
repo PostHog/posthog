@@ -224,6 +224,8 @@ rows = execute_clickhouse_health_team_query(
 
 Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 
+The helper retries transient ClickHouse errors (`CH_TRANSIENT_ERRORS`, which includes cluster memory-limit failures) up to 3 times with jittered exponential backoff, so a short cluster blip does not fail the whole batch. Other errors, such as a per-query memory limit, are raised immediately because a retry cannot help them.
+
 ## ClickHouse kill switch
 
 Health checks are automatically skipped when the ClickHouse kill switch is active (LIGHT or FULL).
