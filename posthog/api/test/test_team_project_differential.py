@@ -12,6 +12,7 @@ from posthog.models.project import Project
 from posthog.models.team.team import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # Adversarial differential parity harness.
 #
@@ -169,7 +170,8 @@ FIELD_VALUES: dict[str, Any] = {
     "session_recording_opt_in": True,
     "session_recording_sample_rate": "0.50",
     "session_recording_minimum_duration_milliseconds": 1000,
-    "session_recording_linked_flag": {"id": 1, "key": "flag"},
+    # Special-cased below: the flag has to exist in each twin's own project, or the write is rejected.
+    "session_recording_linked_flag": "__PER_TWIN_FLAG__",
     "session_recording_network_payload_capture_config": {"recordHeaders": True},
     "session_recording_masking_config": {"maskAllInputs": True},
     "session_recording_url_trigger_config": [],
@@ -236,6 +238,11 @@ class TestWriteParity(DifferentialParityBase):
             dash_b = Dashboard.objects.create(team=team_b, name="d")
             body_a: dict[str, Any] = {field: dash_a.id}
             body_b: dict[str, Any] = {field: dash_b.id}
+        elif field == "session_recording_linked_flag":
+            flag_a = FeatureFlag.objects.create(team=team_a, created_by=self.user, key="flag")
+            flag_b = FeatureFlag.objects.create(team=team_b, created_by=self.user, key="flag")
+            body_a = {field: {"id": flag_a.id, "key": "flag"}}
+            body_b = {field: {"id": flag_b.id, "key": "flag"}}
         else:
             body_a = {field: value}
             body_b = {field: value}
@@ -258,6 +265,9 @@ class TestWriteParity(DifferentialParityBase):
             if field == "primary_dashboard":
                 self.assertEqual(get_a[field], dash_a.id)
                 self.assertEqual(get_b[field], dash_b.id)
+            elif field == "session_recording_linked_flag":
+                self.assertEqual(get_a[field], {"id": flag_a.id, "key": "flag"})
+                self.assertEqual(get_b[field], {"id": flag_b.id, "key": "flag"})
             else:
                 self.assertEqual(
                     get_a[field],
