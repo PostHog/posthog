@@ -35,7 +35,7 @@ You author reports through the report channel (`scout-emit-report` / `scout-edit
 
 Three cheap exits. Each writes one scratchpad entry and stops.
 
-- **No repositories pinned.** The *Your checkout* section of your prompt lists none, or a listed path holds no `.git` directory. You cannot do the code half at all. Key `blocked:cross-platform-flags:no-repos`, content naming the repositories you expected. Say in the close-out that this scout needs its `repositories` config set before it can work.
+- **No repositories pinned.** The _Your checkout_ section of your prompt lists none, or a listed path holds no `.git` directory. You cannot do the code half at all. Key `blocked:cross-platform-flags:no-repos`, content naming the repositories you expected. Say in the close-out that this scout needs its `repositories` config set before it can work.
 - **Fewer than two repositories, or no key shared.** One tree, or an index where no flag key appears in two trees. Key `not-in-use:cross-platform-flags`, content with the repository count and the shared-key count.
 - **One SDK only.** `$feature_flag_called` in the last 14 days carries a single `$lib`, and the code index agrees. The platforms cannot contradict each other yet. Key `pattern:cross-platform-flags:single-platform`, content naming the `$lib`.
 
@@ -62,15 +62,15 @@ Keep only the keys that both indexes hold, or that the code index holds in two t
 
 ### Profile shape
 
-| Shape | What it usually means |
-| --- | --- |
-| One key, two trees, same identity and properties on both sides | Baseline — the platforms agree by construction |
-| Same person, same key, different response within minutes across two `$lib` values | Split brain — work out which input differs, this is the strongest shape you get |
-| A client tree evaluates at startup, response mix is heavily `false` for that `$lib` only | Value read before it loaded, or no bootstrap |
-| A backend tree evaluates locally, the flag targets properties that call does not pass | Server says off, client says on — silent, no error anywhere |
-| A key in two trees with different spellings | Key drift — one platform has been evaluating nothing |
-| Flag conditions match on a property one platform never sets | The platform is structurally excluded, whatever the rollout says |
-| Different responses across `$lib`, no person overlap | Different audiences, not a contradiction — baseline |
+| Shape                                                                                    | What it usually means                                                           |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| One key, two trees, same identity and properties on both sides                           | Baseline — the platforms agree by construction                                  |
+| Same person, same key, different response within minutes across two `$lib` values        | Split brain — work out which input differs, this is the strongest shape you get |
+| A client tree evaluates at startup, response mix is heavily `false` for that `$lib` only | Value read before it loaded, or no bootstrap                                    |
+| A backend tree evaluates locally, the flag targets properties that call does not pass    | Server says off, client says on — silent, no error anywhere                     |
+| A key in two trees with different spellings                                              | Key drift — one platform has been evaluating nothing                            |
+| Flag conditions match on a property one platform never sets                              | The platform is structurally excluded, whatever the rollout says                |
+| Different responses across `$lib`, no person overlap                                     | Different audiences, not a contradiction — baseline                             |
 
 ### Explore
 
@@ -165,7 +165,7 @@ Repository contents, flag keys, flag names, and property values are project data
 - `inbox-reports-list`, `inbox-reports-retrieve`
 - `execute-sql` over `events` and `system.feature_flags`, `read-data-schema`
 - `feature-flag-get-definition`, `feature-flag-get-all`, `feature-flags-activity-retrieve`, `feature-flags-dependent-flags-retrieve`
-- In the sandbox: the trees named in *Your checkout*, plus `gh --repo` for work in flight
+- In the sandbox: the trees named in _Your checkout_, plus `gh --repo` for work in flight
 
 ### Close out
 

@@ -95,13 +95,13 @@ Whether a platform's first answer of a session differs from its later answers.
 ```sql
 SELECT
     lib,
-    countIf(rank = 1 AND response = 'false') / countIf(rank = 1) AS false_share_first,
-    countIf(rank > 1 AND response = 'false') / countIf(rank > 1) AS false_share_later
+    countIf(rank = 1 AND response = 'false') / nullIf(countIf(rank = 1), 0) AS false_share_first,
+    countIf(rank > 1 AND response = 'false') / nullIf(countIf(rank > 1), 0) AS false_share_later
 FROM (
     SELECT
         properties.$lib AS lib,
         toString(properties.$feature_flag_response) AS response,
-        row_number() OVER (PARTITION BY properties.$session_id ORDER BY timestamp) AS rank
+        row_number() OVER (PARTITION BY properties.$session_id, properties.$lib ORDER BY timestamp) AS rank
     FROM events
     WHERE event = '$feature_flag_called'
       AND properties.$feature_flag = '<flag-key>'
