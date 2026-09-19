@@ -911,7 +911,48 @@ class ClickHousePrinter(BasePrinter):
             if parse_sql_runtime_type(type_arg.value).family == "unknown":
                 raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
 
+        if node.name == "transform":
+            case_expr = self._transform_as_case_with_expression(node)
+            if case_expr is not None:
+                return self.visit(case_expr)
+
         return super().visit_call(node)
+
+    def _transform_as_case_with_expression(self, node: ast.Call) -> ast.Call | None:
+        # ClickHouse rejects a `transform` whose match or result array holds a column or a computed value.
+        # `caseWithExpression` has no such limit and reads the source once, so print that instead of
+        # letting the query fail.
+
+        # The rewrite carries over only the name and the arguments, so a call that sets a modifier has
+        # to keep printing as `transform`. ClickHouse rejects those forms, and dropping the modifier
+        # would answer an invalid query with rows instead of an error.
+        if node.params or node.distinct or node.within_group or node.order_by or node.filter_expr:
+            return None
+        if len(node.args) not in (3, 4):
+            return None
+        source, matches, results = node.args[:3]
+        if not isinstance(matches, ast.Array) or not isinstance(results, ast.Array):
+            return None
+        if not matches.exprs or len(matches.exprs) != len(results.exprs):
+            return None
+        if all(isinstance(expr, ast.Constant) for expr in [*matches.exprs, *results.exprs]):
+            return None
+        # A three-argument `transform` returns the source value when nothing matches, so that form
+        # prints the source twice. Keep it to a leaf, or a rewrite nested in the source would double
+        # the printed SQL at every level.
+        if len(node.args) == 3:
+            source_expr = source
+            while isinstance(source_expr, ast.Alias):
+                source_expr = source_expr.expr
+            if not isinstance(source_expr, ast.Field | ast.Constant):
+                return None
+
+        args: list[ast.Expr] = [source]
+        for match, result in zip(matches.exprs, results.exprs):
+            args.append(match)
+            args.append(result)
+        args.append(node.args[3] if len(node.args) == 4 else source)
+        return ast.Call(name="_caseWithExpression", args=args)
 
     def visit_array_slice(self, node: ast.ArraySlice):
         array_str = self.visit(node.array)
