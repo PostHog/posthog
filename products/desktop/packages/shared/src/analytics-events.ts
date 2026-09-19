@@ -377,6 +377,35 @@ export interface SettingChangedProperties {
   old_value?: string | boolean | number;
 }
 
+type SettingsBackupScope = "all" | "sounds";
+
+export interface SettingsBackupExportProperties {
+  scope: SettingsBackupScope;
+  sound_count: number;
+}
+
+export interface SettingsBackupExportFailedProperties
+  extends SettingsBackupExportProperties {
+  error: string;
+}
+
+export interface SettingsBackupImportedProperties {
+  scope: SettingsBackupScope;
+  setting_count: number;
+  sound_count: number;
+  added_sound_count: number;
+  warning_count: number;
+  backup_app_version: string;
+  version_matches: boolean;
+}
+
+export interface SettingsBackupImportFailedProperties {
+  scope: SettingsBackupScope;
+  /** "open" = reading and validating the file; "apply" = writing the settings. */
+  stage: "open" | "apply";
+  error: string;
+}
+
 export interface CloudCredentialRelayProperties {
   credential: "claude_subscription_token";
   outcome: "sent" | "no_token" | "expired" | "rejected";
@@ -1630,6 +1659,10 @@ export const ANALYTICS_EVENTS = {
   // Settings events
   SETTING_CHANGED: "Setting changed",
   CUSTOM_SOUND_ADDED: "Custom sound added",
+  SETTINGS_BACKUP_EXPORTED: "Settings backup exported",
+  SETTINGS_BACKUP_EXPORT_FAILED: "Settings backup export failed",
+  SETTINGS_BACKUP_IMPORTED: "Settings backup imported",
+  SETTINGS_BACKUP_IMPORT_FAILED: "Settings backup import failed",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
   CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
@@ -1846,6 +1879,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
   [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORTED]: SettingsBackupExportProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORT_FAILED]: SettingsBackupExportFailedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORTED]: SettingsBackupImportedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORT_FAILED]: SettingsBackupImportFailedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;

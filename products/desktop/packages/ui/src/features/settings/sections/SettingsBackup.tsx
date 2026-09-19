@@ -7,6 +7,7 @@ import {
 } from "@posthog/core/settings/settingsBackup";
 import { useService } from "@posthog/di/react";
 import { Button } from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   SettingsCard,
   SettingsSection,
@@ -14,6 +15,7 @@ import {
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { useSettingsBackupAvailable } from "@posthog/ui/features/settings/hooks/useSettingsBackupAvailable";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { track } from "@posthog/ui/shell/analytics";
 import { useMutation } from "@tanstack/react-query";
 import { Download, Upload } from "lucide-react";
 import { useState } from "react";
@@ -29,7 +31,35 @@ const WARNING_TEXT = {
   selection: "The selected sound is missing; your current selection will stay.",
 };
 
+const CUSTOM_INSTRUCTIONS_PREVIEW_LENGTH = 400;
+
 type BackupOperation = "export" | "open" | "import";
+
+// A sounds-only import reads no other setting, so the other keys in the file
+// do not describe the operation the user chose.
+function importedSettingKeys(
+  review: BackupReview,
+  scope: BackupScope,
+): string[] {
+  return Object.keys(review.settings).filter(
+    (key) => scope === "all" || SOUND_SETTINGS.has(key),
+  );
+}
+
+function instructionsPreview(text: string): string {
+  if (text.length === 0)
+    return "The backup holds no custom instructions, so yours will be cleared.";
+  return text.length > CUSTOM_INSTRUCTIONS_PREVIEW_LENGTH
+    ? `${text.slice(0, CUSTOM_INSTRUCTIONS_PREVIEW_LENGTH)}…`
+    : text;
+}
+
+function settingLabel(key: string): string {
+  return key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
 
 export interface SettingsBackupViewProps {
   soundCount: number;
@@ -58,15 +88,14 @@ export function SettingsBackupView({
   onImport,
   onCancel,
 }: SettingsBackupViewProps): React.ReactElement {
+  const settingKeys = review ? importedSettingKeys(review, scope) : [];
   const hasImport =
-    review !== null &&
-    (review.sounds.length > 0 ||
-      Object.keys(review.settings).some(
-        (key) => scope === "all" || SOUND_SETTINGS.has(key),
-      ));
-  // A sounds-only import reads no other setting, so a warning about one does
-  // not describe the operation the user chose. Sound and selection warnings
-  // apply to both scopes, because both scopes import sounds.
+    review !== null && (review.sounds.length > 0 || settingKeys.length > 0);
+  const customInstructions = settingKeys.includes("customInstructions")
+    ? (review?.settings.customInstructions ?? "")
+    : null;
+  // Sound and selection warnings apply to both scopes, because both scopes
+  // import sounds.
   const warnings = (review?.warnings ?? []).filter(
     (warning) =>
       scope === "all" ||
@@ -154,11 +183,42 @@ export function SettingsBackupView({
             )}
             <p className="m-0 text-[12px]">
               {scope === "all"
-                ? `${Object.keys(review.settings).length} supported settings will replace matching preferences. Settings absent from the backup will stay as they are.`
+                ? `${settingKeys.length} supported settings will replace matching preferences. Settings absent from the backup will stay as they are.`
                 : "Only sounds and their playback settings will be imported."}{" "}
               Existing custom sounds will be kept. Sounds already imported will
               not be added again.
             </p>
+            {settingKeys.length > 0 && (
+              <details className="text-[12px]">
+                <summary className="cursor-pointer font-medium">
+                  Show the {settingKeys.length} settings this import writes
+                </summary>
+                <ul
+                  aria-label="Settings to import"
+                  className="mt-2 mb-0 max-h-40 list-disc space-y-1 overflow-y-auto pl-4"
+                >
+                  {settingKeys.map((key) => (
+                    <li key={key} className="break-words">
+                      {settingLabel(key)}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {customInstructions !== null && (
+              <div className="rounded border border-(--amber-6) bg-(--amber-2) p-2 text-(--amber-11) text-[12px]">
+                <p className="m-0 font-medium">
+                  This import replaces your custom instructions
+                </p>
+                <p className="m-0 mt-1">
+                  The agent reads them in every task. Read the text below before
+                  you import.
+                </p>
+                <p className="m-0 mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words">
+                  {instructionsPreview(customInstructions)}
+                </p>
+              </div>
+            )}
             {review.sounds.length > 0 && (
               <details className="text-[12px]">
                 <summary className="cursor-pointer font-medium">
@@ -196,14 +256,14 @@ export function SettingsBackupView({
                   {warnings.length} compatibility{" "}
                   {warnings.length === 1 ? "warning" : "warnings"}
                 </summary>
-                <ul className="mt-2 mb-0 max-h-40 list-disc space-y-1 overflow-y-auto pl-4">
+                <ul
+                  aria-label="Compatibility warnings"
+                  className="mt-2 mb-0 max-h-40 list-disc space-y-1 overflow-y-auto pl-4"
+                >
                   {warnings.map((warning, index) => (
                     <li key={`${warning.key}-${index}`} className="break-words">
                       <span className="font-medium">
-                        {warning.key
-                          .replace(/([a-z])([A-Z])/g, "$1 $2")
-                          .toLowerCase()
-                          .replace(/^./, (letter) => letter.toUpperCase())}
+                        {settingLabel(warning.key)}
                       </span>
                       : {WARNING_TEXT[warning.reason]}
                     </li>
@@ -250,10 +310,17 @@ function SettingsBackupConnected(): React.ReactElement {
     mutationFn: async (operation: BackupOperation): Promise<void> => {
       switch (operation) {
         case "export":
-          if (await service.exportBackup(scope))
+          // A closed save dialog is neither a success nor a failure, so it
+          // reports nothing.
+          if (await service.exportBackup(scope)) {
+            track(ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORTED, {
+              scope,
+              sound_count: soundCount,
+            });
             setMessage(
               "Backup saved. Copy this file to your other machine, then import it in Advanced settings.",
             );
+          }
           break;
         case "open":
           setReview(await service.openBackup());
@@ -261,6 +328,15 @@ function SettingsBackupConnected(): React.ReactElement {
         case "import": {
           if (!review) throw new Error("Choose a backup first.");
           const added = await service.importBackup(review, scope);
+          track(ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORTED, {
+            scope,
+            setting_count: importedSettingKeys(review, scope).length,
+            sound_count: review.sounds.length,
+            added_sound_count: added,
+            warning_count: review.warnings.length,
+            backup_app_version: review.backup.appVersion,
+            version_matches: review.backup.appVersion === review.currentVersion,
+          });
           setReview(null);
           setMessage(
             `Backup imported. Added ${added} custom ${added === 1 ? "sound" : "sounds"}. Your settings are ready to use.`,
@@ -268,6 +344,20 @@ function SettingsBackupConnected(): React.ReactElement {
           break;
         }
       }
+    },
+    onError: (error: Error, operation) => {
+      if (operation === "export")
+        track(ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORT_FAILED, {
+          scope,
+          sound_count: soundCount,
+          error: error.message,
+        });
+      else
+        track(ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORT_FAILED, {
+          scope,
+          stage: operation === "open" ? "open" : "apply",
+          error: error.message,
+        });
     },
   });
   return (

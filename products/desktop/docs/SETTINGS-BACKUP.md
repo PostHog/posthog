@@ -6,7 +6,8 @@ When the flag is off, the section and its search entry are hidden.
 Open **Settings → Advanced → Back up settings and sounds**.
 Choose **Settings and sounds** or **Sounds only**, then select **Export backup** and choose where to save the JSON file.
 Copy the file to the other machine and use **Import backup** in the same section.
-Review the export version, warnings, and sound previews, then select **Import settings and sounds** or **Import sounds**.
+Review the export version, the names of the settings the import writes, warnings, and sound previews, then select **Import settings and sounds** or **Import sounds**.
+When the backup carries custom instructions, the review shows the text that will replace yours, because the agent reads those instructions in every task.
 Canceling the file picker or the review leaves your settings unchanged.
 
 Custom sounds are embedded in the file, including their names and audio, so you do not need to copy the original recordings separately.
@@ -43,3 +44,7 @@ Export reads the current settings when you start it.
 Import merges the validated backup with the current sound library when you confirm it, then updates the settings and theme stores.
 The existing persistence code saves those changes in the same way as changes made with the settings controls.
 Import does not wait for a separate disk write before it reports success.
+
+The UI reports each finished operation to analytics: `Settings backup exported`, `Settings backup export failed`, `Settings backup imported`, and `Settings backup import failed`.
+The events carry the chosen scope, counts, and the error message the user saw. They carry no file path, setting value, or sound audio.
+A closed file dialog reports nothing, because it is neither a success nor a failure.

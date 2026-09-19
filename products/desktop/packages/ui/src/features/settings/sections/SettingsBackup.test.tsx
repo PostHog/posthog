@@ -2,7 +2,7 @@ import type {
   BackupReview,
   BackupScope,
 } from "@posthog/core/settings/settingsBackup";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import {
   SettingsBackupView,
@@ -60,7 +60,7 @@ describe("SettingsBackupView", () => {
     render(<SettingsBackupView {...props} scope={scope} />);
 
     expect(
-      screen
+      within(screen.getByLabelText("Compatibility warnings"))
         .getAllByRole("listitem")
         .map((item) => item.firstElementChild?.textContent),
     ).toEqual(expected);
@@ -68,4 +68,33 @@ describe("SettingsBackupView", () => {
       `${expected.length} compatibility warnings`,
     );
   });
+
+  it.each<[BackupScope, string[], boolean]>([
+    ["all", ["Theme", "Completion volume", "Custom instructions"], true],
+    ["sounds", ["Completion volume"], false],
+  ])(
+    "names the settings a %s import writes",
+    (scope, expected, showsInstructions) => {
+      render(
+        <SettingsBackupView
+          {...props}
+          scope={scope}
+          review={{
+            ...review,
+            settings: { ...review.settings, customInstructions: "Ship it." },
+            warnings: [],
+          }}
+        />,
+      );
+
+      expect(
+        Array.from(screen.getByLabelText("Settings to import").children).map(
+          (item) => item.textContent,
+        ),
+      ).toEqual(expected);
+      expect(screen.queryByText("Ship it.")).toEqual(
+        showsInstructions ? expect.anything() : null,
+      );
+    },
+  );
 });
