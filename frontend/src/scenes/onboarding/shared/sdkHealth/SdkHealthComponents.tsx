@@ -9,7 +9,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from './sdkConstants'
+import { SDK_DOCS_LINKS, SDK_LIBRARIES_DOCS_URL, SDK_TYPE_READABLE_NAME } from './sdkConstants'
 import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sdkHealthLogic } from './sdkHealthLogic'
 
 /**
@@ -128,12 +128,16 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     },
 ]
 
-export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
+export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element | null {
     const { augmentedData, reportLoading: loading } = useValues(sdkHealthLogic)
 
-    const sdk = augmentedData[sdkType]!
+    const sdk = augmentedData[sdkType]
+    if (!sdk) {
+        return null
+    }
+
     const links = SDK_DOCS_LINKS[sdkType]
-    const sdkName = SDK_TYPE_READABLE_NAME[sdkType]
+    const sdkName = SDK_TYPE_READABLE_NAME[sdkType] ?? sdkType
     const migrationReason = sdk.migrationRequired ? sdk.allReleases[0]?.statusReason : undefined
 
     return (
@@ -145,8 +149,12 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                         title={
                             <>
                                 Version number refreshed hourly.
-                                <br />
-                                Click 'Releases ↗' to check for any since.
+                                {links && (
+                                    <>
+                                        <br />
+                                        Click 'Releases ↗' to check for any since.
+                                    </>
+                                )}
                             </>
                         }
                     >
@@ -156,10 +164,12 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                 </div>
 
                 <div className="flex flex-row gap-2">
-                    <Link to={links.releases} target="_blank" targetBlankIcon>
-                        Releases
-                    </Link>
-                    <Link to={links.docs} target="_blank" targetBlankIcon>
+                    {links && (
+                        <Link to={links.releases} target="_blank" targetBlankIcon>
+                            Releases
+                        </Link>
+                    )}
+                    <Link to={links?.docs ?? SDK_LIBRARIES_DOCS_URL} target="_blank" targetBlankIcon>
                         Docs
                     </Link>
                     <Link
