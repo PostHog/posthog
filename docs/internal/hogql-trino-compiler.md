@@ -96,6 +96,9 @@ The printer checks each rendered expression against a 1,000,000-character SQL li
 `arraySlice` and dynamic `range` bind their arguments once so nesting does not multiply their generated SQL.
 Scalar CTE substitution preserves resolved column bindings, including columns that share a CTE name.
 
+Arithmetic operators render each operand once and reuse its SQL after applying Trino's type conversions.
+This keeps long arithmetic chains from repeatedly registering unused bind parameters, including JSON extraction paths.
+
 `numbers()` uses Trino's scalar `sequence`, which supports at most 10,000 entries.
 Constant counts above this limit fail during compilation; dynamic counts are clamped to the range from zero to 10,000.
 

@@ -9,6 +9,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
+from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -1253,9 +1254,12 @@ class TrinoPrinter(PostgresPrinter):
             ast.ArithmeticOperationOp.Mod: "%",
         }
         operator = operators.get(node.op)
-        if operator is not None and lowered:
+        # Rendering operands again doubles work at each level and retains discarded bind values.
+        if operator is not None:
+            if node.op == ast.ArithmeticOperationOp.Mod and not lowered:
+                return f"MOD({left}, {right})"
             return f"({left} {operator} {right})"
-        return super().visit_arithmetic_operation(node)
+        raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
     def _resolve_type(self, node: ast.Expr) -> ast.ConstantType | None:
         if isinstance(node, ast.Call) and node.name.lower() in TRINO_TUPLE_OPERATORS:
