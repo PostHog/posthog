@@ -23,7 +23,7 @@ export function HogFunctionTemplateList({
     hideFeedback = false,
     ...props
 }: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { loading, filteredTemplates, filters, templates, urlForTemplate } = useValues(
+    const { loading, filteredTemplates, filters, templates, urlForTemplate, hasMultipleDeliveryTypes } = useValues(
         hogFunctionTemplateListLogic(props)
     )
     const { loadHogFunctionTemplates, setFilters, resetFilters, registerInterest } = useActions(
@@ -31,7 +31,11 @@ export function HogFunctionTemplateList({
     )
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
-    useEffect(() => loadHogFunctionTemplates(), [props.type]) // oxlint-disable-line exhaustive-deps
+    useEffect(() => {
+        if (!props.manualTemplatesOnly) {
+            loadHogFunctionTemplates()
+        }
+    }, [props.type, props.manualTemplatesOnly]) // oxlint-disable-line exhaustive-deps
 
     return (
         <div className="flex flex-col gap-4">
@@ -48,7 +52,7 @@ export function HogFunctionTemplateList({
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                {props.type === 'destination' && (
+                {hasMultipleDeliveryTypes && (
                     <LemonSelect
                         size="small"
                         value={filters.deliveryType ?? null}
@@ -108,7 +112,7 @@ export function HogFunctionTemplateList({
                         },
                     },
 
-                    ...(props.type === 'destination'
+                    ...(hasMultipleDeliveryTypes
                         ? [
                               {
                                   title: 'Type',
