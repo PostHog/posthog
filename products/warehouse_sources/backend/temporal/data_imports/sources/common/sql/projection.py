@@ -173,45 +173,6 @@ def project_arrow_columns(
 
 
 @frozen
-class TableProjection(Generic[_ColumnT]):
-    """The columns a read projects, and the discovered table narrowed to them."""
-
-    enabled_columns: list[str] | None
-    table: Table[_ColumnT]
-
-
-def resolve_table_projection(
-    full_table: Table[_ColumnT],
-    *,
-    enabled_columns: list[str] | None,
-    primary_keys: list[str] | None = None,
-    incremental_field: str | None = None,
-    available_columns: list[str] | None = None,
-) -> TableProjection[_ColumnT]:
-    """Name the columns a read projects, and narrow `full_table` to them.
-
-    `enabled_columns is None` means the user kept every column. Rendered as `SELECT *`, that
-    fails for a source role which holds column grants instead of table grants, because the star
-    expands to columns the role may not read. Every catalog a source discovers from already
-    hides those columns, so naming them reads what the role holds, and returns the same rows for
-    a role that can read the whole table.
-
-    Resolve again on the connection that runs the read. The projection a source resolves while it
-    probes row counts and partitions can be minutes old. Naming a column the source dropped inside
-    that window fails the read with an error we classify as permanent, which disables the schema,
-    where `SELECT *` only returned fewer columns.
-
-    Pass `available_columns` for a source that must keep some discovered columns out of the
-    read. An empty catalog keeps the `SELECT *` fallback.
-    """
-    if enabled_columns is None:
-        names = available_columns if available_columns is not None else [column.name for column in full_table.columns]
-        enabled_columns = list(names) or None
-    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-    return TableProjection(enabled_columns=enabled_columns, table=project_arrow_columns(full_table, projected))
-
-
-@frozen
 class PrunedColumns:
     kept: list[str] | None
     removed: list[str]
@@ -232,3 +193,88 @@ def prune_enabled_columns(
         else:
             removed.append(column)
     return PrunedColumns(kept=kept, removed=removed)
+
+
+# Stable fragment of the exception below, for a source's `get_non_retryable_errors` map. The
+# exception carries the field and table names, which the map matches on as a substring.
+MISSING_INCREMENTAL_FIELD_MATCH = "no longer exists in the source table"
+
+
+class MissingIncrementalFieldError(Exception):
+    """The table's incremental field is absent from the catalog read this run."""
+
+
+def missing_incremental_field_message(incremental_field: str, table_name: str) -> str:
+    return (
+        f'The incremental field "{incremental_field}" {MISSING_INCREMENTAL_FIELD_MATCH} {table_name}. '
+        "It was renamed or dropped at the source. Pick a different incremental field in the table's "
+        "sync settings, or switch the table to full table replication, then re-enable the sync."
+    )
+
+
+@frozen
+class TableProjection(Generic[_ColumnT]):
+    """The columns a read projects, and the discovered table narrowed to them."""
+
+    enabled_columns: list[str] | None
+    table: Table[_ColumnT]
+
+
+def resolve_table_projection(
+    full_table: Table[_ColumnT],
+    *,
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None = None,
+    incremental_field: str | None = None,
+    should_use_incremental_field: bool,
+    available_columns: list[str] | None = None,
+) -> TableProjection[_ColumnT]:
+    """Name the columns a read projects, and narrow `full_table` to them.
+
+    `enabled_columns is None` means the user kept every column. Rendered as `SELECT *`, that
+    fails for a source role which holds column grants instead of table grants, because the star
+    expands to columns the role may not read. Every catalog a source discovers from already
+    hides those columns, so naming them reads what the role holds, and returns the same rows for
+    a role that can read the whole table.
+
+    Resolve again on the connection that runs the read. The projection a source resolves while it
+    probes row counts and partitions can be minutes old. Naming a column the source dropped inside
+    that window fails the read with an error we classify as permanent, which disables the schema,
+    where `SELECT *` only returned fewer columns.
+
+    A stored selection is checked against the same catalog. `enabled_columns` is otherwise only
+    reconciled when a person reloads the source, so a column dropped or renamed at the source stays
+    in the SELECT list and every run fails on it, which disables the schema. Dropping the stale
+    name lets the sync carry on with the columns that still exist. Nothing is persisted, so a
+    catalog that hides a column for another reason, such as a revoked column grant, stops hiding it
+    as soon as the grant returns.
+
+    The incremental field is the exception: it sits in the WHERE and ORDER BY of every query, so
+    the sync cannot run without it.
+
+    Pass `available_columns` for a source that must keep some discovered columns out of the
+    read. An empty catalog leaves the selection alone, because it says nothing about the table.
+    """
+    catalog = {column.name for column in full_table.columns}
+    table_name = full_table.fully_qualified_name
+    # Checked ahead of the branch below: a sync that kept every column reaches the same dropped
+    # field, and a generic undefined-column error names the wrong control to fix.
+    if catalog and should_use_incremental_field and incremental_field and incremental_field not in catalog:
+        raise MissingIncrementalFieldError(missing_incremental_field_message(incremental_field, table_name))
+    if enabled_columns is None:
+        names = available_columns if available_columns is not None else [column.name for column in full_table.columns]
+        enabled_columns = list(names) or None
+    elif catalog:
+        pruned = prune_enabled_columns(enabled_columns, catalog)
+        if pruned.removed and pruned.kept:
+            logger.warning(
+                "resolve_table_projection.pruned_stale_selection",
+                table=table_name,
+                removed_columns=pruned.removed,
+            )
+            enabled_columns = pruned.kept
+        # A selection with nothing left says the catalog is wrong, not the selection. Keeping it
+        # fails the read loudly, where pruning to empty would widen the sync to `SELECT *` over
+        # columns the customer excluded, or shrink the table to its primary key.
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    return TableProjection(enabled_columns=enabled_columns, table=project_arrow_columns(full_table, projected))

@@ -1852,6 +1852,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 enabled_columns=enabled_columns,
                 primary_keys=primary_keys,
                 incremental_field=incremental_field,
+                should_use_incremental_field=should_use_incremental_field,
             )
 
         def _discover_and_probe() -> RedshiftTableSetup:
