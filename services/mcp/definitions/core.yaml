@@ -396,9 +396,11 @@ tools:
                 cast: string-int
         response:
             exclude:
+                - api_token
                 - secret_api_token
                 - secret_api_token_backup
                 - live_events_token
+                - heatmaps_screenshot_secret
                 - default_modifiers
     project-secret-api-keys-create:
         operation: project_secret_api_keys_create
@@ -456,6 +458,14 @@ tools:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
                 cast: string-int
+        response:
+            exclude:
+                - api_token
+                - secret_api_token
+                - secret_api_token_backup
+                - live_events_token
+                - heatmaps_screenshot_secret
+                - default_modifiers
     projects-destroy:
         operation: organizations_projects_destroy
         enabled: false
