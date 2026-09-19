@@ -735,6 +735,7 @@ SPECTACULAR_SETTINGS = {
             "ExperimentWatchEmptyReasonEnum": [
                 "too_early",
                 "no_separation",
+                "underpowered",
                 "no_recordings",
                 "no_session_linked_exposures",
             ],

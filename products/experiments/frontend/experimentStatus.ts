@@ -38,3 +38,12 @@ export function isLaunched(experiment: ExperimentStatusInput): boolean {
 export function hasEnded(experiment: ExperimentStatusInput): boolean {
     return getExperimentStatus(experiment) === ExperimentStatus.Stopped
 }
+
+/**
+ * Whether more people can still be exposed. Only a running experiment enrolls anyone: a paused or
+ * exposure-frozen one has not ended, so `hasEnded` is false for it, and copy that promises a fuller
+ * answer later would be promising people who are never exposed.
+ */
+export function isEnrolling(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) === ExperimentStatus.Running
+}

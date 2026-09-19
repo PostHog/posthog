@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconChevronDown, IconInfo } from '@posthog/icons'
@@ -27,7 +26,6 @@ import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
 
-import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 
 import { NOT_A_FUNNEL_REASON } from '../utils'
@@ -40,6 +38,7 @@ import {
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
     LinkedScanner,
+    SCANNER_CROSS_SELL_DISMISS_KEY,
     experimentReplayTabLogic,
 } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
@@ -48,10 +47,6 @@ import { VariantTag } from './VariantTag'
 // allowed character in variant keys, so the '$' prefix guarantees no collision with a real
 // variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
-
-// Unchanged from the earlier cross-sell wording, so a dismissal there still holds. Someone who
-// turned down scanners for this experiment did not ask to be told again in purple.
-const SCANNER_CROSS_SELL_DISMISS_KEY = 'experiment-replay-vision-scanner-cross-sell'
 
 // The 'all_exposed' caption carries the part that isn't guessable: exposure is resolved per
 // person, matching who the analysis counts, so sessions appear even when the exposure event fired
@@ -293,6 +288,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         linkedScannersLoading,
         listUnavailableReason,
         listLoadError,
+        scannerSetupUrl,
     } = useValues(logic)
     const {
         setSelectedVariantKey,
@@ -372,14 +368,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         (metricFilterMode === 'fired_all' || metricFilterMode === 'funnel_completed') &&
         effectiveMetricUuids.length > 0
 
-    const scannerSetupUrl = combineUrl(
-        urls.replayVisionScannerTemplate('new'),
-        experimentScannerParams({
-            experimentId: experiment.id as number,
-            variantKey: effectiveVariantKey,
-        })
-    ).url
-
     return (
         <div data-attr="experiment-recordings-tab">
             {scannerCrossSellEnabled &&
@@ -391,7 +379,13 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         addAnotherUrl={scannerSetupUrl}
                         onAddAnother={scannerCrossSellClicked}
                     />
-                ) : (
+                ) : /* Held back under a failed list: the caption below says no recordings could be
+                     loaded and offers the retry that fixes it, and this banner outweighs that retry
+                     on the page while pitching a metered add-on that watches the recordings the
+                     reader cannot see. It is not held back for the shelf's own offer, because the
+                     shelf loads after this renders, and hiding the banner then would slide the
+                     "What to watch" toggle up under the cursor that just clicked it. */
+                listLoadError !== null ? null : (
                     <LemonBanner
                         type="ai"
                         className="mb-2"
