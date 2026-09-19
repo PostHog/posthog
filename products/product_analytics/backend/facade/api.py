@@ -11,7 +11,7 @@ Saved query variables and insight-view tracking cross as data: callers pass a te
 project's root team, because that is the team ``RootTeamMixin.save()`` writes the rows against.
 """
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -98,6 +98,11 @@ def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insigh
 def with_last_viewed_at(insights: QuerySet) -> QuerySet:
     """Annotate an insight queryset with ``last_viewed_at``, the most recent view by anyone."""
     return logic.with_last_viewed_at(insights)
+
+
+def attach_last_viewed_at(insights: Sequence[Insight]) -> None:
+    """Set ``last_viewed_at`` on each insight, the most recent view by anyone, in a single query."""
+    logic.attach_last_viewed_at(insights)
 
 
 def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[Insight]:
