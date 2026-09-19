@@ -61,7 +61,15 @@ def capture_exception(error=None, additional_properties=None):
         capture_exception as posthog_capture_exception,
     )
 
+    from posthog.settings.base_variables import IS_INTERACTIVE_SHELL
+
     logger = structlog.get_logger(__name__)
+
+    # A typo in a REPL is not a production incident, so keep interactive sessions out of
+    # error tracking. The exception is still logged, where the person who caused it reads it.
+    if IS_INTERACTIVE_SHELL:
+        logger.exception(error)
+        return
 
     from posthog.clickhouse.query_tagging import get_query_tags
 

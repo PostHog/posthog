@@ -44,3 +44,14 @@ def test_bind_exception_context_is_fire_and_forget_within_scope():
         bind_exception_context(k="v")
         assert ambient_exception_properties()["k"] == "v"
     assert "k" not in ambient_exception_properties()
+
+
+def test_capture_exception_skips_error_tracking_in_an_interactive_shell():
+    with (
+        mock.patch("posthog.settings.base_variables.IS_INTERACTIVE_SHELL", True),
+        mock.patch("posthoganalytics.api_key", "phc_test"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None) as mock_capture,
+    ):
+        capture_exception(ValueError("boom"))
+
+    mock_capture.assert_not_called()
