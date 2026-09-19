@@ -29,11 +29,11 @@ jest.mock('@posthog/hogvm-node', () => ({
     executeBatch: jest.fn(),
 }))
 
-// Keep the real transport for every other test; the native TypeSafe transform is the only
-// caller here, and it must not reach the provider.
+// The native TypeSafe transform is the only caller of fetch in this file, and it must not reach
+// the provider. A rejecting default makes an unmocked call fail fast instead of sending a request.
 jest.mock('~/common/utils/request', () => {
     const original = jest.requireActual('~/common/utils/request')
-    return { ...original, fetch: jest.fn().mockImplementation(original.fetch) }
+    return { ...original, fetch: jest.fn(() => Promise.reject(new Error('fetch was called but not mocked'))) }
 })
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))

@@ -62,12 +62,8 @@ export async function executeTypesafeTransformation(
         result.logs.push({ level, message, timestamp: DateTime.now() })
     }
     // Monitoring persists logs and a pass/fail count, but not result.error, so a failure needs a
-    // log for the user to see the reason. Keep the first failure, because the HTTP branch sets the
-    // error and then reads the body, which can throw and reach the catch with a vaguer message.
+    // log for the user to see the reason.
     const fail = (message: string): void => {
-        if (result.error) {
-            return
-        }
         result.error = message
         log('error', message)
     }
@@ -120,7 +116,8 @@ export async function executeTypesafeTransformation(
         if (response.status < 200 || response.status >= 300) {
             failureKind = 'http'
             fail(`TypeSafe request failed with status ${response.status}. Event unchanged.`)
-            await response.dump()
+            // A failed body read must not reach the catch below and replace the status error.
+            await response.dump().catch(() => undefined)
             return result
         }
         failureKind = 'invalid_response'
