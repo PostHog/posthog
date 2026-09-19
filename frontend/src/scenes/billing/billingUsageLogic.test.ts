@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -101,6 +102,7 @@ describe('getBillingUsageError', () => {
 describe('billingUsageLogic loader', () => {
     let logic: ReturnType<typeof billingUsageLogic.build>
     let toastErrorSpy: jest.SpyInstance
+    let captureExceptionSpy: jest.SpyInstance
 
     it('loads the project options on mount, apart from the chart', async () => {
         useMocks({
@@ -149,11 +151,13 @@ describe('billingUsageLogic loader', () => {
     beforeEach(() => {
         initKeaTests()
         toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+        captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
     })
 
     afterEach(() => {
         logic?.unmount()
         toastErrorSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
     })
 
     it('handles query-size errors without failing the loader', async () => {
@@ -183,6 +187,32 @@ describe('billingUsageLogic loader', () => {
             detail: 'Select a product.',
         })
         expect(toastErrorSpy).not.toHaveBeenCalled()
+    })
+
+    it('stays quiet on failure when it loads as background context', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [200, billingJson],
+                '/api/billing/usage/': () => [500, { detail: 'A server error occurred.' }],
+            },
+        })
+
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+        logic = billingUsageLogic({ dashboardItemId: 'background', quiet: true })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadBillingUsageSuccess'])
+            .toNotHaveDispatchedActions(['loadBillingUsageFailure'])
+            .toFinishAllListeners()
+
+        expect(logic.values.billingUsageResponse).toBeNull()
+        expect(logic.values.billingUsageError).toBeNull()
+        expect(toastErrorSpy).not.toHaveBeenCalled()
+        // Quiet is about the screen. A reportable failure still reaches error tracking.
+        expect(captureExceptionSpy).toHaveBeenCalled()
     })
 })
 
