@@ -26,6 +26,10 @@ the owning worker observes `cancel_requested_at` on dequeue and performs the act
 ### Worker (consumer)
 
 Poll-based consumer using `FOR UPDATE SKIP LOCKED` to dequeue batches.
+Each poll first asks a read-only count whether any row is ready, because the dequeue is a write
+that contends for the head of the dequeue index even when it returns nothing.
+While the queue stays empty the poll delay doubles, with jitter, up to `maxPollDelayMs`
+(`CDP_CYCLOTRON_MAX_BATCH_DELAY_MS`), and drops back to `pollDelayMs` on the first poll that finds work.
 Each dequeued job exposes an ack interface:
 
 - `ack()` — mark completed
