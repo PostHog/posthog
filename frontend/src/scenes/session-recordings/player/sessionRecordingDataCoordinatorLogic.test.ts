@@ -78,6 +78,13 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             event_count: 100,
         }
 
+        const enableOversizedGate = (): void => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE], {
+                [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true,
+            })
+        }
+
         const mountWithMeta = (
             sessionRecordingId: string,
             meta: Record<string, any>,
@@ -189,29 +196,42 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 [1002, 1003, 1004],
             ],
             [
-                'excises everything after a burst with no later full snapshot',
+                'excises a continuing burst in capped steps and plays what follows it',
+                [...mutationSnapshots(300, 5000, 100), ...mutationSnapshots(1, 10, 1, 60_000)],
+                [60_000],
+            ],
+            [
+                'stops excising at the skip cap when no full snapshot follows the burst',
                 [
                     ...mutationSnapshots(1, 10, 1, -5000),
                     ...mutationSnapshots(10, 5000),
+                    ...mutationSnapshots(1, 10, 1, 5000),
                     ...mutationSnapshots(1, 10, 1, 30_000),
                 ],
-                [-5000],
+                [-5000, 30_000],
             ],
         ])('%s', (_name, snapshots, expectedTimestamps) => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE], {
-                [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true,
-            })
+            enableOversizedGate()
             logic.actions.setProcessedSnapshots(snapshots)
 
             expect(logic.values.playableSnapshotsByWindowId['1'].map((s) => s.timestamp)).toEqual(expectedTimestamps)
         })
 
+        it('reports the skip once per recording, not once per loaded batch', () => {
+            enableOversizedGate()
+            const capture = jest.spyOn(posthog, 'capture')
+            const burst = mutationSnapshots(10, 5000)
+
+            logic.actions.setProcessedSnapshots(burst)
+            logic.actions.setProcessedSnapshots([...burst, ...mutationSnapshots(1, 10, 1, 30_000)])
+
+            const skipReports = capture.mock.calls.filter(([event]) => event === 'replay oversized mutations skipped')
+            expect(skipReports).toHaveLength(1)
+            expect(skipReports[0][1]).toMatchObject({ rangeCount: 1, cappedRangeCount: 1 })
+        })
+
         it('passes snapshots through unchanged when nothing is oversized', () => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE], {
-                [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true,
-            })
+            enableOversizedGate()
             logic.actions.setProcessedSnapshots(mutationSnapshots(2, 5000))
 
             expect(logic.values.playableSnapshotsByWindowId).toBe(logic.values.snapshotsByWindowId)
