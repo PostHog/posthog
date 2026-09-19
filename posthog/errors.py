@@ -44,15 +44,11 @@ class ExposedCHQueryError(InternalCHQueryError):
 
     def __str__(self) -> str:
         message: str = str(self.message)
-        try:
-            start_index = message.index("DB::Exception:") + len("DB::Exception:")
-        except ValueError:
-            start_index = 0
-        try:
-            end_index = message.index("Stack trace:")
-        except ValueError:
-            end_index = len(message)
-        return message[start_index:end_index].strip()
+        # Cut the stack trace away before you look for the "DB::Exception:" prefix, because the
+        # trace frames contain "DB::Exception::Exception" and also match that prefix.
+        head = message.partition("Stack trace:")[0]
+        _, marker, tail = head.partition("DB::Exception:")
+        return (tail if marker else head).strip()
 
 
 @dataclass
