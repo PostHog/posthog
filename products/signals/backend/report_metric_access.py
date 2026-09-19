@@ -67,67 +67,16 @@ class ReportMetricAccessPolicy:
         if self._viewer_property_restrictions:
             return False
 
-        if not isinstance(query, Mapping):
+        source_and_series = self._trends_source_and_series(query)
+        if source_and_series is None:
             return False
+        source, series = source_and_series
 
-        series = self._trends_series(query)
-        if series is None:
-            return False
-
-        source = query["source"]
-        if not isinstance(source, Mapping):
-            return False
-
-        for item in series:
-            kind = item.get("kind")
-            if kind == "EventsNode":
-                event = item.get("event")
-                if not isinstance(event, str) or not event or not self._token_grants("event_definition"):
-                    return False
-            elif kind == "ActionsNode":
-                action_id = item.get("id")
-                if (
-                    not isinstance(action_id, int)
-                    or isinstance(action_id, bool)
-                    or action_id <= 0
-                    or not self._token_grants("action")
-                    or not self._may_read_action(action_id)
-                ):
-                    return False
-            else:
-                # Current authoring rejects other Trends series. Keep this fail-closed branch for
-                # legacy or manually corrupted rows so report reads never bypass resource gates.
-                return False
-
-            for field in ("properties", "fixedProperties"):
-                if field in item and not self._may_read_property_filters(item[field]):
-                    return False
-
-        for field in ("properties", "fixedProperties"):
-            if field in source and not self._may_read_property_filters(source[field]):
-                return False
-
-        conversion_goal = source.get("conversionGoal")
-        if conversion_goal is not None:
-            if not isinstance(conversion_goal, Mapping):
-                return False
-            if "actionId" in conversion_goal:
-                if set(conversion_goal) != {"actionId"} or not self._may_read_resource_id(
-                    "action", conversion_goal["actionId"]
-                ):
-                    return False
-            elif "customEventName" in conversion_goal:
-                if (
-                    set(conversion_goal) != {"customEventName"}
-                    or not isinstance(conversion_goal["customEventName"], str)
-                    or not conversion_goal["customEventName"]
-                    or not self._token_grants("event_definition")
-                ):
-                    return False
-            else:
-                return False
-
-        return True
+        return (
+            all(self._may_read_series_node(node) for node in series)
+            and self._may_read_property_filter_fields(source)
+            and self._may_read_conversion_goal(source.get("conversionGoal"))
+        )
 
     def may_read_snapshot(self, metric: Mapping[str, object]) -> bool:
         """Whether a userless materialized value is equivalent to this viewer's access."""
@@ -164,8 +113,36 @@ class ReportMetricAccessPolicy:
             return True
         return "*" in scopes or f"{resource}:read" in scopes or f"{resource}:write" in scopes
 
-    def _may_read_action(self, action_id: int) -> bool:
-        return self._may_read_resource_id("action", action_id)
+    def _may_read_series_node(self, node: Mapping[str, object]) -> bool:
+        kind = node.get("kind")
+        if kind == "EventsNode":
+            event = node.get("event")
+            if not isinstance(event, str) or not event or not self._token_grants("event_definition"):
+                return False
+        elif kind == "ActionsNode":
+            if not self._may_read_resource_id("action", node.get("id")):
+                return False
+        else:
+            # Current authoring rejects other Trends series. Keep this fail-closed branch for
+            # legacy or manually corrupted rows so report reads never bypass resource gates.
+            return False
+        return self._may_read_property_filter_fields(node)
+
+    def _may_read_conversion_goal(self, conversion_goal: object) -> bool:
+        if conversion_goal is None:
+            return True
+        if not isinstance(conversion_goal, Mapping):
+            return False
+        # An exact key set keeps an unknown companion field from riding along unchecked.
+        if set(conversion_goal) == {"actionId"}:
+            return self._may_read_resource_id("action", conversion_goal["actionId"])
+        if set(conversion_goal) == {"customEventName"}:
+            event = conversion_goal["customEventName"]
+            return isinstance(event, str) and bool(event) and self._token_grants("event_definition")
+        return False
+
+    def _may_read_property_filter_fields(self, node: Mapping[str, object]) -> bool:
+        return all(self._may_read_property_filters(node.get(field)) for field in ("properties", "fixedProperties"))
 
     def _may_read_resource_id(self, resource: str, resource_id: object) -> bool:
         if (
@@ -206,21 +183,24 @@ class ReportMetricAccessPolicy:
             item, depth = pending.pop()
             if not isinstance(item, Mapping) or depth > _MAX_PROPERTY_FILTER_DEPTH:
                 return False
-            filter_type = item.get("type")
-            if filter_type in ("AND", "OR"):
+            if item.get("type") in ("AND", "OR"):
                 values = item.get("values")
                 if not isinstance(values, list):
                     return False
                 pending.extend((value, depth + 1) for value in values)
-            elif filter_type == "cohort":
-                if item.get("key") != "id" or not self._may_read_resource_id("cohort", item.get("value")):
-                    return False
-            elif not isinstance(filter_type, str) or filter_type not in _ORDINARY_PROPERTY_FILTER_TYPES:
+            elif not self._may_read_leaf_property_filter(item):
                 return False
         return True
 
+    def _may_read_leaf_property_filter(self, item: Mapping[str, object]) -> bool:
+        filter_type = item.get("type")
+        if filter_type == "cohort":
+            return item.get("key") == "id" and self._may_read_resource_id("cohort", item.get("value"))
+        # An unhashable type value must not reach the frozenset membership test.
+        return isinstance(filter_type, str) and filter_type in _ORDINARY_PROPERTY_FILTER_TYPES
+
     @staticmethod
-    def _trends_series(query: object) -> Sequence[Mapping[str, object]] | None:
+    def _trends_source_and_series(query: object) -> tuple[Mapping[str, object], Sequence[Mapping[str, object]]] | None:
         if not isinstance(query, Mapping) or query.get("kind") != "InsightVizNode":
             return None
         source = query.get("source")
@@ -229,4 +209,4 @@ class ReportMetricAccessPolicy:
         series = source.get("series")
         if not isinstance(series, list) or not series or any(not isinstance(item, Mapping) for item in series):
             return None
-        return series
+        return source, series
