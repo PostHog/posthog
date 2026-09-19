@@ -182,17 +182,21 @@ def test_validate_credentials_names_common_wrong_ids(wrong_id, expected_substrin
     assert expected_substring in (message or "")
 
 
-def _http_error(status_code: int) -> requests.HTTPError:
+def _http_error(status_code: int, body: object | None = None) -> requests.HTTPError:
     response = mock.MagicMock()
     response.status_code = status_code
+    if body is None:
+        response.json.side_effect = ValueError("no body")
+    else:
+        response.json.return_value = body
     return requests.HTTPError(response=response)
 
 
 @pytest.mark.parametrize(
     "status_code,expected_substring",
     [
-        (401, "rejected the credentials"),
-        (403, "rejected the credentials"),
+        (401, "invalid or expired"),
+        (403, "not allowed to read"),
         (404, "was not found"),
         (500, "Failed to read Google Analytics property metadata"),
     ],
@@ -211,6 +215,59 @@ def test_validate_credentials_maps_http_errors(status_code, expected_substring):
 
     assert ok is False
     assert expected_substring in (message or "")
+
+
+@pytest.mark.parametrize(
+    "body,expected_substrings,forbidden_substring",
+    [
+        pytest.param(
+            {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "User does not have access."}},
+            ["123456789", "User does not have access."],
+            "reconnect",
+            id="property_denied_names_the_property_and_never_says_reconnect",
+        ),
+        pytest.param(
+            {
+                "error": {
+                    "code": 403,
+                    "status": "PERMISSION_DENIED",
+                    "message": "Request had insufficient authentication scopes.",
+                    "details": [
+                        {
+                            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                            "reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+                            "domain": "googleapis.com",
+                        }
+                    ],
+                }
+            },
+            ["reconnect your Google Analytics account", "Request had insufficient authentication scopes."],
+            "123456789",
+            id="scope_insufficient_asks_for_a_new_grant_and_never_names_the_property",
+        ),
+    ],
+)
+def test_validate_credentials_picks_the_403_recovery_from_the_error_body(
+    body, expected_substrings, forbidden_substring
+):
+    # Google returns PERMISSION_DENIED for a property denial and for a missing OAuth scope, and the
+    # two need opposite recovery steps. Only `error.details[].reason` separates them.
+    error = _http_error(403, body)
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            side_effect=error,
+        ),
+    ):
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    for expected in expected_substrings:
+        assert expected in (message or "")
+    assert forbidden_substring not in (message or "").lower()
 
 
 def test_validate_credentials_maps_token_refresh_error():
