@@ -15,6 +15,7 @@ from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_strin
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.taxonomy.dynamic_properties import is_dynamic_property
 from posthog.taxonomy.taxonomy import virtual_property_names
 
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
@@ -47,15 +48,6 @@ TRIGRAM_SIMILARITY_THRESHOLD = 0.3
 # pg_trgm compares every name in it, and a caller controls how many unknown names one query carries.
 # Names past this cap still warn, only without "Did you mean".
 MAX_SUGGESTED_NAMES = 5
-
-# Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
-# never appear in PropertyDefinition and must not be flagged as unknown.
-DYNAMIC_PROPERTY_PREFIXES = (
-    "$feature/",
-    "$feature_enrollment/",
-    "$survey_responded/",
-    "$survey_dismissed/",
-)
 
 
 @dataclass(frozen=True)
@@ -193,7 +185,7 @@ def _is_known_computed_property(reference: TaxonomyReference) -> bool:
     # an empty value and must still warn. A typo'd virtual name (e.g. `$virt_trafic_type`) is not in the set,
     # so it also still warns.
     name = reference.name
-    if any(name.startswith(prefix) for prefix in DYNAMIC_PROPERTY_PREFIXES):
+    if is_dynamic_property(name):
         return True
     return name in VIRTUAL_EVENT_PROPERTY_NAMES and not reference.bracket_access
 
