@@ -29,7 +29,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
     └── AccountNotebooksExpansion   expanded row: sidebar (Useful links + active-relationships summary) + LemonTabs(Notes/Users/Relationships/Feature requests/Usage/Spend/Opportunities/Conversations/Meetings/Event stream)
         ├── (notes)         paginated/searchable/sortable LemonTable + "New note" button  (accountNotebooksLogic, keyed by accountId)
         ├── (users)         AccountRelatedUsersExpansion             (accountRelatedUsersLogic, keyed by externalId; supports bulk email copy; staff get a compact, region-aware admin link)
-        ├── (relationships) AccountRelationshipsExpansion            (accountRelationshipsLogic, keyed by accountId — full assignment timeline, paginated; assign/unassign controls + definition filter, admin-only hard-delete controls with confirmation, current assignments sorted on top)
+        ├── (relationships) AccountRelationshipsExpansion            (accountRelationshipsLogic, keyed by accountId — full assignment timeline, paginated; assign/unassign controls + definition filter, admin-only hard-delete controls with confirmation, current assignments sorted on top; each row shows which kind of writer made it (`source`: person, workflow, AI, Salesforce, migration), the backend refuses a hard delete of any row under a controlled definition, and refuses an autonomous edit only where the account is enrolled under that definition)
         ├── (feature requests) AccountFeatureRequestsExpansion        (accountFeatureRequestsLogic, keyed by accountId — linked requests and link-existing flow)
         ├── (usage)         AccountBillingExpansion kind="usage"     (accountBillingLogic — a saved billing-usage insight)
         ├── (spend)         AccountBillingExpansion kind="spend"     (accountBillingLogic — saved billing-spend insights)
@@ -63,7 +63,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
 
 ## Data & query model
 
-`accountsLogic.accountsTableQueryPlan` translates selected columns, filters, custom-property display windows, tile filters, and server-side sort into a typed `AccountsTableQuery`. Unsupported saved columns and filters are omitted instead of switching execution engines. `AccountsTable` reads each keyed `AccountsTableRow` directly through `accountsTableCell`; there is no positional-row compatibility transform. Custom properties and other fields without a saved or column-specific width size to their rendered headers and loaded values, between 80px and 200px. `useAccountColumnAutoSizing` measures a hidden, unconstrained copy of the table after data loads. Automatic widths remain local to the mounted table and update with its data. They use the same table sizing as manually resized columns. Existing defaults, manual resizing, and horizontal scrolling stay unchanged. Every column can be resized from its header down to 80px. See [Accounts table layout](../../../../../docs/internal/customer-analytics-accounts-table.md). Widths save automatically in one team-scoped local storage dictionary keyed by stable column alias. A column keeps its width when a view hides it, then restores it when another view shows it.
+`accountsLogic.accountsTableQueryPlan` translates selected columns, filters, custom-property display windows, tile filters, and server-side sort into a typed `AccountsTableQuery`. Unsupported saved columns and filters are omitted instead of switching execution engines. `AccountsTable` reads each keyed `AccountsTableRow` directly through `accountsTableCell`; there is no positional-row compatibility transform. Custom properties and other fields without a saved or column-specific width size to their rendered headers and loaded values, between 80px and 200px. `useAccountColumnAutoSizing` measures a hidden, unconstrained copy of the table after data loads. Automatic widths remain local to the mounted table and update with its data. They use the same table sizing as manually resized columns. Existing defaults, manual resizing, and horizontal scrolling stay unchanged. Every column can be resized from its header down to 80px. See [Accounts table layout](../../../../../docs/internal/customer-analytics/accounts-table.md). Widths save automatically in one team-scoped local storage dictionary keyed by stable column alias. A column keeps its width when a view hides it, then restores it when another view shows it.
 
 Search matches the account name and external ID as substrings.
 A complete email address also matches accounts that list it under `known_emails`.
@@ -160,7 +160,7 @@ The empty Properties state uses the hedgehog and primary **Pin properties** acti
 Property reference keys at the component boundary are namespaced as `custom:<uuid>` and `relationship:<uuid>`; persistence maps custom keys back to the API's `custom_property` kind.
 `accountSidebarPropertiesLogic({ projectId, accountId })` loads current custom values and relationship assignments, resolves them in pin order, and owns inline editing. Resource-level Customer analytics editors can change manual/workflow values and relationships; canonical and warehouse-backed rows are read-only.
 Clearing posts a null custom value and preserves history. Relationship removals end assignments; single-holder replacements let the server end the previous holder. Multi-holder retries reload current assignments to avoid duplicating a partially completed save. Failed saves keep the draft open.
-Sidebar saves refresh the mounted Relationships tab and account-list data nodes. Tab relationship reloads also refresh sidebar values. See `docs/internal/customer-analytics-account-sidebar.md` for the behavior and API contract.
+Sidebar saves refresh the mounted Relationships tab and account-list data nodes. Tab relationship reloads also refresh sidebar values. See `docs/internal/customer-analytics/account-sidebar.md` for the behavior and API contract.
 On wide layouts, the sidebar and the active account-detail tab are separate vertical scroll containers. Narrow layouts retain the single stacked page scroll.
 It reuses `AccountDetailTabs` and `AccountNotesExpansion` with the expanded row, but mounts only the active tab so inactive detail tabs do not load data.
 Tables use borders in the detail scene and remain embedded in expanded rows.
@@ -254,7 +254,7 @@ An explicit shared URL wins over the draft. The draft wins over automatic saved-
 Restoring only the My accounts preference keeps column initialization active and does not create a fallback draft.
 While `awaitingSavedView` is true, draft and URL writes wait for the saved-view decision.
 Selecting a saved view explicitly replaces the draft.
-See [Accounts table](../../../../../docs/internal/customer-analytics-accounts-table.md) when changing persistence or navigation.
+See [Accounts table](../../../../../docs/internal/customer-analytics/accounts-table.md) when changing persistence or navigation.
 
 ### Deep-link to one account (path route)
 

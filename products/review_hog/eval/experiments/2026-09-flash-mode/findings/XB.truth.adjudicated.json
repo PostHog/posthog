@@ -1,0 +1,201 @@
+{
+    "XB1": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:2/3"
+    },
+    "XB2": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "source": "adjudicated:0/3",
+        "adjudicated_from": "UB8",
+        "adjudication_reason": "Same enqueue-time inbox-toggle snapshot claim: the initial Celery task does not re-resolve the opt-in after queue delay. This carries the panel's rejected execution-time toggle-recheck claim."
+    },
+    "XB3": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XB4": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 6,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "UA1",
+        "adjudication_reason": "Same engine bot/draft-gate claim: the self-driving flag bypasses the gate without requiring the expected bot-authored draft shape. This carries the human-authored draft sub-claim, not separate assertions about ready PRs or fork provenance."
+    },
+    "XB5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "adjudicated:0/3",
+        "adjudicated_from": "UA6",
+        "adjudication_reason": "Same initial Celery broker-publication failure before a task exists. This carries the panel's rejected broker-publish sub-claim, not task retry exhaustion or an independently established process-crash window after commit."
+    },
+    "XB6": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XB7": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 58,
+        "source": "adjudicated-with-retained-subclaim",
+        "adjudicated_from": "UA6",
+        "adjudication_reason": "The original panel rejects the broker-publication-failure sub-claim. All three fresh verifiers independently retain the separate process-exit window after TaskRun commit but before callback publication. The combined finding remains real/should_fix only for that additional sub-claim; the panel's broker verdict remains false.",
+        "panel_subclaim": {
+            "is_real": false,
+            "severity": null,
+            "cluster": 58,
+            "source": "adjudicated:0/3",
+            "evidence": [
+                {
+                    "panel_index": 0,
+                    "claim": "A failed Celery broker publish in _start_stamphog_review / queue_inbox_pr_review is caught and only logged, with no retry or durable outbox, so the initial Stamphog review is permanently and silently lost",
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "receivers.py:209-234 wraps a single process_inbox_pr_review.delay() (stamphog facade/api.py:149) in try/except with logger.exception, and the docstring at receivers.py:213 states the deliberate invariant 'the broker being down must never surface into the saver'. The callback runs in transaction.on_commit (receivers.py:136-146) inside the hot TaskRun post_save path, and the sibling _start_review (receivers.py:237-273) uses the same pattern. posthog/settings/celery.py:26 uses a Redis broker and does not override Celery's default publish retry, so .delay() only raises after its built-in publish retries fail, which means Redis is down for the whole fleet. The failure logs a traceback, so it is not silent. Recovery paths exist: the receiver fires again on every later TaskRun save that touches output (receivers.py:81-92, docstring 73-79), set_task_run_output keeps pr_url (tasks facade/api.py:2147-2154), and the next push re-reviews through the carve-out (stamphog tasks.py:160-215).",
+                    "refutation": "After the PR-open save, the agent may never save output again, and a draft PR may get no further push before triage. Then a broker outage at that exact on-commit moment leaves the PR with no draft-time verdict. I rejected this because it needs Redis to stay down through Celery's publish retries at one instant, with no later output save and no later push. The code documents the tradeoff, and the result is a missed optional review, never a wrong approval."
+                },
+                {
+                    "panel_index": 1,
+                    "claim": "A failed Celery broker publish in _start_stamphog_review / queue_inbox_pr_review is caught and only logged, with no durable record or retry, so the initial Stamphog review of an inbox PR can be lost.",
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "receivers.py:210-234 wraps queue_inbox_pr_review in except Exception: logger.exception(...), and its docstring (213) states the documented contract that the broker being down must never surface into the TaskRun saver. facade/api.py:149 is a single process_inbox_pr_review.delay(), and Celery's default publish retry is not overridden in posthog/celery.py or posthog/settings, so only a broker outage that outlasts those retries reaches the except block. The sibling _start_review (receivers.py:237-273) uses the same catch-and-log shape. Stamphog's own webhook view (presentation/webhooks.py:63-64) is also a bare .delay() with no outbox. Recovery exists: the receiver fires again on every output-touching save (receivers.py:73-79, 81-86), set_task_run_output keeps pr_url across later writes (tasks/backend/facade/api.py:2147-2152), process_inbox_pr_review dedupes on the current head (tasks.py:1120-1128, 1195-1214), and later synchronize/reopen deliveries re-review through the carve-out without needing a prior run (tasks.py:143-215). The failure is logged with a traceback, so it is not silent.",
+                    "refutation": "The webhook `opened` event never covers a bot-authored draft (tasks.py:49, 168), and no later output save is guaranteed. So a Redis outage at the exact on_commit moment, followed by no further output save and no push, leaves the draft with no Stamphog verdict and no sweeper to fix it. I rejected this because the window is a platform-wide broker outage that every plain .delay() in the repo shares, including stamphog's own webhook entry. The outcome is a missed optional pre-review that is logged and fixed by the next push, never a wrong approval. The trade-off is also deliberate, documented and tested."
+                },
+                {
+                    "panel_index": 2,
+                    "claim": "A Celery broker publish failure in _start_stamphog_review (receivers.py:224-234 -> facade/api.py:149 .delay()) is caught, logged and dropped, so the initial Stamphog review can be lost with no durable record or retry.",
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "receivers.py:213 docstring: 'Fire-and-forget the hosted Stamphog review; the broker being down must never surface into the saver'. The dispatch runs inside transaction.on_commit on the hot TaskRun post_save path (receivers.py:131-139), where raising is forbidden by the module contract (receivers.py:75-77). test_inbox_trigger.py:358-368 pins that contract: 'the Celery broker being down must cost a log line'. The sibling _start_review leg (receivers.py:237-273) does the same. Nothing in posthog/settings or posthog/celery.py overrides task_publish_retry, so Celery's default publish retry runs before the except. logger.exception at receivers.py:234 records a traceback, so the loss is not silent. Two recovery paths exist. First, the receiver fires again on every later save that touches output with a pr_url (receivers.py:85-96), and set_task_run_output keeps pr_url on later writes (tasks facade api.py:2141-2146). Second, later synchronize/reopen deliveries re-review through the webhook carve-out (tasks.py:167-215), which reads nothing the initial leg stored. process_inbox_pr_review dedupes on the current head so repeat fires are safe (tasks.py:1124-1128, 1195-1219).",
+                    "refutation": "No later output save is guaranteed. The webhook backstop writes pr_url only once, and a PR with no further push is never reviewed, so a Redis outage longer than about 0.6s at the on_commit moment loses the draft-time verdict. I rejected this. The loss window is exactly the case the design documents and tests as accepted: a broker outage during the one pr_url save, with no later save and no push. It is logged with a traceback and cannot produce a wrong approval. The fix it asks for is an outbox table on a save path where every other Celery dispatch in the repo uses a plain .delay(). The finding shows no harm beyond the accepted trade-off."
+                }
+            ]
+        },
+        "retained_subclaim": {
+            "claim": "A process exit after the TaskRun output commits but before its in-process callback publishes to Celery leaves no durable pending Stamphog review or guaranteed reconciliation.",
+            "is_real": true,
+            "severity": "should_fix",
+            "source": "verified-3-skeptics:3/3",
+            "evidence": [
+                "products/review_hog/backend/receivers.py:131-139 registers publication as in-process transaction.on_commit work after the TaskRun commit.",
+                "products/stamphog/backend/facade/api.py:149-155 only publishes the Celery task; the first ReviewRun is created later at products/stamphog/backend/tasks/tasks.py:1223-1229.",
+                "products/review_hog/backend/receivers.py:85-89 ignores state/status-only saves; products/tasks/backend/webhooks.py:283-292 suppresses repeated PR URL writes, so another output save is not guaranteed.",
+                "posthog/tasks/tasks.py:270-303 reconciles queued Tasks TaskRuns, not missing Stamphog review dispatches; a process exit before publication is outside both producer retries and process_inbox_pr_review retries.",
+                "findings/verify_result_XB.json:XB7 contains three should_fix votes that each explicitly retain the post-commit, pre-publication process-loss window."
+            ]
+        }
+    },
+    "XB8": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XB9": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XB10": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 1,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XB11": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same initial receiver provenance omission: caller-writable task output can select a PR without validating task-to-PR linkage, expected bot authorship, or a repository-native head before stamping the self-driving marker. The carryover excludes any separate claim that ready PRs must be refused."
+    },
+    "XB12": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same initial receiver provenance omission: caller-writable task output can select a PR without validating task-to-PR linkage, expected bot authorship, or a repository-native head before stamping the self-driving marker. The carryover excludes any separate claim that ready PRs must be refused."
+    },
+    "XB13": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "source": "adjudicated:0/3",
+        "adjudicated_from": "UB8",
+        "adjudication_reason": "Same enqueue-time inbox-toggle snapshot claim: the initial Celery task does not re-resolve the opt-in after queue delay. This carries the panel's rejected execution-time toggle-recheck claim."
+    },
+    "XB14": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same initial receiver provenance omission: caller-writable task output can select a PR without validating task-to-PR linkage, expected bot authorship, or a repository-native head before stamping the self-driving marker. The carryover excludes any separate claim that ready PRs must be refused."
+    },
+    "XB15": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 1,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XB16": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 6,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "UA1",
+        "adjudication_reason": "Same engine bot/draft-gate claim: the self-driving flag bypasses the gate without requiring the expected bot-authored draft shape. This carries the human-authored draft sub-claim, not separate assertions about ready PRs or fork provenance."
+    },
+    "XB17": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 3,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XB18": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XB19": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "GC7",
+        "adjudication_reason": "Same canonical-reviewer-only toggle check conflicting with the stated any-assigned-reviewer rule: an enabled noncanonical assignee cannot trigger the review."
+    },
+    "XB20": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 39,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "UA3",
+        "adjudication_reason": "Same unscoped task-run lookup followed by a team check: a foreign-team branch match can be selected first and then rejected, hiding the requested team's qualifying run."
+    },
+    "XB21": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XB22": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 76,
+        "source": "verified-3-skeptics:0/3"
+    }
+}

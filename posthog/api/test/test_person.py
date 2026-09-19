@@ -591,6 +591,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )[0][0]
         self.assertEqual(ch_events, 3)
 
+    @parameterized.expand(
+        [
+            ("postgres_delete_fails", "posthog.models.person.bulk_delete.delete_persons_from_postgres", 503, False),
+            ("activity_log_fails", "posthog.models.person.bulk_delete.bulk_log_activity", 202, True),
+        ]
+    )
+    def test_delete_person_fails_only_when_person_remains(self, _name, target, expected_status, person_gone):
+        person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
+
+        with mock.patch(target, side_effect=Exception("DB connection lost")):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(get_person_by_uuid(self.team.pk, str(person.uuid)) is None, person_gone)
+        if expected_status == 503:
+            data = response.json()
+            self.assertEqual(data["code"], "person_deletion_failed")
+            self.assertIn("delete_postgres", data["detail"])
+
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_delete_person_and_events(self):
         person = _create_person(
@@ -985,7 +1004,30 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(data["persons_deleted"], 1)
         self.assertEqual(len(data["deletion_errors"]), 1)
         self.assertEqual(data["deletion_errors"][0]["person_uuid"], str(person1.uuid))
+        self.assertEqual(data["deletion_errors"][0]["step"], "tombstone_clickhouse")
         self.assertNotIn("detail", data["deletion_errors"][0])
+
+    @mock.patch(
+        "posthog.models.person.bulk_delete.delete_persons_from_postgres",
+        side_effect=Exception("DB connection lost"),
+    )
+    def test_bulk_delete_total_failure_reports_every_person(self, _mock_delete_from_postgres):
+        person1 = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
+        person2 = _create_person(team=self.team, distinct_ids=["person_2"], immediate=True)
+
+        response = self.client.post("/api/person/bulk_delete/", {"ids": [person1.uuid, person2.uuid]})
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        data = response.json()
+        self.assertEqual(data["persons_found"], 2)
+        self.assertEqual(data["persons_deleted"], 0)
+        self.assertEqual(
+            sorted(error["person_uuid"] for error in data["deletion_errors"]),
+            sorted([str(person1.uuid), str(person2.uuid)]),
+        )
+        self.assertEqual({error["step"] for error in data["deletion_errors"]}, {"delete_postgres"})
+        self.assertIsNotNone(get_person_by_uuid(self.team.pk, str(person1.uuid)))
+        self.assertIsNotNone(get_person_by_uuid(self.team.pk, str(person2.uuid)))
 
     def test_deletion_status_rejects_invalid_status(self):
         """Test that deletion_status returns 400 for invalid status filter"""

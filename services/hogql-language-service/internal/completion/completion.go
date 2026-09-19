@@ -43,12 +43,16 @@ const (
 )
 
 var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "JOIN", "AS", "CASE", "NULL", "TRUE", "FALSE", "NOT"}
+var queryStarters = []catalog.Entry{{Name: "SELECT"}, {Name: "WITH"}}
 var betweenSeparator = []string{"AND"}
 var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMIT"}
+var joinPredicateContinuations = []string{"AND", "OR", "WHERE", "GROUP BY", "ORDER BY", "LIMIT"}
+var joinPredicateContinuationsBeforeJoin = []string{"AND", "OR"}
+var caseExpressionKeywords = []string{"CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "TRUE", "FALSE", "NOT"}
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
 var simpleHogQLIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
-var hogQLKeywords = map[string]struct{}{
+var quotedHogQLKeywords = map[string]struct{}{
 	"ALL": {}, "AND": {}, "ANTI": {}, "ANY": {}, "ARRAY": {}, "AS": {}, "ASC": {}, "ASCENDING": {}, "ASOF": {},
 	"BETWEEN": {}, "BOTH": {}, "BY": {}, "CASE": {}, "CAST": {}, "CATCH": {}, "COHORT": {}, "COLLATE": {}, "COLUMNS": {},
 	"CROSS": {}, "CUBE": {}, "CURRENT": {}, "DATE": {}, "DAY": {}, "DESC": {}, "DESCENDING": {}, "DISTINCT": {},
@@ -62,11 +66,18 @@ var hogQLKeywords = map[string]struct{}{
 	"ORDER": {}, "OUTER": {}, "OVER": {}, "PARTITION": {}, "PIVOT": {}, "POSITIONAL": {}, "PRECEDING": {},
 	"PREWHERE": {}, "QUALIFY": {}, "QUARTER": {}, "RANGE": {}, "RECURSIVE": {}, "REPLACE": {}, "RETURN": {}, "RIGHT": {},
 	"ROLLUP": {}, "ROW": {}, "ROWS": {}, "SAMPLE": {}, "SELECT": {}, "SEMI": {}, "SETS": {}, "SETTINGS": {},
-	"SECOND": {}, "STEP": {}, "SUBSTRING": {}, "THEN": {}, "THROW": {}, "TIES": {}, "TIME": {}, "TIMESTAMP": {},
+	"SECOND": {}, "STEP": {}, "SUBSTRING": {}, "THEN": {}, "THROW": {}, "TIES": {}, "TIME": {},
 	"TO": {}, "TOP": {}, "TOTALS": {}, "TRAILING": {}, "TRIM": {}, "TRUNCATE": {}, "TRY": {}, "TRY_CAST": {},
 	"UNBOUNDED": {}, "UNION": {}, "UNPIVOT": {}, "USING": {}, "VALUES": {}, "WEEK": {}, "WHEN": {},
 	"WHERE": {}, "WHILE": {}, "WINDOW": {}, "WITH": {}, "WITHIN": {}, "YEAR": {}, "YYYY": {}, "ZONE": {},
 }
+var quotedHogQLKeywordsFolded = func() map[string]struct{} {
+	result := make(map[string]struct{}, len(quotedHogQLKeywords))
+	for keyword := range quotedHogQLKeywords {
+		result[strings.ToLower(keyword)] = struct{}{}
+	}
+	return result
+}()
 var hogQLIdentifierEscaper = strings.NewReplacer(
 	"\\", "\\\\",
 	"`", "``",
@@ -93,22 +104,47 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		return Result{}, err
 	}
 	prefix, qualifier, start := cursorWord(query[:position])
+	mode := analyzeCursorContext(query[:start])
+	tableNamespace := ""
+	if path, ok := dottedTablePathAtCursor(query[:position]); ok {
+		prefix = path.prefix
+		qualifier = ""
+		start = path.start
+		tableNamespace = path.namespace
+		mode = completionModeTable
+	}
 	if len(prefix) > querylimits.MaxSuggestionInputBytes {
 		return Result{Suggestions: []Suggestion{}}, nil
 	}
 	lowerPrefix := strings.ToLower(prefix)
-	mode := analyzeCursorContext(query[:start])
 	if mode == completionModeNone {
 		return Result{Suggestions: []Suggestion{}}, nil
+	}
+	if mode == completionModeStatementStart {
+		entries := func(yield func(catalog.Entry) bool) {
+			for _, entry := range queryStarters {
+				if hasLowerPrefix(entry.Name, lowerPrefix) && !yield(entry) {
+					return
+				}
+			}
+		}
+		return indexedResult(entries, "keyword", offset, nil), nil
 	}
 	repaired := query[:start] + "__posthog_cursor__" + query[position:]
 	document, bindings, qualified, parseErr := cursorBindings(schema, repaired, start, qualifier)
 
 	var suggestions []Suggestion
-	namespace, propertyPrefix, propertyOK := propertyContext(query[:position], bindings)
 	if document != nil && document.LimitError() != nil {
 		return Result{}, document.LimitError()
 	}
+	if mode == completionModeTable {
+		result := tableResult(schema, bindings, lowerPrefix, tableNamespace, offset, parseErr)
+		if document != nil && document.LimitError() != nil {
+			return Result{}, document.LimitError()
+		}
+		return result, nil
+	}
+	namespace, propertyPrefix, propertyOK := propertyContext(query[:position], bindings)
 	if propertyOK {
 		return indexedResult(slices.Values(schema.Properties(namespace).Prefix(propertyPrefix)), "property", offset, parseErr), nil
 	} else if qualifier != "" {
@@ -117,33 +153,41 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 			return Result{}, document.LimitError()
 		}
 		return indexedResult(entries, "field", offset, parseErr), nil
-	} else if mode == completionModeTable {
-		return indexedResult(slices.Values(schema.Tables().Prefix(lowerPrefix)), "table", offset, parseErr), nil
 	} else if mode == completionModeComparison {
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 	} else if mode == completionModeBetweenSeparator {
 		suggestions = appendNamed(suggestions, betweenSeparator, lowerPrefix, "keyword", "")
 	} else if mode == completionModePredicateContinuation {
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
+	} else if mode == completionModeJoinPredicateContinuation {
+		continuations := joinPredicateContinuations
+		if laterJoinAtCursor(query, position) {
+			continuations = joinPredicateContinuationsBeforeJoin
+		}
+		suggestions = appendNamed(suggestions, continuations, lowerPrefix, "keyword", "")
 	} else if mode == completionModePostExpression {
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
-	} else {
-		seen := map[analysis.Relation]bool{}
-		for _, relation := range bindings.All() {
-			if seen[relation] {
-				continue
-			}
-			seen[relation] = true
-			suggestions = appendFields(suggestions, relation.Prefix(lowerPrefix))
+	} else if mode == completionModeJoinPostExpression {
+		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
+		continuations := joinPredicateContinuations
+		if laterJoinAtCursor(query, position) {
+			continuations = joinPredicateContinuationsBeforeJoin
 		}
+		suggestions = appendNamed(suggestions, continuations, lowerPrefix, "keyword", "")
+	} else {
+		suggestions = fieldSuggestions(bindings, lowerPrefix)
 		if document != nil && document.LimitError() != nil {
 			return Result{}, document.LimitError()
 		}
-		if mode == completionModeExpression {
+		if mode == completionModeExpression || mode == completionModeCaseExpression {
 			suggestions = appendFunctions(suggestions, lowerPrefix)
 		}
-		for _, keyword := range keywords {
+		availableKeywords := keywords
+		if mode == completionModeCaseExpression {
+			availableKeywords = caseExpressionKeywords
+		}
+		for _, keyword := range availableKeywords {
 			if hasLowerPrefix(keyword, lowerPrefix) {
 				suggestions = append(suggestions, Suggestion{Label: keyword, Kind: "keyword"})
 			}
@@ -155,17 +199,25 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		if leftRank != rightRank {
 			return leftRank < rightRank
 		}
-		return strings.ToLower(suggestions[i].Label) < strings.ToLower(suggestions[j].Label)
+		left, right := strings.ToLower(suggestions[i].Label), strings.ToLower(suggestions[j].Label)
+		if left == right {
+			if suggestions[i].Label == suggestions[j].Label {
+				return suggestions[i].InsertText < suggestions[j].InsertText
+			}
+			return suggestions[i].Label < suggestions[j].Label
+		}
+		return left < right
 	})
-	for index := range suggestions {
-		suggestions[index].SortText = strconv.Itoa(suggestionRank(suggestions[index].Kind)) + "-" + strings.ToLower(suggestions[index].Label)
-	}
 	result := Result{Suggestions: suggestions, Total: len(suggestions)}
 	if offset > len(suggestions) {
 		offset = len(suggestions)
 	}
 	end := min(offset+PageSize, len(suggestions))
 	result.Suggestions = suggestions[offset:end]
+	for index := range result.Suggestions {
+		// Global ranks preserve client-side page order even when labels contain punctuation.
+		result.Suggestions[index].SortText = fmt.Sprintf("%020d", offset+index)
+	}
 	if end < len(suggestions) {
 		result.NextCursor = encodeCursor(end)
 	}
@@ -173,6 +225,11 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		result.ParseError = parseErr.Error()
 	}
 	return result, nil
+}
+
+func laterJoinAtCursor(query string, position int) bool {
+	_, cursorDepth, _ := scanSQLTokens(query[:position])
+	return hasLaterJoinAtDepth(query[position:], cursorDepth)
 }
 
 func indexedResult(entries iter.Seq[catalog.Entry], kind string, offset int, parseErr error) Result {
@@ -240,27 +297,13 @@ func encodeCursor(offset int) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
 
-func appendFields(out []Suggestion, fields iter.Seq[catalog.Entry]) []Suggestion {
-	for field := range fields {
-		if !supportedHogQLIdentifier(field.Name) {
-			continue
-		}
-		out = append(out, Suggestion{Label: field.Name, Kind: "field", Detail: field.Type, InsertText: suggestionInsertText("field", field.Name)})
-	}
-	return out
-}
-
 func suggestionInsertText(kind, name string) string {
 	insertText := name
 	switch kind {
 	case "field", "property":
 		insertText = quoteHogQLFieldIdentifier(name)
 	case "table":
-		parts := strings.Split(name, ".")
-		for index := range parts {
-			parts[index] = quoteHogQLFieldIdentifier(parts[index])
-		}
-		insertText = strings.Join(parts, ".")
+		insertText = quoteHogQLTablePath(name)
 	}
 	if insertText == name {
 		return ""
@@ -268,12 +311,20 @@ func suggestionInsertText(kind, name string) string {
 	return insertText
 }
 
+func quoteHogQLTablePath(name string) string {
+	parts := strings.Split(name, ".")
+	for index := range parts {
+		parts[index] = quoteHogQLFieldIdentifier(parts[index])
+	}
+	return strings.Join(parts, ".")
+}
+
 func supportedHogQLIdentifier(name string) bool {
 	return !strings.Contains(name, "%")
 }
 
 func quoteHogQLFieldIdentifier(name string) string {
-	if _, keyword := hogQLKeywords[strings.ToUpper(name)]; keyword {
+	if _, keyword := quotedHogQLKeywords[strings.ToUpper(name)]; keyword {
 		return "`" + hogQLIdentifierEscaper.Replace(name) + "`"
 	}
 	return quoteHogQLIdentifier(name)
@@ -344,6 +395,43 @@ func cursorWord(input string) (prefix, qualifier string, start int) {
 		qualifier = input[qualifierStart:qualifierEnd]
 	}
 	return prefix, qualifier, start
+}
+
+type dottedTablePath struct {
+	prefix    string
+	namespace string
+	start     int
+}
+
+func dottedTablePathAtCursor(input string) (dottedTablePath, bool) {
+	start := len(input)
+	for start > 0 {
+		character, size := utf8.DecodeLastRuneInString(input[:start])
+		if character != '.' && !isIdentifier(character) {
+			break
+		}
+		start -= size
+	}
+	prefix := input[start:]
+	lastDot := strings.LastIndexByte(prefix, '.')
+	if lastDot < 1 || !directTablePathContext(input[:start]) {
+		return dottedTablePath{}, false
+	}
+	for _, component := range strings.Split(prefix[:lastDot], ".") {
+		if component == "" {
+			return dottedTablePath{}, false
+		}
+	}
+	return dottedTablePath{prefix: prefix, namespace: prefix[:lastDot+1], start: start}, true
+}
+
+func directTablePathContext(input string) bool {
+	tokens, depth, incomplete := scanSQLTokens(input)
+	if incomplete {
+		return false
+	}
+	last := lastTokenAtDepth(tokens, depth)
+	return last.kind == sqlTokenWord && (last.text == "FROM" || last.text == "JOIN")
 }
 
 func isIdentifier(r rune) bool {

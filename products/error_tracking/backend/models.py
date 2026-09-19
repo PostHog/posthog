@@ -961,6 +961,14 @@ class ErrorTrackingAlertDestination(TeamScopedRootMixin, UUIDTModel):
     integration = models.ForeignKey(Integration, on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
     # Channel-specific delivery settings, e.g. {"channel": "C0123", "channel_name": "#alerts"} for Slack
     config = models.JSONField(default=dict, blank=True)
+    # Delivery outcome record: visibility only, nothing auto-disables a failing
+    # destination (per the alerting RFC that stays an open question).
+    last_delivered_at = models.DateTimeField(null=True, blank=True)
+    last_failure_at = models.DateTimeField(null=True, blank=True)
+    # db_default keeps inserts from pods that predate these columns valid during a
+    # rolling deploy; Django would otherwise drop the database default after backfill.
+    last_error = models.TextField(blank=True, default="", db_default="")
+    consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -973,9 +981,9 @@ class ErrorTrackingAlertThread(TeamScopedRootMixin, UUIDTModel):
 
     Maps an issue to the externally posted notification (e.g. a Slack message) so
     lifecycle updates can be delivered as replies to the original message instead
-    of new fire-and-forget notifications. The unique constraint is the concurrency
-    primitive: concurrent deliveries race on the insert and the loser reuses the
-    winner's thread.
+    of new fire-and-forget notifications. The unique constraint dedupes the row;
+    `pending_notification_id` is the send claim: concurrent deliveries serialize on
+    it so only one posts at a time, and the loser retries into the winner's thread.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
@@ -990,6 +998,10 @@ class ErrorTrackingAlertThread(TeamScopedRootMixin, UUIDTModel):
     # UUIDs of recently delivered lifecycle notifications (newest last, capped by the
     # delivery activity) so Temporal retries don't duplicate notifications.
     delivered_notification_ids = models.JSONField(default=list, blank=True)
+    # Notification currently posting to this thread, with the claim time so a holder
+    # that died before saving is treated as stale instead of wedging the thread.
+    pending_notification_id = models.CharField(max_length=64, null=True, blank=True)
+    pending_claimed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

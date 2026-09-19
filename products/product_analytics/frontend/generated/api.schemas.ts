@@ -964,6 +964,16 @@ export interface ClickhouseQueryProgressApi {
     time_elapsed: number
 }
 
+export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
+
+export const QueryScanFixLocationApi = {
+    Query: 'query',
+    Subquery: 'subquery',
+    View: 'view',
+    InsightDateRange: 'insight_date_range',
+    DashboardDateFilter: 'dashboard_date_filter',
+} as const
+
 export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
 
 export const QueryScanFindingKindApi = {
@@ -972,33 +982,28 @@ export const QueryScanFindingKindApi = {
     PersonsJoin: 'persons_join',
 } as const
 
-export type QueryScanFindingReasonApi = (typeof QueryScanFindingReasonApi)[keyof typeof QueryScanFindingReasonApi]
-
-export const QueryScanFindingReasonApi = {
-    InOr: 'in_or',
-    Wrapped: 'wrapped',
-    Negated: 'negated',
-    Dynamic: 'dynamic',
-    NotPruned: 'not_pruned',
-    Filters: 'filters',
-} as const
-
 export interface QueryScanWarningApi {
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean | null
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string | null
     /** The one fact the finding rests on. */
     evidence?: string | null
     /** What "Fix with AI" and the assistant are told to do. */
     fix: string
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocationApi | null
     kind: QueryScanFindingKindApi
     /** Shown to the person: what happened and what to do. */
     message: string
-    /** Only with `no_event_filter` and `no_start_date`. */
-    reason?: QueryScanFindingReasonApi | null
 }
 
 export interface QueryScanAnalysisApi {
     /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
     assistant_prompt?: string | null
-    /** Empty when the analysis found nothing to fix. */
+    /** Every finding, fixable or not. Empty when the analysis found none. */
     findings: QueryScanWarningApi[]
     /** How much of all the project's events the query read, 0 to 1. */
     project_share?: number | null
@@ -1739,6 +1744,8 @@ export interface GroupNodeApi {
 export interface QueryLogTagsApi {
     /** Name of the query, preferably unique. For example web_analytics_vitals */
     name?: string | null
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string | null
     /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
     productKey?: string | null
     /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
@@ -2053,7 +2060,10 @@ export interface TrendsQueryApi {
     response?: TrendsQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
@@ -2826,6 +2836,8 @@ export interface PathsFilterApi {
     showFullUrls?: boolean | null
     startPoint?: string | null
     stepLimit?: number | null
+    /** Remove the query string from page view URLs, so pages that differ only in query parameters become one path item */
+    stripQueryString?: boolean | null
 }
 
 export interface PathsLinkApi {
@@ -3201,7 +3213,10 @@ export interface StickinessQueryApi {
     response?: StickinessQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilterApi | null
@@ -3432,6 +3447,7 @@ export const WebStatsBreakdownApi = {
     FirstPageviewUTMContent: 'FirstPageviewUTMContent',
     FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
     Browser: 'Browser',
+    InAppBrowser: 'InAppBrowser',
     Os: 'OS',
     Viewport: 'Viewport',
     DeviceType: 'DeviceType',
@@ -5493,6 +5509,15 @@ export interface ExperimentRatioMetricApi {
     version?: number | null
 }
 
+export type ExperimentExposureNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentExposureNodeApi {
+    kind?: 'ExperimentExposureNode'
+    response?: ExperimentExposureNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
 
 export const StartHandlingApi = {
@@ -5518,7 +5543,7 @@ export interface ExperimentRetentionMetricApi {
     retention_window_start: number
     retention_window_unit: FunnelConversionWindowTimeUnitApi
     sharedMetricId?: number | null
-    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentExposureNodeApi
     start_handling: StartHandlingApi
     uuid?: string | null
     /** version of the node, used for schema migrations */
@@ -8687,7 +8712,7 @@ export interface ActivityLogEntryApi {
     /** Whether the acting user was being impersonated by PostHog staff. */
     readonly was_impersonated: boolean
     /**
-     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
      * @nullable
      */
     readonly client: string | null
@@ -9226,42 +9251,6 @@ export type InsightsActivityRetrieveFormat =
     (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
 
 export const InsightsActivityRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type InsightsAnalyzeRetrieveParams = {
-    format?: InsightsAnalyzeRetrieveFormat
-}
-
-export type InsightsAnalyzeRetrieveFormat =
-    (typeof InsightsAnalyzeRetrieveFormat)[keyof typeof InsightsAnalyzeRetrieveFormat]
-
-export const InsightsAnalyzeRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type InsightsSuggestionsRetrieveParams = {
-    format?: InsightsSuggestionsRetrieveFormat
-}
-
-export type InsightsSuggestionsRetrieveFormat =
-    (typeof InsightsSuggestionsRetrieveFormat)[keyof typeof InsightsSuggestionsRetrieveFormat]
-
-export const InsightsSuggestionsRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type InsightsSuggestionsCreateParams = {
-    format?: InsightsSuggestionsCreateFormat
-}
-
-export type InsightsSuggestionsCreateFormat =
-    (typeof InsightsSuggestionsCreateFormat)[keyof typeof InsightsSuggestionsCreateFormat]
-
-export const InsightsSuggestionsCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

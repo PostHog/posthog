@@ -1,12 +1,13 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
 from rest_framework import status
 
+import posthog.api.snuffle_proxy as snuffle_proxy
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -22,7 +23,7 @@ def _upstream(status_code: int = 200, body: bytes = b'{"status":"success","data"
     response = MagicMock(spec=requests.Response)
     response.status_code = status_code
     response.content = body
-    response.headers = {"Content-Type": "application/json; charset=utf-8"}
+    response.headers = {"Content-Type": "application/json; charset=utf-8", "X-Snuffle-ClickHouse-Read-Bytes": "1234"}
     return response
 
 
@@ -34,6 +35,14 @@ class TestLokiQueryApi(APIBaseTest):
         patcher = patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_upstream())
         self.request_mock = patcher.start()
         self.addCleanup(patcher.stop)
+        # Enable the Snuffle flag for the Loki proxy tests.
+        # The gate test sets the flag to False.
+        ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        ff_patcher.start()
+        self.addCleanup(ff_patcher.stop)
+        debit_patcher = patch("posthog.api.snuffle_proxy.schedule_snuffle_budget_debit")
+        self.schedule_budget_debit = debit_patcher.start()
+        self.addCleanup(debit_patcher.stop)
 
     @parameterized.expand([("bare", "query_range"), ("trailing_slash", "query_range/")])
     def test_get_is_forwarded_with_team_header_and_credentials(self, _name: str, path: str):
@@ -45,6 +54,7 @@ class TestLokiQueryApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"] == "application/json; charset=utf-8"
         assert response.content == b'{"status":"success","data":{}}'
+        assert response["X-PostHog-Query-Bytes-Read"] == "1234"
         self.request_mock.assert_called_once()
         method, url = self.request_mock.call_args.args
         kwargs = self.request_mock.call_args.kwargs
@@ -60,6 +70,35 @@ class TestLokiQueryApi(APIBaseTest):
         assert kwargs["auth"] == ("reader", "secret")
         assert kwargs["timeout"] == 12
         assert kwargs["data"] is None
+
+    def test_read_bytes_are_debited_from_the_project_budget(self):
+        response = self.client.get(f"{self.base}/query", {"query": '{service_name="api"}'})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.schedule_budget_debit.assert_called_once_with(str(self.team.pk), 1234)
+        assert "X-PostHog-Query-Budget-Remaining-Bytes" not in response
+
+    @patch("posthog.api.snuffle_proxy.api_queries_budget_enforcement_enabled", return_value=True)
+    @patch("posthog.api.snuffle_proxy.get_api_queries_budget_status")
+    def test_exhausted_byte_budget_refuses_before_reaching_snuffle(self, budget_status, enforced):
+        budget_status.return_value = MagicMock(remaining_bytes=0, retry_after_seconds=42)
+
+        response = self.client.get(f"{self.base}/query", {"query": '{service_name="api"}'})
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response["Retry-After"] == "42"
+        enforced.assert_called_once_with(self.team)
+        budget_status.assert_called_once_with(self.team)
+        self.request_mock.assert_not_called()
+
+    @patch("posthog.api.snuffle_proxy.api_queries_budget_enforcement_enabled", return_value=False)
+    @patch("posthog.api.snuffle_proxy.get_api_queries_budget_status")
+    def test_disabled_byte_budget_does_not_read_budget_status(self, budget_status, enforced):
+        response = self.client.get(f"{self.base}/query", {"query": '{service_name="api"}'})
+
+        assert response.status_code == status.HTTP_200_OK
+        enforced.assert_called_once_with(self.team)
+        budget_status.assert_not_called()
 
     def test_post_form_body_is_forwarded(self):
         body = "query=%7Bservice_name%3D%22api%22%7D&start=1&end=2"
@@ -145,6 +184,13 @@ class TestLokiQueryApi(APIBaseTest):
         assert response.status_code == expected_status
         assert response.json()["status"] == "error"
 
+    def test_snuffle_flag_gates_the_api(self):
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(f"{self.base}/labels")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.request_mock.assert_not_called()
+
     @parameterized.expand(
         [
             ("logs_read", ["logs:read"], status.HTTP_200_OK),
@@ -180,3 +226,18 @@ class TestLokiQueryApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         self.request_mock.assert_not_called()
+
+
+class TestSnuffleBudgetDebit(SimpleTestCase):
+    @patch("posthog.api.snuffle_proxy.debit")
+    @patch("posthog.api.snuffle_proxy._get_snuffle_budget_debit_executor")
+    def test_debit_runs_after_scheduling(self, executor, debit_mock):
+        pending: list = []
+        executor.return_value.submit.side_effect = pending.append
+
+        snuffle_proxy.schedule_snuffle_budget_debit("1", 1234)
+
+        debit_mock.assert_not_called()
+        (debit_task,) = pending
+        debit_task()
+        debit_mock.assert_called_once_with("1", 1234)

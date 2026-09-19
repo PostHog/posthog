@@ -493,6 +493,43 @@
                     },
                     "required": ["source"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": {},
+                    "properties": {
+                        "kind": {
+                            "enum": [
+                                "TrendsQuery",
+                                "FunnelsQuery",
+                                "RetentionQuery",
+                                "PathsQuery",
+                                "PathsV2Query",
+                                "StickinessQuery",
+                                "LifecycleQuery",
+                                "WebStatsTableQuery",
+                                "WebOverviewQuery"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": {},
+                    "properties": {
+                        "kind": {
+                            "const": "HogQLQuery",
+                            "default": "HogQLQuery",
+                            "type": "string"
+                        },
+                        "query": {
+                            "description": "The HogQL query to run.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["query"],
+                    "type": "object"
                 }
             ]
         },

@@ -5,6 +5,7 @@ from parameterized import parameterized
 from products.cohorts.backend.models.leaf_shape import (
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
+    extract_person_composition_hash,
     extract_person_leaf_shape_hash,
     walk_filter_leaves,
 )
@@ -32,6 +33,7 @@ def _group(group_type: str, *values: dict) -> dict:
 _BEHAVIORAL = _behavioral_leaf()
 _OTHER_BEHAVIORAL = _behavioral_leaf(conditionHash="ffffffffffffffff")
 _PERSON = {"type": "person", "conditionHash": "aaaaaaaaaaaaaaaa"}
+_OTHER_PERSON = {"type": "person", "conditionHash": "bbbbbbbbbbbbbbbb"}
 _COHORT_REF = {"type": "cohort", "value": 42}
 
 
@@ -117,6 +119,83 @@ class TestLeafShape(SimpleTestCase):
             extract_behavioral_leaf_shape_hash(after),
         )
         self.assertEqual(extract_person_leaf_shape_hash(before), extract_person_leaf_shape_hash(after))
+
+    @parameterized.expand(
+        [
+            ("root_group_operator", _group("AND", _BEHAVIORAL, _PERSON), _group("OR", _BEHAVIORAL, _PERSON), True),
+            (
+                "inner_group_operator",
+                _group("AND", _group("AND", _BEHAVIORAL, _PERSON), _OTHER_PERSON),
+                _group("AND", _group("OR", _BEHAVIORAL, _PERSON), _OTHER_PERSON),
+                True,
+            ),
+            (
+                "person_negation",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", _BEHAVIORAL, {**_PERSON, "negation": True}),
+                True,
+            ),
+            (
+                "person_leaf_moved_between_groups",
+                _group("OR", _group("AND", _PERSON, _OTHER_PERSON), _BEHAVIORAL),
+                _group("OR", _PERSON, _group("AND", _OTHER_PERSON, _BEHAVIORAL)),
+                True,
+            ),
+            (
+                "cohort_reference_beside_person_leaves",
+                _group("OR", _PERSON, _OTHER_PERSON),
+                _group("OR", _PERSON, _OTHER_PERSON, _COHORT_REF),
+                True,
+            ),
+            (
+                "behavioral_identity",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", _OTHER_BEHAVIORAL, _PERSON),
+                False,
+            ),
+            (
+                "behavioral_negation",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", {**_BEHAVIORAL, "negation": True}, _PERSON),
+                False,
+            ),
+            (
+                "behavioral_hash_lost",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", _behavioral_leaf(conditionHash=None), _PERSON),
+                False,
+            ),
+            (
+                "cohort_reference_beside_a_behavioral_leaf",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", _BEHAVIORAL, _PERSON, _COHORT_REF),
+                False,
+            ),
+            (
+                "person_leaves_swapped_between_anonymous_partners",
+                _group("OR", _group("AND", _BEHAVIORAL, _PERSON), _group("AND", _OTHER_BEHAVIORAL, _OTHER_PERSON)),
+                _group("OR", _group("AND", _BEHAVIORAL, _OTHER_PERSON), _group("AND", _OTHER_BEHAVIORAL, _PERSON)),
+                False,
+            ),
+        ]
+    )
+    def test_person_composition_sees_the_tree_around_person_leaves_and_nothing_inside_the_others(
+        self, _name: str, before: dict, after: dict, moves: bool
+    ) -> None:
+        # A fingerprint that saw inside the leaves a person run holds unknown would fire a person scan
+        # on every behavioral edit of a mixed cohort; one that missed the tree would leave the seeds
+        # pruned under the old tree standing.
+        before_filters, after_filters = {"properties": before}, {"properties": after}
+        self.assertNotEqual(extract_leaf_shape_hash(before_filters), extract_leaf_shape_hash(after_filters))
+        fingerprints = (
+            extract_person_composition_hash(before_filters),
+            extract_person_composition_hash(after_filters),
+        )
+        self.assertNotEqual(fingerprints[0], "")
+        if moves:
+            self.assertNotEqual(*fingerprints)
+        else:
+            self.assertEqual(*fingerprints)
 
     @parameterized.expand(
         [
