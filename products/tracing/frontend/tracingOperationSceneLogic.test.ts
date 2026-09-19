@@ -97,6 +97,17 @@ describe('tracingOperationSceneLogic', () => {
         expect(logic.values.selectedSpanId).toBe('span-2')
     })
 
+    it('aborts a superseded samples fetch with an AbortError so the cancellation stays recognizable', async () => {
+        await logic.asyncActions.fetchSamples()
+        const supersededSignal: AbortSignal = listSpansSpy.mock.calls.at(-1)![1]
+
+        await logic.asyncActions.fetchSamples()
+
+        expect(supersededSignal.aborted).toBe(true)
+        // A reason that is not an AbortError reaches error tracking as a real failure.
+        expect(supersededSignal.reason).toMatchObject({ name: 'AbortError', message: 'new query started' })
+    })
+
     it('ignores a negative sample index restored from the URL', () => {
         router.actions.push('/tracing/operation', { sample: '-1' })
         expect(logic.values.sampleIndex).toBe(0)

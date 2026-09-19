@@ -225,7 +225,7 @@ function trackedSignal(cache: Record<string, any>, key: string): AbortSignal {
     cache.disposables.add(
         () => {
             controller = new AbortController()
-            return () => controller.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            return () => controller.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
         },
         key,
         // In-flight requests must survive tab switches — only supersession or unmount aborts.
