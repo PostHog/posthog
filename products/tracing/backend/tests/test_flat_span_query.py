@@ -90,6 +90,9 @@ class TestFlatSpanQuery(ClickhouseTestMixin, APIBaseTest):
         return res.json()
 
     _CODE_FILTER = {"key": "code.filepath", "type": "span_attribute", "operator": "exact", "value": FILEPATH}
+    # What the facet rail's Service facet writes into the filterGroup.
+    _SERVICE_EXACT_FILTER = {"key": "service_name", "type": "span", "operator": "exact", "value": [CHILD_SVC]}
+    _SERVICE_IS_NOT_FILTER = {"key": "service_name", "type": "span", "operator": "is_not", "value": [ROOT_SVC]}
 
     @parameterized.expand(
         [
@@ -97,6 +100,11 @@ class TestFlatSpanQuery(ClickhouseTestMixin, APIBaseTest):
             # exactly the three child spans directly — one row per span, no roots.
             ("attribute_filter", {"filterGroup": [_CODE_FILTER]}),
             ("service_name_filter", {"serviceNames": [CHILD_SVC]}),
+            # A service_name span filter scopes the query directly: the exact filter keeps only the
+            # child's service, the is_not filter drops the root's. These pin the filter the facet
+            # rail writes so the Service facet can exclude services like every other facet.
+            ("service_name_span_filter_exact", {"filterGroup": [_SERVICE_EXACT_FILTER]}),
+            ("service_name_span_filter_is_not", {"filterGroup": [_SERVICE_IS_NOT_FILTER]}),
         ]
     )
     def test_flat_respects_filters(self, _name, filter_kwargs):
