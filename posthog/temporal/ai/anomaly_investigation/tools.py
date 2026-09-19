@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.alerts.backend.models.alert import AlertConfiguration
 
@@ -97,6 +97,7 @@ def _run_detector_simulation(
     *,
     alert: AlertConfiguration,
     team: Team,
+    user: User,
     date_from: str | None,
 ) -> dict[str, Any] | str:
     """Thin wrapper around ``simulate_detector_on_insight`` that returns either the sim
@@ -122,18 +123,21 @@ def _run_detector_simulation(
             # series and no baseline.
             config=alert.config,
             date_from=date_from,
-            user=alert.created_by,
+            # The investigation's acting user, not alert.created_by: the simulation reads the same
+            # insight, so a null creator would deny it the warehouse table the agent came to check.
+            user=user,
         )
     except Exception as err:
         return str(err)
 
 
-@dataclass
+@dataclass(frozen=False, kw_only=True)
 class InvestigationToolkit:
     """Bundles the tool implementations bound to a team and alert. Returned strings are
     compact — rough cap ~2KB per response to keep LLM context lean."""
 
     team: Team
+    user: User
     alert: AlertConfiguration | None = None
 
     async def run_hogql_query(self, args: RunHogQLQueryArgs) -> str:
@@ -143,6 +147,9 @@ class InvestigationToolkit:
         response = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
             query=sql,
             team=self.team,
+            # Warehouse access control fails closed, so a userless query denies every warehouse
+            # table and saved view, including the one the alert's own insight reads.
+            user=self.user,
         )
         rows = response.results or []
         truncated = rows[:MAX_HOGQL_ROWS]
@@ -152,6 +159,11 @@ class InvestigationToolkit:
             "row_count": len(rows),
             "truncated": len(rows) > MAX_HOGQL_ROWS,
         }
+        if response.warnings:
+            # A failed warehouse sync or an access-control filter makes the result partial. Without
+            # these messages the agent reads stale or filtered rows as complete, so it can report
+            # that artifact as the cause of the anomaly.
+            payload["warnings"] = [warning.message for warning in response.warnings]
         return json.dumps(payload, default=str)
 
     async def top_breakdowns(self, args: TopBreakdownArgs) -> str:
@@ -191,6 +203,7 @@ class InvestigationToolkit:
         sim = await sync_to_async(_run_detector_simulation, thread_sensitive=False)(
             alert=self.alert,
             team=self.team,
+            user=self.user,
             date_from=args.date_from,
         )
         if isinstance(sim, str):
@@ -216,6 +229,7 @@ class InvestigationToolkit:
         sim = await sync_to_async(_run_detector_simulation, thread_sensitive=False)(
             alert=self.alert,
             team=self.team,
+            user=self.user,
             date_from=args.date_from,
         )
         if isinstance(sim, str):
