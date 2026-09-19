@@ -42868,6 +42868,7 @@ export namespace Schemas {
       is_remote_configuration?: boolean | null;
       /** @nullable */
       has_encrypted_payloads?: boolean | null;
+      /** Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state — read `active` for that. A disabled flag reports ACTIVE, because disabled flags are not evaluated for staleness. */
       readonly status: string;
       /** Specifies where this feature flag should be evaluated
        *
@@ -43057,7 +43058,7 @@ export namespace Schemas {
     }
 
     export interface FeatureFlagStatusResponse {
-      /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+      /** Staleness classification: active, stale, archived, deleted, or unknown. A disabled flag reports 'active', because disabled flags are not evaluated for staleness, so 'active' does not imply recent evaluation. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
@@ -103901,6 +103902,9 @@ export namespace Schemas {
     } as const;
 
     export type FeatureFlagsListParams = {
+    /**
+     * Filter by serving state: 'true' for enabled flags, 'false' for disabled flags. Both match on the `active` field of each row, not on `status`. 'STALE' instead selects flags the staleness check calls stale, which is a different question.
+     */
     active?: FeatureFlagsListActive;
     /**
      * Filter by archived state. When omitted, archived flags are excluded.
