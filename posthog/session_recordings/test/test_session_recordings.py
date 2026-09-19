@@ -201,6 +201,22 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert result["distinct_id"] == "test_user"
         assert result["viewed"] is False
 
+    @patch("posthog.session_recordings.session_recording_api.get_persons_mapped_by_distinct_id")
+    def test_get_session_recordings_when_person_lookup_fails(self, mock_get_persons: MagicMock) -> None:
+        mock_get_persons.side_effect = RuntimeError("personhog client not configured")
+        create_person(team=self.team, distinct_ids=["test_user"], properties={"email": "test@example.com"})
+
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("test_user", "test_session", base_time)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()["results"][0]
+
+        assert result["id"] == "test_session"
+        assert result["distinct_id"] == "test_user"
+        assert result["person"]["id"] is None
+
     @parameterized.expand(
         [
             # originally for this table all order by was DESCENDING
