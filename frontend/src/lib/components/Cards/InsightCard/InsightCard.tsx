@@ -45,6 +45,7 @@ import {
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
+import type { DashboardJourneyRenderReadiness } from 'products/dashboards/frontend/dashboardRefreshJourney'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
@@ -75,6 +76,33 @@ export function shouldRenderInsightCardViz({
     }
 
     return isPageVisible || !queryVizDefinitelyRendersToCanvas(query)
+}
+
+export function useActualVisibilityChange(
+    entry: IntersectionObserverEntry | undefined,
+    inView: boolean,
+    onChange: ((visible: boolean) => void) | undefined
+): void {
+    const onChangeRef = useRef(onChange)
+    const hasObservedRef = useRef(false)
+    onChangeRef.current = onChange
+
+    useLayoutEffect(() => {
+        if (!entry) {
+            return
+        }
+        hasObservedRef.current = true
+        onChangeRef.current?.(inView)
+    }, [entry, inView])
+
+    useLayoutEffect(
+        () => () => {
+            if (hasObservedRef.current) {
+                onChangeRef.current?.(false)
+            }
+        },
+        []
+    )
 }
 
 const LazyEditAlertModal = lazyWithRetry(() =>
@@ -222,6 +250,9 @@ export interface InsightCardProps extends Resizeable {
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    onActualVisibilityChange?: (visible: boolean) => void
+    customerJourneyRenderReadiness?: DashboardJourneyRenderReadiness
+    onCustomerJourneyRenderCommitted?: (attemptId: string, tileId: number) => void
 }
 
 function InsightCardInternal(
@@ -268,11 +299,22 @@ function InsightCardInternal(
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
+        onActualVisibilityChange,
+        customerJourneyRenderReadiness,
+        onCustomerJourneyRenderCommitted,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
     const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
+    const {
+        ref: actualVisibilityRef,
+        inView: actuallyInView,
+        entry: actualVisibilityEntry,
+    } = useInView({
+        rootMargin: '0px',
+        skip: !onActualVisibilityChange,
+    })
     const { isVisible: isPageVisible } = usePageVisibility()
 
     const rendersToCanvas = queryVizRendersToCanvas(insight.query)
@@ -290,7 +332,9 @@ function InsightCardInternal(
         query: insight.query,
     })
 
-    const mergedRefs = useMergeRefs([ref, inViewRef])
+    const mergedRefs = useMergeRefs([ref, inViewRef, actualVisibilityRef])
+
+    useActualVisibilityChange(actualVisibilityEntry, actuallyInView, onActualVisibilityChange)
 
     const { theme } = useValues(themeLogic)
 
@@ -427,6 +471,8 @@ function InsightCardInternal(
                 cachedResults={insight}
                 context={{
                     insightProps: insightLogicProps,
+                    dashboardJourneyRenderReadiness: customerJourneyRenderReadiness,
+                    onDashboardJourneyRenderCommitted: onCustomerJourneyRenderCommitted,
                 }}
                 readOnly
                 embedded
@@ -435,7 +481,15 @@ function InsightCardInternal(
                 editMode={false}
             />
         )
-    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
+    }, [
+        BlockingEmptyState,
+        insight,
+        insightLogicProps,
+        variablesOverride,
+        placement,
+        customerJourneyRenderReadiness,
+        onCustomerJourneyRenderCommitted,
+    ])
 
     // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
     const vizContent = shouldRenderViz ? (

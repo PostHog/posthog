@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useLayoutEffect, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -45,6 +46,7 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import { isDashboardJourneyResultCommitted } from 'products/dashboards/frontend/dashboardRefreshJourney'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -366,6 +368,29 @@ export function InsightVizDisplay({
 
         return null
     })()
+
+    const hasBlockingEmptyState = Boolean(BlockingEmptyState)
+
+    const lastReportedDashboardJourneyCommit = useRef<string | null>(null)
+    useLayoutEffect(() => {
+        const readiness = context?.dashboardJourneyRenderReadiness
+        if (
+            !readiness ||
+            insightDataLoading ||
+            hasBlockingEmptyState ||
+            !showingResults ||
+            !theme ||
+            !isDashboardJourneyResultCommitted(insightData?.result, readiness.expectedResult)
+        ) {
+            return
+        }
+        const commitKey = `${readiness.attemptId}:${readiness.tileId}`
+        if (lastReportedDashboardJourneyCommit.current === commitKey) {
+            return
+        }
+        lastReportedDashboardJourneyCommit.current = commitKey
+        context?.onDashboardJourneyRenderCommitted?.(readiness.attemptId, readiness.tileId)
+    }, [context, hasBlockingEmptyState, insightData?.result, insightDataLoading, showingResults, theme])
 
     // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
     // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts

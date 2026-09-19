@@ -64,6 +64,7 @@ describe('API helper', () => {
     describe('dashboard tile streaming', () => {
         it.each([
             { status: 401, body: { detail: 'Authentication expired.' }, expectedCode: null },
+            { status: 500, body: { detail: 'Synthetic server failure.' }, expectedCode: null },
             {
                 status: 403,
                 body: { detail: 'Access denied.', code: 'permission_denied' },
@@ -91,7 +92,7 @@ describe('API helper', () => {
 
             expect(onApiResponse).toHaveBeenCalledTimes(1)
             expect(onApiResponse.mock.calls[0][0]).toMatchObject({ status })
-            expect(onError).toHaveBeenCalledWith(expect.objectContaining({ status, code: expectedCode }))
+            expect(onError).toHaveBeenCalledWith(expect.objectContaining({ status, code: expectedCode }), true)
             fetchEventSourceSpy.mockRestore()
             apiStatusLogicSpy.mockRestore()
         })
@@ -112,7 +113,7 @@ describe('API helper', () => {
             const connectionError = new TypeError('Failed to fetch')
             streamOptions.onerror?.(connectionError)
             expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError)
-            expect(onError).toHaveBeenCalledWith(connectionError)
+            expect(onError).toHaveBeenCalledWith(connectionError, false)
 
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             streamOptions.onerror?.(abortError)
@@ -121,6 +122,29 @@ describe('API helper', () => {
 
             fetchEventSourceSpy.mockRestore()
             apiStatusLogicSpy.mockRestore()
+        })
+
+        it.each(['message', 'rejection'])('reports a terminal stream %s', async (kind) => {
+            const error = new Error('Synthetic stream failure')
+            const fetchEventSourceSpy = jest.spyOn(fetchEventSourceModule, 'fetchEventSource')
+            if (kind === 'rejection') {
+                fetchEventSourceSpy.mockRejectedValueOnce(error)
+            } else {
+                fetchEventSourceSpy.mockReturnValueOnce(new Promise<void>(() => {}))
+            }
+            const onError = jest.fn()
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+            if (kind === 'message') {
+                fetchEventSourceSpy.mock.calls[0][1].onmessage?.({
+                    id: '',
+                    event: 'message',
+                    data: JSON.stringify({ type: 'error', error: error.message }),
+                })
+            }
+            await Promise.resolve()
+            expect(onError).toHaveBeenCalledTimes(1)
+            expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: error.message }), true)
+            fetchEventSourceSpy.mockRestore()
         })
 
         it('reports a stream that closes before completion', async () => {
@@ -133,7 +157,8 @@ describe('API helper', () => {
             expect(onError).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: 'Dashboard stream ended before loading finished. Refresh the page.',
-                })
+                }),
+                true
             )
             fetchEventSourceSpy.mockRestore()
         })
