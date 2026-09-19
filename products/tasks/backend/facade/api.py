@@ -230,6 +230,7 @@ __all__ = [
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
+    "claim_and_fail_stranded_cloud_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
     "ensure_personal_channel_id",
@@ -1961,6 +1962,74 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_failed(error, error_type=error_type)
+        resume_workflow_step_for_run(run)
+    return True
+
+
+def claim_and_fail_stranded_cloud_run(
+    run_id: str | UUID, error: str, error_type: str | None = None, *, expected_updated_at: datetime
+) -> bool:
+    """Reap a cloud run a watchdog judged stranded in ``IN_PROGRESS``. Returns whether this
+    caller won the claim.
+
+    Narrower than ``claim_and_fail_stale_run`` on purpose: the conditional update also pins the
+    row to the snapshot that was judged. The watchdog describes a whole batch of workflows
+    before it claims any of them, so seconds pass between one run's liveness verdict and its
+    claim. A resume inside that gap re-queues the same run under the same workflow id, and the
+    wider predicate would then hand the dead workflow's verdict to the live replacement.
+    Terminal statuses are final, so that row would stay ``FAILED`` while its agent kept working.
+
+    ``updated_at`` is the version column: every path that re-queues or terminalizes a run saves
+    it, so a row that moved since the scan matches nothing and the claim is lost instead. The
+    claim reads that value and writes a fresh one in the same statement.
+    Intentionally cross-team (janitor sweep).
+    """
+    from celery.exceptions import SoftTimeLimitExceeded  # noqa: PLC0415 (only this janitor path needs it)
+
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
+        handle_loop_run_terminal,
+    )
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 (keeps the redis client off the api import path)
+        publish_task_run_stream_complete,
+    )
+    from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
+
+    # `update()` bypasses `auto_now` and `mark_failed` saves without `updated_at`, so without
+    # this the reap leaves the row's timestamp at the stale candidate value. A desktop watcher
+    # drops a state frame that is not newer than the one it already holds, and it holds exactly
+    # that value, so the terminal frame published below has to carry a moved timestamp to land.
+    reaped_at = django_timezone.now()
+    claimed = TaskRun.objects.filter(
+        id=run_id,
+        status=TaskRun.Status.IN_PROGRESS,
+        environment=TaskRun.Environment.CLOUD,
+        updated_at=expected_updated_at,
+    ).update(status=TaskRun.Status.FAILED, updated_at=reaped_at)  # nosemgrep: celery-task-team-scope-audit
+    if not claimed:
+        return False
+    run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    if run is not None:
+        run.mark_failed(error, error_type=error_type)
+        # A run whose workflow died never reaches the update_task_run_status activity, so loop
+        # bookkeeping (consecutive_failures, auto-pause, notifications) must hook in here too.
+        # Swallowed so a bookkeeping failure never undoes the reap that already landed.
+        try:
+            handle_loop_run_terminal(run, error_type=error_type)
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception:
+            logger.warning("Failed loop terminal bookkeeping for reaped run %s", run_id, exc_info=True)
+        # `mark_failed` published the terminal state frame, but a durable watch ends only on the
+        # stream's completion sentinel, and the activity that publishes it lives in the workflow
+        # that already died. Without this an attached desktop session reconnects indefinitely and
+        # keeps showing the run in progress while the row reads FAILED.
+        try:
+            if not publish_task_run_stream_complete(str(run_id), run_uses_dedicated_stream(run.state)):
+                logger.warning("Could not complete the event stream for reaped run %s", run_id)
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception:
+            logger.warning("Failed to complete the event stream for reaped run %s", run_id, exc_info=True)
         resume_workflow_step_for_run(run)
     return True
 

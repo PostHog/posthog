@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+from collections.abc import Sequence
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -10,8 +11,12 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from celery.exceptions import SoftTimeLimitExceeded
+from temporalio.api.errordetails.v1 import NamespaceNotFoundFailure
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
@@ -527,6 +532,111 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     observe_task_run_workflow_start(task_run, outcome="started", reason="reconcile")
     logger.info("task_run_reconcile_dispatch_started", extra={"run_id": run_id, "task_id": task_id})
     return "recovered"
+
+
+# Temporal-wide failures, as opposed to anything specific to one workflow. Hitting one means
+# every later describe in the batch would fail the same way, so the batch stops instead.
+_SERVICE_DEGRADED_STATUSES = frozenset(
+    {RPCStatusCode.UNAVAILABLE, RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.RESOURCE_EXHAUSTED}
+)
+
+# A per-call cap plus a cap on the whole batch, the two layers `team_deletion` already applies
+# to its own Temporal sweep. The describe phase runs before any row is claimed, under the
+# sweep's 110-second Celery soft limit, so without these one hung frontend call spends the
+# whole tick and the sweep reaps nothing. The batch cap is a slice of that limit rather than
+# all of it, because the claim phase still has to write its rows afterwards. Reaching the
+# per-call cap surfaces as DEADLINE_EXCEEDED, which `_SERVICE_DEGRADED_STATUSES` already reads
+# as a struggling frontend and stops the batch on.
+_LIVENESS_RPC_TIMEOUT = timedelta(seconds=10)
+_LIVENESS_BATCH_TIMEOUT_SECONDS = 60.0
+
+
+def _is_namespace_not_found(error: RPCError) -> bool:
+    """Whether a NOT_FOUND answers for the namespace rather than for one workflow.
+
+    Temporal reports a missing namespace with the same NOT_FOUND status as a missing workflow,
+    and only the status detail separates them. Without this the sweep would read a namespace
+    anomaly as proof that every workflow it asked about had ended.
+    """
+    try:
+        details = error.grpc_status.details
+    except Exception:
+        # Status bytes we cannot parse say nothing about the namespace, so the caller falls back
+        # to treating a plain NOT_FOUND as absence.
+        return False
+    return any(detail.Is(NamespaceNotFoundFailure.DESCRIPTOR) for detail in details)
+
+
+def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str, str]:
+    """Liveness of each orchestrating workflow, keyed by workflow id.
+
+    Each id maps to ``running``, ``gone`` (proven absent, or closed without terminalizing its
+    run) or ``unknown`` (Temporal could not answer). Plain strings keep temporalio out of the
+    caller.
+
+    A NOT_FOUND for one workflow is the only error that proves absence. Timeouts, unavailability
+    and permission errors say nothing about the workflow, and failing a live run is
+    unrecoverable, so every other error reports ``unknown`` and leaves the row for a later sweep
+    to judge. A NOT_FOUND that answers for the namespace is not proof either (see
+    ``_is_namespace_not_found``).
+
+    The result can cover fewer ids than were asked for: a Temporal-wide failure stops the batch
+    (see ``_SERVICE_DEGRADED_STATUSES``), and so does spending the batch's time budget (see
+    ``_LIVENESS_BATCH_TIMEOUT_SECONDS``). Callers must read a missing id as ``unknown``.
+
+    Batched because ``sync_connect`` opens a fresh client per call: describing one workflow at
+    a time would pay a connection and an event loop for every candidate in a sweep.
+    """
+    if not workflow_ids:
+        return {}
+
+    results: dict[str, str] = {}
+
+    async def describe_all(client: Any) -> None:
+        for workflow_id in workflow_ids:
+            try:
+                # No run id, so Temporal resolves the workflow's current run. `process-task`
+                # continues as new, and the closed link of that chain reports CONTINUED_AS_NEW;
+                # asking for the current run reports the live one instead of reaping its run.
+                description = await client.get_workflow_handle(workflow_id).describe(rpc_timeout=_LIVENESS_RPC_TIMEOUT)
+            except RPCError as e:
+                if e.status in _SERVICE_DEGRADED_STATUSES or _is_namespace_not_found(e):
+                    # Temporal is down, overloaded, timing out, or answering for a namespace it
+                    # does not have, so the rest of the batch would only add load and burn the
+                    # sweep's time limit against a failing dependency.
+                    # Every id left out reads as `unknown`, which is what each would have got.
+                    logger.warning(
+                        "task_run_liveness_batch_stopped",
+                        extra={"described": len(results), "of": len(workflow_ids), "error": str(e)},
+                    )
+                    break
+                results[workflow_id] = "gone" if e.status == RPCStatusCode.NOT_FOUND else "unknown"
+            except SoftTimeLimitExceeded:
+                # The sweep's own deadline, not an answer about this workflow. Let it unwind the
+                # task instead of recording it as one id Temporal could not answer for and then
+                # issuing the rest of the batch's calls past the deadline.
+                raise
+            except Exception as e:
+                logger.warning("task_run_liveness_describe_failed", extra={"workflow_id": workflow_id, "error": str(e)})
+                results[workflow_id] = "unknown"
+            else:
+                results[workflow_id] = "running" if description.status == WorkflowExecutionStatus.RUNNING else "gone"
+
+    try:
+        client = sync_connect()
+    except Exception as e:
+        logger.warning("task_run_liveness_connect_failed", extra={"error": str(e)})
+        return dict.fromkeys(workflow_ids, "unknown")
+    try:
+        asyncio.run(asyncio.wait_for(describe_all(client), _LIVENESS_BATCH_TIMEOUT_SECONDS))
+    except TimeoutError:
+        # The verdicts already collected still stand, so the sweep reaps on those instead of
+        # losing the tick. Every id left out reads as `unknown`, which is what each would have got.
+        logger.warning(
+            "task_run_liveness_batch_timed_out",
+            extra={"described": len(results), "of": len(workflow_ids)},
+        )
+    return results
 
 
 def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
