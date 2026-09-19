@@ -167,6 +167,7 @@ class TestFlagValueViewSet(APIBaseTest):
     @parameterized.expand(
         [
             ("feature_flag_read", ["feature_flag:read"], status.HTTP_200_OK),
+            ("feature_flag_write", ["feature_flag:write"], status.HTTP_200_OK),
             ("unrelated_scope", ["dashboard:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
