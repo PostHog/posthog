@@ -22,24 +22,49 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
 
 
 @receiver(post_save, sender=Integration)
-def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
-    """Fresh Slack install -> enqueue the #posthog-inbox onboarding Temporal workflow on commit (the
-    enqueue runs inline; the workflow itself runs on a Temporal worker). Gated on ``channels:manage``.
-    Re-auth uses update_or_create (created=False), so only first installs onboard."""
+def onboard_slack_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
+    """Fresh Slack install -> greet the installer once, on commit.
+
+    Re-auth uses update_or_create (created=False), so only first installs onboard. The
+    ``channels:manage`` gate is read here, while the row is in hand, and decides which
+    greeting ``_onboard_install`` sends.
+    """
     if not created or instance.kind != "slack":
         return
 
     # Deferred: keep the import lazy since this receiver is wired from AppConfig.ready().
     from products.slack_app.backend.inbox_channel import has_inbox_scopes  # noqa: PLC0415
 
-    if not has_inbox_scopes(instance):
-        return
-
     integration_id = instance.id
-    transaction.on_commit(lambda: _start_inbox_onboarding_workflow(integration_id))
+    wants_inbox = has_inbox_scopes(instance)
+    transaction.on_commit(lambda: _onboard_install(integration_id, wants_inbox=wants_inbox))
 
 
-def _start_inbox_onboarding_workflow(integration_id: int) -> None:
+def _onboard_install(integration_id: int, *, wants_inbox: bool) -> None:
+    """Send the installer exactly one greeting.
+
+    The inbox onboarding DMs them its own four-step setup, so the plain welcome would be a
+    second message from a bot they just installed. It is the fallback rather than the
+    alternative: an install that cannot reach Temporal still gets greeted.
+    """
+    if wants_inbox and _start_inbox_onboarding_workflow(integration_id):
+        return
+    _dispatch_install_welcome(integration_id)
+
+
+def _dispatch_install_welcome(integration_id: int) -> None:
+    # Deferred: `tasks` imports `api`, which pulls the whole agent stack onto whatever
+    # process imports it, and this receiver is wired from AppConfig.ready().
+    from products.slack_app.backend.tasks import send_slack_install_welcome  # noqa: PLC0415
+
+    send_slack_install_welcome.delay(integration_id=integration_id)
+
+
+def _start_inbox_onboarding_workflow(integration_id: int) -> bool:
+    """Enqueue the #posthog-inbox onboarding workflow. Returns whether it was accepted.
+
+    The enqueue runs inline; the workflow itself runs on a Temporal worker.
+    """
     # Deferred imports keep the Temporal stack off the signals (AppConfig.ready) import path.
     import asyncio
 
@@ -68,3 +93,5 @@ def _start_inbox_onboarding_workflow(integration_id: int) -> None:
         )
     except Exception:
         log.warning("slack_app_inbox_onboarding_dispatch_failed", integration_id=integration_id, exc_info=True)
+        return False
+    return True
