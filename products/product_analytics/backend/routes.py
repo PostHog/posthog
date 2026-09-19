@@ -7,6 +7,7 @@ from products.product_analytics.backend.presentation.insight import InsightViewS
 from products.product_analytics.backend.presentation.insight_ee import EnterpriseInsightsViewSet
 from products.product_analytics.backend.presentation.insight_variable import InsightVariableViewSet
 from products.product_analytics.backend.presentation.paths_v2 import PathsV2ViewSet
+from products.product_analytics.backend.presentation.typesafe_suggestions import TypesafeSuggestionViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -45,5 +46,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"paths_v2",
         PathsV2ViewSet,
         "project_paths_v2",
+        ["team_id"],
+    )
+
+    routers.projects.register(
+        r"typesafe_suggestions",
+        TypesafeSuggestionViewSet,
+        "project_typesafe_suggestions",
         ["team_id"],
     )

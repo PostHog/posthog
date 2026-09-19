@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { FullScreen } from 'lib/components/FullScreen'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -26,9 +27,19 @@ export function insightIsAddedToDashboard(input: Record<string, unknown> | null,
 }
 
 export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX.Element | null {
-    const { dashboard, dashboardLoading, dashboardMode, dashboardEditing, canEditDashboard } = useValues(dashboardLogic)
-    const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
+    const {
+        dashboard,
+        dashboardLoading,
+        dashboardMode,
+        dashboardEditing,
+        canEditDashboard,
+        typesafeNameSuggestionLoading,
+        typesafeDescriptionSuggestionLoading,
+    } = useValues(dashboardLogic)
+    const { setDashboardMode, loadDashboard, suggestNameWithTypesafe, suggestDescriptionWithTypesafe } =
+        useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
+    const typesafeSuggestionsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_TYPESAFE_SUGGESTIONS')
 
     const isLoading = !dashboard && (loading || dashboardLoading)
 
@@ -83,6 +94,12 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
                 onDescriptionChange={(value) => {
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
                 }}
+                onSuggestName={typesafeSuggestionsEnabled && canEditDashboard ? suggestNameWithTypesafe : undefined}
+                isSuggestingName={typesafeNameSuggestionLoading}
+                onSuggestDescription={
+                    typesafeSuggestionsEnabled && canEditDashboard ? suggestDescriptionWithTypesafe : undefined
+                }
+                isSuggestingDescription={typesafeDescriptionSuggestionLoading}
                 markdown
                 canEdit={canEditDashboard}
                 isLoading={isLoading}

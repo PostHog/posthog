@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
@@ -15,9 +16,10 @@ const RESOURCE_TYPE = 'insight'
 export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const { scenePanelOpen } = useValues(sceneLayoutLogic)
     const theInsightLogic = insightLogic(insightLogicProps)
-    const { canEditInsight, insight, isSavingTags } = useValues(theInsightLogic)
-    const { setInsightMetadata } = useActions(theInsightLogic)
+    const { canEditInsight, insight, isSavingTags, typesafeTagSuggestionLoading } = useValues(theInsightLogic)
+    const { setInsightMetadata, suggestTagsWithTypesafe } = useActions(theInsightLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
+    const typesafeSuggestionsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_TYPESAFE_SUGGESTIONS')
 
     return (
         <ScenePanelInfoSection>
@@ -28,6 +30,8 @@ export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: Ins
                 dataAttrKey={RESOURCE_TYPE}
                 canEdit={canEditInsight}
                 loading={isSavingTags}
+                onSuggest={typesafeSuggestionsEnabled ? suggestTagsWithTypesafe : undefined}
+                suggesting={typesafeTagSuggestionLoading}
             />
             {scenePanelOpen && <SceneFile dataAttrKey={RESOURCE_TYPE} />}
             <SceneActivityIndicator
