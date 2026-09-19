@@ -21,6 +21,8 @@ export function StepFooterCell({
     const previousCount = stepIndex > 0 ? stepTotals[stepIndex - 1] : null
     const droppedOff = previousCount != null ? Math.max(previousCount - count, 0) : 0
     const droppedOffRate = previousCount ? 1 - funnelConversionRate(count, previousCount) : 0
+    // The first step is the baseline of the conversion rate, so its own rate is always 100%.
+    const conversionRate = stepIndex > 0 ? funnelConversionRate(count, stepTotals[0]) : null
     return (
         <div className="flex flex-col gap-1 px-1 py-2 text-xs">
             <div className="flex items-center gap-1.5 font-medium">
@@ -29,14 +31,21 @@ export function StepFooterCell({
                     {label}
                 </span>
             </div>
-            <Tooltip title="Users who completed this step, with conversion rate relative to the first step">
+            <div className="text-secondary">All variants</div>
+            <Tooltip
+                title={
+                    conversionRate != null
+                        ? 'Users who completed this step, with conversion rate relative to the first step'
+                        : 'Users at this step'
+                }
+            >
                 <div className="flex items-center gap-1.5">
                     <IconTrendingFlat className="text-success shrink-0" />
                     <span>
-                        {pluralize(count, 'user')}{' '}
-                        <span className="text-secondary">
-                            ({percentage(funnelConversionRate(count, stepTotals[0]), 2)})
-                        </span>
+                        <span>{pluralize(count, 'user')}</span>
+                        {conversionRate != null && (
+                            <span className="text-secondary"> ({percentage(conversionRate, 2)})</span>
+                        )}
                     </span>
                 </div>
             </Tooltip>
