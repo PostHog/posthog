@@ -119,6 +119,43 @@ describe('ActionManager', () => {
         expect(Object.values(droppedAction!).length).toEqual(0)
     })
 
+    it('returns actions that only a REST hook points at', async () => {
+        const hookedActionId = actionId + 1
+        await insertRow(hub.postgres, 'posthog_action', {
+            id: hookedActionId,
+            team_id: teamId,
+            name: 'Hooked Action',
+            description: '',
+            created_at: new Date().toISOString(),
+            created_by_id: userId,
+            deleted: false,
+            post_to_slack: false,
+            slack_message_format: '',
+            is_calculating: false,
+            updated_at: new Date().toISOString(),
+            last_calculated_at: new Date().toISOString(),
+            steps_json: [],
+        } as RawAction)
+        const hookId = `test-hook-${hookedActionId}`
+        await insertRow(hub.postgres, 'ee_hook', {
+            id: hookId,
+            team_id: teamId,
+            user_id: userId,
+            event: 'action_performed',
+            resource_id: hookedActionId,
+            target: 'https://example.com/hook',
+            created: new Date().toISOString(),
+            updated: new Date().toISOString(),
+        })
+
+        await actionManager.reloadAllActions()
+
+        const actions = actionManager.getTeamActions(teamId)
+
+        expect(Object.keys(actions).map(Number).sort()).toEqual([actionId, hookedActionId].sort())
+        expect(actions[hookedActionId].hooks).toMatchObject([{ id: hookId, resource_id: hookedActionId }])
+    })
+
     it('returns the correct actions when deleted = TRUE', async () => {
         const action = actionManager.getTeamActions(teamId)
 
