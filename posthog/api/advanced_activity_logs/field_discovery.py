@@ -58,36 +58,33 @@ class AdvancedActivityLogFieldDiscovery:
         }
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
-        users_query = queryset.values("user__uuid", "user__first_name", "user__last_name", "user__email").distinct()
-        seen_users = set()
-        unique_users = []
-
-        for user in users_query:
-            if user["user__uuid"] and user["user__uuid"] not in seen_users:
-                seen_users.add(user["user__uuid"])
-                unique_users.append(
-                    {
-                        "value": str(user["user__uuid"]),
-                        "label": f"{user['user__first_name']} {user['user__last_name']}".strip() or user["user__email"],
-                    }
-                )
-
-        return unique_users
+        # The caller orders by created_at. Django puts every ordering column into a SELECT DISTINCT,
+        # which makes each row unique and removes no duplicates. Thus each query sets its own order.
+        users_query = (
+            queryset.filter(user__isnull=False)
+            .order_by("user__first_name", "user__last_name", "user__email")
+            .values("user__uuid", "user__first_name", "user__last_name", "user__email")
+            .distinct()
+        )
+        return [
+            {
+                "value": str(user["user__uuid"]),
+                "label": f"{user['user__first_name']} {user['user__last_name']}".strip() or user["user__email"],
+            }
+            for user in users_query
+        ]
 
     def _get_available_scopes(self, queryset: QuerySet) -> list[dict[str, str]]:
-        scopes_query = queryset.values_list("scope", flat=True)
-        scopes = set(scopes_query)
-        return [{"value": scope} for scope in sorted(scopes) if scope]
+        scopes = queryset.order_by("scope").values_list("scope", flat=True).distinct()
+        return [{"value": scope} for scope in scopes if scope]
 
     def _get_available_activities(self, queryset: QuerySet) -> list[dict[str, str]]:
-        activities_query = queryset.values_list("activity", flat=True)
-        activities = set(activities_query)
-        return [{"value": activity} for activity in sorted(activities) if activity]
+        activities = queryset.order_by("activity").values_list("activity", flat=True).distinct()
+        return [{"value": activity} for activity in activities if activity]
 
     def _get_available_clients(self, queryset: QuerySet) -> list[dict[str, str]]:
-        clients_query = queryset.values_list("client", flat=True)
-        clients = set(clients_query)
-        return [{"value": client} for client in sorted(c for c in clients if c)]
+        clients = queryset.order_by("client").values_list("client", flat=True).distinct()
+        return [{"value": client} for client in clients if client]
 
     def _analyze_detail_fields_memory(self) -> DetailFieldsResult:
         fields = self._discover_fields_memory(batch_size=BATCH_SIZE, use_sampling=False)

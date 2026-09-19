@@ -110,3 +110,28 @@ class FieldDiscoveryTest(BaseTest):
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+    def test_static_filters_deduplicate_with_the_viewset_ordering(self):
+        for index in range(3):
+            ActivityLog.objects.create(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                scope="Dashboard",
+                activity="updated",
+                item_id=str(index),
+                client="posthog-web",
+            )
+
+        # The viewset hands over an ordered queryset, which the database must not use for DISTINCT.
+        queryset = (
+            ActivityLog.objects.filter(organization_id=self.organization.id, scope="Dashboard")
+            .select_related("user")
+            .order_by("-created_at")
+        )
+        static_filters = self.discovery._get_static_filters(queryset)
+
+        self.assertEqual([f["value"] for f in static_filters["users"]], [str(self.user.uuid)])
+        self.assertEqual(static_filters["scopes"], [{"value": "Dashboard"}])
+        self.assertEqual(static_filters["activities"], [{"value": "updated"}])
+        self.assertEqual(static_filters["clients"], [{"value": "posthog-web"}])
