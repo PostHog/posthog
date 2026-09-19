@@ -3,7 +3,6 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { Query } from '~/queries/Query/Query'
 import type { AnyResponseType, InsightVizNode } from '~/queries/schema/schema-general'
 
-import { ChartDisplayIcon } from './ChartDisplayIcon'
 import type { ChartDisplayOption } from './chartDisplayOptions'
 import { ChartDisplaySketch } from './ChartDisplaySketch'
 
@@ -36,7 +35,7 @@ export function ChartPreviewTile({
     } else {
         body = (
             <div className="flex flex-1 items-center justify-center">
-                <span className="w-28 opacity-60">
+                <span className="w-24 opacity-60">
                     <ChartDisplaySketch display={option.display} />
                 </span>
             </div>
@@ -46,19 +45,16 @@ export function ChartPreviewTile({
     return (
         <LemonButton
             type="secondary"
-            className="h-auto min-h-0 w-72 shrink-0 snap-start items-stretch whitespace-normal p-0 text-left"
+            noPadding
+            className="relative h-40 w-60 shrink-0 snap-start whitespace-normal text-left"
             data-attr={`chart-preview-${option.display}`}
+            tooltip={option.label}
+            aria-label={option.label}
             disabledReason={disabledReason}
             onClick={onSelect}
         >
-            <span className="flex w-full flex-col">
-                <span className="flex items-center gap-1 border-b px-2 py-1 text-sm font-medium">
-                    <ChartDisplayIcon icon={option.icon} />
-                    <span className="truncate">{option.label}</span>
-                </span>
-                <span className="pointer-events-none relative flex h-48 flex-col overflow-hidden" aria-hidden>
-                    {body}
-                </span>
+            <span className="pointer-events-none absolute inset-0 flex flex-col overflow-hidden" aria-hidden>
+                {body}
             </span>
         </LemonButton>
     )
