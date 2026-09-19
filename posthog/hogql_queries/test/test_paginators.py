@@ -5,6 +5,9 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
 
 from posthog.hogql.ast import And, CompareOperation, Constant, SelectQuery
@@ -239,17 +242,27 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(paginator.cursor_data["order_value"], datetime(2025, 1, 6, 12, 0))
         self.assertEqual(paginator.cursor_data["secondary_value"], "session_123")
 
-    def test_invalid_cursor_raises_error(self):
-        """Test that invalid cursor format raises ValueError"""
-        with self.assertRaises(ValueError) as context:
+    @parameterized.expand(
+        [
+            ("not_base64", "invalid_cursor"),
+            ("not_utf8", base64.b64encode(b"\xdb\xff").decode("utf-8")),
+            ("not_json", base64.b64encode(b"not json").decode("utf-8")),
+            ("json_null", base64.b64encode(b"null").decode("utf-8")),
+            ("json_number", base64.b64encode(b"5").decode("utf-8")),
+            ("json_list", base64.b64encode(b"[1, 2]").decode("utf-8")),
+            ("json_string", base64.b64encode(b'"session_123"').decode("utf-8")),
+        ]
+    )
+    def test_invalid_cursor_raises_validation_error(self, _name: str, after: str):
+        with self.assertRaises(ValidationError) as context:
             HogQLCursorPaginator(
                 limit=10,
-                after="invalid_cursor",
+                after=after,
                 order_field="start_time",
                 order_direction="DESC",
                 secondary_sort_field="session_id",
             )
-        self.assertIn("Invalid cursor format", str(context.exception))
+        self.assertIn("Invalid pagination cursor", str(context.exception))
 
     def test_cursor_extraction_from_dict_results(self):
         """Test cursor extraction when results are dicts"""
