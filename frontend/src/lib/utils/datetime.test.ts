@@ -409,8 +409,9 @@ describe('datetime utils', () => {
 
         it('falls back to document.documentElement.lang when navigator.language is undefined', () => {
             setLanguage(undefined)
-            document.documentElement.lang = 'en-US'
-            expect(formatLocalizedTime()).toBe('h:mm:ss A')
+            // a 24-hour locale, so the assertion still fails if the fallback resolves to the en-US default
+            document.documentElement.lang = 'de-CH'
+            expect(formatLocalizedTime()).toBe('HH:mm:ss')
         })
 
         it('falls back to 24-hour rather than throwing on a malformed language tag', () => {
