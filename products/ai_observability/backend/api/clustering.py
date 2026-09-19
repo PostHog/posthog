@@ -21,6 +21,7 @@ from posthog.permissions import AccessControlPermission
 from posthog.temporal.ai_observability.trace_clustering.constants import (
     DEFAULT_HDBSCAN_MIN_SAMPLES,
     DEFAULT_LOOKBACK_DAYS,
+    DEFAULT_MAX_CLUSTER_SIZE_FRACTION,
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_CLUSTER_SIZE_FRACTION,
     DEFAULT_UMAP_N_COMPONENTS,
@@ -102,6 +103,13 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
         max_value=100,
         help_text="HDBSCAN min_samples parameter (higher = more conservative clustering)",
     )
+    max_cluster_size_fraction = serializers.FloatField(
+        required=False,
+        default=DEFAULT_MAX_CLUSTER_SIZE_FRACTION,
+        min_value=MIN_CLUSTER_SIZE_FRACTION_MIN,
+        max_value=1.0,
+        help_text="Maximum cluster size as fraction of total samples (e.g., 0.5 = 50%). A cluster above this is split into its sub-clusters",
+    )
 
     # K-means parameters (used when clustering_method='kmeans')
     kmeans_min_k = serializers.IntegerField(
@@ -151,6 +159,16 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="If provided, use this clustering job's analysis_level and event_filters instead of request params",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        if (
+            attrs["clustering_method"] == "hdbscan"
+            and attrs["max_cluster_size_fraction"] < attrs["min_cluster_size_fraction"]
+        ):
+            raise serializers.ValidationError(
+                {"max_cluster_size_fraction": "Must be greater than or equal to min_cluster_size_fraction."}
+            )
+        return attrs
 
 
 class AIObservabilityClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -222,6 +240,7 @@ class AIObservabilityClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
             clustering_method_params = {
                 "min_cluster_size_fraction": serializer.validated_data["min_cluster_size_fraction"],
                 "min_samples": serializer.validated_data["hdbscan_min_samples"],
+                "max_cluster_size_fraction": serializer.validated_data["max_cluster_size_fraction"],
             }
         elif clustering_method == "kmeans":
             clustering_method_params = {

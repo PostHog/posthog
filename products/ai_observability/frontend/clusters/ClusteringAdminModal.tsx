@@ -265,6 +265,22 @@ export function ClusteringAdminModal(): JSX.Element {
                                 </div>
                             </div>
                             <div>
+                                <label className="text-sm font-medium mb-1 block">max_cluster_size_fraction</label>
+                                <LemonInput
+                                    type="number"
+                                    min={0.02}
+                                    max={1}
+                                    step={0.05}
+                                    value={params.max_cluster_size_fraction}
+                                    onChange={(value) => setParams({ max_cluster_size_fraction: Number(value) })}
+                                    fullWidth
+                                />
+                                <div className="text-xs text-muted mt-1">
+                                    Max cluster as % of samples, larger clusters get split (default:{' '}
+                                    {(DEFAULT_CLUSTERING_PARAMS.max_cluster_size_fraction * 100).toFixed(0)}%)
+                                </div>
+                            </div>
+                            <div>
                                 <label className="text-sm font-medium mb-1 block">min_samples</label>
                                 <LemonInput
                                     type="number"
