@@ -44,6 +44,7 @@ const meta: Meta<StoryProps> = {
                     has_secret: false,
                     cookie_delivery_enabled: true,
                 },
+                '/api/projects/:id/error_tracking/alerts/': { count: 0, next: null, previous: null, results: [] },
                 // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
                 '/api/projects/:id/integrations/github/available_installations/': {
                     installations: [],

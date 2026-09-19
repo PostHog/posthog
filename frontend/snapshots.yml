@@ -8020,6 +8020,14 @@ snapshots:
         hash: v1.k794b7964.ccc05c5077ab603e03162368e1ea86bfb2d435fcc4a595964a14d4885d43977b.0a5IoAWliacEzLoFqQnd4dHkiempLwJ-8EUwsvHJYNw
     scenes-app-errortracking--list-page-with-source-maps-banner--light:
         hash: v1.k794b7964.aa9baa124bfa1588fd2314af7e14fe508415cb41c3f33b0ac37fb7fba69679af.g0rhpUievSc6awbRpxB38Mr2yEvlLwNaeXe_zHlm3jM
+    scenes-app-errortracking-alerts--editor-open--dark:
+        hash: v1.k794b7964.469e012cbde0dc8f7b67afd42ceb1083a2933643bff38659c1064c53f89da79a.dJI4PSB31t0aNJfJmzpsQKnXA8R2RC-ojhYAjDc2BBY
+    scenes-app-errortracking-alerts--editor-open--light:
+        hash: v1.k794b7964.abf587b7c385d957076caec12c52e6f0d48655f5780782da2f9da623a5436374.PwYVBpRwD3mjfass5-VUZeyH5ZWw8eIn9-P3gRlpqvo
+    scenes-app-errortracking-alerts--list--dark:
+        hash: v1.k794b7964.0130f39a630e74eaa1dab3a591aacd0cb649e4d54d451dac475fda1af537f4ba.hb22w4w3YHBYeWBKJssWnJM8fN2BULDmaNBd-FeLbMs
+    scenes-app-errortracking-alerts--list--light:
+        hash: v1.k794b7964.5414b782796eea41fffeb7242f96c99e33ac35d652b3f3a56a25fe7b45888fdb.gmpHh5GS1jJcycOxYu7R2SYU5EO_tWOzBCpqr28oSXs
     scenes-app-errortracking-linkedreports--fix-proposed--dark:
         hash: v1.k794b7964.1b50022f8fafb4684dacd255b966bd2969f79e84d5c7c7daeb68291772a1e36d.9uyjrwufsjMCFx9c7cjsoIyabB3A4ZBnPSVUouM0RZE
     scenes-app-errortracking-linkedreports--fix-proposed--light:
@@ -10377,9 +10385,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-error-tracking--light:
         hash: v1.k794b7964.9b4435125bee69ec16432bab017c8822dcc554ab4b48551f1d817af8c70b3825.wSTcj7MUvVP3zBvhpajH8ZIbdXBmdlCn05--nsVm3XI
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--dark:
-        hash: v1.k794b7964.0d228c5d345d88e02faea660484d33e44dcf53044d102a4f12fd895b3a20808a.m7glKiW1lyzNr4vVE2rLRGzrUFjrsZU4Bh21Bk4Pros
+        hash: v1.k794b7964.449aa290943db0f93c82f8ba5e5092a5af2bff9b97d04bbc846478c2601477a1.4ucsvOIe_YLJZKgGLAfjO5hJVsnPmyofGJhYxcBSGlM
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
-        hash: v1.k794b7964.7d62fa47841096cceaa13c9a7cb15c1152b2f929ee030674bc0d97c5bc66c239.GptZ3dbdhoABnDP-dWhaqUCQOTeKYOsMFokkyWuNjwQ
+        hash: v1.k794b7964.5be193735b389fbb3fadf478d68908d7659118f337006eecc11e2ca226544e0f.LkSMhDTpBUVy70AZro-HYDgFubU8UsY2iOOlV1MON6w
     scenes-app-settings-environment--settings-environment-feature-flags--dark:
         hash: v1.k794b7964.5a881bd552287989f50952ebfaa5d49db21340cf8f00869bbf771b0f10d72af4.GlQuGlJ3nXoNmBC-rUWaKdwUCxfkUs1Xlc93cJXUaRQ
     scenes-app-settings-environment--settings-environment-feature-flags--light:
