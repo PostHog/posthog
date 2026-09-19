@@ -1,6 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import StrEnum
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -19,7 +21,7 @@ class CodecovResponseShape(StrEnum):
     TREE = "tree"  # nested directory tree, one row per node at any depth
 
 
-@dataclass
+@frozen
 class CodecovEndpointConfig:
     name: str
     path: str  # Path template relative to /{service}/{owner_username}; "{repo}" is filled per repository during fan-out
