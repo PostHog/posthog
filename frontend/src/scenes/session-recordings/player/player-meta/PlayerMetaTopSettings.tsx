@@ -130,7 +130,6 @@ function TTLWarning(): JSX.Element | null {
                                 <Link
                                     to="https://posthog.com/docs/session-replay/data-retention"
                                     disableClientSideRouting
-                                    disableDocsPanel
                                     target="_blank"
                                 >
                                     this page

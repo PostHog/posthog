@@ -316,7 +316,7 @@ function ConversationDetail({
     if (conversation.source === 'slack') {
         return (
             <div className="flex flex-col gap-4 bg-surface-primary p-4">
-                <LemonMarkdown lowKeyHeadings disableImages disableDocsRedirect>
+                <LemonMarkdown lowKeyHeadings disableImages>
                     {conversation.summary.content}
                 </LemonMarkdown>
                 {conversation.summary.messages.length > 0 && (
