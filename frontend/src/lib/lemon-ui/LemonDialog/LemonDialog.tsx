@@ -33,7 +33,16 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
 
 export type LemonDialogProps = Pick<
     LemonModalProps,
-    'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer' | 'zIndex' | 'className' | 'overlayClassName'
+    | 'title'
+    | 'description'
+    | 'width'
+    | 'maxWidth'
+    | 'inline'
+    | 'footer'
+    | 'zIndex'
+    | 'className'
+    | 'overlayClassName'
+    | 'hasUnsavedInput'
 > & {
     primaryButton?: LemonButtonProps | null
     secondaryButton?: LemonButtonProps | null
