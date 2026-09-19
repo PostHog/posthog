@@ -1,6 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { createEvent, getElementsChain } from '~/ingestion/common/steps/event-processing/create-event'
+import {
+    createEvent,
+    detectIgnoredGroups,
+    getElementsChain,
+} from '~/ingestion/common/steps/event-processing/create-event'
 import { ISOTimestamp, Person, PreIngestionEvent, ProjectId } from '~/types'
 
 describe('createEvent', () => {
@@ -141,5 +145,48 @@ describe('getElementsChain', () => {
         expect(result).toBe('')
         expect(properties).not.toHaveProperty('$elements_chain')
         expect(properties).not.toHaveProperty('$elements')
+    })
+})
+
+describe('detectIgnoredGroups', () => {
+    const preparedEvent = (properties: Record<string, any>): PreIngestionEvent => ({
+        eventUuid: 'event-uuid-123',
+        event: 'purchase',
+        teamId: 1,
+        projectId: 1 as ProjectId,
+        distinctId: 'distinct-id-456',
+        properties,
+        timestamp: '2024-01-01T00:00:00.000Z' as ISOTimestamp,
+    })
+
+    it.each([
+        ['$groups the group steps never resolved', { $groups: { organization: 'acme' } }, ['organization']],
+        ['a $group_N key createEvent strips', { $group_0: 'acme' }, []],
+    ])('warns about %s', (_name, properties, groupTypes) => {
+        expect(detectIgnoredGroups(preparedEvent(properties), false, false)).toEqual({
+            type: 'groups_ignored_when_process_person_profile_is_false',
+            details: {
+                eventUuid: 'event-uuid-123',
+                distinctId: 'distinct-id-456',
+                event: 'purchase',
+                groupTypes,
+            },
+        })
+    })
+
+    it.each([
+        ['the event carries no group data', { $current_url: 'https://example.com' }, false],
+        ['$groups is not an object', { $groups: 'acme' }, false],
+        ['person processing is on, so the groups are kept', { $groups: { organization: 'acme' } }, true],
+    ])('stays quiet when %s', (_name, properties, processPerson) => {
+        expect(detectIgnoredGroups(preparedEvent(properties), processPerson, false)).toBeNull()
+    })
+
+    it('reports at most MAX_GROUP_TYPES_PER_TEAM group types, so a sender cannot inflate the message', () => {
+        const groups = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`type_${index}`, 'key']))
+
+        const warning = detectIgnoredGroups(preparedEvent({ $groups: groups }), false, false)
+
+        expect(warning?.details.groupTypes).toEqual(['type_0', 'type_1', 'type_2', 'type_3', 'type_4'])
     })
 })
