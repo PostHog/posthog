@@ -5779,9 +5779,11 @@ const api = {
         async lineage({
             nodeId,
             savedQueryId,
+            metricId,
         }: {
             nodeId?: DataModelingNode['id']
             savedQueryId?: string
+            metricId?: string
         }): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
             const params: Record<string, string> = {}
             if (nodeId) {
@@ -5789,6 +5791,9 @@ const api = {
             }
             if (savedQueryId) {
                 params.saved_query_id = savedQueryId
+            }
+            if (metricId) {
+                params.metric_id = metricId
             }
             return await new ApiRequest().dataModelingNodes().withAction('lineage').withQueryString(params).get()
         },
