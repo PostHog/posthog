@@ -7816,6 +7816,42 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 1, response)
 
+    @parameterized.expand(
+        [
+            ("write_scope", ["feature_flag:write"], status.HTTP_201_CREATED),
+            ("read_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_creating_static_cohort_with_scoped_personal_api_key(
+        self, _name, scopes, expected_status, mock_batch_evaluate
+    ):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=scopes,
+            secure_value=hash_key_value(personal_api_key),
+        )
+        mock_batch_evaluate.return_value = {"matched_person_uuids": [], "next_cursor": None, "errors_count": 0}
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/create_static_cohort_for_flag/",
+            {},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
     def test_cant_update_early_access_flag_with_group(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
