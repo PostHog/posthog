@@ -204,6 +204,19 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 400
         assert "HogQL property filters are not supported here" in str(response.json())
 
+    def test_invalid_hogql_test_account_filter_returns_400(self) -> None:
+        self.team.test_account_filters = [{"key": "properties.$host = ", "type": "hogql"}]
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={"filterTestAccounts": True},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "test account filter in your project settings" in str(response.json())
+
     def test_rejects_invalid_person_id(self) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",

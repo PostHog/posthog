@@ -612,24 +612,34 @@ class TestFilters(BaseTest):
             f"HAVING greater(sum(sign), 0))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
-    def test_replace_filters_persons_test_accounts_event_property_raises(self):
-        self.team.test_account_filters = [
-            {
-                "key": "$host",
-                "type": "event",
-                "value": "localhost",
-                "operator": "not_icontains",
-            }
+    @parameterized.expand(
+        [
+            (
+                "event_property_in_persons_scope",
+                {"key": "$host", "type": "event", "value": "localhost", "operator": "not_icontains"},
+                "SELECT id FROM persons where {filters}",
+                "A test account filter in your project settings (the event property filter on '$host') "
+                "can't apply to a query that selects only from persons.",
+            ),
+            (
+                "invalid_sql_in_events_scope",
+                {"key": "properties.$host = ", "type": "hogql"},
+                "SELECT event FROM events where {filters}",
+                "A test account filter in your project settings is not valid SQL "
+                "(unexpected token in expression: Eof). "
+                "Correct this filter in project settings: properties.$host = ",
+            ),
         ]
+    )
+    def test_replace_filters_test_account_filter_error_names_the_setting(
+        self, _name: str, test_account_filter: dict, query: str, expected_message: str
+    ):
+        self.team.test_account_filters = [test_account_filter]
         self.team.save()
 
-        select = self._parse_select("SELECT id FROM persons where {filters}")
+        select = self._parse_select(query)
 
-        with self.assertRaisesMessage(
-            QueryError,
-            "A test account filter in your project settings (the event property filter on '$host') "
-            "can't apply to a query that selects only from persons.",
-        ):
+        with self.assertRaisesMessage(QueryError, expected_message):
             replace_filters(select, HogQLFilters(filterTestAccounts=True), self.team)
 
     def test_replace_filters_events_joined_with_persons_keep_event_scope(self):

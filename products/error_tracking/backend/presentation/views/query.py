@@ -10,7 +10,7 @@ from rest_framework.response import Response
 
 from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery
 
-from posthog.hogql.errors import ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -59,6 +59,13 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # A saved test account filter or a search expression can hold invalid SQL, so the failure
+        # belongs to the request. Answer 400 with the HogQL error code, as posthog/api/query.py does.
+        if isinstance(exc, ExposedHogQLError):
+            exc = ValidationError(str(exc), getattr(exc, "code_name", None))
+        return super().handle_exception(exc)
 
     @validated_request(
         request_serializer=ErrorTrackingIssuesListQueryRequestSerializer,
