@@ -1090,6 +1090,22 @@ def _augment_candidates_with_batch(
     return augmented
 
 
+class SignalBatchPrepError(Exception):
+    """Preparation of a whole batch failed before any of its signals was emitted.
+
+    `cause` is the failure itself, which drop telemetry reads to name the error.
+    """
+
+    def __init__(self, message: str, cause: BaseException) -> None:
+        super().__init__(message)
+        self.cause = cause
+
+
+async def capture_batch_dropped(batch: list[EmitSignalInputs], error: SignalBatchPrepError) -> None:
+    """Report every signal of a batch as dropped. For callers that discard a batch they cannot prepare."""
+    await asyncio.gather(*(capture_signal_dropped(signal, error.cause, stage="grouping_prep") for signal in batch))
+
+
 async def _process_signal_batch(
     batch: list[EmitSignalInputs],
     cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
@@ -1097,7 +1113,8 @@ async def _process_signal_batch(
     """
     Process a batch of signals with parallel preparation (steps 1-4) and sequential
     matching/assignment (steps 5-7). Returns (dropped_count, type_examples) — the
-    caller can cache the type_examples for subsequent batches.
+    caller can cache the type_examples for subsequent batches. Raises SignalBatchPrepError
+    when preparation fails, which leaves the batch untouched for the caller to retry or drop.
 
     Earlier signals in the batch are injected into later signals' candidate sets via
     local cosine distance comparison, eliminating the need for per-signal CH waits
@@ -1218,16 +1235,14 @@ async def _process_signal_batch(
         )
         report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
     except Exception as e:
-        # Nothing has been emitted yet, so the whole batch is explainable as dropped.
-        # The outer workflow handler can't emit these: it also catches post-emission
-        # failures (the CH wait in step 7), where signals were successfully assigned.
+        # Nothing has been emitted yet, so the batch can still be processed in full later. The
+        # caller owns that choice, and only a caller that discards the batch reports drops.
         logger.exception(
             "Failed to prepare signal batch",
             team_id=team_id,
             batch_size=len(batch),
         )
-        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
-        raise
+        raise SignalBatchPrepError(f"Failed to prepare a batch of {len(batch)} signals", e) from e
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
     _PATCH_PARALLEL_SEQUENTIAL = "parallel-sequential-phase-v1"
@@ -1538,8 +1553,11 @@ class TeamSignalGroupingWorkflow:
                 self._cached_type_examples = type_examples
                 self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
                 self._signals_dropped_counter.add(dropped)
+            except SignalBatchPrepError as e:
+                # This workflow keeps no copy of the batch, so a batch it cannot prepare is lost.
+                self._signals_dropped_counter.add(len(batch))
+                await capture_batch_dropped(batch, e)
             except Exception:
-                # Parallel phase failed — all signals in batch dropped
                 self._signals_dropped_counter.add(len(batch))
                 logger.exception(
                     "Failed to process signal batch",

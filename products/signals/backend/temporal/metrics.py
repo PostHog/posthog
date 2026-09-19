@@ -78,6 +78,20 @@ def increment_dropped(stage: str, reason: str, count: int = 1) -> None:
     ).add(count)
 
 
+def increment_batch_deferred(reason: str) -> None:
+    """Count a grouping batch held for a later attempt after its preparation failed.
+
+    This is the stall signal the drop counter can no longer carry: the signals are delayed,
+    not lost, so they reach `signals_dropped_total` only once the batch is given up on.
+    """
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"reason": reason}).create_counter(
+        "signals_batches_deferred_total",
+        "Grouping batches held for a later attempt after a preparation failure",
+    ).add(1)
+
+
 def increment_report_completed(result: str) -> None:
     """Count report completions by result (ready/failed/not_actionable/pending_input)."""
     if not _in_temporal_context():
