@@ -68,6 +68,13 @@ pub fn test_analytics_context() -> AnalyticsContext {
     }
 }
 
+/// The client timestamp exactly as validation parses it, for hand-built fixtures.
+pub fn client_ts(timestamp: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
 pub fn valid_event() -> Event {
     Event {
         event: "$pageview".to_string(),
@@ -101,6 +108,7 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
                 .unwrap()
                 .with_timezone(&Utc),
         ),
+        client_capture: client_ts("2026-03-19T14:29:58.123Z"),
         result: EventResult::Ok,
         details: None,
         destination: Destination::default(),
@@ -126,6 +134,7 @@ pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
         uuid,
         options: Options::default(),
         adjusted_timestamp: Some(timestamp),
+        client_capture: Some(timestamp),
         result: EventResult::Ok,
         details: None,
         destination: Destination::default(),
@@ -151,6 +160,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
         uuid,
         options: Options::default(),
         adjusted_timestamp: None,
+        client_capture: None,
         result: EventResult::Drop,
         details: Some("missing_event_name"),
         destination: Destination::default(),
@@ -226,6 +236,7 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
                 .unwrap()
                 .with_timezone(&Utc),
         ),
+        client_capture: client_ts("2026-03-19T14:29:58.123Z"),
         result: EventResult::Ok,
         details: None,
         destination: Destination::AnalyticsMain,
@@ -265,6 +276,7 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
                 .unwrap()
                 .with_timezone(&Utc),
         ),
+        client_capture: client_ts("2026-03-19T14:30:01.000Z"),
         result: EventResult::Ok,
         details: None,
         destination: Destination::AnalyticsMain,
@@ -304,6 +316,7 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
                 .unwrap()
                 .with_timezone(&Utc),
         ),
+        client_capture: client_ts("2026-03-19T14:30:05.500Z"),
         result: EventResult::Ok,
         details: None,
         destination: Destination::AnalyticsMain,

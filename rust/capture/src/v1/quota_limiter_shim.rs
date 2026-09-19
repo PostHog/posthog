@@ -334,6 +334,7 @@ mod tests {
                     .unwrap()
                     .with_timezone(&Utc),
             ),
+            client_capture: crate::v1::test_utils::client_ts("2026-03-26T12:00:00.000Z"),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,

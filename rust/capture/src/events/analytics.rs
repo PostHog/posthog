@@ -175,7 +175,7 @@ pub fn process_single_event(
     if let Some(captured_at) = parsed_timestamp.client_capture {
         event.properties.insert(
             CLIENT_CAPTURE_PROPERTY.to_string(),
-            Value::String(captured_at.to_rfc3339_opts(SecondsFormat::Millis, true)),
+            Value::String(captured_at.to_rfc3339_opts(SecondsFormat::AutoSi, true)),
         );
     }
 
@@ -829,47 +829,70 @@ mod tests {
 
     #[test]
     fn client_capture_property_reaches_the_serialized_event() {
-        // The property is what downstream consumers read, so it has to survive
-        // serialization, not merely exist on the parse result.
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:30Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let sent_at = time::OffsetDateTime::parse(
-            "2023-01-01T12:00:00Z",
-            &time::format_description::well_known::Rfc3339,
-        )
-        .unwrap();
-        let context = create_test_context(now, Some(sent_at));
-        let mut event = RawEvent {
-            uuid: None,
-            distinct_id: Some(Value::String("d1".to_string())),
-            event: "$pageview".to_string(),
-            properties: HashMap::new(),
-            timestamp: Some("2023-01-01T11:00:00Z".to_string()),
-            offset: None,
-            set: None,
-            set_once: None,
-            token: Some("test_token".to_string()),
-        };
+        // The property is what consumers read, so it has to survive serialization rather
+        // than merely exist on the parse result, keeping the digits the device sent.
+        let cases = [
+            (
+                "2023-01-01T11:00:00Z",
+                "2023-01-01T11:00:00Z",
+                "2023-01-01T11:00:30Z",
+            ),
+            (
+                "2023-01-01T11:00:00.123Z",
+                "2023-01-01T11:00:00.123Z",
+                "2023-01-01T11:00:30.123Z",
+            ),
+            (
+                "2023-01-01T11:00:00.123456Z",
+                "2023-01-01T11:00:00.123456Z",
+                "2023-01-01T11:00:30.123456Z",
+            ),
+        ];
 
-        let processed = process_single_event(
-            &mut event,
-            router::HistoricalConfig::new(false, 1),
-            &context,
-        )
-        .unwrap();
-
-        // The device said 11:00:00; the stored timestamp carries the 30s the request took.
-        assert!(processed
-            .event
-            .data
-            .contains("\"$client_capture_time\":\"2023-01-01T11:00:00.000Z\""));
-        assert_eq!(
-            processed.metadata.computed_timestamp.unwrap(),
-            DateTime::parse_from_rfc3339("2023-01-01T11:00:30Z")
+        for (device_time, expected_property, expected_stored) in cases {
+            let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:30Z")
                 .unwrap()
-                .with_timezone(&Utc)
-        );
+                .with_timezone(&Utc);
+            let sent_at = time::OffsetDateTime::parse(
+                "2023-01-01T12:00:00Z",
+                &time::format_description::well_known::Rfc3339,
+            )
+            .unwrap();
+            let context = create_test_context(now, Some(sent_at));
+            let mut event = RawEvent {
+                uuid: None,
+                distinct_id: Some(Value::String("d1".to_string())),
+                event: "$pageview".to_string(),
+                properties: HashMap::new(),
+                timestamp: Some(device_time.to_string()),
+                offset: None,
+                set: None,
+                set_once: None,
+                token: Some("test_token".to_string()),
+            };
+
+            let processed = process_single_event(
+                &mut event,
+                router::HistoricalConfig::new(false, 1),
+                &context,
+            )
+            .unwrap();
+
+            let expected = format!("\"{CLIENT_CAPTURE_PROPERTY}\":\"{expected_property}\"");
+            assert!(
+                processed.event.data.contains(&expected),
+                "{device_time}: expected {expected} in {}",
+                processed.event.data
+            );
+            // The device said 11:00:00; the stored timestamp carries the 30s the request took.
+            assert_eq!(
+                processed.metadata.computed_timestamp.unwrap(),
+                DateTime::parse_from_rfc3339(expected_stored)
+                    .unwrap()
+                    .with_timezone(&Utc),
+                "{device_time}"
+            );
+        }
     }
 
     #[test]

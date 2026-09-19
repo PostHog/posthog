@@ -215,6 +215,8 @@ pub struct WrappedEvent {
     pub options: Options,
     // Post-skew-adjustment timestamp for Kafka export, None if event is malformed
     pub adjusted_timestamp: Option<DateTime<Utc>>,
+    /// The device's own clock reading at capture, before any correction or clamp.
+    pub client_capture: Option<DateTime<Utc>>,
     pub result: EventResult,
     pub details: Option<&'static str>,
     pub destination: Destination,
@@ -436,19 +438,14 @@ impl WrappedEvent {
             inject!(buf, first, "$process_person_profile", &ppp);
         }
 
-        // The device's own clock reading at capture. v1 requires a client timestamp on
-        // every event, so unlike v0 there is never an offset to reconstruct it from.
-        // Parsed rather than passed through so both capture paths emit one shape, and
-        // written whatever `disable_skew_correction` says: opting out of the correction
+        // Written whatever `disable_skew_correction` says: opting out of the correction
         // is not opting out of knowing when the device captured the event.
-        if let Ok(captured_at) = DateTime::parse_from_rfc3339(&self.event.timestamp) {
+        if let Some(captured_at) = self.client_capture {
             inject!(
                 buf,
                 first,
                 CLIENT_CAPTURE_PROPERTY,
-                &captured_at
-                    .with_timezone(&Utc)
-                    .to_rfc3339_opts(SecondsFormat::Millis, true)
+                &captured_at.to_rfc3339_opts(SecondsFormat::AutoSi, true)
             );
         }
 
@@ -1466,6 +1463,7 @@ mod tests {
                 process_person_profile: Some(true),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1649,6 +1647,7 @@ mod tests {
                 process_person_profile: Some(false),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1692,6 +1691,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1734,6 +1734,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1751,6 +1752,30 @@ mod tests {
         assert_eq!(props["$lib_version"], "1.0.0");
         assert_eq!(props["$client_capture_time"], "2026-03-19T14:29:58.123Z");
         assert_eq!(props.len(), 3);
+    }
+
+    #[test]
+    fn serialize_client_capture_keeps_sub_millisecond_digits() {
+        // The property feeds an ordering key, so it is only as fine as the instant it
+        // carries. Fixed-millisecond formatting truncated a device reporting microseconds.
+        let cases = [
+            ("2026-03-19T14:29:58Z", "2026-03-19T14:29:58Z"),
+            ("2026-03-19T14:29:58.123Z", "2026-03-19T14:29:58.123Z"),
+            ("2026-03-19T14:29:58.123456Z", "2026-03-19T14:29:58.123456Z"),
+        ];
+
+        for (capture, expected) in cases {
+            let mut wrapped = pageview_event();
+            wrapped.event.timestamp = capture.to_string();
+            wrapped.client_capture = Some(dt(capture));
+
+            let ctx = serialize_ctx();
+            let (_, data) = serialize_and_parse(&wrapped, &ctx);
+            assert_eq!(
+                data.properties["$client_capture_time"], expected,
+                "{capture}"
+            );
+        }
     }
 
     #[test]
@@ -1775,6 +1800,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1818,6 +1844,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1938,6 +1965,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -1982,6 +2010,7 @@ mod tests {
                 process_person_profile: Some(true),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:55.000Z")),
+            client_capture: Some(dt("2026-03-19T14:30:00.000Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -2024,6 +2053,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
@@ -2062,6 +2092,7 @@ mod tests {
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            client_capture: Some(dt("2026-03-19T14:29:58.123Z")),
             result: EventResult::Ok,
             details: None,
             destination: Destination::AnalyticsMain,
