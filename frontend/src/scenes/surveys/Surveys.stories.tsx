@@ -227,6 +227,12 @@ const MOCK_SURVEY_WITH_RESULTS: Survey = {
             upperBoundLabel: 'Very likely',
         },
         {
+            type: SurveyQuestionType.Link,
+            question: 'Read what we shipped this month',
+            id: 'q-link',
+            link: 'https://example.com/changelog',
+        },
+        {
             type: SurveyQuestionType.SingleChoice,
             question: 'What is your favorite feature?',
             id: 'q-single',
