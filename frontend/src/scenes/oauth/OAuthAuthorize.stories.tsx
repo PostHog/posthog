@@ -121,6 +121,16 @@ export const DefaultScopes: Story = {
     },
 }
 
+// The logo is a third-party icon this repo already serves, so the snapshot never reaches out to a
+// host we do not control.
+export const WithApplicationLogo: Story = {
+    decorators: [withOAuthApplication({ name: 'Zapier', logo_uri: '/static/services/zapier.png' })],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize())
+        return <App />
+    },
+}
+
 // Explicit request where every requested scope is required: rows render as a plain locked
 // checkmark list (no access selectors) and the bulk actions are hidden, since there is nothing
 // to choose.
