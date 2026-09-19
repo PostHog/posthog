@@ -488,6 +488,9 @@ build:
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
+    build:object-tags:
+        bin_script: build-object-tags-registry.py
+        description: Generate the agent object-tag kind registry for TypeScript consumers
     build:bot-definitions:
         cmd: python livestream/bot/generate_definitions.py
         description: Generate livestream bot definitions JSON from bot_definitions.py
@@ -1079,6 +1082,9 @@ owners:
     owners:census:
         click: posthog_owners.cli:cmd_census
         description: Count test files per owning team (optional PREFIX; --json for machine output)
+    owners:codeowners:
+        click: posthog_owners.cli:cmd_codeowners
+        description: Emit a CODEOWNERS projection of test-file ownership for tools that only read CODEOWNERS (-o writes a file)
     owners:unowned:
         click: posthog_owners.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)

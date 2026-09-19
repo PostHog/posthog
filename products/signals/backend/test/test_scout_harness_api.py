@@ -6,8 +6,9 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
@@ -19,6 +20,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
 from posthog.models import OAuthApplication
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
@@ -37,6 +39,8 @@ from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutNote,
@@ -63,6 +67,7 @@ from products.signals.backend.scout_harness.serializers import (
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
+from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
@@ -2272,6 +2277,43 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         # No second row written.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
+    @parameterized.expand([(False,), (True,)])
+    def test_scout_read_reports_its_own_dry_run_block_though_the_team_can_emit(self, summary_only: bool) -> None:
+        run = _make_run(self.team)
+        assert run.scout_config is not None
+        SignalScoutConfig.objects.filter(pk=run.scout_config.pk).update(emit=False)
+        self._seed_profile()
+        # The sandbox token is bound to the task that dispatched the run, which is how the endpoint
+        # knows which scout is asking — the scout passes nothing.
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+
+        response = self.client.get(self._list_url(), {"summary_only": str(summary_only).lower()})
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        eligibility = body["summary"]["emit_eligibility"]
+        if summary_only:
+            assert "payload" not in body
+        else:
+            assert body["payload"]["inventory"]["emit_eligibility"] == eligibility
+
+        assert eligibility["can_emit"] is False
+        assert eligibility["scout_emit_enabled"] is False
+        assert eligibility["blocking_reason"] == "scout_emit_disabled"
+        assert eligibility["remediation"]
+        # The team-wide gates are untouched, so the block really is this scout's own posture.
+        assert eligibility["ai_processing_approved"] is True
+        assert eligibility["source_enabled"] is True
+        stored = SignalProjectProfile.objects.get(team=self.team).payload["inventory"]["emit_eligibility"]
+        assert stored["can_emit"] is True
+        assert stored["scout_emit_enabled"] is None
+
+    def test_read_outside_a_run_keeps_the_team_wide_eligibility(self) -> None:
+        # No scout to answer for, so there is no per-scout toggle to report and the stored floor stands.
+        self._seed_profile()
+        eligibility = self.client.get(self._list_url()).json()["payload"]["inventory"]["emit_eligibility"]
+        assert eligibility["scout_emit_enabled"] is None
+        assert eligibility["can_emit"] is True
+
     def test_scout_read_inventory_payload_carries_expected_keys(self) -> None:
         _authenticate_as_scout(self)
         response = self.client.get(self._list_url())
@@ -2334,7 +2376,9 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert set(body["summary"]["emit_eligibility"]) == {
             "ai_processing_approved",
             "source_enabled",
+            "scout_emit_enabled",
             "can_emit",
+            "blocking_reason",
             "remediation",
         }
         assert set(body["summary"]["existing_inbox_reports"]) == {"total", "by_status"}
@@ -2386,6 +2430,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             body="# test scout",
         )
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_display_name_update_preserves_identity_and_running_history(self) -> None:
         skill = self._make_skill("signals-scout-daily-digest")
         config = SignalScoutConfig.objects.create(
@@ -2404,15 +2449,21 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id)
         )
         assert original_config["display_name"] == ""
+        assert original_config["updated_at"] == "2026-09-01T12:00:00Z"
 
-        response = self.client.patch(
-            self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
-        )
+        with time_machine.travel("2026-09-01T13:00:00Z", tick=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
+            )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {**original_config, "display_name": "Checkout / daily digest"}
+        assert response.json() == {
+            **original_config,
+            "display_name": "Checkout / daily digest",
+            "updated_at": "2026-09-01T13:00:00Z",
+        }
         saved_config = next(item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id))
-        assert saved_config["display_name"] == "Checkout / daily digest"
+        assert saved_config == response.json()
         config.refresh_from_db()
         skill.refresh_from_db()
         run.refresh_from_db()
@@ -4513,6 +4564,52 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
         SignalScratchpad.all_teams.filter(pk=entry.pk).update(created_at=run.created_at - timedelta(hours=2))
         assert self._stamp(run)["has_self_validation"] is False
 
+    def test_self_validation_counts_a_run_that_wrote_a_report_check(self) -> None:
+        # Writing a check *is* the validation being scheduled, unlike writing a queue entry, which
+        # only asks a future run to do it. Keeping the same field name is deliberate: the flag means
+        # "this run closed a loop", and scouts are moving from the queue onto checks.
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_self_validation_counts_a_run_that_recorded_a_verdict(self) -> None:
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            content="{}",
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_another_runs_check_does_not_count(self) -> None:
+        run = _make_run(self.team)
+        other_run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=other_run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is False
+
     def test_derived_map_round_trips_as_an_object_not_a_string(self) -> None:
         # Guards the serializer field: a `DictField(child=CharField())` coerces the nested map to
         # its Python repr, which turns a queryable object into unparseable prose.
@@ -4545,3 +4642,187 @@ class TestSignalScoutSlackDestinationSerializerValidation(SimpleTestCase):
         )
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["users"] == ["U0123ABC|@a", "W0456DEF|@b"]
+
+
+_LIGHTHOUSE_API_SETTINGS = {
+    "LIGHTHOUSE_BROWSERLESS_URL": "https://browserless.example.com",
+    "LIGHTHOUSE_BROWSERLESS_TOKEN": "secret-token",
+    "SIGNALS_LIGHTHOUSE_ALLOWED_HOSTS": {"posthog.com"},
+}
+
+_LIGHTHOUSE_REPORT = {
+    "data": {
+        "lighthouseVersion": "13.4.1",
+        "finalDisplayedUrl": "https://posthog.com/pricing",
+        "categories": {"performance": {"score": 0.28}},
+        "audits": {"largest-contentful-paint": {"numericValue": 4553.2}},
+    }
+}
+
+
+# The endpoint's metering lives here rather than in the tool tests because the ordering under
+# test — validate, then reserve under the row lock, then load the page — lives in the view.
+class TestScoutHarnessLighthouseAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # lighthouse-audit requires `signal_scout_internal:write` — session auth is rejected.
+        _authenticate_as_scout(self)
+
+    def _audit_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/lighthouse-audit/"
+
+    def _post(self, run: SignalScoutRun, url: str = "https://posthog.com/pricing", **setting_overrides):
+        response = MagicMock(status_code=200, content=b"{}")
+        response.json.return_value = _LIGHTHOUSE_REPORT
+        settings_used = {
+            **_LIGHTHOUSE_API_SETTINGS,
+            "SIGNALS_LIGHTHOUSE_TEAM_IDS": {self.team.id},
+            **setting_overrides,
+        }
+        with self.settings(**settings_used):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=response
+                ) as browserless:
+                    return (
+                        self.client.post(self._audit_url(str(run.id)), data={"url": url}, format="json"),
+                        browserless,
+                    )
+
+    def _spent(self, run: SignalScoutRun) -> int:
+        run.refresh_from_db()
+        return (run.metadata or {}).get(RUN_AUDIT_COUNT_KEY, 0)
+
+    def test_a_successful_audit_spends_exactly_one_slot(self) -> None:
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["audits_remaining"] == MAX_AUDITS_PER_RUN - 1
+        assert self._spent(run) == 1
+        assert browserless.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("off_allowlist_host", "https://example.com/pricing", {}),
+            ("not_https", "http://posthog.com/pricing", {}),
+            ("team_not_enabled", "https://posthog.com/pricing", {"SIGNALS_LIGHTHOUSE_TEAM_IDS": set()}),
+        ]
+    )
+    def test_a_rejection_that_never_loads_a_page_costs_no_budget(self, _name: str, url: str, overrides: dict) -> None:
+        # A scout that misread the host rule would otherwise burn all five slots on instant
+        # round-trips and then be told it had spent them on audits.
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run, url=url, **overrides)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        browserless.assert_not_called()
+        assert self._spent(run) == 0
+        # The remaining count rides in the message, so a scout can tell a rejection
+        # (budget intact) from an exhausted budget.
+        assert f"{MAX_AUDITS_PER_RUN} of {MAX_AUDITS_PER_RUN} audits still available" in response.json()["detail"]
+
+    def test_the_per_run_cap_is_enforced_without_reaching_browserless(self) -> None:
+        run = _make_run(self.team, metadata={RUN_AUDIT_COUNT_KEY: MAX_AUDITS_PER_RUN})
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "0 still available" in response.json()["detail"]
+        browserless.assert_not_called()
+
+    def test_a_failed_page_load_still_spends_its_slot(self) -> None:
+        # The runaway case the cap exists for is a scout retrying a page that cannot load.
+        run = _make_run(self.team)
+        broken = MagicMock(status_code=500, content=b"")
+        broken.text = "upstream error"
+        with self.settings(**_LIGHTHOUSE_API_SETTINGS, SIGNALS_LIGHTHOUSE_TEAM_IDS={self.team.id}):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=broken
+                ):
+                    response = self.client.post(
+                        self._audit_url(str(run.id)),
+                        data={"url": "https://posthog.com/pricing"},
+                        format="json",
+                    )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._spent(run) == 1
+
+    def test_a_fleet_at_capacity_gives_the_slot_back(self) -> None:
+        # The egress gate refuses before a browser starts, so five refusals must not read as five
+        # audits — a busy fleet would otherwise empty a run's budget without measuring anything.
+        run = _make_run(self.team)
+        with self.settings(**_LIGHTHOUSE_API_SETTINGS, SIGNALS_LIGHTHOUSE_TEAM_IDS={self.team.id}):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request",
+                    side_effect=BrowserlessEgressBudgetExhausted("Browserless egress budget exhausted"),
+                ):
+                    response = self.client.post(
+                        self._audit_url(str(run.id)),
+                        data={"url": "https://posthog.com/pricing"},
+                        format="json",
+                    )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert self._spent(run) == 0
+        assert f"{MAX_AUDITS_PER_RUN} of {MAX_AUDITS_PER_RUN} audits still available" in response.json()["detail"]
+
+    def test_returns_501_when_the_deployment_has_no_browserless(self) -> None:
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run, LIGHTHOUSE_BROWSERLESS_URL="")
+
+        assert response.status_code == status.HTTP_501_NOT_IMPLEMENTED
+        browserless.assert_not_called()
+        assert self._spent(run) == 0
+
+    def test_rejects_a_run_that_is_not_in_progress(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        browserless.assert_not_called()
+
+    def test_another_teams_run_is_not_auditable(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        run = _make_run(other_team)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        browserless.assert_not_called()
+
+    def test_a_sandbox_token_may_only_spend_its_own_runs_budget(self) -> None:
+        # Team scoping alone leaves the per-run cap in name only: a scout can list its siblings
+        # and spend each one's five slots, and every slot is a real browser session. Both halves
+        # matter — without the first, refusing everything would pass just as well.
+        own_run = _make_run(self.team)
+        sibling_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=own_run.task_run.task_id)
+
+        allowed, browserless_for_own = self._post(own_run)
+        refused, browserless_for_sibling = self._post(sibling_run)
+
+        assert allowed.status_code == status.HTTP_200_OK, allowed.json()
+        assert browserless_for_own.call_count == 1
+        assert self._spent(own_run) == 1
+
+        assert refused.status_code == status.HTTP_404_NOT_FOUND
+        browserless_for_sibling.assert_not_called()
+        assert self._spent(sibling_run) == 0

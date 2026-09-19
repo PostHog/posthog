@@ -22,7 +22,7 @@ type Document struct {
 type Statement struct {
 	expr               clickhouse.Expr
 	schema             *catalog.PreparedCatalog
-	originalTableNames map[string]string
+	originalTableNames map[int]string
 	budget             *projectionBudget
 	scopes             []*queryScope
 	tables             []TableReference
@@ -89,7 +89,7 @@ func (s *Statement) analyze() {
 	}
 	s.analyzed = true
 	s.scopes = queryScopes(s.expr, s.budget)
-	clickhouse.Walk(s.expr, func(node clickhouse.Expr) bool {
+	bindTables := func(node clickhouse.Expr) bool {
 		expr, ok := node.(*clickhouse.TableExpr)
 		if !ok {
 			return true
@@ -97,7 +97,7 @@ func (s *Statement) analyze() {
 		if bindSubquery(expr, s.scopes, s.budget) {
 			return true
 		}
-		name, alias, start, end, ok := tableReference(expr)
+		name, alias, implicitAlias, start, end, ok := tableReference(expr)
 		if !ok {
 			return true
 		}
@@ -105,33 +105,59 @@ func (s *Statement) analyze() {
 		if scope == nil {
 			return true
 		}
-		if cte := resolveCTE(scope, name, start); cte != nil {
-			addBinding(scope, name, alias, Relation{name: cte.name, cte: cte})
-			return true
-		}
-		if original, exists := s.originalTableNames[strings.ToLower(name)]; exists {
+		if original, exists := s.originalTableNames[start]; exists {
 			name = original
+			implicitAlias = strings.ReplaceAll(original, ".", "__")
+		}
+		if cte := resolveCTE(scope, name, start); cte != nil {
+			addBinding(scope, name, alias, Relation{name: cte.name, cte: cte}, start, end)
+			return true
 		}
 		table, exists := s.schema.Table(name)
 		s.tables = append(s.tables, TableReference{Name: name, Start: start, End: end, Known: exists})
 		if exists {
-			addBinding(scope, name, alias, Relation{name: name, table: table})
+			if alias == "" && implicitAlias != name {
+				// HogQL registers multi-part table paths under a double-underscore alias.
+				alias = implicitAlias
+			}
+			addBinding(scope, name, alias, Relation{name: name, table: table}, start, end)
 		}
 		return true
-	})
+	}
+	walkIncludingExcept(s.expr, bindTables)
 }
 
 // Walk borrows parser nodes for validation; callers must not mutate them or retain them across requests.
 func (s *Statement) Walk(visit func(clickhouse.Expr) bool) {
-	clickhouse.Walk(s.expr, visit)
+	walkIncludingExcept(s.expr, visit)
 }
 
 func (s *Statement) Tables() iter.Seq[TableReference] {
 	return slices.Values(s.tables)
 }
 
+func (s *Statement) DuplicateSources() iter.Seq[Source] {
+	return func(yield func(Source) bool) {
+		for _, scope := range s.scopes {
+			for _, source := range scope.duplicateSources {
+				if !yield(source) {
+					return
+				}
+			}
+		}
+	}
+}
+
 func (s *Statement) ContainsPosition(position int) bool {
-	return int(s.expr.Pos()) <= position && position <= int(s.expr.End())
+	if int(s.expr.Pos()) <= position && position <= int(s.expr.End()) {
+		return true
+	}
+	for _, scope := range s.scopes {
+		if contains(scope.query, position, position) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Statement) BindingsAt(start, end int) Bindings {
@@ -160,8 +186,31 @@ func (b Bindings) Len() int {
 	return len(b.relations)
 }
 
+func (b Bindings) CTENames(prefix string) iter.Seq[catalog.Entry] {
+	return func(yield func(catalog.Entry) bool) {
+		seen := map[string]bool{}
+		prefix = foldedFieldName(prefix)
+		for scope := b.scope; scope != nil; scope = scope.parent {
+			ctes := scope.visibleCTEs(b.position)
+			for index := len(ctes) - 1; index >= 0; index-- {
+				name := ctes[index].name
+				if !scope.budget.lookup(len(name) + 1) {
+					return
+				}
+				if seen[name] {
+					continue
+				}
+				seen[name] = true
+				if strings.HasPrefix(foldedFieldName(name), prefix) && !yield(catalog.Entry{Name: name, Type: "CTE"}) {
+					return
+				}
+			}
+		}
+	}
+}
+
 func (b Bindings) Relation(name string) (Relation, bool) {
-	relation, ok := b.relations[strings.ToLower(name)]
+	relation, ok := b.relations[name]
 	return relation, ok
 }
 
@@ -183,15 +232,51 @@ func (b Bindings) UniqueRelations() iter.Seq[Relation] {
 }
 
 func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
+	if len(parts) > 2 && b.scope.hasDuplicateSource(parts[0]) {
+		return "", false
+	}
+	if len(parts) >= 2 {
+		ownerParts := parts[:len(parts)-1]
+		if len(ownerParts) == 1 {
+			if alias, ok := b.selectAlias(ownerParts[0]); ok {
+				return alias.propertyNamespace, alias.propertyNamespace != ""
+			}
+			_, qualified := b.Relation(ownerParts[0])
+			if !qualified && resolveCTE(b.scope, ownerParts[0], b.position) == nil {
+				namespace, ok, matched := b.scope.unqualifiedPropertyNamespace(ownerParts[0])
+				if ok {
+					return namespace, true
+				}
+				if matched {
+					return "", false
+				}
+			}
+		}
+		if len(ownerParts) == 2 {
+			if relation, ok := b.Relation(ownerParts[0]); ok {
+				return bindingPropertyNamespace(relation, ownerParts[1])
+			}
+		}
+	}
+	if len(parts) >= 2 {
+		_, bound := b.Relation(parts[0])
+		if _, shadowed := b.SelectAlias(parts[0]); shadowed {
+			if len(parts) == 2 || !bound {
+				return "", false
+			}
+		}
+	}
 	if len(parts) > 2 {
-		if _, bound := b.Relation(parts[0]); !bound && resolveCTE(b.scope, parts[0], b.position) != nil {
-			return "", false
+		if _, bound := b.Relation(parts[0]); !bound {
+			if resolveCTE(b.scope, parts[0], b.position) != nil || len(parts) > 3 {
+				return "", false
+			}
 		}
 	}
 	names := make(map[string]string, len(b.relations))
 	for name, relation := range b.relations {
 		if relation.cte != nil {
-			if len(parts) > 2 && strings.EqualFold(parts[0], name) {
+			if len(parts) > 2 && parts[0] == name {
 				return "", false
 			}
 			if len(parts) == 2 {
@@ -201,7 +286,7 @@ func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
 			}
 			continue
 		}
-		names[name] = relation.name
+		names[name] = relation.table.Name
 	}
 	return propertyresolver.Resolve(parts, names)
 }

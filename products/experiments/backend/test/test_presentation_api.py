@@ -16,6 +16,14 @@ from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import (
+    ExperimentApiMetric,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+)
+
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
@@ -3313,8 +3321,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        # +1 query for survey internal flag IDs lookup
-        with self.assertNumQueries(22):
+        # +1 query for survey internal flag IDs lookup, +1 for the project's replay gates
+        with self.assertNumQueries(23):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -5933,6 +5941,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # Default behavior: existing groups preserved, no catch-all prepended
         self.assertEqual(flag_filters["groups"], original_groups)
+
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment_id), activity="variant_shipped"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+        shipped_change = next(c for c in activity_log.detail["changes"] if c["field"] == "shipped_variant")
+        self.assertEqual(shipped_change["after"], "test")
 
     def test_ship_variant_endpoint_release_to_everyone_prepends_catch_all(self):
         data = self._create_running_experiment(name="Ship Everyone", flag_key="ship-everyone-flag")
@@ -8972,6 +8987,44 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
             f"ExperimentApiExposureCriteria omits exposure_criteria fields the runtime honors: {dropped}. "
             "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
             "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
+        )
+
+
+class TestExperimentApiMetricParity(unittest.TestCase):
+    """A field missing from the slim API metric schema is stripped by the generated write clients."""
+
+    INTENTIONALLY_OMITTED = {
+        # Server-computed or internal.
+        "fingerprint",
+        "response",
+        "version",
+        # Shared-metric linkage, set through the shared metric endpoints.
+        "isSharedMetric",
+        "sharedMetricId",
+        # Breakdowns are not exposed on the write schema yet.
+        "breakdownFilter",
+        "breakdownAttributionType",
+        "breakdownAttributionValue",
+    }
+
+    def test_api_schema_exposes_every_runtime_field(self) -> None:
+        runtime_fields: set[str] = set()
+        for metric_model in (
+            ExperimentMeanMetric,
+            ExperimentFunnelMetric,
+            ExperimentRatioMetric,
+            ExperimentRetentionMetric,
+        ):
+            runtime_fields |= set(metric_model.model_fields)
+
+        api_fields = set(ExperimentApiMetric.model_fields)
+        dropped = runtime_fields - api_fields - self.INTENTIONALLY_OMITTED
+        self.assertFalse(
+            dropped,
+            f"ExperimentApiMetric omits metric fields the runtime honors: {dropped}. "
+            "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
+            "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema, or "
+            "add them to INTENTIONALLY_OMITTED with a reason.",
         )
 
 

@@ -1,6 +1,6 @@
 // The legend for pull request timeline tracks, grouped by who can move a pull request out of each state.
 
-import { SEGMENT_KIND_STYLES, SEGMENT_LEGEND_GROUPS, segmentBackground } from '../lib/pullRequestDayView'
+import { SEGMENT_KIND_STYLES, SEGMENT_LEGEND_GROUPS, segmentBackground } from '../lib/pullRequestTimeline'
 
 export function PullRequestTimelineLegend(): JSX.Element {
     return (

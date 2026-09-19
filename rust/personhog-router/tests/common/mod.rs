@@ -2,12 +2,13 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dashmap::DashMap;
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
+use personhog_common::grpc::NOT_APPLIED_HEADER;
 use personhog_proto::personhog::identity::v1 as identity;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::{
     PersonHogIdentity, PersonHogIdentityServer,
@@ -33,6 +34,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
@@ -78,6 +80,8 @@ pub struct TestReplicaService {
     pub upsert_inserted_count: i64,
     pub groups: Vec<Group>,
     pub group_type_mappings: Vec<GroupTypeMapping>,
+    pub sheds_remaining: Arc<AtomicUsize>,
+    pub calls: Arc<AtomicUsize>,
 }
 
 impl TestReplicaService {
@@ -90,7 +94,14 @@ impl TestReplicaService {
             upsert_inserted_count: 0,
             groups: vec![],
             group_type_mappings: vec![],
+            sheds_remaining: Arc::new(AtomicUsize::new(0)),
+            calls: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    pub fn sheds(mut self, n: usize) -> Self {
+        self.sheds_remaining = Arc::new(AtomicUsize::new(n));
+        self
     }
 
     pub fn with_person(person: Person) -> Self {
@@ -140,6 +151,18 @@ impl PersonHogReplica for TestReplicaService {
         &self,
         _request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self
+            .sheds_remaining
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            let mut status = Status::unavailable("Server at capacity");
+            status
+                .metadata_mut()
+                .insert(NOT_APPLIED_HEADER, "load_shed".parse().unwrap());
+            return Err(status);
+        }
         Ok(Response::new(GetPersonResponse {
             person: self.person.clone(),
         }))
@@ -207,6 +230,7 @@ impl PersonHogReplica for TestReplicaService {
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
         Ok(Response::new(GetDistinctIdsForPersonResponse {
             distinct_ids: vec![],
+            next_cursor_id: None,
         }))
     }
 
@@ -452,6 +476,13 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
             deleted_count: 0,
         }))
+    }
+
+    async fn delete_tombstoned_persons(
+        &self,
+        _request: Request<DeleteTombstonedPersonsRequest>,
+    ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
+        Ok(Response::new(DeleteTombstonedPersonsResponse::default()))
     }
 
     async fn split_person(

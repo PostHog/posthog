@@ -6,6 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import { describeOAuthError, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
@@ -301,6 +302,23 @@ describe('oauthAuthorizeLogic', () => {
     })
 
     // Opaque client-owned params must reach the API byte-for-byte, whatever they look like.
+    it.each([
+        { name: 'the server sets no flag', flag: undefined, expected: false },
+        { name: 'the server sets the flag to false', flag: false, expected: false },
+        { name: 'the server sets the flag to true', flag: true, expected: true },
+    ])('reports access controls as $expected when $name', ({ flag, expected }) => {
+        const original = window.POSTHOG_APP_CONTEXT
+        window.POSTHOG_APP_CONTEXT = { ...original, oauth_consent_access_controls_apply: flag } as AppContext
+        try {
+            logic.unmount()
+            logic = oauthAuthorizeLogic()
+            logic.mount()
+            expect(logic.values.accessControlsApply).toBe(expected)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = original
+        }
+    })
+
     describe('OAuth parameter passthrough', () => {
         const JSON_STATE = '{"flow_id":"5a8f3d48-c841-4375-b06d-5c828c86282d","provider":"posthog"}'
 

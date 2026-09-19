@@ -44,7 +44,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
@@ -1345,6 +1345,17 @@ class ExperimentService:
         if only_count_matured_users is None:
             only_count_matured_users = team_config.default_only_count_matured_users
 
+        # A duplicate or a copy keeps the source's value, including "none", so it stays like its source.
+        if (
+            creation_mode == "new"
+            and running_time_calculation.get("minimum_detectable_effect") is None
+            and team_config.default_minimum_detectable_effect is not None
+        ):
+            running_time_calculation = {
+                **running_time_calculation,
+                "minimum_detectable_effect": team_config.default_minimum_detectable_effect,
+            }
+
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
         if metrics is not None:
             for metric in metrics:
@@ -2389,6 +2400,9 @@ class ExperimentService:
                 # matches and no change request is raised. We therefore don't special-case ApprovalRequired
                 # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
                 # cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # Mark the write as freeze-driven so the flag's log entry does not read as
+                # a manual targeting edit.
+                locked_flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=True)
                 update_flag(
                     locked_flag,
                     {"filters": new_filters},
@@ -2667,6 +2681,7 @@ class ExperimentService:
         flag = experiment.feature_flag
         new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
 
+        flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
@@ -3072,6 +3087,16 @@ class ExperimentService:
 
         return experiment
 
+    @staticmethod
+    def _exposure_freeze_trigger(experiment: Experiment, *, frozen: bool) -> Trigger:
+        """Trigger for a freeze-driven flag rewrite. job_type stays in sync with the
+        describer in frontend/src/scenes/feature-flags/activityDescriptions.tsx."""
+        return Trigger(
+            job_type="experiment_exposure_frozen" if frozen else "experiment_exposure_unfrozen",
+            job_id=str(experiment.pk),
+            payload={"experiment_id": experiment.pk},
+        )
+
     def _clear_frozen_exposure(self, experiment: Experiment, *, request: Any | None) -> None:
         """Strip the exposure-freeze narrowing (if any) off the experiment's flag and drop the
         snapshot cohorts.
@@ -3094,6 +3119,8 @@ class ExperimentService:
         if stripped_filters == (flag.filters or {}):
             return
 
+        # The reset strips the freeze narrowing, so tag the write like an unfreeze.
+        flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         if request is not None:
             update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:
@@ -3203,6 +3230,22 @@ class ExperimentService:
             experiment.conclusion_comment = conclusion_comment
             shipped_fields.append("conclusion_comment")
         self._bump_version_and_save(experiment, update_fields=shipped_fields)
+
+        # The flag rewrite logs under the FeatureFlag scope and the experiment save logs only
+        # end_date/conclusion, so without this entry the History tab never names the shipped variant.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="variant_shipped",
+            detail=Detail(
+                name=experiment.name,
+                changes=[Change(type="Experiment", action="created", field="shipped_variant", after=variant_key)],
+            ),
+        )
 
         self._report_experiment_variant_shipped(
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request

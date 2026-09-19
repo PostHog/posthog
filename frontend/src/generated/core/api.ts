@@ -73,6 +73,7 @@ import type {
     PatchedUserApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
+    ProjectApi,
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
@@ -80,6 +81,7 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    ToolbarEntitlementsApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -955,6 +957,24 @@ export const organizationsProjectsAddProductIntentPartialUpdate = async (
             body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
+}
+
+export const getOrganizationsProjectsCancelDeletionCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/cancel-deletion/`
+}
+
+/**
+ * Cancel a scheduled project deletion and restore access to the project.
+ */
+export const organizationsProjectsCancelDeletionCreate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectApi> => {
+    return apiMutator<ProjectApi>(getOrganizationsProjectsCancelDeletionCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getOrganizationsProjectsChangeOrganizationCreateUrl = (organizationId: string, id: number) => {
@@ -2516,6 +2536,17 @@ export const revokeLeakedKeyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(leakedKeyReportApi),
+    })
+}
+
+export const getUserToolbarEntitlementsRetrieveUrl = () => {
+    return `/api/user/toolbar_entitlements/`
+}
+
+export const userToolbarEntitlementsRetrieve = async (options?: RequestInit): Promise<ToolbarEntitlementsApi> => {
+    return apiMutator<ToolbarEntitlementsApi>(getUserToolbarEntitlementsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
     })
 }
 

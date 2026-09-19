@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
-import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
+import { nodeEndpointUrl } from 'products/data_modeling/frontend/endpointModelName'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 
 export function NodeDetailActions({
@@ -24,7 +24,7 @@ export function NodeDetailActions({
     return (
         <>
             {node.type === 'endpoint' ? (
-                <LemonButton type="secondary" size="small" to={endpointModelUrl(node.name)}>
+                <LemonButton type="secondary" size="small" to={nodeEndpointUrl(node)}>
                     Open endpoint
                 </LemonButton>
             ) : (
