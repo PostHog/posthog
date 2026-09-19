@@ -2,16 +2,27 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    Link,
+} from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
+import { getGrantedScopes } from 'lib/integrations/IntegrationScopesWarning'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { isSlackMemberTarget, slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { IntegrationType } from '~/types'
+import { IntegrationType, SlackIntegrationScope } from '~/types'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
@@ -155,6 +166,38 @@ function readSlackTarget(
     }
 }
 
+/**
+ * A workspace connected before PostHog requested `users:read`, or one that records no scopes at
+ * all, cannot resolve anyone's account, so the save that asks Slack for it fails. Saying so here,
+ * with the reconnect, is what the failed save could not do: the API answers it as a validation
+ * error on a setting the user already turned on, so the only recovery left was to guess that Slack
+ * had to be reconnected.
+ */
+function DirectMessageUnavailable({ integration }: { integration: IntegrationType }): JSX.Element {
+    const reconnectRestrictionReason = useIntegrationManagementRestriction()
+    return (
+        <LemonBanner
+            type="warning"
+            action={
+                reconnectRestrictionReason
+                    ? undefined
+                    : {
+                          children: 'Reconnect Slack',
+                          disableClientSideRouting: true,
+                          to: api.integrations.authorizeUrl({
+                              kind: integration.kind,
+                              next: window.location.pathname,
+                          }),
+                      }
+            }
+        >
+            PostHog cannot look up members in this Slack workspace without the users:read permission, so it cannot find
+            your account. Reconnect Slack to grant it, or post to a channel instead.
+            {reconnectRestrictionReason ? ' Ask a project admin to reconnect it.' : ''}
+        </LemonBanner>
+    )
+}
+
 function DirectMessageTarget({
     recipient,
     saving,
@@ -223,6 +266,12 @@ function PerUserNotificationCard({ integrations }: { integrations: IntegrationTy
     )
     const minPriority = autonomyConfig?.slack_notification_min_priority ?? null
 
+    // Resolving a direct message costs a `users.info` call, so a workspace that never granted the
+    // scope for it can only fail the save. Decide that here instead of sending a save Slack refuses.
+    // An install that records no scopes at all counts as missing it: assuming the scope is what
+    // produced the error nothing in the app could clear.
+    const canDirectMessage = !!integration && getGrantedScopes(integration).includes(SlackIntegrationScope.USERS_READ)
+
     // The toggle is view state only: switching it must never write, or an exploratory click would
     // clear a saved target. A direct message is the default because it needs no channel set up.
     const [pendingMode, setPendingMode] = useState<SlackTargetMode | null>(null)
@@ -232,7 +281,7 @@ function PerUserNotificationCard({ integrations }: { integrations: IntegrationTy
         if (enabled) {
             // With one workspace there is nothing to pick, so this also sets the direct message up.
             setSlackPickersExpanded(true)
-            if (integration && selectedIntegrationId === null) {
+            if (integration && selectedIntegrationId === null && canDirectMessage) {
                 setPendingMode('dm')
                 updateSlackNotifications({ integrationId: integration.id, directMessage: true })
             }
@@ -250,7 +299,7 @@ function PerUserNotificationCard({ integrations }: { integrations: IntegrationTy
     }
 
     const onSendDirectMessages = (): void => {
-        if (!integration) {
+        if (!integration || !canDirectMessage) {
             return
         }
         setPendingMode('dm')
@@ -327,11 +376,15 @@ function PerUserNotificationCard({ integrations }: { integrations: IntegrationTy
                                 ]}
                             />
                             {mode === 'dm' ? (
-                                <DirectMessageTarget
-                                    recipient={recipient}
-                                    saving={slackNotificationsSaving}
-                                    onEnable={onSendDirectMessages}
-                                />
+                                canDirectMessage ? (
+                                    <DirectMessageTarget
+                                        recipient={recipient}
+                                        saving={slackNotificationsSaving}
+                                        onEnable={onSendDirectMessages}
+                                    />
+                                ) : (
+                                    <DirectMessageUnavailable integration={integration} />
+                                )
                             ) : (
                                 <ChannelTarget
                                     integration={integration}
