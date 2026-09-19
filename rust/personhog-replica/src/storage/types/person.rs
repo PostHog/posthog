@@ -16,11 +16,10 @@ pub struct DistinctIdWithVersion {
     pub id: i64,
 }
 
-/// How DeletePersons removes rows. `Default` follows the replica's
-/// PERSON_DELETE_TOMBSTONE setting.
+/// How DeletePersons removes rows. A caller that publishes ClickHouse tombstones
+/// asks for `Tombstone` and reads the versions back; everything else hard-deletes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeletePersonsMode {
-    Default,
     Hard,
     Tombstone,
 }

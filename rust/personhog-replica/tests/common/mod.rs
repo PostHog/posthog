@@ -21,11 +21,6 @@ pub struct TestContext {
 
 impl TestContext {
     pub async fn new() -> Self {
-        Self::new_with_tombstone_deletes(false).await
-    }
-
-    /// A context whose storage tombstones person deletes when `tombstone` is true.
-    pub async fn new_with_tombstone_deletes(tombstone: bool) -> Self {
         let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
             "postgres://posthog:posthog@localhost:5432/posthog_persons".to_string()
         });
@@ -42,7 +37,6 @@ impl TestContext {
             50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
             5,  // bulk_max_concurrent_chunks
             12, // tombstoned_delete_max_rows, small enough that the clamp is observable
-            tombstone,
         ));
         let team_id = random_team_id();
 

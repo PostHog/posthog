@@ -1684,7 +1684,7 @@ export const FoldPersonDocumentResponseSchema: GenMessage<FoldPersonDocumentResp
  */
 export enum DeletePersonsMode {
     /**
-     * Follow the replica's PERSON_DELETE_TOMBSTONE setting.
+     * Same as HARD.
      *
      * @generated from enum value: DELETE_PERSONS_MODE_UNSPECIFIED = 0;
      */
@@ -1699,8 +1699,8 @@ export enum DeletePersonsMode {
     HARD = 1,
 
     /**
-     * Tombstone the rows whatever the setting says. The caller owns the
-     * prerequisite: ingestion must revive tombstones for the team.
+     * Keep the rows as tombstones and report the versions written. The caller
+     * owns the prerequisite: ingestion must revive tombstones for the team.
      *
      * @generated from enum value: DELETE_PERSONS_MODE_TOMBSTONE = 2;
      */

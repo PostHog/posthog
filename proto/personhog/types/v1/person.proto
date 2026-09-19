@@ -188,13 +188,13 @@ message UpdatePersonPropertiesResponse {
 
 // How DeletePersons removes the rows.
 enum DeletePersonsMode {
-  // Follow the replica's PERSON_DELETE_TOMBSTONE setting.
+  // Same as HARD.
   DELETE_PERSONS_MODE_UNSPECIFIED = 0;
   // Remove the rows, tombstoned ones included. For callers that publish no
   // ClickHouse tombstones and want nothing left behind, such as a purge.
   DELETE_PERSONS_MODE_HARD = 1;
-  // Tombstone the rows whatever the setting says. The caller owns the
-  // prerequisite: ingestion must revive tombstones for the team.
+  // Keep the rows as tombstones and report the versions written. The caller
+  // owns the prerequisite: ingestion must revive tombstones for the team.
   DELETE_PERSONS_MODE_TOMBSTONE = 2;
 }
 

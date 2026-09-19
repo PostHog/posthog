@@ -60,9 +60,9 @@ pub trait PersonLookup: Send + Sync {
     /// deleting already-removed UUIDs is a no-op.
     async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64>;
 
-    /// `delete_persons` with the mode chosen by the caller. A tombstone
-    /// reports the versions it wrote so the caller can publish matching
-    /// ClickHouse tombstones.
+    /// `delete_persons` with the mode chosen by the caller; `delete_persons`
+    /// itself hard-deletes. A tombstone reports the versions it wrote so the
+    /// caller can publish matching ClickHouse tombstones.
     async fn delete_persons_with_mode(
         &self,
         team_id: i64,
