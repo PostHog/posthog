@@ -329,31 +329,47 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "template-hidden" in [template["id"] for template in response.json()["results"]]
 
-    @parameterized.expand([("flag_on", True), ("flag_off", False)])
-    def test_flag_gated_template_visibility_follows_the_flag(self, _name, flag_enabled):
+    @parameterized.expand(
+        [
+            ("task_on", "template-posthog-create-task", "destination", "hidden", True),
+            ("task_off", "template-posthog-create-task", "destination", "hidden", False),
+            ("typesafe_on", "native-typesafe", "transformation", "alpha", True),
+            ("typesafe_off", "native-typesafe", "transformation", "alpha", False),
+        ]
+    )
+    def test_flag_gated_template_visibility_follows_the_flag(
+        self, _name: str, template_id: str, template_type: str, template_status: str, flag_enabled: bool
+    ) -> None:
         # A flag-gated pre-release template must stay undiscoverable for teams without the flag:
         # an agent that can list it would try to use it and loop on "Template not found". Ordinary
         # hidden templates keep being listed (the workflow editor depends on that, see above).
         HogFunctionTemplate.objects.create(
-            template_id="template-posthog-create-task",
+            template_id=template_id,
             sha="1.0.0",
             name="Create AI task",
             description="A flag-gated template",
             code="return event",
             code_language="hog",
             inputs_schema={},
-            type="destination",
-            status="hidden",
+            type=template_type,
+            status=template_status,
             category=["Other"],
             free=True,
         )
 
-        with patch("posthog.cdp.flag_gated_templates.gated_template_enabled", return_value=flag_enabled):
-            response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
+        with patch("posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled", return_value=flag_enabled):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/?type={template_type}")
+            detail = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/{template_id}")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         listed_ids = [template["id"] for template in response.json()["results"]]
-        assert ("template-posthog-create-task" in listed_ids) is flag_enabled
+        assert (template_id in listed_ids) is flag_enabled
+        assert detail.status_code == (status.HTTP_200_OK if flag_enabled else status.HTTP_404_NOT_FOUND)
+
+        public_list = self.client.get(f"/api/public_hog_function_templates/?type={template_type}")
+        public_detail = self.client.get(f"/api/public_hog_function_templates/{template_id}")
+        assert template_id not in [template["id"] for template in public_list.json()["results"]]
+        assert public_detail.status_code == status.HTTP_404_NOT_FOUND
 
     def test_hidden_templates_excluded_from_public_catalog(self):
         HogFunctionTemplate.objects.create(

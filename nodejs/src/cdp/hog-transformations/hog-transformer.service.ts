@@ -18,11 +18,13 @@ import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
 import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
+import { template as typesafeTemplate } from '../templates/_transformations/typesafe/typesafe.template'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation } from '../utils/invocation-utils'
 import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
+import { executeTypesafeTransformation } from './typesafe'
 
 export interface HogTransformerConfig {
     siteUrl: string
@@ -112,7 +114,7 @@ export class HogTransformerService implements HogTransformer {
         await this.hogFunctionManager.getHogFunctions(Object.values(idsByTeam).flat(), { flush: true })
     }
 
-    private async getTransformationFunctions() {
+    private async getTransformationFunctions(): Promise<ReturnType<typeof getTransformationFunctions>> {
         if (!this.cachedTransformationFunctions) {
             this.cachedGeoIp = await this.geoipService.get()
             this.cachedTransformationFunctions = getTransformationFunctions(this.cachedGeoIp)
@@ -322,10 +324,13 @@ export class HogTransformerService implements HogTransformer {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationResult> {
-        const transformationFunctions = await this.getTransformationFunctions()
         const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
+
+        if (hogFunction.template_id === typesafeTemplate.id) {
+            return await executeTypesafeTransformation(invocation)
+        }
 
         if (isLegacyPluginHogFunction(hogFunction)) {
             return await this.pluginExecutor.execute(invocation)
@@ -343,7 +348,7 @@ export class HogTransformerService implements HogTransformer {
             }
         }
 
-        return await this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+        return await this.hogExecutor.execute(invocation, { functions: await this.getTransformationFunctions() })
     }
 }
 

@@ -27,6 +27,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
+from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
@@ -455,6 +456,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         }
 
     def _validate_template_is_creatable(self, template: HogFunctionTemplate) -> None:
+        flag_key = FLAG_GATED_TEMPLATE_IDS.get(template.template_id)
+        if flag_key and not gated_template_enabled(flag_key, self.context["get_team"]()):
+            raise serializers.ValidationError({"template_id": "This template is not available for this project."})
+
         # Hidden templates are internal building blocks (e.g. the native email destination) that the
         # workflow editor renders but that are never offered as standalone destinations. Block creating a
         # function from one via this API/MCP entirely — they are not a supported destination type.

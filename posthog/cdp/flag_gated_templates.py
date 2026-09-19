@@ -13,6 +13,7 @@ logger = structlog.get_logger(__name__)
 # "Template not found". The flag key is shared with FEATURE_FLAGS in
 # frontend/src/lib/constants.tsx. Remove an entry when its feature goes GA.
 FLAG_GATED_TEMPLATE_IDS = {
+    "native-typesafe": "typesafe-transformation",
     "template-posthog-create-task": "workflow-ai-task-action",
     "template-posthog-run-scout": "workflow-run-scout-action",
 }

@@ -64,6 +64,7 @@ import { template as removeNullPropertiesTemplate } from './_transformations/rem
 import { template as semverFlattenerTemplate } from './_transformations/semver-flattener/semver-flattener.template'
 import { template as taxonomyTemplate } from './_transformations/taxonomy/taxonomy.template'
 import { template as timestampParserTemplate } from './_transformations/timestamp-parser/timestamp-parser.template'
+import { template as typesafeTemplate } from './_transformations/typesafe/typesafe.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
 import { template as urlParametersToPropertiesTemplate } from './_transformations/url-parameters-to-properties/url-parameters-to-properties.template'
@@ -123,6 +124,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     defaultTransformationTemplate,
+    typesafeTemplate,
     geoipTemplate,
     ipAnonymizationTemplate,
     removeNullPropertiesTemplate,

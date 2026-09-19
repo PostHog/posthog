@@ -365,6 +365,31 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "template_id"
         assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
 
+    @parameterized.expand([("enabled", True), ("disabled", False), ("missing", None)])
+    def test_create_from_flag_gated_template(self, _name: str, flag_enabled: bool | None) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="native-typesafe",
+            sha="1.0.0",
+            name="TypeSafe",
+            description="Classify events",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="transformation",
+            status="alpha",
+            category=["Custom"],
+            free=True,
+        )
+        with patch("posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled", return_value=flag_enabled):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={"type": "transformation", "template_id": "native-typesafe", "inputs": {}},
+            )
+        assert response.status_code == (status.HTTP_201_CREATED if flag_enabled else status.HTTP_400_BAD_REQUEST), (
+            response.json()
+        )
+        assert HogFunction.objects.filter(team=self.team, template_id="native-typesafe").exists() is bool(flag_enabled)
+
     def test_create_from_deprecated_template_is_allowed(self):
         # Deprecated templates are hidden from the listing but stay resolvable by id, so the API must
         # keep creating from them - integrations reference legacy plugin template ids directly.

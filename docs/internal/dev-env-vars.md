@@ -46,3 +46,58 @@ Code that branches on the literal region (`get_instance_region()`, `region == "U
 `COMPACT_IN_REGION` controls which Cloud region registers the daily AI checkpoint compaction schedule. It defaults to `US`; set it explicitly only when moving the rollout to another region.
 
 See also [sandboxes-setup-guide.md](sandboxes-setup-guide.md) for the PostHog Desktop sandbox providers.
+
+## Local TypeSafe transformation demo
+
+This prototype adds a TypeSafe template to Transformations.
+It uses Jev to classify an event and saves the category in an event property.
+Use it locally with invented events.
+The experimental banner includes a link to contact support if you find an issue.
+The `typesafe-transformation` feature flag controls template access and creation for each project.
+It defaults to off when the flag is missing or cannot be evaluated.
+Enable it only for test projects before release.
+Turning the flag off hides the template and blocks new transforms, but existing transforms keep running.
+Use the transformation's enable switch to stop it.
+
+Start the local stack, then sync the templates so the new template appears in the editor:
+
+```bash
+flox activate -- bash -c 'python manage.py sync_hog_function_templates'
+```
+
+Drive the demo through the local PostHog UI with Playwright MCP and a signed-in browser session.
+No PostHog personal API key is required.
+
+1. Open Data pipelines, then Transformations, and create a TypeSafe transformation.
+2. Enter your own TypeSafe API key in the secret **TypeSafe API key** field.
+   PostHog stores it with the transformation's encrypted inputs.
+   The transform uses this key for each request. It has no shared API key or environment variable fallback.
+3. Set the event filters, output property, instructions, categories, and excluded properties.
+   The defaults provide an article classification example with `content_category` as the output property.
+   Save and enable the transformation.
+4. Send invented article events from the browser to the local capture endpoint using the local project's token.
+   Include an event outside the filters and an event with a large `debug_blob`.
+5. Open the event definitions and set `content_category` as the primary property where no primary property exists.
+   This remains a browser setup step for the prototype.
+6. Open Activity and filter on `content_category`, then use it as a Trends breakdown.
+   Confirm that `debug_blob` remains on the stored event and the event outside the filters has no category.
+
+Exclusions remove matching keys at any depth, or an exact dotted path, from the model input only.
+The original event retains those properties.
+The request includes the event name and the remaining event properties.
+The denylist is not a complete sensitive-data filter.
+
+The native transform waits for the real TypeSafe API with `jev-1.13.0`.
+Requests time out after three seconds.
+Uncertain answers, invalid answers, provider failures, and inputs above 16 KB leave the event unchanged.
+An existing output property is never overwritten.
+Transformation monitoring records request failures without the API key or provider response body.
+The PostHog Metrics exporter records each attempted API call in `cdp.typesafe.calls`, with `outcome` set to `success` or `failure`.
+It records the call duration, including response parsing, in the `cdp.typesafe.call.duration` histogram in milliseconds.
+Skipped calls do not contribute to either metric.
+A valid low-confidence answer counts as a successful API call, even when it leaves the event unchanged.
+HTTP errors, connection failures, and invalid responses count as failures and go to PostHog Error Tracking.
+Error reports contain a fixed message, failure type, and HTTP status when available. They exclude the API key, event properties, provider response body, and original exception.
+Metrics use the existing `OTEL_METRICS_EXPORT_URL` and `OTEL_METRICS_EXPORT_TOKEN` settings. Error Tracking uses the existing `POSTHOG_API_KEY` and `POSTHOG_HOST_URL` settings.
+The corresponding exporter or client must be configured for records to reach PostHog.
+Disable the transformation in the UI to stop classification.
