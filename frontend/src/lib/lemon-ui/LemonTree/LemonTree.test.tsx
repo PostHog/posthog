@@ -82,6 +82,20 @@ describe('LemonTree', () => {
         expect(screen.getByText('Filter properties')).toBeInTheDocument()
     })
 
+    it('renders a row with a destination as a link and a row without one as a button', () => {
+        render(
+            <LemonTree
+                data={[
+                    { id: 'view', name: 'a view' },
+                    { id: 'saved', name: 'a saved insight', record: { href: '/insights/abc' } },
+                ]}
+            />
+        )
+
+        expect(screen.getByLabelText('tree item: a view').tagName).toBe('BUTTON')
+        expect(screen.getByLabelText('tree item: a saved insight')).toHaveAttribute('href', '/insights/abc')
+    })
+
     it('renders only the visible window while scrolling', async () => {
         const data: TreeDataItem[] = [
             {
