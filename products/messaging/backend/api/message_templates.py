@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.cdp.validation import build_html_wrap_design
+from posthog.event_usage import report_user_action
 
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
@@ -304,6 +305,28 @@ class MessageTemplatesViewSet(
             .select_related("created_by")
             .order_by("-created_at")
         )
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        instance: MessageTemplate = serializer.save()
+        # report_user_action injects source and MCP-client properties from the request, so a create from the
+        # visual editor and one from the agent count in the same metric. Capture must never break the request.
+        try:
+            report_user_action(
+                self.request.user,
+                "message_template_created",
+                {
+                    "template_id": str(instance.id),
+                    "team_id": str(self.team_id),
+                    "organization_id": str(self.organization_id),
+                },
+                team=self.team,
+                # Without this the event groups by the person's current organization, which can differ
+                # from the route's when they belong to more than one.
+                organization=self.organization,
+                request=self.request,
+            )
+        except Exception as e:
+            logger.warning("Failed to capture message template usage event", error=str(e))
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         instance: MessageTemplate = serializer.save()
