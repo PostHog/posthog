@@ -304,8 +304,43 @@ describe("model classification", () => {
     expect(deepseek?.contextWindow).toBe(1_048_000);
   });
 
-  it("keeps DeepSeek out of the offline fallback list", () => {
-    expect(byId("us").has("deepseek-ai/deepseek-v4-flash-0731")).toBe(false);
+  it.each([
+    "deepseek-ai/deepseek-v4-flash-0731",
+    "zai-org/glm-5.3",
+    "zai-org/glm-5.3-flash",
+  ])("offers %s from the offline fallback list", (id) => {
+    const model = byId("us").get(id);
+    expect(model).toBeDefined();
+    expect(model?.api).toBe("openai-completions");
+  });
+
+  it.each(["claude-fable-5", "claude-fable-5-1"])(
+    "offers %s from the offline fallback list",
+    (id) => {
+      const model = byId("us").get(id);
+      expect(model).toBeDefined();
+      expect(model?.api).toBe("anthropic-messages");
+      expect(model?.contextWindow).toBe(1_000_000);
+    },
+  );
+
+  // No picker offers these ids, so the fallback entry exists only so a session
+  // pinned to one still restores when the listing cannot be read.
+  it.each([
+    "claude-opus-4-5",
+    "claude-opus-4-6",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-6",
+    "gpt-5.2",
+    "gpt-5.3-codex",
+    "gpt-5.4",
+    "gpt-5.5",
+    "gpt-5-mini",
+    "@cf/zai-org/glm-5.2",
+  ])("keeps retired %s runnable from the offline fallback list", (id) => {
+    expect(byId("us").get(id)).toBeDefined();
   });
 
   it("points OpenAI models at the region-specific gateway", () => {
