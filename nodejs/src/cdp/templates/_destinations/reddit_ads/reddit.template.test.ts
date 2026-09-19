@@ -1,9 +1,13 @@
+import { createHash } from 'crypto'
 import { DateTime } from 'luxon'
 
+import { parseJSON } from '../../../../common/utils/json-parse'
 import { TemplateTester, createAdDestinationPayload } from '../../test/test-helpers'
 import { template } from './reddit.template'
 
 jest.setTimeout(2 * 60 * 1000)
+
+const sha256Hex = (value: string): string => createHash('sha256').update(value).digest('hex')
 
 describe('reddit template', () => {
     const tester = new TemplateTester(template)
@@ -51,7 +55,7 @@ describe('reddit template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"ViewContent"},"user":{"email":"example@posthog.com","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id","products":[{"id":"1bdfef47c9724b58b6831933","category":"merch","name":"Tactical black t-shirt"}],"value":30,"currency":"usd"},"click_id":"reddit-id"}]}",
+              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"ViewContent"},"user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id","products":[{"id":"1bdfef47c9724b58b6831933","category":"merch","name":"Tactical black t-shirt"}],"value":30,"currency":"usd"},"click_id":"reddit-id"}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -72,6 +76,55 @@ describe('reddit template', () => {
         expect(fetchResponse.error).toBeUndefined()
     })
 
+    it('hashes email and sends the IP under ip_address', async () => {
+        const response = await tester.invokeMapping(
+            'Order Completed',
+            {
+                accountId: 'pixel-id',
+                conversionsAccessToken: 'access-token',
+            },
+            createAdDestinationPayload({
+                event: {
+                    properties: {
+                        $ip: '203.0.113.4',
+                    },
+                },
+            })
+        )
+
+        expect(response.error).toBeUndefined()
+        const body = parseJSON((response.invocation.queueParameters as any).body)
+        expect(body.events[0].user).toMatchObject({
+            email: sha256Hex('example@posthog.com'),
+            ip_address: sha256Hex('203.0.113.4'),
+        })
+    })
+
+    it.each<[string, unknown]>([
+        ['is empty', ''],
+        ['is a number', 1234567890],
+        ['is a list', ['someone@example.com']],
+    ])('omits an email that %s, and still sends the conversion', async (_, email) => {
+        const response = await tester.invokeMapping(
+            'Order Completed',
+            {
+                accountId: 'pixel-id',
+                conversionsAccessToken: 'access-token',
+            },
+            createAdDestinationPayload({
+                person: {
+                    properties: {
+                        email,
+                    },
+                },
+            })
+        )
+
+        expect(response.error).toBeUndefined()
+        const body = parseJSON((response.invocation.queueParameters as any).body)
+        expect(body.events[0].user).not.toHaveProperty('email')
+    })
+
     it('works with empty product properties', async () => {
         const response = await tester.invokeMapping(
             'Order Completed',
@@ -86,7 +139,7 @@ describe('reddit template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"Purchase"},"user":{"email":"example@posthog.com","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id"},"click_id":"reddit-id"}]}",
+              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"Purchase"},"user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id"},"click_id":"reddit-id"}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -121,7 +174,7 @@ describe('reddit template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"Purchase"},"user":{"email":"example@posthog.com","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id"},"click_id":"reddit-id"}]}",
+              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"Purchase"},"user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id"},"click_id":"reddit-id"}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
