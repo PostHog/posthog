@@ -212,6 +212,12 @@ interface TaskInputProps {
    * picker can hold shut mid-submit, like every other chip in the row.
    */
   spaceSelector?: (props: { disabled: boolean }) => ReactNode;
+  /**
+   * A headline above the composer. With one, the selector row stops hanging
+   * above the box and flows between the headline and the box instead, so the
+   * three read top to bottom.
+   */
+  heading?: ReactNode;
 }
 
 export function TaskInput({
@@ -243,6 +249,7 @@ export function TaskInput({
   onSuggestionSelect,
   onContextChipClick,
   spaceSelector,
+  heading,
 }: TaskInputProps = {}) {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const trpc = useHostTRPC();
@@ -1433,10 +1440,15 @@ export function TaskInput({
               }}
               className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
+              {heading}
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-2 min-w-0 gap-1"
+                className={
+                  heading
+                    ? "min-w-0 gap-1"
+                    : "absolute bottom-full left-0 mb-2 min-w-0 gap-1"
+                }
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
                 {/* One group, so changing the location does not unmount the

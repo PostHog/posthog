@@ -13,6 +13,7 @@
   "CONTEXT_LAYER_FLAG": "context-layer",
   "CUSTOM_IMAGES_FEATURE_FLAG": "tasks-modal-vm-sandbox",
   "DESKTOP_HOME_FLAG": "desktop-home-flag",
+  "DESKTOP_WORK_LAYOUT_FLAG": "desktop-work-layout",
   "DISCOVERY_RUN_FLAG": "posthog-code-discovery-run",
   "EXPERIMENT_SUGGESTIONS_FLAG": "posthog-code-experiment-suggestions",
   "FAST_MODE_FLAG": "posthog-desktop-fast-mode",

@@ -1,6 +1,7 @@
 import {
   BellIcon,
   BookOpenTextIcon,
+  BriefcaseIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
@@ -259,4 +260,35 @@ export function visibleRailDestinations(
   flags: RailFlags,
 ): readonly RailDestination[] {
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
+}
+
+/** Show the Work column. Never navigates: the column is where you already are. */
+function showWorkColumn(): void {
+  useSidebarStore.getState().setOpen(true);
+}
+
+/**
+ * Work replaces Home, Spaces, Canvases and Loops. It keeps the Spaces pane so
+ * every route those destinations owned still lights it.
+ */
+const WORK_DESTINATION: RailDestination = {
+  pane: "spaces",
+  label: "Work",
+  analyticsId: "spaces",
+  Icon: BriefcaseIcon,
+  href: "/spaces",
+  onPick: showWorkColumn,
+  onReclick: showWorkColumn,
+};
+
+const WORK_FOLDED_LABELS = new Set(["Home", "Spaces", "Canvases", "Loops"]);
+
+export function visibleWorkRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
+  const rest = RAIL_DESTINATIONS.filter(
+    ({ enabled, label }) =>
+      !WORK_FOLDED_LABELS.has(label) && (enabled?.(flags) ?? true),
+  );
+  return [WORK_DESTINATION, ...rest];
 }

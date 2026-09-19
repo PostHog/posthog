@@ -25,12 +25,16 @@ import {
   type RailCounts,
   type RailDestination,
   visibleRailDestinations,
+  visibleWorkRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
+import { railPaneFoldsIntoWork } from "@posthog/ui/features/canvas/railPane";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useWorkActivityStore } from "@posthog/ui/features/canvas/stores/workActivityStore";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -199,13 +203,19 @@ function NavRailImpl() {
 
   const savedSearchesRailEnabled = useFeatureFlag(SAVED_SEARCHES_RAIL_FLAG);
   const hasSavedSearches = useProjectTaskFeeds().length > 0;
-  const destinations = visibleRailDestinations({
+  const workLayout = useWorkLayout();
+  const workActivityOpen = useWorkActivityStore((state) => state.open);
+  const toggleWorkActivity = useWorkActivityStore((state) => state.toggle);
+  const railFlags = {
     home: homeEnabled,
     inbox: inboxAvailable,
     loops: loopsEnabled,
     context: contextEnabled,
     savedSearches: savedSearchesRailEnabled && hasSavedSearches,
-  });
+  };
+  const destinations = workLayout
+    ? visibleWorkRailDestinations(railFlags)
+    : visibleRailDestinations(railFlags);
   const topDestinations = destinations.filter(
     ({ placement }) => placement !== "bottom",
   );
@@ -246,12 +256,30 @@ function NavRailImpl() {
         openBrowserTab(destination.href);
         return;
       }
+      if (workLayout) {
+        // Work shows its column and Activity opens the notification center;
+        // neither moves the tab you are in.
+        if (destination.pane === "spaces") {
+          destination.onPick();
+          return;
+        }
+        if (destination.pane === "activity") {
+          toggleWorkActivity();
+          return;
+        }
+      }
       pickRailDestination(destination, railPane);
     };
 
   const renderDestination = (destination: RailDestination): ReactNode => {
     const { pane, label, Icon, count, countTone } = destination;
-    const isActive = railPane === pane;
+    const isActive = workLayout
+      ? pane === "activity"
+        ? workActivityOpen
+        : pane === "spaces"
+          ? !workActivityOpen && railPaneFoldsIntoWork(railPane)
+          : !workActivityOpen && railPane === pane
+      : railPane === pane;
     const destinationCount = count?.(counts) ?? 0;
     const usesNotificationDot = pane === "activity" || pane === "inbox";
     let badge: ReactNode;
@@ -276,7 +304,18 @@ function NavRailImpl() {
     const onClick = pick(destination);
 
     if (pane === "activity") {
-      return (
+      // Under the Work layout the bell toggles the column, so there is nothing
+      // to peek at: the column is the peek.
+      return workLayout ? (
+        <NavIcon
+          key={pane}
+          icon={<BellIcon size={16} weight={isActive ? "fill" : "regular"} />}
+          label={label}
+          isActive={isActive}
+          onClick={onClick}
+          badge={badge}
+        />
+      ) : (
         <ActivityNavItem
           key={pane}
           isActive={isActive}
@@ -290,8 +329,8 @@ function NavRailImpl() {
         key={pane}
         icon={
           <Icon
-            className={pane === "spaces" ? "size-5" : undefined}
-            size={pane === "spaces" ? 20 : 16}
+            className={pane === "spaces" && !workLayout ? "size-5" : undefined}
+            size={pane === "spaces" && !workLayout ? 20 : 16}
             weight={isActive ? "fill" : "regular"}
           />
         }

@@ -537,7 +537,7 @@ const CHIP_CLASS =
 // render. Deliberately no focus handlers: closing returns focus to the
 // trigger, so opening on focus re-opens the popover in an endless blink loop
 // (and hands it to whichever trigger focus lands on next).
-function HoverPopover({
+export function HoverPopover({
   trigger,
   content,
   contentClassName,
@@ -629,7 +629,7 @@ function PrCiLine({ url }: { url: string }) {
 // The hover card for one PR chip: number + state, truncated title, CI line.
 // Mounted only while the popover is open, so its title/checks fetches never
 // run for chips just sitting in the feed.
-function PrPopoverContent({ url }: { url: string }) {
+export function PrPopoverContent({ url }: { url: string }) {
   const { prNumber, stateLabel, Icon, iconColor } = usePrArtifact(url);
   const prUrls = useMemo(() => [url], [url]);
   const titles = usePrTitles(prUrls);
@@ -1220,6 +1220,117 @@ function FeedRow({
   );
 }
 
+/**
+ * One feed entry as a single line, for the Work layout's Activity tab: state
+ * glyph, title, PR badge, who started it, age. The description is one click
+ * away in the dock, so the row carries facts and nothing to read. Same data
+ * hooks as the card, minus the thread poll: the row has no comment count to
+ * show.
+ */
+const FeedLogRow = memo(function FeedLogRow({
+  task,
+  onOpenTask,
+  onOpenThread,
+}: {
+  task: Task;
+  onOpenTask: (task: Task) => void;
+  onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
+}) {
+  const [ref, inView] = useInView<HTMLDivElement>({ rootMargin: "600px 0px" });
+  const { mutate: markTasksRead } = useMarkTaskActivityRead();
+  const taskData = useChannelTaskData(task);
+  const statusDisplay = useTaskStatusDisplay(task, taskData, {
+    resolvePrStatus: inView,
+  });
+  const { togglePin } = usePinnedTasks();
+  const { archiveTask } = useArchiveTask();
+  const commandCenterCells = useCommandCenterStore((state) => state.cells);
+  const starter = channelTaskStarter(task);
+  const markRead = useCallback(() => {
+    markTasksRead([
+      { task_id: task.id, seen_before: new Date().toISOString() },
+    ]);
+  }, [markTasksRead, task.id]);
+  const menu: TaskRowMenuProps = useMemo(
+    () => ({
+      kind: "task",
+      id: task.id,
+      title: task.title,
+      isPinned: taskData?.isPinned ?? false,
+      task,
+      channelId: task.channel ?? undefined,
+      onAddToCommandCenter: commandCenterCells.includes(task.id)
+        ? undefined
+        : () => placeTaskInCommandCenter(task.id, task.title),
+      onTogglePin: () => {
+        void togglePin(task.id).catch(() => {
+          toast.error("Couldn't update pin", { description: "Try again." });
+        });
+      },
+      onArchive: () => {
+        void archiveTask({ taskId: task.id }).catch(() => {
+          toast.error("Couldn't archive task", { description: "Try again." });
+        });
+      },
+    }),
+    [archiveTask, commandCenterCells, task, taskData?.isPinned, togglePin],
+  );
+  return (
+    <TaskRowContextMenu menu={menu}>
+      {/* biome-ignore lint/a11y/useSemanticElements: the row holds its own buttons (title, menu), and buttons cannot nest */}
+      <div
+        ref={ref}
+        role="button"
+        tabIndex={0}
+        className="group mx-auto flex h-8 w-full max-w-[660px] cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-hover"
+        onClick={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('[data-slot="dropdown-menu-trigger"]')
+          ) {
+            return;
+          }
+          markRead();
+          onOpenThread(task);
+        }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            markRead();
+            onOpenThread(task);
+          }
+        }}
+      >
+        <TaskTabIcon task={task} size={14} />
+        <button
+          type="button"
+          className="min-w-0 flex-1 truncate text-left font-medium"
+          onClick={(event) => {
+            event.stopPropagation();
+            markRead();
+            onOpenTask(task);
+          }}
+        >
+          {task.title || "Untitled task"}
+        </button>
+        <TaskStatusBadge display={statusDisplay} />
+        {starter && (
+          <span className="shrink-0" title={userDisplayName(starter)}>
+            <UserAvatar user={starter} size="xs" />
+          </span>
+        )}
+        <span className="w-8 shrink-0 text-right text-muted-foreground text-xs tabular-nums">
+          {formatRelativeTimeShort(task.updated_at)}
+        </span>
+        <span className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <TaskRowDropdownMenu menu={menu} />
+        </span>
+      </div>
+    </TaskRowContextMenu>
+  );
+});
+
 // The optimistic kickoff row: the user's prompt as a "Starting…" card, shown
 // at the top of the feed the moment they submit. Deliberately dumb — no
 // per-task data hooks or polls (there's no task id to query yet); it's
@@ -1353,7 +1464,21 @@ function FeedSkeleton() {
   );
 }
 
-function DaySeparator({ label }: { label: string }) {
+function DaySeparator({
+  label,
+  compact = false,
+}: {
+  label: string;
+  /** A log's day label: a quiet heading over the rows, not a rule across them. */
+  compact?: boolean;
+}) {
+  if (compact) {
+    return (
+      <div className="mx-auto w-full max-w-[660px] px-2 pt-3 pb-0.5 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
+        {label}
+      </div>
+    );
+  }
   return (
     <div className="mx-auto flex w-full max-w-[660px] items-center gap-3 pt-5 pb-2 font-semibold text-(--gray-9) text-[11px] uppercase tracking-wider">
       <span className="h-px flex-1 bg-(--gray-5)" />
@@ -1393,6 +1518,7 @@ export function ChannelFeedView({
   composer,
   onOpenTask,
   onOpenThread,
+  compact = false,
 }: {
   channelId: string;
   tasks: Task[];
@@ -1422,6 +1548,8 @@ export function ChannelFeedView({
   composer?: ReactNode;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
+  /** One-line rows instead of cards: the Work layout's Activity tab. */
+  compact?: boolean;
 }) {
   // Archiving is local-only host state the server task list doesn't know about,
   // so a just-archived card would otherwise reappear on the next poll. Drop
@@ -1592,7 +1720,9 @@ export function ChannelFeedView({
   let lastDayLabel: string | null = null;
   if (pending.length > 0) {
     lastDayLabel = "Today";
-    rows.push(<DaySeparator key="separator-pending" label="Today" />);
+    rows.push(
+      <DaySeparator key="separator-pending" label="Today" compact={compact} />,
+    );
     for (let i = pending.length - 1; i >= 0; i--) {
       const p = pending[i];
       rows.push(<PendingFeedRow key={p.id} pending={p} />);
@@ -1602,19 +1732,34 @@ export function ChannelFeedView({
     const label = feedDayLabel(entry.createdAt, now);
     if (label !== lastDayLabel) {
       lastDayLabel = label;
-      rows.push(<DaySeparator key={`separator-${label}`} label={label} />);
+      rows.push(
+        <DaySeparator
+          key={`separator-${label}`}
+          label={label}
+          compact={compact}
+        />,
+      );
     }
     rows.push(
       entry.kind === "task" ? (
-        <FeedRow
-          key={entry.id}
-          task={entry.task}
-          showRepo={
-            !!entry.task.repository && entry.task.repository !== dominantRepo
-          }
-          onOpenTask={onOpenTask}
-          onOpenThread={onOpenThread}
-        />
+        compact ? (
+          <FeedLogRow
+            key={entry.id}
+            task={entry.task}
+            onOpenTask={onOpenTask}
+            onOpenThread={onOpenThread}
+          />
+        ) : (
+          <FeedRow
+            key={entry.id}
+            task={entry.task}
+            showRepo={
+              !!entry.task.repository && entry.task.repository !== dominantRepo
+            }
+            onOpenTask={onOpenTask}
+            onOpenThread={onOpenThread}
+          />
+        )
       ) : entry.kind === "report" ? (
         <ReportFeedRow
           key={entry.id}

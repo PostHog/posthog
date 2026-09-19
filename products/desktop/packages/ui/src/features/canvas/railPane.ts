@@ -109,3 +109,19 @@ const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
 export function railPaneHasSidebar(pane: NavRailPane): boolean {
   return PANES_WITH_SIDEBAR.has(pane);
 }
+
+/**
+ * Under the Work layout these destinations fold into Work: their routes still
+ * exist, but the rail lights Work for them and the column beside them is the
+ * Work column.
+ */
+const WORK_FOLDED_PANES = new Set<NavRailPane>([
+  "spaces",
+  "home",
+  "canvases",
+  "loops",
+]);
+
+export function railPaneFoldsIntoWork(pane: NavRailPane): boolean {
+  return WORK_FOLDED_PANES.has(pane);
+}

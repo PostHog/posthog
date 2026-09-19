@@ -1,0 +1,33 @@
+import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
+
+/**
+ * The new session page's headline: what you are doing, and where. The space
+ * is the only interactive part, in the headline's own type.
+ */
+export function NewSessionHeading({
+  channelId,
+  onChangeSpace,
+  disabled = false,
+}: {
+  channelId: string | null;
+  onChangeSpace: (channelId: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="mb-2 flex flex-col font-semibold text-[26px] leading-tight tracking-tight">
+      <span>Start a new session</span>
+      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-muted-foreground">
+        in
+        <SpaceSelect
+          variant="headline"
+          value={channelId ?? ""}
+          onChange={onChangeSpace}
+          disabled={disabled}
+        />
+        {/* "in <space> space" names the thing; with nothing picked the trailing
+            noun would read "in choose a space space". */}
+        {channelId ? "space" : null}
+      </span>
+    </div>
+  );
+}

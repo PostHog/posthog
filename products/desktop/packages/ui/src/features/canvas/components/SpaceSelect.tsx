@@ -1,3 +1,4 @@
+import { CaretDownIcon } from "@phosphor-icons/react";
 import {
   Button,
   Combobox,
@@ -11,6 +12,7 @@ import {
   ComboboxList,
   ComboboxSeparator,
   ComboboxTrigger,
+  cn,
 } from "@posthog/quill";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
@@ -32,9 +34,16 @@ export function SpaceSelect({
   value,
   onChange,
   disabled = false,
+  variant = "chip",
 }: {
+  /** Empty when no space is chosen yet: the headline then asks for one. */
   value: string;
   onChange: (channelId: string) => void;
+  /**
+   * `headline`: the trigger is the space's name in the headline's own type,
+   * for "Start a new session in [space] space".
+   */
+  variant?: "chip" | "headline";
   /**
    * Held shut while a task is being created. Retargeting mid-submit navigates
    * away from the composer that owns the in-flight request, so the task lands
@@ -92,26 +101,44 @@ export function SpaceSelect({
       itemToStringLabel={(id) => byId.get(id)?.name ?? ""}
       disabled={disabled}
     >
-      <div ref={anchorRef} className="inline-flex">
+      <div ref={anchorRef} className="inline-flex max-w-full">
         <ComboboxTrigger
           render={
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              disabled={disabled}
-              aria-label="Space"
-              title={current?.name}
-            >
-              {triggerGlyph && (
-                <span className="shrink-0 text-muted-foreground">
-                  {triggerGlyph}
+            variant === "headline" ? (
+              <button
+                type="button"
+                disabled={disabled}
+                aria-label="Space"
+                title={current?.name}
+                className={cn(
+                  "inline-flex max-w-full items-center gap-1.5 rounded-sm border-border border-b-2 border-dashed text-foreground transition-colors hover:border-foreground disabled:opacity-60",
+                  !current && "text-muted-foreground",
+                )}
+              >
+                <span className="min-w-0 truncate">
+                  {current?.name ?? "choose a space"}
                 </span>
-              )}
-              <span className="min-w-0 truncate">
-                {current?.name ?? "Space"}
-              </span>
-            </Button>
+                <CaretDownIcon size={18} weight="bold" className="shrink-0" />
+              </button>
+            ) : (
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                disabled={disabled}
+                aria-label="Space"
+                title={current?.name}
+              >
+                {triggerGlyph && (
+                  <span className="shrink-0 text-muted-foreground">
+                    {triggerGlyph}
+                  </span>
+                )}
+                <span className="min-w-0 truncate">
+                  {current?.name ?? "Space"}
+                </span>
+              </Button>
+            )
           }
         />
       </div>

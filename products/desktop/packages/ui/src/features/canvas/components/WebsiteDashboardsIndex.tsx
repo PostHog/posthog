@@ -1,4 +1,10 @@
-import { DotsThreeIcon, LinkIcon, TrashIcon } from "@phosphor-icons/react";
+import {
+  DotsThreeIcon,
+  LinkIcon,
+  PushPinIcon,
+  PushPinSlashIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import {
   Badge,
@@ -23,15 +29,27 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import { Box, Flex, Grid } from "@radix-ui/themes";
+import { Box, Flex } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import { memo, useState } from "react";
 
 // A channel's dashboards index: a grid of cards, each showing a scaled-down
 // live preview. Clicking a card opens the full dashboard.
-export function WebsiteDashboardsIndex({ channelId }: { channelId: string }) {
+export function WebsiteDashboardsIndex({
+  channelId,
+  variant = "page",
+}: {
+  channelId: string;
+  /**
+   * `work`: the Canvases tab of the Work layout. One header line (count, new
+   * canvas), pinned canvases first as their own group, pin in the card menu.
+   */
+  variant?: "page" | "work";
+}) {
   const { dashboards, isLoading } = useDashboards(channelId);
+  const isWork = variant === "work";
 
   // templateId -> display name, for the per-card badge ("Freeform (React)", …).
   // Falls back to the raw id for any template not in the registry.
@@ -63,20 +81,72 @@ export function WebsiteDashboardsIndex({ channelId }: { channelId: string }) {
     );
   }
 
+  const card = (d: DashboardRecord) => (
+    <DashboardCard
+      key={d.id}
+      channelId={channelId}
+      summary={d}
+      templateLabel={templateLabels.get(d.templateId) ?? d.templateId}
+      canPin={isWork}
+      compactMeta={isWork}
+    />
+  );
+
+  if (!isWork) {
+    return (
+      <div className="scroll-mask-4 h-full overflow-auto bg-gray-1">
+        <div className="p-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+            {dashboards.map(card)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const pinned = dashboards
+    .filter((d) => d.pinnedAt != null)
+    .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0));
+  const rest = dashboards.filter((d) => d.pinnedAt == null);
+  const countLabel =
+    dashboards.length === 1 ? "1 canvas" : `${dashboards.length} canvases`;
+
   return (
     <div className="scroll-mask-4 h-full overflow-auto bg-gray-1">
-      <Box className="p-5">
-        <Grid columns={{ initial: "1", sm: "2", md: "3" }} gap="4">
-          {dashboards.map((d) => (
-            <DashboardCard
-              key={d.id}
-              channelId={channelId}
-              summary={d}
-              templateLabel={templateLabels.get(d.templateId) ?? d.templateId}
-            />
-          ))}
-        </Grid>
-      </Box>
+      <div className="p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <Text size="xs" variant="muted">
+            {countLabel}
+          </Text>
+          <NewCanvasMenu channelId={channelId} />
+        </div>
+        {pinned.length > 0 && (
+          <>
+            <Text
+              size="xxs"
+              variant="muted"
+              className="mb-2 block font-medium uppercase tracking-wider"
+            >
+              Pinned
+            </Text>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+              {pinned.map(card)}
+            </div>
+            {rest.length > 0 && (
+              <Text
+                size="xxs"
+                variant="muted"
+                className="mt-5 mb-2 block font-medium uppercase tracking-wider"
+              >
+                All
+              </Text>
+            )}
+          </>
+        )}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+          {rest.map(card)}
+        </div>
+      </div>
     </div>
   );
 }
@@ -85,10 +155,15 @@ const DashboardCard = memo(function DashboardCard({
   channelId,
   summary,
   templateLabel,
+  canPin = false,
+  compactMeta = false,
 }: {
   channelId: string;
   summary: DashboardRecord;
   templateLabel: string;
+  canPin?: boolean;
+  /** The Canvases tab: one meta line under the name instead of three. */
+  compactMeta?: boolean;
 }) {
   // Inside its delete-undo window the card stays in the grid (Undo puts it
   // straight back) but is dimmed and inert.
@@ -116,21 +191,32 @@ const DashboardCard = memo(function DashboardCard({
       >
         <Card className="gap-0 overflow-hidden p-0">
           <PreviewFrame />
-          <CardContent className="flex flex-col gap-0.5 p-3">
-            <Flex align="center" justify="between" gap="2">
-              <Text size="sm" weight="medium" className="truncate">
+          <CardContent className="flex flex-col gap-1 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <Text size="sm" weight="medium" className="min-w-0 truncate">
                 {summary.name}
               </Text>
-              <Badge>{templateLabel}</Badge>
-            </Flex>
-            <Text size="xxs" variant="muted">
-              Updated {formatRelativeTimeShort(summary.updatedAt)}
-            </Text>
-
-            <Text size="xxs" variant="muted">
-              Created by{" "}
-              {summary.createdBy ? `${summary.createdBy}` : "Unknown"}
-            </Text>
+              {!compactMeta && <Badge>{templateLabel}</Badge>}
+            </div>
+            {compactMeta ? (
+              // One line: what kind, when it moved, whose it is. Three stacked
+              // lines of metadata out-measured the name they belong to.
+              <Text size="xxs" variant="muted" className="truncate">
+                {templateLabel} · updated{" "}
+                {formatRelativeTimeShort(summary.updatedAt)}
+                {summary.createdBy ? ` · ${summary.createdBy}` : ""}
+              </Text>
+            ) : (
+              <>
+                <Text size="xxs" variant="muted">
+                  Updated {formatRelativeTimeShort(summary.updatedAt)}
+                </Text>
+                <Text size="xxs" variant="muted">
+                  Created by{" "}
+                  {summary.createdBy ? `${summary.createdBy}` : "Unknown"}
+                </Text>
+              </>
+            )}
           </CardContent>
         </Card>
       </Link>
@@ -140,6 +226,7 @@ const DashboardCard = memo(function DashboardCard({
         id={summary.id}
         name={summary.name}
         channelId={channelId}
+        pinned={canPin ? summary.pinnedAt != null : undefined}
       />
     </Box>
   );
@@ -160,13 +247,22 @@ function DashboardCardMenu({
   id,
   name,
   channelId,
+  pinned,
 }: {
   id: string;
   name: string;
   channelId: string;
+  /** Present where the menu offers pinning; the grid's own tab does. */
+  pinned?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const { invalidateDashboards } = useDashboardMutations();
+  const { invalidateDashboards, setPinned } = useDashboardMutations();
+
+  const onTogglePin = () => {
+    setPinned(id, !pinned).catch(() => {
+      toast.error("Couldn't update pin");
+    });
+  };
 
   const onDelete = () => {
     deleteCanvasWithUndo({
@@ -206,6 +302,16 @@ function DashboardCardMenu({
             <LinkIcon size={14} />
             Copy link
           </DropdownMenuItem>
+          {pinned !== undefined && (
+            <DropdownMenuItem onClick={onTogglePin}>
+              {pinned ? (
+                <PushPinSlashIcon size={14} />
+              ) : (
+                <PushPinIcon size={14} />
+              )}
+              {pinned ? "Unpin" : "Pin"}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem variant="destructive" onClick={onDelete}>
             <TrashIcon size={14} />
             Delete

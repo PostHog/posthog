@@ -1,5 +1,4 @@
 import { WebsiteChannelHome } from "@posthog/ui/features/canvas/components/WebsiteChannelHome";
-import { WebsiteContext } from "@posthog/ui/features/canvas/components/WebsiteContext";
 import { SpaceTabbedPage } from "@posthog/ui/features/canvas/components/work/SpaceTabbedPage";
 import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import {
@@ -8,19 +7,20 @@ import {
 } from "@posthog/ui/router/routeSkeletons";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_shell/spaces/$channelId/")({
-  component: ChannelHomeRoute,
+// The space's feed and pull requests. Under the Work layout this is the
+// Activity tab; without it the feed is the space's index and this route only
+// mirrors it.
+export const Route = createFileRoute("/_shell/spaces/$channelId/activity")({
+  component: ChannelActivityRoute,
   ...withRouteSkeleton(ChannelSkeleton),
 });
 
-function ChannelHomeRoute() {
+function ChannelActivityRoute() {
   const { channelId } = Route.useParams();
-  // Under the Work layout a space opens on its Context tab; the feed lives on
-  // the Activity tab.
   if (useWorkLayout()) {
     return (
-      <SpaceTabbedPage channelId={channelId} tab="context">
-        <WebsiteContext channelId={channelId} />
+      <SpaceTabbedPage channelId={channelId} tab="activity">
+        <WebsiteChannelHome channelId={channelId} variant="work" />
       </SpaceTabbedPage>
     );
   }

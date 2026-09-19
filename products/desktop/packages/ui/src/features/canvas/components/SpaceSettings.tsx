@@ -8,6 +8,7 @@ import {
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { SettingsSection } from "@posthog/ui/features/settings/components/SettingsCard";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
@@ -33,11 +34,14 @@ export function SpaceSettings({ channelId }: { channelId: string }) {
   const { channels: taskChannels, isLoading: tasksLoading } = useTaskChannels();
   const channel = channels.find((item) => item.id === channelId);
   const taskChannel = taskChannels.find((item) => item.id === channelId);
+  const workLayout = useWorkLayout();
   const header = useMemo(
     () => <ChannelHeader channelId={channelId} page="settings" />,
     [channelId],
   );
-  useSetHeaderContent(header);
+  // The tabbed space page names the tab; the breadcrumb and title would say it
+  // twice more.
+  useSetHeaderContent(header, !workLayout);
   const isPrivate = channel?.channelType === "private";
   const { members } = useChannelMembers(isPrivate ? channelId : null);
 
@@ -56,7 +60,7 @@ export function SpaceSettings({ channelId }: { channelId: string }) {
     <div className="h-full overflow-y-auto">
       <PageHeader>
         <PageHeaderHeading>
-          <PageHeaderTitle>Settings</PageHeaderTitle>
+          {!workLayout && <PageHeaderTitle>Settings</PageHeaderTitle>}
           <PageHeaderDescription>
             Repositories and who can see this space. Changes save as you make
             them.

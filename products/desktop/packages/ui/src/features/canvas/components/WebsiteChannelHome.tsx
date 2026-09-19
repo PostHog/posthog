@@ -19,12 +19,17 @@ import {
 } from "@posthog/ui/features/canvas/components/ChannelIntro";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { ThreadSidebar } from "@posthog/ui/features/canvas/components/ThreadSidebar";
+import { SpacePullRequestsColumn } from "@posthog/ui/features/canvas/components/work/SpacePullRequestsColumn";
 import { CONTEXT_MD_TASK_TITLE_PREFIX } from "@posthog/ui/features/canvas/contextPrompt";
 import {
   channelFeedQueryKey,
   useChannelFeed,
 } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { useChannelFeedMessages } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
+import {
+  DEFAULT_CHANNEL_REPORTS_FILTERS,
+  useChannelReports,
+} from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
@@ -39,6 +44,7 @@ import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { toast } from "@posthog/ui/primitives/toast";
+import { navigateToChannelReportDetail } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { Heading, Text } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -50,8 +56,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // (Twitter-style — new session first, newest cards under it) and threads open
 // in a right-hand panel. The channel's artifacts/history/context views stay in
 // the tabs above (ChannelHeader).
-export function WebsiteChannelHome({ channelId }: { channelId: string }) {
+export function WebsiteChannelHome({
+  channelId,
+  variant = "feed",
+}: {
+  channelId: string;
+  /**
+   * `work`: the Work layout's Activity tab. One-line rows, the space's pull
+   * requests in a column beside the feed, and a row opens the thread dock in
+   * that column's slot instead of leaving the tab.
+   */
+  variant?: "feed" | "work";
+}) {
   const spacesLayout = useChannelsLayout();
+  const isWork = variant === "work";
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   // The raw channel row (creator + creation time) feeds the intro and the
@@ -84,6 +102,14 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
       () => <ChannelHeader channelId={channelId} page="home" />,
       [channelId],
     ),
+    // The tabbed space page names the tab.
+    !isWork,
+  );
+  // Reports join the log so the kind filter has something to switch between.
+  const { reports } = useChannelReports(
+    { kind: "channel", channelId },
+    DEFAULT_CHANNEL_REPORTS_FILTERS,
+    { enabled: isWork },
   );
 
   const composerRef = useRef<ChannelHomeComposerHandle>(null);
@@ -208,14 +234,18 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   // — including a chip's tab, which lands on the matching panel side there.
   const handleOpenThread = useCallback(
     (task: Task, tab?: ThreadPanelTab) => {
-      if (spacesLayout) {
+      if (spacesLayout && !isWork) {
         if (tab) openRightPanelSide(tab, task.id);
         handleOpenFull(task.id);
         return;
       }
       openThread(channelId, task.id, tab ? { tab } : undefined);
     },
-    [channelId, openThread, spacesLayout, handleOpenFull],
+    [channelId, openThread, spacesLayout, isWork, handleOpenFull],
+  );
+  const handleOpenReport = useCallback(
+    (reportId: string) => navigateToChannelReportDetail(channelId, reportId),
+    [channelId],
   );
 
   const threadTask = threadTaskId
@@ -248,8 +278,10 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
     (s) => !!s.dismissedByChannel[channelId],
   );
   const dismissIntro = useChannelIntroStore((s) => s.dismissIntro);
+  // The Activity tab sits under a strip that already names the space, so the
+  // intro's title would say it twice; its context.md card lives on Context.
   const intro =
-    !isPersonal && !introDismissed && channelName && channel ? (
+    !isWork && !isPersonal && !introDismissed && channelName && channel ? (
       <ChannelIntro
         channel={channel}
         channelName={channelName}
@@ -319,20 +351,26 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           }
           onOpenTask={handleOpenTask}
           onOpenThread={handleOpenThread}
+          compact={isWork}
+          reports={isWork ? reports : undefined}
+          onOpenReport={isWork ? handleOpenReport : undefined}
         />
       </div>
 
-      {!spacesLayout &&
-        threadTaskId &&
-        threadTaskId !== inheritedThreadTaskId && (
-          <ThreadSidebar
-            taskId={threadTaskId}
-            channelId={channelId}
-            task={threadTask}
-            onClose={() => closeThread(channelId)}
-            onOpenFull={() => handleOpenFull(threadTaskId)}
-          />
-        )}
+      {(!spacesLayout || isWork) &&
+      threadTaskId &&
+      threadTaskId !== inheritedThreadTaskId ? (
+        <ThreadSidebar
+          taskId={threadTaskId}
+          channelId={channelId}
+          task={threadTask}
+          onClose={() => closeThread(channelId)}
+          onOpenFull={() => handleOpenFull(threadTaskId)}
+        />
+      ) : isWork ? (
+        // The right slot is the pull requests until a row opens its dock there.
+        <SpacePullRequestsColumn tasks={tasks} />
+      ) : null}
 
       {channelName && (
         <CreateChannelModal
