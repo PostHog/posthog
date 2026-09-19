@@ -7,23 +7,45 @@ import { ApiError } from 'lib/api-error'
 
 import { MediaUploadResponse } from '~/types'
 
+export const IMAGE_DECODE_ERROR_MESSAGE = "This image can't be read, try a different file"
+
+/** The browser cannot resize images at all, which says nothing about the image itself. */
+class UnsupportedImageResizeEnvironment extends Error {}
+
+/** The browser cannot decode the bytes, so the image itself is unusable. */
+class ImageDecodeError extends Error {}
+
+function compressionFailureName(error: unknown): string {
+    if (error instanceof ImageDecodeError) {
+        return 'Image decoding failed'
+    }
+    if (error instanceof UnsupportedImageResizeEnvironment) {
+        return 'Image compression unavailable'
+    }
+    return 'Image compression failed'
+}
+
 export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
+    let reducerError: unknown
     try {
         const blobReducer = (await import('image-blob-reduce')).default()
         return await blobReducer.toBlob(blob, { max: 2000 })
-    } catch {
-        // Fallback to simple resize for privacy-focused browsers (e.g. Brave)
-        try {
-            return await simpleImageResize(blob)
-        } catch (error) {
-            posthog.captureException(
-                new Error('Image compression fallback failed', {
-                    cause: error,
-                })
-            )
-            // Final fallback to original blob
-            return blob
+    } catch (error) {
+        reducerError = error
+    }
+
+    try {
+        return await simpleImageResize(blob)
+    } catch (error) {
+        posthog.captureException(new Error(compressionFailureName(error), { cause: error }), {
+            image_blob_reduce_error: String(reducerError),
+        })
+        if (error instanceof ImageDecodeError) {
+            throw new Error(IMAGE_DECODE_ERROR_MESSAGE)
         }
+        // Only the compression failed, so the image may still be valid. Send the original bytes
+        // and let the server judge them.
+        return blob
     }
 }
 
@@ -33,10 +55,15 @@ export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
  */
 async function simpleImageResize(blob: Blob): Promise<Blob> {
     if (typeof createImageBitmap === 'undefined' || typeof OffscreenCanvas === 'undefined') {
-        throw new Error('OffscreenCanvas APIs not available')
+        throw new UnsupportedImageResizeEnvironment('OffscreenCanvas APIs not available')
     }
 
-    const bitmap = await createImageBitmap(blob)
+    let bitmap: ImageBitmap
+    try {
+        bitmap = await createImageBitmap(blob)
+    } catch (error) {
+        throw new ImageDecodeError('Failed to decode the image', { cause: error })
+    }
 
     // Only resize if image is larger than 2000px or file is > 2MB
     if (bitmap.width <= 2000 && bitmap.height <= 2000 && blob.size <= 2 * 1024 * 1024) {
@@ -46,14 +73,15 @@ async function simpleImageResize(blob: Blob): Promise<Blob> {
 
     // Calculate new dimensions (max 2000px, maintain aspect ratio)
     const scale = Math.min(2000 / bitmap.width, 2000 / bitmap.height)
-    const newWidth = Math.floor(bitmap.width * scale)
-    const newHeight = Math.floor(bitmap.height * scale)
+    // A canvas side of zero holds no pixels, so a very thin image keeps one pixel on its short side.
+    const newWidth = Math.max(1, Math.floor(bitmap.width * scale))
+    const newHeight = Math.max(1, Math.floor(bitmap.height * scale))
 
     // Create OffscreenCanvas and resize
     const canvas = new OffscreenCanvas(newWidth, newHeight)
     const ctx = canvas.getContext('2d')
     if (!ctx) {
-        throw new Error('Failed to get 2D context')
+        throw new UnsupportedImageResizeEnvironment('Failed to get 2D context')
     }
 
     ctx.drawImage(bitmap, 0, 0, newWidth, newHeight)

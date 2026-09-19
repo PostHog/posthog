@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { IMAGE_DECODE_ERROR_MESSAGE, useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -281,14 +281,17 @@ describe('ImageTileModal', () => {
         expect(lemonToast.error).toHaveBeenCalledWith('We could not upload that image. Try again.')
     })
 
-    it('shows a safe actionable message for an unsupported image format', () => {
+    it.each([
+        ['This image format is not supported', 'Choose a PNG, JPG, GIF, WebP, or AVIF image.'],
+        [IMAGE_DECODE_ERROR_MESSAGE, 'That image could not be read. Try a different file.'],
+    ])('shows a safe actionable message for "%s"', (detail, expectedToast) => {
         const { uploadOptions } = renderModal()
 
         act(() => {
-            uploadOptions.onError('This image format is not supported')
+            uploadOptions.onError(detail)
         })
 
-        expect(lemonToast.error).toHaveBeenCalledWith('Choose a PNG, JPG, GIF, WebP, or AVIF image.')
+        expect(lemonToast.error).toHaveBeenCalledWith(expectedToast)
         expect(posthog.capture).toHaveBeenCalledWith('dashboard image tile upload failed')
     })
 
