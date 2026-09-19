@@ -115,7 +115,7 @@ describe('ErrorBoundary', () => {
         renderBoundary()
 
         expect(reloadSpy).not.toHaveBeenCalled()
-        expect(screen.getByText(/part of it could not load/)).toBeInTheDocument()
+        expect(screen.getByText(/could not download part of this page/)).toBeInTheDocument()
         expect(screen.queryByText('An error has occurred')).not.toBeInTheDocument()
     })
 
