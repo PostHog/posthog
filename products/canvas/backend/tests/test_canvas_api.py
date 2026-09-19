@@ -2178,13 +2178,18 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_repository", [], {}),
-            ("space_repositories", ["example/app", "example/api"], {}),
-            ("selected_model", [], {"model": "claude-opus-4-8", "reasoning_effort": "high"}),
+            ("without_repository", [], {}, {}),
+            ("space_repositories", ["example/app", "example/api"], {}, {"description": ""}),
+            (
+                "selected_model",
+                [],
+                {"model": "claude-opus-4-8", "reasoning_effort": "high"},
+                {"description": "Check the empty state."},
+            ),
         ]
     )
     def test_cloud_task_uses_space_and_viewer_defaults_once(
-        self, _name: str, repositories: list[str], selection: dict[str, str]
+        self, _name: str, repositories: list[str], selection: dict[str, str], description: dict[str, str]
     ) -> None:
         canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
         integration = Integration.objects.create(team=self.team, kind="github", config={})
@@ -2208,9 +2213,9 @@ class TestCanvasActions(CanvasAPIBaseTest):
         self.client.force_login(viewer)
         payload = {
             "title": "Review the signup flow",
-            "description": "Check the empty state.",
             "idempotency_key": str(uuid4()),
             **selection,
+            **description,
         }
 
         with (
@@ -2235,6 +2240,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert new_request.status_code == status.HTTP_429_TOO_MANY_REQUESTS, new_request.json()
         task = Task.objects.get(id=response.json()["result"]["task_id"])
         run = task.runs.get(id=response.json()["result"]["run_id"])
+        assert task.description == payload.get("description", "")
         assert task.created_by_id == viewer.id
         assert task.channel_id == self.channel.id
         assert task.repositories == repositories

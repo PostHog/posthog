@@ -11,7 +11,9 @@ but does not change the space's repository settings. The viewer must have access
 and must submit the form before a run starts. Omitting both fields opens the usual empty task form.
 Do not use `tasks.create_and_run` for a repository override: that action inherits the space settings.
 
-`tasks.create_and_run` accepts optional `model` and `reasoning_effort` fields for one Cloud task.
+`tasks.create_and_run` requires a title. Its description is optional and can be blank.
+Card forms can accept a title alone; do not require a description to save a card or start its task.
+The action also accepts optional `model` and `reasoning_effort` fields for one Cloud task.
 Use the identifiers and supported efforts from the task model catalogue.
 The selected model determines the runtime adapter; reasoning effort requires an explicit model.
 Omit both fields to retain the viewer's defaults. These fields do not change saved run preferences.
