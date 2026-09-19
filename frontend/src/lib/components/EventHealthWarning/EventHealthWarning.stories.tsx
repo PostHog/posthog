@@ -12,7 +12,7 @@ const meta: Meta<typeof EventHealthWarning> = {
         docs: {
             description: {
                 component:
-                    'Warns that the event an action match group points at stopped arriving, so the group quietly matches nothing new. Steps are OR-ed, so the rest of the action keeps matching. Shown on the actions list next to the group it affects, and in the step editor. Nothing renders while the event definition is still loading, or when the event is healthy.',
+                    'Warns that the event something points at stopped arriving, so it quietly matches nothing new. Shown next to an insight series, next to an action match group in the step editor, and on the actions list. Nothing renders while the event definition is still loading, or when the event is healthy.',
             },
         },
     },
@@ -38,7 +38,7 @@ const VARIANTS: { label: string; event: string | null }[] = [
     { label: 'Healthy event, nothing is shown', event: 'purchase_completed' },
     { label: 'Event last seen months ago', event: 'trial_started' },
     { label: 'Event with no definition, deleted or never sent', event: 'checkout_abandoned' },
-    { label: 'Step that matches all events', event: null },
+    { label: 'Reference to all events', event: null },
 ]
 
 export const Variants: Story = {
