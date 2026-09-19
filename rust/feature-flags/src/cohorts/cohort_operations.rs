@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::borrow::Borrow;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{Mutex, RwLock};
@@ -11,6 +12,7 @@ use crate::cohorts::cohort_cache_manager::CohortFetchError;
 use crate::cohorts::cohort_models::{
     Cohort, CohortId, CohortProperty, CohortValuesItem, InnerCohortProperty, MembershipStampPolicy,
 };
+use crate::cohorts::legacy_groups::filters_from_legacy_groups;
 use crate::database::get_connection_with_metrics;
 use crate::metrics::consts::{
     COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNSUPPORTED_FILTER_COUNTER,
@@ -193,6 +195,23 @@ impl Cohort {
         Ok(cohorts)
     }
 
+    /// The cohort's filter tree, which is `filters` when it holds a definition and the
+    /// deprecated `groups` field converted to the same shape when it does not. `None`
+    /// means the cohort defines no audience through either field.
+    ///
+    /// Reading `groups` keeps evaluation in step with the rest of the product: cohort
+    /// recalculation, the cohort page, and the person list all resolve a `groups`-only
+    /// cohort through `Cohort.properties` in
+    /// products/cohorts/backend/models/cohort.py. An evaluator that reads `filters` alone
+    /// finds no audience in such a cohort, so a flag rolled out to it reaches nobody while
+    /// the cohort lists its members.
+    pub fn filter_tree(&self) -> Option<Cow<'_, Value>> {
+        match &self.filters {
+            Some(filters) if !defines_no_filters(filters) => Some(Cow::Borrowed(filters)),
+            _ => filters_from_legacy_groups(&self.groups).map(Cow::Owned),
+        }
+    }
+
     /// Extracts dependent CohortIds from the cohort's filters
     ///
     /// # Returns
@@ -207,13 +226,12 @@ impl Cohort {
             return Ok(HashSet::new());
         }
 
-        let filters = match &self.filters {
-            Some(filters) => filters,
-            None => return Ok(HashSet::new()), // Return empty set if no filters
+        let Some(filters) = self.filter_tree() else {
+            return Ok(HashSet::new()); // Return empty set if no filters
         };
 
-        let cohort_property: CohortProperty =
-            serde_json::from_value(filters.clone()).map_err(|e| {
+        let cohort_property: CohortProperty = serde_json::from_value(filters.into_owned())
+            .map_err(|e| {
                 tracing::error!(
                     "Failed to parse filters for cohort {} (team {}): {}",
                     self.id,
@@ -450,6 +468,18 @@ fn evaluate_cohort_values(
     }
 }
 
+/// Whether a `filters` value carries no definition at all. Python treats an empty
+/// `filters` as absent (`if self.filters:` in `Cohort.properties`) and falls back to the
+/// deprecated `groups` field, so the evaluator has to fall back on the same values.
+fn defines_no_filters(filters: &Value) -> bool {
+    match filters {
+        Value::Null => true,
+        Value::Object(properties) => properties.is_empty(),
+        Value::Array(properties) => properties.is_empty(),
+        _ => false,
+    }
+}
+
 /// Evaluates a property filter against target properties, applying negation if specified.
 ///
 /// Cohort filters use the `negation` field to invert results, unlike flag filters
@@ -479,13 +509,12 @@ fn evaluate_single_cohort(
     matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     // Get the filters for this cohort
-    let filters = match &cohort.filters {
-        Some(filters) => filters,
-        None => return Ok(false),
+    let Some(filters) = cohort.filter_tree() else {
+        return Ok(false);
     };
 
     // Parse and evaluate using the hierarchical structure
-    let cohort_property: CohortProperty = match serde_json::from_value(filters.clone()) {
+    let cohort_property: CohortProperty = match serde_json::from_value(filters.into_owned()) {
         Ok(prop) => prop,
         Err(_) => return Ok(false),
     };
@@ -1250,6 +1279,80 @@ mod tests {
         let warned = WARNED_DIVERGENT_COHORTS.read().unwrap();
         assert!(warned.contains(&(divergent.team_id, divergent.id)));
         assert!(!warned.contains(&(agreed.team_id, agreed.id)));
+    }
+
+    fn create_dynamic_cohort_with_legacy_groups(id: CohortId, groups: serde_json::Value) -> Cohort {
+        Cohort {
+            filters: None,
+            groups,
+            ..create_dynamic_cohort_with_filters(id, json!({}))
+        }
+    }
+
+    #[test]
+    fn test_evaluate_dynamic_cohorts_defined_only_by_legacy_groups() {
+        // A cohort whose audience lives only in the deprecated `groups` field has to match
+        // the people the cohort itself lists. Otherwise a flag rolled out to 100% of the
+        // cohort reaches nobody, with the audience visible on the cohort page.
+        let cohorts = vec![create_dynamic_cohort_with_legacy_groups(
+            1,
+            json!([{"properties": [
+                {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+            ]}]),
+        )];
+        let static_cohort_matches = HashMap::new();
+
+        for (email, expected) in [("user@example.com", true), ("user@other.com", false)] {
+            let target_properties = HashMap::from([("email".to_string(), json!(email))]);
+            let result = evaluate_dynamic_cohorts(
+                1,
+                &target_properties,
+                &cohorts,
+                &static_cohort_matches,
+                Tz::UTC,
+            )
+            .unwrap();
+            assert_eq!(
+                result, expected,
+                "email={email} should evaluate to {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_evaluate_dynamic_cohorts_with_unevaluable_legacy_groups() {
+        // An action-counting group needs event history the evaluator does not have, and a
+        // group that names no audience cannot be read at all. Both have to be a non-match:
+        // Python converts the second one into an empty AND group, which matches every
+        // person in ClickHouse.
+        let cohorts = vec![create_dynamic_cohort_with_legacy_groups(
+            1,
+            json!([{"action_id": 7, "days": 30}, {"name": "no audience"}]),
+        )];
+
+        let result = evaluate_dynamic_cohorts(
+            1,
+            &HashMap::from([("email".to_string(), json!("user@example.com"))]),
+            &cohorts,
+            &HashMap::new(),
+            Tz::UTC,
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_extract_dependencies_from_legacy_groups() {
+        let cohort = create_dynamic_cohort_with_legacy_groups(
+            1,
+            json!([{"properties": [{"key": "id", "type": "cohort", "value": 5}]}]),
+        );
+
+        let dependencies = cohort
+            .extract_dependencies()
+            .expect("Legacy groups should parse");
+        let expected_dependencies: HashSet<CohortId> = [5].iter().cloned().collect();
+        assert_eq!(dependencies, expected_dependencies);
     }
 
     #[test]

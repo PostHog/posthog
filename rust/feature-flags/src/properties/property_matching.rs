@@ -61,6 +61,37 @@ pub fn to_string_representation(value: &Value) -> String {
     value.to_string()
 }
 
+/// Tests a substring-style operator against `haystack`, unwrapping a list-shaped filter
+/// value the way the `IcontainsMulti` arm does.
+///
+/// A condition created through the cohort API stores its value as a list, even for a
+/// single entry, and ClickHouse cohort recalculation unwraps that list
+/// (`_expr_to_compare_op` in posthog/hogql/property.py). Flag evaluation has to unwrap it
+/// too. Without this the evaluator searches for the literal text `["@example.com"]`, so a
+/// flag targeting the cohort matches nobody the cohort's own member list contains.
+///
+/// `needle_matches` receives the already-lowercased haystack and one lowercased value.
+/// A list matches when any of its values matches, which is what
+/// `multiSearchAnyCaseInsensitive` does on the ClickHouse side.
+fn any_value_matches(
+    value: &Value,
+    haystack: &str,
+    needle_matches: impl Fn(&str, &str) -> bool,
+) -> bool {
+    match value {
+        Value::Array(values) => values.iter().any(|value| {
+            needle_matches(
+                haystack,
+                &to_string_representation(value).to_ascii_lowercase(),
+            )
+        }),
+        single_value => needle_matches(
+            haystack,
+            &to_string_representation(single_value).to_ascii_lowercase(),
+        ),
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct PropertyMatchingContext {
     team_timezone: Tz,
@@ -268,9 +299,10 @@ pub fn match_property(
             if let Some(match_value) = match_value {
                 // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
                 // This is more performant than to_lowercase() which handles full Unicode
-                let is_contained = to_string_representation(match_value)
-                    .to_ascii_lowercase()
-                    .contains(&to_string_representation(value).to_ascii_lowercase());
+                let haystack = to_string_representation(match_value).to_ascii_lowercase();
+                let is_contained = any_value_matches(value, &haystack, |haystack, needle| {
+                    haystack.contains(needle)
+                });
 
                 if operator == OperatorType::Icontains {
                     Ok(is_contained)
@@ -287,9 +319,10 @@ pub fn match_property(
         OperatorType::StartsWith | OperatorType::NotStartsWith => {
             if let Some(match_value) = match_value {
                 // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
-                let is_prefix = to_string_representation(match_value)
-                    .to_ascii_lowercase()
-                    .starts_with(&to_string_representation(value).to_ascii_lowercase());
+                let haystack = to_string_representation(match_value).to_ascii_lowercase();
+                let is_prefix = any_value_matches(value, &haystack, |haystack, needle| {
+                    haystack.starts_with(needle)
+                });
 
                 if operator == OperatorType::StartsWith {
                     Ok(is_prefix)
@@ -306,9 +339,10 @@ pub fn match_property(
         OperatorType::EndsWith | OperatorType::NotEndsWith => {
             if let Some(match_value) = match_value {
                 // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
-                let is_suffix = to_string_representation(match_value)
-                    .to_ascii_lowercase()
-                    .ends_with(&to_string_representation(value).to_ascii_lowercase());
+                let haystack = to_string_representation(match_value).to_ascii_lowercase();
+                let is_suffix = any_value_matches(value, &haystack, |haystack, needle| {
+                    haystack.ends_with(needle)
+                });
 
                 if operator == OperatorType::EndsWith {
                     Ok(is_suffix)
@@ -4218,6 +4252,51 @@ mod test_match_properties {
             matches!(result, Err(FlagMatchingError::InvalidRegexPattern)),
             "Expected InvalidRegexPattern error due to backtrack limit, got {:?}",
             result
+        );
+    }
+
+    // A list-shaped value is what the cohort API stores for a single condition, and what
+    // ClickHouse cohort recalculation unwraps. Before the unwrap these operators searched
+    // for the literal text `["@example.com"]`, so a cohort condition on a flag matched
+    // nobody the cohort itself contained.
+    #[test_case(OperatorType::Icontains, json!(["@example.com"]), json!("user@example.com"), true; "one contains value in a list matches")]
+    #[test_case(OperatorType::Icontains, json!(["@example.com"]), json!("user@other.com"), false; "one contains value in a list does not match another domain")]
+    #[test_case(OperatorType::Icontains, json!(["@Example.COM"]), json!("USER@example.com"), true; "contains in a list stays case insensitive")]
+    #[test_case(OperatorType::Icontains, json!(["@example.com", "@posthog.com"]), json!("user@posthog.com"), true; "any contains value in a list matches")]
+    #[test_case(OperatorType::Icontains, json!([]), json!("user@example.com"), false; "an empty contains list matches nobody")]
+    #[test_case(OperatorType::NotIcontains, json!(["@example.com"]), json!("user@example.com"), false; "one not-contains value in a list excludes a match")]
+    #[test_case(OperatorType::NotIcontains, json!(["@example.com"]), json!("user@other.com"), true; "one not-contains value in a list keeps another domain")]
+    #[test_case(OperatorType::StartsWith, json!(["admin"]), json!("admin@example.com"), true; "one starts-with value in a list matches")]
+    #[test_case(OperatorType::StartsWith, json!(["admin"]), json!("user@example.com"), false; "one starts-with value in a list does not match another prefix")]
+    #[test_case(OperatorType::NotStartsWith, json!(["admin"]), json!("admin@example.com"), false; "one not-starts-with value in a list excludes a match")]
+    #[test_case(OperatorType::EndsWith, json!(["@example.com"]), json!("user@example.com"), true; "one ends-with value in a list matches")]
+    #[test_case(OperatorType::EndsWith, json!(["@example.com"]), json!("user@example.com.br"), false; "one ends-with value in a list does not match a longer suffix")]
+    #[test_case(OperatorType::NotEndsWith, json!(["@example.com"]), json!("user@example.com"), false; "one not-ends-with value in a list excludes a match")]
+    fn test_match_properties_substring_operators_unwrap_list_shaped_values(
+        operator: OperatorType,
+        filter_value: Value,
+        user_value: Value,
+        expected: bool,
+    ) {
+        let property = PropertyFilter {
+            key: "email".to_string(),
+            value: Some(filter_value),
+            operator: Some(operator),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        assert_eq!(
+            match_property(
+                &property,
+                &HashMap::from([("email".to_string(), user_value)]),
+                true
+            )
+            .expect("expected match to exist"),
+            expected
         );
     }
 
