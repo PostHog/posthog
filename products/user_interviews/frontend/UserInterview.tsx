@@ -14,6 +14,7 @@ import { LemonButton, LemonModal, LemonSkeleton, LemonTag, LemonWidget } from '@
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -46,6 +47,7 @@ function targetingLabel(topic: UserInterviewTopicApi): string {
 }
 
 export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
+    const isEnabled = useFeatureFlag('USER_INTERVIEWS')
     const {
         topic,
         topicLoading,
@@ -65,6 +67,10 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
     } = useValues(userInterviewLogic)
     const { exportLinksCsv, copySharedLink, loadTestLink, openInvitePreview, closeInvitePreview } =
         useActions(userInterviewLogic)
+
+    if (!isEnabled) {
+        return <NotFound object="User research" caption="This feature is not enabled for your project." />
+    }
 
     if (topicLoading && !topic) {
         return (

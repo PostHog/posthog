@@ -6,8 +6,10 @@ import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemo
 
 import api from 'lib/api'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -35,7 +37,11 @@ export const scene: SceneExport<UserInterviewResponseProps> = {
 }
 
 export function UserInterviewResponse({ topicId, responseId }: UserInterviewResponseProps): JSX.Element {
-    const identifier = decodeURIComponent(responseId)
+    const isEnabled = useFeatureFlag('USER_INTERVIEWS')
+    // The router already ran `decodeURI`, so an identifier with a stray `%` (e.g. `50%off`) arrives
+    // here as `50%off` and makes `decodeURIComponent` throw before the flag gate below. Fall back to
+    // the raw value, the same way `PersonScene` handles distinct ids.
+    const identifier = tryDecodeURIComponent(responseId)
     const { linkForIdentifier, linksLoading, linksLoadFailed } = useValues(userInterviewLogic({ id: topicId }))
     const interviewUrl = linkForIdentifier(identifier)
     const [loading, setLoading] = useState(true)
@@ -45,6 +51,10 @@ export function UserInterviewResponse({ topicId, responseId }: UserInterviewResp
     const [person, setPerson] = useState<PersonType | null>(null)
 
     useEffect(() => {
+        // Without the flag every one of these endpoints answers 403, so don't ask.
+        if (!isEnabled) {
+            return
+        }
         const projectId = String(teamLogic.values.currentTeamId)
 
         async function load(): Promise<void> {
@@ -82,7 +92,11 @@ export function UserInterviewResponse({ topicId, responseId }: UserInterviewResp
         }
 
         void load()
-    }, [topicId, identifier])
+    }, [topicId, identifier, isEnabled])
+
+    if (!isEnabled) {
+        return <NotFound object="User research" caption="This feature is not enabled for your project." />
+    }
 
     if (loading) {
         return (
