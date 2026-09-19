@@ -75,7 +75,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             key: 'regressionTestCount',
             width: 120,
             align: 'right',
-            tooltip: `Owned tests that failed in the ${FIXED_WINDOW} with no recorded recovery and still hit several PRs or master. Treat as real breaks until a recovery proves otherwise.`,
+            tooltip: `Owned tests that failed in the ${FIXED_WINDOW} with no recorded recovery and still hit several PRs or master. Failures from a CI setup break are left out. Treat as real breaks until a recovery proves otherwise.`,
             sorter: (a, b) => a.regressionTestCount - b.regressionTestCount,
             render: (_, row) => <CountCell value={row.regressionTestCount} />,
         },

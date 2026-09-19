@@ -94,7 +94,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Runs where this test failed, errored, or a retry recovered it. Fixed window; the picker above does not move this list.',
+                'Runs where this test failed, errored, or a retry recovered it. Failures from a CI setup break are left out. Fixed window; the picker above does not move this list.',
             sorter: (a, b) => a.signalCount - b.signalCount,
             render: (_, row) => <CountCell value={row.signalCount} />,
         },
@@ -170,7 +170,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     />
                     <WindowComparisonCard
                         title="Failed runs"
-                        tooltip="CI runs where at least one test this team owns failed or errored. A run counts once, however many tests failed. Absolute counts, not rates: passing runs are mostly not recorded."
+                        tooltip="CI runs where at least one test this team owns failed or errored. A run counts once, however many tests failed. Runs where CI setup broke tests across many jobs or teams are left out. Absolute counts, not rates: passing runs are mostly not recorded."
                         value={healthRow?.failedRunCount}
                         previousValue={healthRow?.failedRunCountPrior}
                         formatValue={humanFriendlyNumber}
