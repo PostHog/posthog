@@ -31,6 +31,11 @@ describe("classifyAgentError", () => {
     ],
     ["API Error: 429 rate limited", "upstream_provider_failure"],
     ["API Error: 529 overloaded", "upstream_provider_failure"],
+    // A provider capacity refusal carries no HTTP status, only prose.
+    [
+      "The agent stopped before completing this request: Selected model is at capacity. Please try a different model.",
+      "upstream_capacity",
+    ],
     ["API Error: Content block not found", "content_block_rejection"],
     [
       "API Error: Content block is not a thinking block",
@@ -78,6 +83,7 @@ describe("isRetryableUpstreamErrorClassification", () => {
     ["upstream_connection_error", true],
     ["upstream_timeout", true],
     ["upstream_provider_failure", true],
+    ["upstream_capacity", true],
     ["content_block_rejection", false],
     ["turn_ended_without_response", false],
     ["subscription_usage_limit", false],
@@ -115,6 +121,11 @@ describe("sanitizeAgentErrorCause", () => {
       "provider request failed without a status",
       "upstream_provider_failure",
       "upstream_provider_failure",
+    ],
+    [
+      "Selected model is at capacity. Please try a different model.",
+      "upstream_capacity",
+      "upstream_capacity",
     ],
     [
       "Connection failed: private request details",

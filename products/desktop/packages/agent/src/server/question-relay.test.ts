@@ -130,6 +130,9 @@ function createTransientConnectionError(): Error & {
   return error;
 }
 
+const CAPACITY_REFUSAL_MESSAGE =
+  "The agent stopped before completing this request: Selected model is at capacity. Please try a different model.";
+
 function createUpstreamProviderFailureError(): Error & {
   data: { classification: string; result: string };
 } {
@@ -1011,6 +1014,62 @@ describe("Question relay", () => {
       };
       expect(retryRequest.prompt[0].text).toBe("original task description");
       expect(updateTaskRunSpy).not.toHaveBeenCalled();
+    });
+
+    it("backs off and retries a provider capacity refusal", async () => {
+      vi.spyOn(server.posthogAPI, "getTask").mockResolvedValue({
+        id: "test-task-id",
+        title: "t",
+        description: "original task description",
+      } as unknown as Task);
+      vi.spyOn(server.posthogAPI, "getTaskRun").mockResolvedValue({
+        id: "test-run-id",
+        task: "test-task-id",
+        state: {},
+      } as unknown as TaskRun);
+
+      const promptSpy = vi.fn().mockImplementation(async () => {
+        throw new Error(CAPACITY_REFUSAL_MESSAGE);
+      });
+      const updateTaskRunSpy = vi
+        .spyOn(server.posthogAPI, "updateTaskRun")
+        .mockResolvedValue({} as TaskRun);
+      server.session = {
+        payload: TEST_PAYLOAD,
+        acpSessionId: "acp-session",
+        clientConnection: { prompt: promptSpy },
+        logWriter: {
+          flushAll: vi.fn().mockResolvedValue(undefined),
+          getFullAgentResponse: vi.fn().mockReturnValue(null),
+          resetTurnMessages: vi.fn(),
+          appendRawLine: vi.fn(),
+          flush: vi.fn().mockResolvedValue(undefined),
+          isRegistered: vi.fn().mockReturnValue(true),
+        },
+      };
+
+      vi.useFakeTimers();
+      try {
+        const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
+        // The five-second delay used for a dropped socket is too short here.
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(promptSpy).toHaveBeenCalledTimes(1);
+        // 15s + 30s + 60s + 120s of widening backoff.
+        await vi.advanceTimersByTimeAsync(225_000);
+        await sendPromise;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(promptSpy).toHaveBeenCalledTimes(5);
+      expect(updateTaskRunSpy).toHaveBeenCalledWith(
+        "test-task-id",
+        "test-run-id",
+        {
+          status: "failed",
+          error_message: `upstream_capacity: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
+        },
+      );
     });
 
     it("stores the classified cause once upstream retries are exhausted", async () => {
