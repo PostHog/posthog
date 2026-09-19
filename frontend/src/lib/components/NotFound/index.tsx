@@ -152,8 +152,9 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
             await adminLoginAs({ userId: user.id, reason, readOnly })
             setSuccessfulUserId(user.id)
             window.location.reload()
-        } catch {
-            lemonToast.error(`Failed to log in as ${user.first_name}`)
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : 'Try again, and report it if it keeps happening.'
+            lemonToast.error(`Failed to log in as ${user.first_name}. ${detail}`)
             setIsLoginInProgress(false) // Only set to false if we aren't about to reload the page
         }
     }

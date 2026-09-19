@@ -212,7 +212,7 @@ describe('impersonationNoticeLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                    '/api/users/@me/': () => [200, { ...MOCK_IMPERSONATED_USER, id: 123 }],
                     '/admin/auth_check': () => [200, {}],
                 },
                 post: {
@@ -290,7 +290,7 @@ describe('impersonationNoticeLogic', () => {
             useMocks({
                 get: {
                     '/admin/auth_check': () => [401, {}],
-                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                    '/api/users/@me/': () => [200, { ...MOCK_IMPERSONATED_USER, id: 123 }],
                 },
                 post: {
                     '/admin/login/user/:id/': () => [200, {}],
@@ -545,7 +545,7 @@ describe('impersonationNoticeLogic', () => {
             useMocks({
                 get: {
                     '/admin/auth_check': () => [200, {}],
-                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                    '/api/users/@me/': () => [200, { ...MOCK_IMPERSONATED_USER, id: 123 }],
                 },
                 post: {
                     '/admin/login/user/:id/': () => [200, {}],
@@ -575,7 +575,7 @@ describe('impersonationNoticeLogic', () => {
             useMocks({
                 get: {
                     '/admin/auth_check': () => [401, {}],
-                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                    '/api/users/@me/': () => [200, { ...MOCK_IMPERSONATED_USER, id: 123 }],
                 },
                 post: {
                     '/admin/login/user/:id/': () => [200, {}],
@@ -758,7 +758,7 @@ describe('impersonationNoticeLogic', () => {
             useMocks({
                 get: {
                     '/admin/auth_check': () => [200, {}],
-                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                    '/api/users/@me/': () => [200, { ...MOCK_IMPERSONATED_USER, id: 456 }],
                 },
                 post: {
                     '/admin/login/user/:id/': () => [200, {}],
