@@ -2248,6 +2248,18 @@
   
   '''
 # ---
+# name: test_create_table_query[hourly_uniq_preaggregated]
+  '''
+  CREATE TABLE IF NOT EXISTS hourly_uniq_preaggregated (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      metric_index UInt16,
+      uniq_state AggregateFunction(uniq, UUID),
+      expires_at DateTime64(6, 'UTC')
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_hourly_uniq_preaggregated', sipHash64(job_id))
+  '''
+# ---
 # name: test_create_table_query[ingestion_warnings]
   '''
   
@@ -7651,6 +7663,22 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_hourly_uniq_preaggregated]
+  '''
+  CREATE TABLE IF NOT EXISTS sharded_hourly_uniq_preaggregated (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      metric_index UInt16,
+      uniq_state AggregateFunction(uniq, UUID),
+      expires_at DateTime64(6, 'UTC')
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.hourly_uniq_preaggregated', '{replica}')
+  PARTITION BY toYYYYMM(time_window_start)
+  ORDER BY (team_id, job_id, time_window_start, metric_index)
+  TTL expires_at
+  SETTINGS index_granularity=8192
+  '''
+# ---
 # name: test_create_table_query[sharded_ingestion_warnings]
   '''
   
@@ -12966,6 +12994,22 @@
   -- per query, we tend to copy this 512 around the place but
   -- i don't think it applies here
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_hourly_uniq_preaggregated]
+  '''
+  CREATE TABLE IF NOT EXISTS sharded_hourly_uniq_preaggregated (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      metric_index UInt16,
+      uniq_state AggregateFunction(uniq, UUID),
+      expires_at DateTime64(6, 'UTC')
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.hourly_uniq_preaggregated', '{replica}')
+  PARTITION BY toYYYYMM(time_window_start)
+  ORDER BY (team_id, job_id, time_window_start, metric_index)
+  TTL expires_at
+  SETTINGS index_granularity=8192
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_ingestion_warnings]

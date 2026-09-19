@@ -2120,6 +2120,33 @@ database "posthog" {
     }
   }
 
+  table "hourly_uniq_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "metric_index" {
+      type = "UInt16"
+    }
+    column "uniq_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "expires_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_hourly_uniq_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
   table "ingestion_warnings" {
     column "team_id" {
       type = "Int64"
@@ -6459,6 +6486,37 @@ database "posthog" {
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.heatmaps"
+      replica_name = "{replica}"
+    }
+  }
+
+  table "sharded_hourly_uniq_preaggregated" {
+    order_by     = ["team_id", "job_id", "time_window_start", "metric_index"]
+    partition_by = "toYYYYMM(time_window_start)"
+    ttl          = "expires_at"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "metric_index" {
+      type = "UInt16"
+    }
+    column "uniq_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "expires_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.hourly_uniq_preaggregated"
       replica_name = "{replica}"
     }
   }

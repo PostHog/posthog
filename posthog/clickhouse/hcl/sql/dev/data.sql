@@ -1103,6 +1103,14 @@ CREATE TABLE posthog.sharded_heatmaps (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.heatmaps', '{replica}') ORDER BY (type, team_id, toDate(timestamp), current_url, viewport_width) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_hourly_uniq_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  metric_index UInt16,
+  uniq_state AggregateFunction(uniq, UUID),
+  expires_at DateTime64(6, 'UTC')
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.hourly_uniq_preaggregated', '{replica}') ORDER BY (team_id, job_id, time_window_start, metric_index) PARTITION BY toYYYYMM(time_window_start) TTL expires_at SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_log_entries (
   team_id UInt64,
   log_source LowCardinality(String),
@@ -2529,6 +2537,14 @@ CREATE TABLE posthog.heatmaps (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))));
+CREATE TABLE posthog.hourly_uniq_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  metric_index UInt16,
+  uniq_state AggregateFunction(uniq, UUID),
+  expires_at DateTime64(6, 'UTC')
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_hourly_uniq_preaggregated', sipHash64(job_id));
 CREATE TABLE posthog.log_entries (
   team_id UInt64,
   log_source LowCardinality(String),
