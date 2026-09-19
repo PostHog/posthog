@@ -61,7 +61,7 @@ const conversationsTicketsList = (): ToolBase<
                     'priority',
                     'channel_source',
                     'assignee',
-                    'last_message_text',
+                    'email_subject',
                     'message_count',
                     'unread_team_count',
                     'created_at',
