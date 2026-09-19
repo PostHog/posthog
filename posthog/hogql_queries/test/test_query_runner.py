@@ -327,7 +327,7 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner = self.setup_test_query_runner_class()
         user = self.user if real_user else _shared_link_user(self.team)
 
-        def calculate_until_clickhouse_gives_up(_self):
+        def calculate_until_clickhouse_gives_up(_self: QueryRunner) -> None:
             # 400 ms is under the flag's 1000 ms floor: a stopped run is analyzed at any duration.
             record(rows_read=90, duration_ms=400.0)
             # The executor records this before the kill; the fake runner stands in for it here.
@@ -379,7 +379,7 @@ class TestQueryRunner(BaseTest):
         # one's analysis still running, and says so without reading it.
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        def calculate_until_clickhouse_gives_up(_self):
+        def calculate_until_clickhouse_gives_up(_self: QueryRunner) -> None:
             record(rows_read=90, duration_ms=4000.0)
             raise ClickHouseQueryMemoryLimitExceeded()
 
@@ -2326,7 +2326,7 @@ class TestQueryFailureCaching(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
 
-        def calculate_until_clickhouse_gives_up(_self):
+        def calculate_until_clickhouse_gives_up(_self: QueryRunner) -> None:
             record(rows_read=90, duration_ms=4000.0)
             raise _per_query_memory_error()
 
