@@ -151,6 +151,21 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
 
+// A property name reads back as `person.properties.foo` only when it is a bare identifier. Anything
+// else (spaces, a leading $, punctuation) needs bracket access. Use single quotes, never double: a
+// double quote inside an HTML attribute like a link href ends the attribute and breaks the tag, and
+// when it survives as an HTML entity the renderer resolves the tag to an empty string. This mirrors
+// buildDelayExpression in products/workflows stepDelayLogic.
+const BARE_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+export function buildPersonPropertyMergeValue(name: string): string {
+    if (BARE_IDENTIFIER_REGEX.test(name)) {
+        return `{{person.properties.${name}}}`
+    }
+    const escaped = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    return `{{person.properties['${escaped}']}}`
+}
+
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
@@ -499,7 +514,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 personPropertyDefinitions.forEach((property: PropertyDefinition) => {
                     tags[property.name] = {
                         name: property.name,
-                        value: `{{person.properties["${property.name}"]}}`,
+                        value: buildPersonPropertyMergeValue(property.name),
                         sample: property.example || `Sample ${property.name}`,
                     }
                 })
