@@ -1,5 +1,10 @@
+import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightType } from '~/types'
+
 import {
+    LegacyExperimentMetricResult,
     legacyExpectedRunningTime,
+    legacyGetVariantCalculationResult,
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
 } from './legacyExperimentCalculations'
@@ -29,6 +34,28 @@ describe('experimentCalculations', () => {
 
             // Custom duration
             expect(legacyExpectedRunningTime(500, 1000, 7)).toEqual(14)
+        })
+    })
+
+    describe('getVariantCalculationResult', () => {
+        it('reports no results for a response in the new ExperimentQuery format', () => {
+            // A legacy experiment holding a new-format metric gets this shape back: the same `kind`,
+            // but no `metric` and none of the per-variant fields the legacy calculations read.
+            const result = {
+                kind: NodeKind.ExperimentQuery,
+                metric: null,
+                baseline: { key: 'control', number_of_samples: 100, sum: 10, sum_squares: 10 },
+                variant_results: [{ key: 'test', number_of_samples: 100, sum: 20, sum_squares: 20 }],
+            } as unknown as LegacyExperimentMetricResult
+
+            expect(legacyGetVariantCalculationResult(result, 'test', InsightType.FUNNELS)).toEqual({
+                conversionRate: null,
+                count: null,
+                exposure: null,
+                mean: null,
+                credibleInterval: null,
+                delta: null,
+            })
         })
     })
 

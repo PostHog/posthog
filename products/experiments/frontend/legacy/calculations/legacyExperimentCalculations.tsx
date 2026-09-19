@@ -60,7 +60,14 @@ export function legacyConversionRateForVariant(
         return null
     }
 
-    if (metricResult.kind === NodeKind.ExperimentQuery && isExperimentFunnelMetric(metricResult.metric)) {
+    // The new ExperimentQueryResponse reuses this `kind`, but reports results as `baseline` and
+    // `variant_results`, so `metric` and `variants` are both absent on it.
+    if (
+        metricResult.kind === NodeKind.ExperimentQuery &&
+        metricResult.metric &&
+        isExperimentFunnelMetric(metricResult.metric) &&
+        metricResult.variants
+    ) {
         const variants = metricResult.variants as FunnelExperimentVariant[]
         const variantResults = variants.find((variant) => variant.key === variantKey)
 
@@ -128,7 +135,7 @@ export function legacyCountDataForVariant(
     }
 
     if ('kind' in metricResult && metricResult.kind === NodeKind.ExperimentQuery) {
-        const variantResults = (metricResult.variants as Array<{ key: string } & Record<string, any>>).find(
+        const variantResults = (metricResult.variants as Array<{ key: string } & Record<string, any>>)?.find(
             (variantData) => variantData.key === variant
         )
         // NOTE: Unfortunately, there does not seem to be a better way at the moment to figure out which type it is.
@@ -351,8 +358,8 @@ export function legacyCalculateDelta(
     let delta = 0
 
     if (metricType === InsightType.TRENDS) {
-        const controlVariant = (metricResult.variants as any[]).find((v: any) => v.key === 'control')
-        const variantData = (metricResult.variants as any[]).find((v: any) => v.key === variantKey)
+        const controlVariant = (metricResult.variants as any[])?.find((v: any) => v.key === 'control')
+        const variantData = (metricResult.variants as any[])?.find((v: any) => v.key === variantKey)
 
         if (
             !variantData?.count ||
