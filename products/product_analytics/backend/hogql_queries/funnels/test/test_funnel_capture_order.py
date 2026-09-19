@@ -1,6 +1,14 @@
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    cleanup_materialized_columns,
+    flush_persons_and_events,
+    materialized,
+)
 
 from parameterized import parameterized
 
@@ -149,3 +157,45 @@ class TestFunnelCaptureOrderPartialCoverage(ClickhouseTestMixin, APIBaseTest):
         assert results[0]["count"] == 1
         assert results[1]["count"] == 1
         assert results[2]["count"] == expected_step_three
+
+
+class TestFunnelCaptureOrderUsesMaterializedColumn(ClickhouseTestMixin, APIBaseTest):
+    """The capture instant must be read from a column, not dug out of the properties JSON.
+
+    Reading it from JSON forces ClickHouse to decompress the whole properties blob. Measured on
+    one production team over one day, that is the difference between a 407 MiB scan and a 41 GiB
+    one, so the flag is only affordable once the property is materialized.
+    """
+
+    def _funnel_sql(self) -> str:
+        self.team.modifiers = {"funnelUseClientCaptureOrder": True}
+        self.team.save()
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange={"date_from": "2026-01-15", "date_to": "2026-01-16"},
+        )
+        with self.capture_select_queries() as queries:
+            FunnelsQueryRunner(query=query, team=self.team).calculate()
+        return "\n".join(queries)
+
+    def test_reads_the_materialized_column_when_one_exists(self) -> None:
+        _create_person(distinct_ids=["u1"], team_id=self.team.pk)
+        flush_persons_and_events()
+        self.addCleanup(cleanup_materialized_columns)
+
+        with materialized("events", "$client_capture_time") as column:
+            sql = self._funnel_sql()
+
+        assert column.name in sql, f"expected {column.name} in the query"
+        assert "$client_capture_time" not in sql.replace(column.name, ""), (
+            "the property is still being extracted from the properties JSON"
+        )
+
+    def test_falls_back_to_the_json_read_without_one(self) -> None:
+        _create_person(distinct_ids=["u1"], team_id=self.team.pk)
+        flush_persons_and_events()
+
+        sql = self._funnel_sql()
+
+        # Records the cost the migration removes, so the two tests read as a pair.
+        assert "$client_capture_time" in sql
