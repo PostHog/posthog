@@ -152,11 +152,15 @@ class AssistantQueryExecutor:
         utc_now_datetime: datetime,
         user: "User",
         event_source: EventSource = EventSource.POSTHOG_AI,
-    ):
+        max_sql_result_chars: int | None = None,
+    ) -> None:
         self._team = team
         self._utc_now_datetime = utc_now_datetime
         self._user = user
         self._event_source = event_source
+        if max_sql_result_chars is not None and max_sql_result_chars < SQLResultsFormatter.MIN_RESULT_CHARS:
+            raise ValueError("The SQL preview budget must be at least 512 characters")
+        self._max_sql_result_chars = max_sql_result_chars
 
     async def arun_format_and_capture(
         self,
@@ -224,6 +228,8 @@ class AssistantQueryExecutor:
                 # Fallback to raw JSON if formatting fails - ensures robustness
                 fallback_start = time.time()
                 fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
+                if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
+                    fallback_results = SQLResultsFormatter.bound_fallback(fallback_results, self._max_sql_result_chars)
                 fallback_elapsed = time.time() - fallback_start
                 total_elapsed = time.time() - start_time
                 if debug_timing:
@@ -519,6 +525,16 @@ class AssistantQueryExecutor:
         if not is_supported_query(query):
             raise NotImplementedError(f"Unsupported query type: {query_type}")
 
+        warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
+        result_budget = self._max_sql_result_chars
+        if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and result_budget is not None:
+            result_budget -= len(warning_prefix)
+            if result_budget < SQLResultsFormatter.MIN_RESULT_CHARS:
+                return SQLResultsFormatter.bound_fallback(
+                    "[SQL result preview omitted because query warnings exceed the preview budget.]\n" + warning_prefix,
+                    self._max_sql_result_chars,
+                )
+
         try:
             # Handle assistant-specific query types with direct formatting
             if isinstance(query, AssistantTrendsQuery | TrendsQuery):
@@ -551,13 +567,21 @@ class AssistantQueryExecutor:
                 formatter_name = "SQLResultsFormatter"
                 max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
                 result = SQLResultsFormatter(
-                    query.source, response["results"], response["columns"], max_cell_length=max_cell_length
+                    query.source,
+                    response["results"],
+                    response["columns"],
+                    max_cell_length=max_cell_length,
+                    max_result_chars=result_budget,
                 ).format()
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
                 max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
                 result = SQLResultsFormatter(
-                    query, response["results"], response["columns"], max_cell_length=max_cell_length
+                    query,
+                    response["results"],
+                    response["columns"],
+                    max_cell_length=max_cell_length,
+                    max_result_chars=result_budget,
                 ).format()
             else:
                 raise NotImplementedError(f"Unsupported query type: {query_type}")
@@ -568,9 +592,10 @@ class AssistantQueryExecutor:
                     f"{TIMING_LOG_PREFIX} {formatter_name}.format() completed in {elapsed:.3f}s for {query_type}"
                 )
 
-            warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
             if warning_prefix:
                 result = warning_prefix + result
+            if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
+                result = SQLResultsFormatter.bound_fallback(result, self._max_sql_result_chars)
             return result
         except Exception:
             elapsed = time.time() - start_time
@@ -626,6 +651,7 @@ async def execute_and_format_query(
     truncate_results: bool = True,
     include_prompt_framing: bool = True,
     event_source: EventSource = EventSource.POSTHOG_AI,
+    max_sql_result_chars: int | None = None,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -649,7 +675,9 @@ async def execute_and_format_query(
     """
     query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
-    query_runner = AssistantQueryExecutor(team, utc_now_datetime, user=user, event_source=event_source)
+    query_runner = AssistantQueryExecutor(
+        team, utc_now_datetime, user=user, event_source=event_source, max_sql_result_chars=max_sql_result_chars
+    )
 
     results, used_fallback = await query_runner.arun_and_format_query(
         query, execution_mode, insight_id, truncate_results=truncate_results

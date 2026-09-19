@@ -176,6 +176,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
                 summary_message,
                 state.agent_mode_or_default,
                 start_id=start_id,
+                window_start_id=window_id,
             )
             window_id = insertion_result.updated_window_start_id
             start_id = insertion_result.updated_start_id
