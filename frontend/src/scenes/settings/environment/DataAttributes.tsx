@@ -17,7 +17,17 @@ export function DataAttributes(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    useEffect(() => setValue(currentTeam?.data_attributes || []), [currentTeam])
+    useEffect(
+        // A value saved before the API validated this field can hold anything JSON allows. The select
+        // cannot render that, so keep only the strings and let the team save a valid list over it.
+        () => {
+            const dataAttributes = currentTeam?.data_attributes
+            setValue(
+                Array.isArray(dataAttributes) ? dataAttributes.filter((attribute) => typeof attribute === 'string') : []
+            )
+        },
+        [currentTeam]
+    )
 
     if (!currentTeam) {
         return <LemonSkeleton />
