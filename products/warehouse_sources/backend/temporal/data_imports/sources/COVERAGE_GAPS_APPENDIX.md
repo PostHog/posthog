@@ -1797,7 +1797,7 @@ Today (7): `Analyses`, `AuthorStatistics`, `Components`, `Files`, `Issues`, `Pro
 Diffed against: <https://docs.enterprise.codescene.io/latest/integrations/rest-api.html>
 
 - [x] `projects/{project-id}/analyses` — the analysis-run history; without it every synced table is a single 'latest' snapshot with no trend and no way to pin an analysis id (high)
-- [x] `projects/{project-id}/analyses/latest/issues` — code health issues (hotspots, brain classes) - the product's core finding table (high)
+- [x] `projects/{project-id}/analyses/latest/issues` — issues from the project management integration, with status, cycle time and the commits and files changed while each was open (high)
 - [x] `projects/{project-id}/analyses/latest/technical-debt` — technical debt and refactoring targets, CodeScene's headline metric (high)
 - [x] `projects/{project-id}/analyses/latest/author-statistics` — per-author contribution stats; the only way to join code health to people (high)
 - [ ] `projects/{project-id}/analyses/latest/commits` — commit-level rows underpinning every aggregate CodeScene reports (medium)
