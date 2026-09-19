@@ -681,13 +681,11 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), team_count)
 
     def test_cant_sign_up_with_weak_passwords(self):
+        too_easy = "This password is too easy to guess. Make it longer, or use a few unrelated words."
         cases = [
-            ["password", "Add another word or two. Uncommon words are better."],
-            [
-                "test test test",
-                "Add another word or two. Uncommon words are better. Avoid repeated words and characters.",
-            ],
-            ["12345678", "Add another word or two. Uncommon words are better."],
+            ["password", too_easy],
+            ["test test test", "This password is still easy to guess. Add more words or characters."],
+            ["12345678", too_easy],
         ]
 
         for password, detail in cases:
