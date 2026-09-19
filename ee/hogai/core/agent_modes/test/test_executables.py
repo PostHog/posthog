@@ -23,6 +23,7 @@ from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import ReadEvents
+from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, NodePath
@@ -1070,6 +1071,30 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.messages[0].tool_call_id, "tool-123")
         self.assertIn("internal error", result.messages[0].content.lower())
         self.assertIn("do not immediately retry", result.messages[0].content.lower())
+
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
+    async def test_generation_canceled_propagates_without_tool_error(self, read_taxonomy_mock):
+        read_taxonomy_mock.side_effect = GenerationCanceled()
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool the user stops",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        with patch("ee.hogai.core.agent_modes.executables.capture_exception") as mock_capture:
+            with self.assertRaises(GenerationCanceled):
+                await node.arun(state, {})
+
+            mock_capture.assert_not_called()
 
     @parameterized.expand(
         [
