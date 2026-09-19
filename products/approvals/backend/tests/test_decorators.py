@@ -7,6 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from prometheus_client import REGISTRY
+from rest_framework.exceptions import APIException
+
 from posthog.api.utils import ServiceRequest
 
 from products.approvals.backend.decorators import _create_change_request
@@ -195,3 +198,67 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
         stored = change_request.intent["full_request_data"]["last_called_at"]
         assert isinstance(stored, str), "the datetime must be rendered, not handed to psycopg as-is"
         assert abs(datetime.fromisoformat(stored) - called_at) < timedelta(milliseconds=1)
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestChangeRequestCreateFailureCounter(APIBaseTest):
+    def _failures(self, action: str, error_type: str) -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "posthog_approvals_change_request_create_failures_total",
+                {"action": action, "error_type": error_type},
+            )
+            or 0.0
+        )
+
+    def _gated_serializer(self) -> FeatureFlagSerializer:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            active=False,
+            created_by=self.user,
+        )
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        request = MagicMock()
+        request.method = "PATCH"
+        request.data = {"active": True}
+        request.user = self.user
+        request.path = f"/api/projects/{self.team.id}/feature_flags/"
+
+        serializer = FeatureFlagSerializer(
+            instance=flag,
+            data={"active": True},
+            partial=True,
+            context={
+                "request": request,
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+                "get_team": lambda: self.team,
+                "get_organization": lambda: self.organization,
+            },
+        )
+        serializer.is_valid()
+        return serializer
+
+    def test_failed_change_request_insert_increments_the_counter(self, _mock_enabled):
+        serializer = self._gated_serializer()
+        before = self._failures("feature_flag.enable", "TypeError")
+
+        with patch(
+            "products.approvals.backend.decorators._create_change_request",
+            side_effect=TypeError("Object of type datetime is not JSON serializable"),
+        ):
+            with self.assertRaises(APIException):
+                serializer.save()
+
+        assert self._failures("feature_flag.enable", "TypeError") == before + 1
+        assert ChangeRequest.objects.count() == 0
