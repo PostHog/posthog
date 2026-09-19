@@ -47,7 +47,7 @@ import { SkillCatalogService } from './skill-catalog-service'
 import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
 
-export { McpDispatcher }
+export { McpDispatcher, Method }
 export type { ResolvedState } from './request-state-resolver'
 
 const MAX_BATCH_SIZE = 100

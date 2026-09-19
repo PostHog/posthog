@@ -14,6 +14,8 @@ import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
 import { trackAuthFailure } from './analytics'
 import { authFailuresTotal } from './metrics'
+import type { RequestCharge } from './rate-limiter'
+import { classifyRequestCharge } from './request-cost'
 import type { HonoCtx } from './types'
 
 const InitializeParamsSchema = z.object({
@@ -31,29 +33,39 @@ const JsonRpcMessageSchema = z.object({
     params: z.unknown().optional(),
 })
 
-function parseClientInfo(bodyText: string): ClientInfo {
+interface ParsedBody {
+    clientInfo: ClientInfo
+    /** Every JSON-RPC method the body carries, in order. Empty when unparseable. */
+    methods: string[]
+}
+
+function parseBody(bodyText: string): ParsedBody {
+    const methods: string[] = []
     try {
         const parsed = JSON.parse(bodyText)
         const messages = Array.isArray(parsed) ? parsed : [parsed]
         // 2026-07-28 stateless clients never send `initialize` — their identity
         // rides in each request's `_meta`. Prefer an initialize payload when
         // present (legacy dialect), else fall back to the first `_meta` match.
+        let initializeInfo: ClientInfo | undefined
         let metaFallback: ClientInfo | undefined
         for (const msg of messages) {
             const rpc = JsonRpcMessageSchema.safeParse(msg)
             if (!rpc.success) {
                 continue
             }
+            methods.push(rpc.data.method)
             if (rpc.data.method === 'initialize') {
                 const params = InitializeParamsSchema.safeParse(rpc.data.params)
-                if (!params.success) {
+                if (!params.success || initializeInfo) {
                     continue
                 }
-                return {
+                initializeInfo = {
                     clientName: sanitizeHeaderValue(params.data.clientInfo?.name),
                     clientVersion: sanitizeHeaderValue(params.data.clientInfo?.version),
                     protocolVersion: sanitizeHeaderValue(params.data.protocolVersion),
                 }
+                continue
             }
             if (!metaFallback) {
                 const meta = parseRequestProtocolMeta(rpc.data.params)
@@ -66,9 +78,9 @@ function parseClientInfo(bodyText: string): ClientInfo {
                 }
             }
         }
-        return metaFallback ?? {}
+        return { clientInfo: initializeInfo ?? metaFallback ?? {}, methods }
     } catch {}
-    return {}
+    return { clientInfo: {}, methods: [] }
 }
 
 function authenticate(c: HonoCtx): Response | null {
@@ -92,14 +104,15 @@ async function preserveBody(c: HonoCtx): Promise<string> {
 export async function authenticateAndParse(
     c: HonoCtx,
     transport: Transport
-): Promise<{ props: RequestProperties } | { error: Response }> {
+): Promise<{ props: RequestProperties; charge: RequestCharge } | { error: Response }> {
     const error = authenticate(c)
     if (error) {
         return { error }
     }
 
     const bodyText = await preserveBody(c)
-    const props = parseRequestProperties(c.req.raw, parseClientInfo(bodyText), transport)
+    const body = parseBody(bodyText)
+    const props = parseRequestProperties(c.req.raw, body.clientInfo, transport)
 
     props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
     props.mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
@@ -108,7 +121,7 @@ export async function authenticateAndParse(
         props.viaSseRedirect = true
     }
 
-    return { props }
+    return { props, charge: classifyRequestCharge(body.methods) }
 }
 
 export function handleCatchError(error: unknown, props: RequestProperties): Response {

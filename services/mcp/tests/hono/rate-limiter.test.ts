@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
     buildRateLimitResponse,
+    ChargedRateLimiter,
     DEFAULT_BURST_LIMIT,
+    DEFAULT_HANDSHAKE_BURST_LIMIT,
+    DEFAULT_HANDSHAKE_SUSTAINED_LIMIT,
     DEFAULT_SUSTAINED_LIMIT,
     RateLimiter,
     type RedisRateLimitOps,
@@ -132,9 +135,36 @@ describe('RateLimiter', () => {
         expect(redis.expire).toHaveBeenCalledWith('mcp:rl:burst:user-a', 60)
     })
 
+    it('leaves the longer window untouched once a shorter one blocks', async () => {
+        const limiter = new RateLimiter(redis, [
+            { scope: 'sustained', limit: 100, windowSeconds: 3600 },
+            { scope: 'burst', limit: 1, windowSeconds: 60 },
+        ])
+        await limiter.check('user-a')
+        const blocked = await limiter.check('user-a')
+        expect(blocked?.scope).toBe('burst')
+        // The burst key took both requests; the hourly key only took the one
+        // the server actually served.
+        expect(redis.incr).toHaveBeenCalledTimes(3)
+        expect(redis.incr).not.toHaveBeenNthCalledWith(3, 'mcp:rl:sustained:user-a')
+    })
+
     it('matches PostHog REST API default throttle (480/min, 4800/hour)', () => {
         expect(DEFAULT_BURST_LIMIT).toEqual({ scope: 'mcp_burst', limit: 480, windowSeconds: 60 })
         expect(DEFAULT_SUSTAINED_LIMIT).toEqual({ scope: 'mcp_sustained', limit: 4800, windowSeconds: 3600 })
+    })
+
+    it('keeps the handshake charge in its own keyspace', async () => {
+        const limiter = new ChargedRateLimiter(redis)
+        await limiter.check('user-a', 'handshake')
+        const result = await limiter.check('user-a', 'work')
+        // A handshake must not spend the tool-call budget.
+        expect(result?.remaining).toBe(DEFAULT_BURST_LIMIT.limit - 1)
+        expect(DEFAULT_HANDSHAKE_BURST_LIMIT).toEqual({ ...DEFAULT_BURST_LIMIT, scope: 'mcp_handshake_burst' })
+        expect(DEFAULT_HANDSHAKE_SUSTAINED_LIMIT).toEqual({
+            ...DEFAULT_SUSTAINED_LIMIT,
+            scope: 'mcp_handshake_sustained',
+        })
     })
 })
 

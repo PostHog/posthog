@@ -2,9 +2,10 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { redactToken } from '@/lib/utils'
 import type { State } from '@/tools/types'
 
+import { trackRateLimited } from './analytics'
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { rateLimitBlockedByTeam } from './metrics'
-import type { RateLimitResult } from './rate-limiter'
+import type { RateLimitResult, RequestCharge } from './rate-limiter'
 
 const UNRESOLVED_TEAM = 'unresolved'
 const OVERFLOW_TEAM = 'other'
@@ -17,8 +18,12 @@ const VALID_TEAM_ID = /^\d{1,19}$/
 const MAX_TRACKED_TEAMS = 1000
 const trackedTeamIds = new Set<string>()
 
+function isPlausibleTeamId(teamId: string | undefined): teamId is string {
+    return !!teamId && VALID_TEAM_ID.test(teamId)
+}
+
 function normalizeTeamId(teamId: string | undefined): string {
-    if (!teamId || !VALID_TEAM_ID.test(teamId)) {
+    if (!isPlausibleTeamId(teamId)) {
         return UNRESOLVED_TEAM
     }
     if (trackedTeamIds.has(teamId)) {
@@ -34,7 +39,8 @@ function normalizeTeamId(teamId: string | undefined): string {
 export async function recordRateLimitBlock(
     redis: RedisLike,
     props: RequestProperties,
-    result: RateLimitResult
+    result: RateLimitResult,
+    charge: RequestCharge
 ): Promise<void> {
     let teamId = props.projectId
     if (!teamId) {
@@ -45,6 +51,14 @@ export async function recordRateLimitBlock(
         }
     }
     rateLimitBlockedByTeam.inc({ scope: result.scope, team_id: normalizeTeamId(teamId) })
+
+    trackRateLimited(props, {
+        scope: result.scope,
+        limit: result.limit,
+        resetSeconds: result.resetSeconds,
+        charge,
+        ...(isPlausibleTeamId(teamId) ? { projectId: teamId } : {}),
+    })
 
     // Log so we can trace which token is hitting the limit; the token is redacted
     // to its last 4 chars so the line is useless to anyone who shouldn't have it.
