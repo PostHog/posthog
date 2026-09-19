@@ -120,6 +120,7 @@ Create a Personal API token (or use a Grafana Stack API token) and find your sta
             INCREMENTAL_FIELDS,
             names,
             should_sync_default={name: cfg.should_sync_default for name, cfg in K6_CLOUD_ENDPOINTS.items()},
+            primary_keys={name: cfg.primary_keys for name, cfg in K6_CLOUD_ENDPOINTS.items()},
         )
 
     def validate_credentials(

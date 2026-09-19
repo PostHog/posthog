@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.commerceto
     validate_credentials as validate_commercetools_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.settings import (
+    COMMERCETOOLS_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -138,7 +139,12 @@ Create an API client in the Merchant Center under Settings > Developer settings 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in COMMERCETOOLS_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

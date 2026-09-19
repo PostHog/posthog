@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SQUARESPACE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.squarespace import (
     SquarespaceResumeConfig,
@@ -123,6 +124,7 @@ The Commerce APIs (orders, inventory) require the merchant to be on a Commerce p
                 supports_incremental=len(INCREMENTAL_FIELDS[endpoint]) > 0,
                 supports_append=len(INCREMENTAL_FIELDS[endpoint]) > 0,
                 incremental_fields=INCREMENTAL_FIELDS[endpoint],
+                detected_primary_keys=SQUARESPACE_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

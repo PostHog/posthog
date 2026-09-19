@@ -20,7 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.env0.env0 
     env0_source,
     validate_credentials as validate_env0_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import (
+    ENDPOINTS,
+    ENV0_ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.env0 import Env0SourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -99,6 +103,7 @@ Environment cost data is only available for environments with [cost monitoring](
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=ENV0_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in list(ENDPOINTS)
         ]

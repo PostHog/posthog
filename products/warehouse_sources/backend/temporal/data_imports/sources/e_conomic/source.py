@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.
     validate_credentials as validate_e_conomic_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.settings import (
+    E_CONOMIC_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -107,7 +108,12 @@ Both tokens grant read access to the whole agreement; e-conomic has no per-resou
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in E_CONOMIC_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

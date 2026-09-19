@@ -25,7 +25,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni 
     omni_source,
     validate_credentials as validate_omni_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.omni.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.omni.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    PRIMARY_KEYS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -60,7 +64,7 @@ class OmniSource(ResumableSource[OmniSourceConfig, OmniResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys=PRIMARY_KEYS)
 
     def validate_credentials(
         self,

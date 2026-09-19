@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.streamelem
     DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    STREAMELEMENTS_ENDPOINTS,
     SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
@@ -100,7 +101,13 @@ Use the channel JWT token from your StreamElements dashboard: open your account 
     ) -> list[SourceSchema]:
         # Merge only: resume re-fetches the last checkpointed page and the activities window
         # walk overlaps page boundaries by design, so append mode would duplicate rows.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=ENDPOINTS,
+            primary_keys={name: config.primary_keys for name, config in STREAMELEMENTS_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

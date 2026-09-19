@@ -143,6 +143,7 @@ Grant the application the permissions matching the tables you want to sync:
                 supports_append=has_incremental and is_append_only,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=CISCO_DUO_ENDPOINTS[endpoint].description,
+                detected_primary_keys=CISCO_DUO_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

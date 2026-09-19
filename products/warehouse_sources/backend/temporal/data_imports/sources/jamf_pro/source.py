@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.j
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    JAMF_PRO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -184,6 +185,7 @@ Alternatively, connect with a Jamf Pro user account that has read access to thos
                 # append mode would duplicate devices — merge is the only incremental mode.
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=[JAMF_PRO_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in ENDPOINTS
         ]

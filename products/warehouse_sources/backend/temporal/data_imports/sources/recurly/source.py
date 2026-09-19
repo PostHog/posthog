@@ -72,6 +72,7 @@ class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
                 supports_incremental=endpoint.supports_incremental,
                 supports_append=endpoint.supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(name, []),
+                detected_primary_keys=["id"],
             )
             for name, endpoint in RECURLY_ENDPOINTS.items()
         ]

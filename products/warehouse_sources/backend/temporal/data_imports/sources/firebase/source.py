@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
     API_VERSION,
     DEFAULT_DATABASE_ID,
+    FIRESTORE_ID_COLUMN,
     FIRESTORE_INDEX_REQUIRED_ERROR,
     RESPONSE_TOO_LARGE_ERROR,
     parse_realtime_database_paths,
@@ -162,6 +163,7 @@ Create a service account key in the Firebase console under Project settings, Ser
                 supports_incremental=bool(incremental_fields.get(table)),
                 supports_append=bool(incremental_fields.get(table)),
                 incremental_fields=incremental_fields.get(table, []),
+                detected_primary_keys=[FIRESTORE_ID_COLUMN] if incremental_fields.get(table) else None,
             )
             for table in tables
         ]

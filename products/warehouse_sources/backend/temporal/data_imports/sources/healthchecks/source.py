@@ -131,6 +131,7 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 description=descriptions.get(endpoint),
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

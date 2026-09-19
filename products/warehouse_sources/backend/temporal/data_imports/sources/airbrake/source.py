@@ -112,6 +112,7 @@ You can find your user key in your Airbrake profile settings under **User settin
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=AIRBRAKE_ENDPOINTS[endpoint].should_sync_default,
                 description=_description(endpoint),
+                detected_primary_keys=AIRBRAKE_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

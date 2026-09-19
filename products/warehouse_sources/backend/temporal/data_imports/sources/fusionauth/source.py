@@ -123,6 +123,7 @@ Audit logs, event logs, and login records require the Elasticsearch search engin
                 description="Full sync only; the search API's result window is capped at ~10,000 rows."
                 if endpoint == "Users"
                 else None,
+                detected_primary_keys=FUSIONAUTH_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

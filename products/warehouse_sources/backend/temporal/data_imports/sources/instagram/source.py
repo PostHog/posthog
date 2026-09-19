@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    INSTAGRAM_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -153,7 +154,12 @@ Connect your Instagram account, then pick the professional account you want to s
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: endpoint_config.primary_keys for name, endpoint_config in INSTAGRAM_ENDPOINTS.items()},
+        )
 
     def _access_token(self, integration_id: int, team_id: int) -> str:
         """An access token Meta will still accept.

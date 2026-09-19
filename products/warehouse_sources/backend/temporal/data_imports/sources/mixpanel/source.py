@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.s
     DEFAULT_API_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MIXPANEL_ENDPOINTS,
     SUPPORTED_API_VERSIONS,
     SUPPORTS_INCREMENTAL,
 )
@@ -137,6 +138,7 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
                 supports_append=endpoint in SUPPORTS_INCREMENTAL,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description="Only syncs the last 365 days on initial sync" if endpoint == "export" else None,
+                detected_primary_keys=MIXPANEL_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

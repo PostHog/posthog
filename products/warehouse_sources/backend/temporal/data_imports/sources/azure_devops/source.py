@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
     validate_credentials as validate_azure_devops_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
+    AZURE_DEVOPS_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -114,7 +115,12 @@ Your organization is the first path segment of your Azure DevOps URL — for `de
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in AZURE_DEVOPS_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SPRIG_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig import (
     SprigResumeConfig,
@@ -89,7 +90,12 @@ Find your API key under **Integrations > Enrichment > Data Import API** in Sprig
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in SPRIG_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

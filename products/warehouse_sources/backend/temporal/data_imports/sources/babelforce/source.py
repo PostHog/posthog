@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce
     validate_credentials as validate_babelforce_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.settings import (
+    BABELFORCE_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -113,7 +114,12 @@ You can create an access ID and access token pair in your babelforce manager app
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in BABELFORCE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

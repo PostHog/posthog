@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carl
 from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MONTE_CARLO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -116,6 +117,7 @@ You can create an API key from **Settings → API → Keys** in your Monte Carlo
                 supports_append=False,
                 incremental_fields=incremental_fields,
                 description=_description(endpoint),
+                detected_primary_keys=MONTE_CARLO_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

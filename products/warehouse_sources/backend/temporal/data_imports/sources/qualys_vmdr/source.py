@@ -161,6 +161,7 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=QUALYS_VMDR_ENDPOINTS[endpoint].should_sync_default,
                 description=_description(endpoint),
+                detected_primary_keys=QUALYS_VMDR_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.a
     validate_credentials as validate_apitally_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.settings import (
+    APITALLY_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -64,7 +65,15 @@ class ApitallySource(ResumableSource[ApitallySourceConfig, ApitallyResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={
+                name: config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
+                for name, config in APITALLY_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self,

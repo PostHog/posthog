@@ -86,6 +86,7 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
                 incremental_fields=endpoint.incremental_fields,
                 description=endpoint.description,
                 should_sync_default=endpoint.should_sync_default,
+                detected_primary_keys=endpoint.primary_keys,
             )
             for name, endpoint in ENDPOINT_CONFIGS.items()
         ]

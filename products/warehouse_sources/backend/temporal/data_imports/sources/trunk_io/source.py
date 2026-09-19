@@ -84,6 +84,7 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
             names,
             descriptions=DESCRIPTIONS,
             should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys=PRIMARY_KEYS,
         )
 
     def validate_credentials(

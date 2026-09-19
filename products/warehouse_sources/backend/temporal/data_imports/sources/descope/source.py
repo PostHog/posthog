@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.descope.de
 from products.warehouse_sources.backend.temporal.data_imports.sources.descope.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.descope import (
     DescopeSourceConfig,
@@ -64,7 +65,7 @@ class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys=PRIMARY_KEYS)
 
     def validate_credentials(
         self,

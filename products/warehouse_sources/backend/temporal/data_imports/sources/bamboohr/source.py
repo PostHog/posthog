@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.b
     validate_credentials as validate_bamboohr_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import (
+    BAMBOOHR_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -105,6 +106,7 @@ Make sure your API key has access to the data you want to sync (employee, time o
             # Every BambooHR stream that syncs incrementally is an employee-table history table
             # whose rows update in place, so appending would stack a copy of each row every sync.
             merge_only=[name for name, fields in INCREMENTAL_FIELDS.items() if fields],
+            primary_keys={name: config.primary_keys for name, config in BAMBOOHR_ENDPOINTS.items()},
         )
 
     def validate_credentials(

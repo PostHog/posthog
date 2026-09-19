@@ -114,6 +114,7 @@ You can create an API key in your [EmailOctopus account settings](https://emailo
                 supports_append=has_incremental,
                 incremental_fields=incremental_fields,
                 should_sync_default=EMAILOCTOPUS_ENDPOINTS[endpoint].should_sync_default,
+                detected_primary_keys=EMAILOCTOPUS_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

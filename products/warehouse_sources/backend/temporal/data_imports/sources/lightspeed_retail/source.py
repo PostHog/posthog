@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LIGHTSPEED_RETAIL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -128,7 +129,12 @@ Your domain prefix is the first part of your store URL — for `mystore.retail.l
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Static endpoint catalog — identical across supported versions, so no vendor call to pin.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in LIGHTSPEED_RETAIL_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

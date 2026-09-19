@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.knock.knoc
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.settings import (
     ENDPOINTS,
+    ENDPOINTS_CONFIG,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -62,7 +63,12 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: list(config.primary_keys) for name, config in ENDPOINTS_CONFIG.items()},
+        )
 
     def validate_credentials(
         self, config: KnockSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

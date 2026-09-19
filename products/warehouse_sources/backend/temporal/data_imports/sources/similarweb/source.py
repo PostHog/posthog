@@ -91,6 +91,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
             INCREMENTAL_FIELDS,
             names,
             descriptions={name: endpoint.description for name, endpoint in SIMILARWEB_ENDPOINTS.items()},
+            primary_keys={name: config.primary_keys for name, config in SIMILARWEB_ENDPOINTS.items()},
         )
 
     def validate_credentials(

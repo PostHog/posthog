@@ -102,6 +102,7 @@ class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
             names,
             descriptions=ENDPOINT_DESCRIPTIONS,
             should_sync_default=should_sync_default,
+            primary_keys={name: config.primary_key for name, config in ADYEN_ENDPOINTS.items()},
         )
 
     def validate_credentials(

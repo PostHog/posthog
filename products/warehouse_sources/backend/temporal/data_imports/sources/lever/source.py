@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lever.leve
 from products.warehouse_sources.backend.temporal.data_imports.sources.lever.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LEVER_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -81,7 +82,12 @@ The key has full read access to your account's data; no individual scopes need t
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in LEVER_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: LeverSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

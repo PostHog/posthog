@@ -132,6 +132,7 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
                 supports_append=DYNATRACE_ENDPOINTS[endpoint].supports_time_filter,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=_SCHEMA_DESCRIPTIONS.get(endpoint),
+                detected_primary_keys=[DYNATRACE_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in ENDPOINTS
         ]

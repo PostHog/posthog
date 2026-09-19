@@ -143,6 +143,7 @@ You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=MEM0_ENDPOINTS[endpoint].should_sync_default,
+                detected_primary_keys=MEM0_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

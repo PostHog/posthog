@@ -111,6 +111,7 @@ Enter the URL where your Kubecost cost-model API is reachable (e.g. `https://kub
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
                 supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=["key", "window_start"],
             )
             for endpoint in ENDPOINTS
         ]

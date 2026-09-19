@@ -158,7 +158,13 @@ Paste the same signing key into the field below so PostHog can verify deliveries
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, supports_webhooks=WEBHOOK_SCHEMA_NAMES)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            supports_webhooks=WEBHOOK_SCHEMA_NAMES,
+            primary_keys={name: ["uri"] for name in ENDPOINTS},
+        )
 
     def validate_credentials(
         self,

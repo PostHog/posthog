@@ -130,6 +130,7 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
                 supports_append=False,
                 incremental_fields=REPORT_INCREMENTAL_FIELDS if config.report is not None else [],
                 default_incremental_lookback_seconds=REPORT_LOOKBACK_SECONDS if config.report is not None else None,
+                detected_primary_keys=list(config.primary_keys),
             )
             for endpoint, config in AMAZON_ADS_ENDPOINTS.items()
         ]

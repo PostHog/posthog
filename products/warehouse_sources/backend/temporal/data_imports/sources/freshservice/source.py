@@ -124,7 +124,9 @@ Your **API key** is on your Freshservice profile settings page (click your profi
         # Only the endpoints with a genuine server-side `updated_since` filter carry incremental
         # fields, so they alone default to supports_incremental / supports_append; the rest are
         # full refresh.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys={name: ["id"] for name in ENDPOINTS}
+        )
 
     def validate_credentials(
         self,

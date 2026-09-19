@@ -115,6 +115,9 @@ Notes:
             should_sync_default={
                 endpoint: endpoint_config.should_sync_default for endpoint, endpoint_config in BEAMER_ENDPOINTS.items()
             },
+            primary_keys={
+                endpoint: endpoint_config.primary_keys for endpoint, endpoint_config in BEAMER_ENDPOINTS.items()
+            },
         )
 
     def validate_credentials(

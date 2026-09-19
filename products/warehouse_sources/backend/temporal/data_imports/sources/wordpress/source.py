@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    WORDPRESS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
     HOST_NOT_ALLOWED_ERROR,
@@ -140,6 +141,7 @@ To sync private content or authenticate, create an [Application Password](https:
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=[WORDPRESS_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in ENDPOINTS
         ]

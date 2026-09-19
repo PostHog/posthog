@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelon
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SENTINELONE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -107,7 +108,12 @@ You can generate an API token in your management console under **My User > Actio
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in SENTINELONE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

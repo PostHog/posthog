@@ -110,7 +110,13 @@ class ConektaSource(ResumableSource[ConektaSourceConfig, ConektaResumeConfig]):
     ) -> list[SourceSchema]:
         # Orders is merge-only: `<field>.gte` is inclusive, so the watermark row returns on every
         # run and only a merge on `id` dedupes it.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY_ENDPOINTS,
+            primary_keys={name: ["id"] for name in ENDPOINTS},
+        )
 
     def validate_credentials(
         self,

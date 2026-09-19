@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jo
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    JOTFORM_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -129,6 +130,7 @@ Supported tables:
                 supports_incremental=endpoint in INCREMENTAL_FIELDS,
                 supports_append=endpoint in INCREMENTAL_FIELDS,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=JOTFORM_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

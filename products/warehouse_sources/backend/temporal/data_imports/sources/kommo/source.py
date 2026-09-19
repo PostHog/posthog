@@ -78,7 +78,12 @@ class KommoSource(ResumableSource[KommoSourceConfig, KommoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: endpoint.primary_key for name, endpoint in ENDPOINT_CONFIG.items()},
+        )
 
     def validate_credentials(
         self,

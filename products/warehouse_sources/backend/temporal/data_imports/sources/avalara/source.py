@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.av
     validate_credentials as validate_avalara_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.settings import (
+    AVALARA_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -114,7 +115,12 @@ Use your AvaTax account ID and a license key (found under Settings > License and
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in AVALARA_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

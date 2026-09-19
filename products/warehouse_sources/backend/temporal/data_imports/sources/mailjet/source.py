@@ -39,9 +39,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.ma
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MAILJET_ENDPOINTS,
     MAILJET_WEBHOOK_EVENTS,
     SCHEMA_TO_WEBHOOK_RESOURCE,
+    WEBHOOK_PRIMARY_KEY,
     WEBHOOK_SCHEMA_NAMES,
+    WEBHOOK_TABLE_NAME,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -129,7 +132,11 @@ You can find your API key and secret key in your [Mailjet API key management pag
         # The statistics endpoints support Mailjet's FromTS window, so they sync incrementally
         # (they're exactly the endpoints carrying incremental fields). Within-sync resumption is
         # handled by ResumableSource for all endpoints.
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, supports_webhooks=WEBHOOK_SCHEMA_NAMES)
+        primary_keys = {name: [config.primary_key] for name, config in MAILJET_ENDPOINTS.items()}
+        primary_keys[WEBHOOK_TABLE_NAME] = [WEBHOOK_PRIMARY_KEY]
+        schemas = build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, supports_webhooks=WEBHOOK_SCHEMA_NAMES, primary_keys=primary_keys
+        )
         for schema in schemas:
             # `messageevent` has no list endpoint behind it, so the UI must offer webhook sync only.
             schema.webhook_only = schema.name in WEBHOOK_SCHEMA_NAMES

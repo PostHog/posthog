@@ -139,6 +139,7 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
                 supports_append=endpoint_config.supports_append and len(endpoint_config.incremental_fields) > 0,
                 incremental_fields=endpoint_config.incremental_fields,
                 should_sync_default=endpoint_config.should_sync_default,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
             for endpoint, endpoint_config in DECAGON_ENDPOINTS.items()
         ]

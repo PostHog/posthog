@@ -118,6 +118,7 @@ The free plan is restricted to the `EUR` base currency — a custom base currenc
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=endpoint_config.incremental_fields,
                 should_sync_default=endpoint_config.should_sync_default,
+                detected_primary_keys=endpoint_config.primary_keys,
                 description=endpoint_config.description,
             )
             for endpoint_config in EXCHANGE_RATES_API_ENDPOINTS.values()

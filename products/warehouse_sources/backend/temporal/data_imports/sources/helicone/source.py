@@ -134,6 +134,7 @@ class HeliconeSource(ResumableSource[HeliconeSourceConfig, HeliconeResumeConfig]
                 supports_append=endpoint.supports_append,
                 incremental_fields=endpoint.incremental_fields,
                 description=_description(endpoint.name),
+                detected_primary_keys=endpoint.primary_keys,
             )
             for endpoint in HELICONE_ENDPOINTS.values()
         ]

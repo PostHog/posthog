@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.incident_i
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
     ENDPOINTS,
+    INCIDENT_IO_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -93,7 +94,14 @@ You can create an API key in your [incident.io dashboard](https://app.incident.i
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={
+                name: [endpoint_config.primary_key] for name, endpoint_config in INCIDENT_IO_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self,

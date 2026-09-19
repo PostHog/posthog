@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apify_data
     DATASETS_ENDPOINT,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PRIMARY_KEYS,
     USAGE_MONTHLY_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -125,6 +126,7 @@ The token needs read access to the dataset's storage. The account-level tables (
                 DATASETS_ENDPOINT: "The account's datasets, including the unnamed ones an Actor run creates, with item counts and the run that produced them. Full refresh only.",
                 USAGE_MONTHLY_ENDPOINT: "Platform usage and spend for the current monthly cycle, one row per day. Full refresh only: the cycle is re-imported on every sync.",
             },
+            primary_keys=PRIMARY_KEYS,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.copper.cop
     validate_credentials as validate_copper_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.copper.settings import (
+    COPPER_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -68,6 +69,7 @@ class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
                 supports_incremental=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
                 supports_append=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=[COPPER_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in list(ENDPOINTS)
         ]

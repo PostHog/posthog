@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.o
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    OUTBRAIN_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -106,7 +107,14 @@ Uses your Outbrain login credentials. Amplify API access must be enabled for you
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={
+                name: config.primary_keys for name, config in OUTBRAIN_ENDPOINTS.items() if config.primary_keys
+            },
+        )
 
     def validate_credentials(
         self,

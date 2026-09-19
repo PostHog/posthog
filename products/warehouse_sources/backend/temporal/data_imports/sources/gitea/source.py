@@ -182,6 +182,7 @@ If automatic creation failed, your token needs admin access to the repository â€
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_webhooks=endpoint in GITEA_WEBHOOK_RESOURCE_MAP,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=[GITEA_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in ENDPOINTS
         ]

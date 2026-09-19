@@ -113,6 +113,7 @@ Your personal API token is in your [AppSignal personal settings](https://appsign
                 # creation, so incremental syncs must merge on the primary key.
                 supports_append=APPSIGNAL_ENDPOINTS[endpoint].immutable_rows,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=list(APPSIGNAL_ENDPOINTS[endpoint].primary_keys),
             )
             for endpoint in ENDPOINTS
         ]

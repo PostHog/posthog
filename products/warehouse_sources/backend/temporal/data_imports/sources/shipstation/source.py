@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shipstatio
     SHIPSTATION_DEFAULT_VERSION,
     SHIPSTATION_SUPPORTED_VERSIONS,
     SHIPSTATION_V1,
+    endpoints_for_version,
     schema_catalog_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation import (
@@ -120,8 +121,16 @@ API access requires a ShipStation plan tier that includes it.""",
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # v1 and v2 expose different resource catalogs, so discovery must build from the pin.
-        endpoints, incremental_fields = schema_catalog_for_version(self.resolve_api_version(api_version))
-        return build_endpoint_schemas(endpoints, incremental_fields, names)
+        resolved_version = self.resolve_api_version(api_version)
+        endpoints, incremental_fields = schema_catalog_for_version(resolved_version)
+        return build_endpoint_schemas(
+            endpoints,
+            incremental_fields,
+            names,
+            primary_keys={
+                name: [config.primary_key] for name, config in endpoints_for_version(resolved_version).items()
+            },
+        )
 
     def validate_credentials(
         self,

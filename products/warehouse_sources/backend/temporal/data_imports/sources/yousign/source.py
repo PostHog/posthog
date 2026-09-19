@@ -183,6 +183,10 @@ If automatic creation failed, note that webhook management requires a full-acces
             merge_only=("signature_requests",),
             supports_webhooks=("signature_requests",),
             descriptions=ENDPOINT_DESCRIPTIONS,
+            primary_keys={
+                name: config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
+                for name, config in YOUSIGN_ENDPOINTS.items()
+            },
         )
 
     def validate_credentials(

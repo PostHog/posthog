@@ -107,6 +107,7 @@ API keys are scoped to a single Hookdeck project, so connect one PostHog source 
                 incremental_fields=endpoint_config.incremental_fields,
                 description=endpoint_config.description,
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [build_schema(endpoint) for endpoint in ENDPOINTS]

@@ -123,6 +123,7 @@ Your base URL is the address you use to open the Instana UI, e.g. `https://unit-
                 # so append mode would materialize each update as a duplicate row — merge only.
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=[endpoint_config.primary_key],
                 description=(
                     f"Only syncs the last {EVENTS_DEFAULT_LOOKBACK_DAYS} days on initial sync"
                     if endpoint == "events"

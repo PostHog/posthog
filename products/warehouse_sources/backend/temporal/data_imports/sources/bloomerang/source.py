@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang
     validate_credentials as validate_bloomerang_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.settings import (
+    BLOOMERANG_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -80,7 +81,12 @@ class BloomerangSource(ResumableSource[BloomerangSourceConfig, BloomerangResumeC
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in BLOOMERANG_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

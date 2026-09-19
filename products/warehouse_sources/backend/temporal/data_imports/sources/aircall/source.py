@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.ai
     validate_credentials as validate_aircall_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.settings import (
+    AIRCALL_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -103,7 +104,12 @@ You can create an API key (API ID + API token) in your [Aircall dashboard](https
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in AIRCALL_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

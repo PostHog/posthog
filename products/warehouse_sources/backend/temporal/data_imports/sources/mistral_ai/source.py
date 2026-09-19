@@ -106,6 +106,7 @@ You can create an API key in [La Plateforme](https://console.mistral.ai/api-keys
                 supports_append=MISTRAL_AI_ENDPOINTS[endpoint].supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=MISTRAL_AI_ENDPOINTS[endpoint].should_sync_default,
+                detected_primary_keys=MISTRAL_AI_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

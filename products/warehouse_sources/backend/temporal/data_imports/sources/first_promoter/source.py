@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.first_prom
 from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import (
     DESCRIPTIONS,
     ENDPOINTS,
+    FIRST_PROMOTER_ENDPOINTS,
     INCREMENTAL_FIELDS,
     INCREMENTAL_LOOKBACK_SECONDS,
 )
@@ -70,7 +71,13 @@ class FirstPromoterSource(ResumableSource[FirstPromoterSourceConfig, FirstPromot
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=DESCRIPTIONS)
+        schemas = build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=DESCRIPTIONS,
+            primary_keys={name: config.primary_key for name, config in FIRST_PROMOTER_ENDPOINTS.items()},
+        )
         for schema in schemas:
             schema.default_incremental_lookback_seconds = INCREMENTAL_LOOKBACK_SECONDS.get(schema.name)
         return schemas

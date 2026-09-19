@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     RESOURCE_TO_UPPROMOTE_OBJECT_TYPE,
+    UPPROMOTE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.uppromote import (
     UpPromoteResumeConfig,
@@ -173,6 +174,7 @@ class UpPromoteSource(
                     "snapshot, refreshed in full on every sync"
                 ),
             },
+            primary_keys={name: config.primary_keys for name, config in UPPROMOTE_ENDPOINTS.items()},
         )
 
     def validate_credentials(

@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.settings import (
     ENDPOINTS,
+    GOCARDLESS_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -108,7 +109,12 @@ Create a read-only access token in the [GoCardless dashboard](https://manage.goc
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in GOCARDLESS_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

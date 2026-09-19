@@ -115,6 +115,7 @@ Create a key in the Xendit dashboard under **Settings > Developers > API keys**.
             INCREMENTAL_FIELDS,
             names,
             should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: ["id"] for name in ENDPOINTS},
         )
 
     def validate_credentials(

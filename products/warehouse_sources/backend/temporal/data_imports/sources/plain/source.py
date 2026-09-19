@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plai
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PLAIN_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -114,6 +115,7 @@ Make sure to grant the following read permissions:
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=[PLAIN_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in list(ENDPOINTS)
         ]

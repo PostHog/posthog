@@ -29,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.sett
     ENDPOINT_SCOPES,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LEEXI_ENDPOINTS,
+    PRIMARY_KEY,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -117,6 +119,10 @@ Grant these permission scopes so every table can sync:
             # call_notes fans out one request per call (50 requests/minute rate limit), and
             # most note content already rides on each call row — keep it opt-in.
             should_sync_default={"call_notes": False},
+            primary_keys={
+                name: ["call_uuid", PRIMARY_KEY] if config.fan_out_parent else [PRIMARY_KEY]
+                for name, config in LEEXI_ENDPOINTS.items()
+            },
         )
 
     def validate_credentials(

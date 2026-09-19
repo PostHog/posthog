@@ -436,6 +436,15 @@ class TestGithubSource:
         assert schema.supports_append is False
         assert schema.should_sync_default is False
 
+    @pytest.mark.parametrize(
+        "endpoint,expected",
+        [("issues", ["id"]), ("commits", ["sha"]), ("team_members", ["team_id", "id"])],
+    )
+    def test_discovery_reports_the_key_the_sync_merges_on(self, endpoint, expected):
+        schema = {s.name: s for s in self.source.get_schemas(_pat_config("acme/widgets"), self.team_id)}[endpoint]
+
+        assert schema.detected_primary_keys == expected
+
     @pytest.mark.parametrize("endpoint", ["issue_comments", "pull_request_comments", "commit_comments"])
     def test_comment_schemas_stay_pollable_alongside_the_webhook(self, endpoint):
         # The comment webhooks are a freshness win, not a load guard: their poll is the bootstrap

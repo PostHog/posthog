@@ -105,6 +105,7 @@ You need a Cursor team plan (Business or Enterprise). A team admin can create an
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 description=endpoint_config.description,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

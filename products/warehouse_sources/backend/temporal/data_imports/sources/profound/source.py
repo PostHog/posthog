@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.profound.p
 from products.warehouse_sources.backend.temporal.data_imports.sources.profound.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PROFOUND_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -101,7 +102,12 @@ Create an API key under **Settings** then **API keys** in Profound. The API is a
     ) -> list[SourceSchema]:
         # Only the two report tables carry incremental fields; the reference lists have no time
         # filter and stay full refresh.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in PROFOUND_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

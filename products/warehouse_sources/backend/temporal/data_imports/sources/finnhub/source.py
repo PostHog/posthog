@@ -73,6 +73,7 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=FINNHUB_ENDPOINTS[endpoint].should_sync_default,
                 description=FINNHUB_ENDPOINTS[endpoint].description,
+                detected_primary_keys=FINNHUB_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

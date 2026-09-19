@@ -103,7 +103,12 @@ You can create an API key and secret under **Account > API keys** in your [ShopW
     ) -> list[SourceSchema]:
         # Only orders expose a server-side created-date filter (`from`), so every other endpoint is
         # full refresh only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in SHOPWIRED_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

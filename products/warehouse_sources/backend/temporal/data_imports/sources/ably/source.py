@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably 
     validate_credentials as validate_ably_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.settings import (
+    ABLY_ENDPOINTS,
     DEFAULT_STATS_UNIT,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -79,7 +80,12 @@ class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
     ) -> list[SourceSchema]:
         # The endpoint catalog (`/stats`) and its shape are identical across Ably protocol
         # versions, so discovery is version-independent — the pin is consumed at the request layer.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_key for name, config in ABLY_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: AblySourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.settings import (
     ENDPOINTS,
+    HOUSECALL_PRO_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -94,7 +95,12 @@ API access needs a MAX plan. An account admin can generate a key under **My Apps
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in HOUSECALL_PRO_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

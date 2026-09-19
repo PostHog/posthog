@@ -98,6 +98,7 @@ Create an API key with the `monitor:read` scope under **Settings → API keys** 
                 supports_incremental=supports_incremental,
                 supports_append=supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=CRONITOR_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

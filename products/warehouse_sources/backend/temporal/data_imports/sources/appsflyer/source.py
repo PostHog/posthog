@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     validate_credentials as validate_appsflyer_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import (
+    APPSFLYER_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -122,7 +123,12 @@ Raw data tables (installs, in-app events, uninstalls, retargeting conversions, a
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in APPSFLYER_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.settings import (
     ENDPOINTS,
+    HELP_SCOUT_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -116,7 +117,12 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: endpoint_config.primary_key for name, endpoint_config in HELP_SCOUT_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

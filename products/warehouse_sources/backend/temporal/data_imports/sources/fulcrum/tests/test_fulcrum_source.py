@@ -26,7 +26,7 @@ class TestFulcrumSourceClass:
         tables = {t["name"]: t for t in self.source.get_documented_tables()}
         assert set(tables) == set(ENDPOINTS)
         assert tables["records"]["description"]
-        assert tables["photos"]["primary_keys"] == []  # detected keys only populated at sync time
+        assert tables["photos"]["primary_keys"] == ["access_key"]
 
     @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid Fulcrum API token"))])
     def test_validate_credentials(self, _name: str, api_result: bool, expected: tuple[bool, str | None]) -> None:

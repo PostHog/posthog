@@ -71,7 +71,9 @@ class Servicem8Source(ResumableSource[Servicem8SourceConfig, ServiceM8ResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys={name: [PRIMARY_KEY] for name in ENDPOINTS}
+        )
 
     def validate_credentials(
         self,

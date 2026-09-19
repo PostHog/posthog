@@ -67,6 +67,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                 supports_incremental=VITALLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 supports_append=VITALLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=VITALLY_INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=["id"],
             )
             for endpoint in VITALLY_ENDPOINTS
         ]
@@ -108,6 +109,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                         supports_incremental=True,
                         supports_append=True,
                         incremental_fields=[UPDATED_AT_INCREMENTAL_FIELD],
+                        detected_primary_keys=["id"],
                     )
                 )
 

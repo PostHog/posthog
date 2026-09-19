@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ShopifySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    ID,
     SHOPIFY_API_VERSION_2025_10,
     SHOPIFY_API_VERSION_2026_07,
     SHOPIFY_GRAPHQL_OBJECTS,
@@ -290,6 +291,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                     supports_incremental=len(endpoint_config.fields) > 0,
                     supports_append=len(endpoint_config.fields) > 0,
                     incremental_fields=endpoint_config.fields,
+                    detected_primary_keys=[ID],
                 )
             )
         if names is not None:

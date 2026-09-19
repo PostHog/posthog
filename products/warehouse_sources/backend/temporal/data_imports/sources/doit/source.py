@@ -50,6 +50,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
                 supports_append=True,
                 incremental_fields=DOIT_INCREMENTAL_FIELDS,
                 schema_metadata={REPORT_ID_METADATA_KEY: report.id},
+                detected_primary_keys=["id"],
             )
             for report in reports
         ]

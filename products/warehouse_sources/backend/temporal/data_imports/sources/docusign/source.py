@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.d
     validate_credentials as validate_docusign_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import (
+    DOCUSIGN_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -194,7 +195,12 @@ Create an integration key in [DocuSign Apps and Keys](https://apps.docusign.com/
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_key for name, config in DOCUSIGN_ENDPOINTS.items()},
+        )
 
     def _credentials(self, config: DocusignSourceConfig) -> DocusignCredentials:
         return DocusignCredentials(

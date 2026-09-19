@@ -24,7 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru 
     guru_source,
     validate_credentials as validate_guru_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.guru.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.guru.settings import (
+    ENDPOINTS,
+    GURU_ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -97,7 +101,12 @@ You authenticate with your Guru account email and a user API token. A Guru admin
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in GURU_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: GuruSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

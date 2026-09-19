@@ -82,6 +82,7 @@ class OrcaSecuritySource(ResumableSource[OrcaSecuritySourceConfig, OrcaResumeCon
                 and len(INCREMENTAL_FIELDS[endpoint]) > 0,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=ORCA_ENDPOINTS[endpoint].should_sync_default,
+                detected_primary_keys=ORCA_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

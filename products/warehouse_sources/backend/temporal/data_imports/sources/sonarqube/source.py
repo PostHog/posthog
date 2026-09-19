@@ -119,6 +119,7 @@ Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user toke
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

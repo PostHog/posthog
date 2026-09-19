@@ -90,6 +90,7 @@ class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminR
             INCREMENTAL_FIELDS,
             names,
             descriptions={name: endpoint.description for name, endpoint in POWER_BI_ADMIN_ENDPOINTS.items()},
+            primary_keys={name: endpoint.primary_keys for name, endpoint in POWER_BI_ADMIN_ENDPOINTS.items()},
         )
 
     def validate_credentials(

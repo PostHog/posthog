@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.c
     validate_credentials as validate_callrail_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import (
+    CALLRAIL_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     MERGE_ONLY,
@@ -121,6 +122,7 @@ Leave **Account ID** blank to use the first account your key can access, or set 
             names,
             merge_only=MERGE_ONLY,
             should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: config.primary_keys for name, config in CALLRAIL_ENDPOINTS.items()},
         )
 
     def validate_credentials(

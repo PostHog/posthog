@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     REPOSITORY_NOT_ACCESSIBLE_REASON,
     GithubEgressIdentity,
     GithubResumeConfig,
+    _normalize_primary_key,
     check_org_endpoint_permission,
     delete_repo_webhook,
     ensure_repo_webhook,
@@ -514,6 +515,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             webhook_only=webhook_only,
             incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             should_sync_default=GITHUB_ENDPOINTS[endpoint].should_sync_default,
+            detected_primary_keys=_normalize_primary_key(GITHUB_ENDPOINTS[endpoint].primary_key),
             label=None if repository is None else f"{repository} · {endpoint}",
             schema_metadata=None if repository is None else schema_metadata_for(repository, endpoint),
         )

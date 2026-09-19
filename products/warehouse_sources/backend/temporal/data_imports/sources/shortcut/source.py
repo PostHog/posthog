@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHORTCUT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut import (
     shortcut_source,
@@ -79,7 +80,12 @@ You can create an API token in your [Shortcut account settings](https://app.shor
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in SHORTCUT_ENDPOINTS.items()},
+        )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.canonical_descriptions import (

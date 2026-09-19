@@ -99,7 +99,9 @@ The API key gives full account access, so store it securely.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys={name: ["id"] for name in ENDPOINTS}
+        )
 
     def validate_credentials(
         self, config: VeeqoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

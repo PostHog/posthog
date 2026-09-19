@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.faire.fair
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.faire.settings import (
     ENDPOINTS,
+    FAIRE_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.faire import FaireSourceConfig
@@ -94,7 +95,12 @@ class FaireSource(ResumableSource[FaireSourceConfig, FaireResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in FAIRE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

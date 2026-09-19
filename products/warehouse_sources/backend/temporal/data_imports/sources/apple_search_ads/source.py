@@ -230,6 +230,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
             # Every incremental run re-reads a trailing window of already-imported days, so
             # these tables have to merge on their primary key; appending would duplicate rows.
             merge_only=REPORT_ENDPOINTS,
+            primary_keys={name: config.primary_keys for name, config in endpoints.items()},
         )
 
         for schema in schemas:

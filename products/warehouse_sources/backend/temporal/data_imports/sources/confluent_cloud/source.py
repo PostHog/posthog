@@ -181,6 +181,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                 if is_metrics
                 else True,
                 description=description,
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

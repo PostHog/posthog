@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -110,6 +111,7 @@ Your account subdomain is the first part of your AskNicely URL (`https://<subdom
                 supports_incremental=(fields := INCREMENTAL_FIELDS.get(endpoint)) is not None,
                 supports_append=fields is not None,
                 incremental_fields=fields or [],
+                detected_primary_keys=PRIMARY_KEYS[endpoint],
             )
             for endpoint in ENDPOINTS
         ]

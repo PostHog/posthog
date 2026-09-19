@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.hit
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.settings import (
     ENDPOINTS,
+    HITPAY_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -66,7 +67,12 @@ class HitpaySource(ResumableSource[HitpaySourceConfig, HitpayResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in HITPAY_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

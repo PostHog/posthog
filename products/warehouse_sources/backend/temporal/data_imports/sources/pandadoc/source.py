@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.p
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PANDADOC_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -98,7 +99,12 @@ You can find your API key in the [PandaDoc developer dashboard](https://app.pand
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in PANDADOC_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

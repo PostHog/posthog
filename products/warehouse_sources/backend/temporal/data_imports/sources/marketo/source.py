@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.ma
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MARKETO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -123,7 +124,12 @@ Leads and activities come through Marketo's Bulk Extract API, so the first sync 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_key for name, config in MARKETO_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

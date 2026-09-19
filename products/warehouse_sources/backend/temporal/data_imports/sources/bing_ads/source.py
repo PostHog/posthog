@@ -312,6 +312,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
                 ],
+                detected_primary_keys=bing_ads_schemas[endpoint].primary_keys,
             )
             for endpoint in bing_ads_schemas.keys()
         ]

@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     QUALTRICS_API_VERSION,
+    QUALTRICS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -186,6 +187,7 @@ Survey responses sync incrementally on `recordedDate`. Every other table is a fu
             # A response can be restated (a partial response finished later is re-exported
             # under the same id), so merge is the only safe incremental mode.
             merge_only=("survey_responses",),
+            primary_keys={name: config.primary_key for name, config in QUALTRICS_ENDPOINTS.items()},
         )
 
     def validate_credentials(

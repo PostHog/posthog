@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     validate_credentials as validate_cloudflare_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
+    CLOUDFLARE_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -98,6 +99,7 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
                 supports_incremental=endpoint in INCREMENTAL_FIELDS,
                 supports_append=endpoint in INCREMENTAL_FIELDS,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=list(CLOUDFLARE_ENDPOINTS[endpoint].primary_keys),
             )
             for endpoint in ENDPOINTS
         ]

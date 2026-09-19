@@ -107,6 +107,7 @@ The token authenticates as your Atlassian account, so the data we can sync is li
                 supports_incremental=JIRA_ENDPOINTS[endpoint].supports_incremental,
                 supports_append=JIRA_ENDPOINTS[endpoint].supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=JIRA_ENDPOINTS[endpoint].primary_key,
             )
             for endpoint in ENDPOINTS
         ]

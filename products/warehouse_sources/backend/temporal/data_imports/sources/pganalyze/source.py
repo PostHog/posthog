@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PGANALYZE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -56,6 +57,7 @@ class PgAnalyzeSource(SimpleSource[PgAnalyzeSourceConfig]):
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=[PGANALYZE_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in list(ENDPOINTS)
         ]

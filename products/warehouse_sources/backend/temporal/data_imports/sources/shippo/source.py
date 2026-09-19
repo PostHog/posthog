@@ -100,6 +100,7 @@ You can find your live (`shippo_live_...`) and test (`shippo_test_...`) API toke
                     supports_incremental=incremental_fields is not None,
                     supports_append=incremental_fields is not None,
                     incremental_fields=incremental_fields or [],
+                    detected_primary_keys=SHIPPO_ENDPOINTS[endpoint].primary_keys,
                 )
             )
 

@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bu
     validate_credentials as validate_bugherd_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.settings import (
+    BUGHERD_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -64,7 +65,15 @@ class BugherdSource(ResumableSource[BugherdSourceConfig, BugherdResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={
+                name: config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
+                for name, config in BUGHERD_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self,

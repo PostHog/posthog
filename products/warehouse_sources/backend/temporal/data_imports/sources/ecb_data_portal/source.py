@@ -67,7 +67,13 @@ class EcbDataPortalSource(ResumableSource[EcbDataPortalSourceConfig, ECBResumeCo
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         descriptions = {name: endpoint.description for name, endpoint in ENDPOINT_CONFIGS.items()}
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=descriptions)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=descriptions,
+            primary_keys={name: ["KEY", "TIME_PERIOD"] for name in ENDPOINTS},
+        )
 
     def validate_credentials(
         self,

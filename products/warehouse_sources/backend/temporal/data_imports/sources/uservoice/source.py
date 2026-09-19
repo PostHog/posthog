@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    USERVOICE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.uservoice import (
     UservoiceResumeConfig,
@@ -106,7 +107,12 @@ Create a trusted API client under **Settings → Channels → Add API Client** i
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in USERVOICE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.a
     validate_credentials as validate_appstack_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.settings import (
+    APPSTACK_ENDPOINTS,
     DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -108,6 +109,7 @@ You can find the API key in your Appstack dashboard settings. API keys are scope
                     "to the ad campaigns that drove them"
                 ),
             },
+            primary_keys={name: config.primary_keys for name, config in APPSTACK_ENDPOINTS.items()},
         )
         for schema in schemas:
             schema.default_incremental_lookback_seconds = DEFAULT_INCREMENTAL_LOOKBACK_SECONDS

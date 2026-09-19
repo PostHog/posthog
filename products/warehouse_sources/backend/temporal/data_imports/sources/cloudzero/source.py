@@ -83,7 +83,9 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        group_by = _parse_group_by(config.group_by)
+        primary_keys = {**PRIMARY_KEYS, "Costs": ["usage_date", *group_by]}
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys=primary_keys)
 
     def validate_credentials(
         self,

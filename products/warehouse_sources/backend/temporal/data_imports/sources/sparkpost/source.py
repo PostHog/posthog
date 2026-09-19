@@ -182,6 +182,7 @@ SparkPost runs independent US and EU stacks that do not share data — pick the 
                     if endpoint in LIMITED_RETENTION_ENDPOINTS
                     else None
                 ),
+                detected_primary_keys=SPARKPOST_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

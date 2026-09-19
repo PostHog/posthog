@@ -123,6 +123,7 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=_description(endpoint),
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

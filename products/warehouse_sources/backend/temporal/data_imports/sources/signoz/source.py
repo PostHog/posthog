@@ -139,6 +139,7 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
                     if endpoint in LIMITED_RETENTION_ENDPOINTS
                     else None
                 ),
+                detected_primary_keys=list(SIGNOZ_ENDPOINTS[endpoint].primary_keys),
             )
             for endpoint in ENDPOINTS
         ]

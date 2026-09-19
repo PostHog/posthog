@@ -20,7 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yoco import YocoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.yoco import yoco as api_client
-from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    YOCO_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco import YocoResumeConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -65,7 +69,12 @@ class YocoSource(ResumableSource[YocoSourceConfig, YocoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_key for name, config in YOCO_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

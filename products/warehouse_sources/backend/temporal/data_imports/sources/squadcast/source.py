@@ -104,6 +104,7 @@ The token inherits your user role, so the connecting user needs read access to t
                 supports_incremental=bool(SQUADCAST_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=False,
                 incremental_fields=SQUADCAST_ENDPOINTS[endpoint].incremental_fields,
+                detected_primary_keys=[SQUADCAST_ENDPOINTS[endpoint].primary_key],
             )
             for endpoint in ENDPOINTS
         ]

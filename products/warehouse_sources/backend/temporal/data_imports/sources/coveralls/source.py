@@ -137,6 +137,7 @@ The builds feed is public, so no credentials are needed for public repositories 
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=COVERALLS_ENDPOINTS[endpoint].should_sync_default,
                 description=COVERALLS_ENDPOINTS[endpoint].description,
+                detected_primary_keys=COVERALLS_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

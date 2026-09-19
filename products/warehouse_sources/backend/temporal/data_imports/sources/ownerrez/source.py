@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.o
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    OWNERREZ_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -102,7 +103,12 @@ Create a personal access token under **Settings → Advanced Tools → Developer
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in OWNERREZ_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

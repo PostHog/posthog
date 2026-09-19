@@ -117,7 +117,12 @@ Pick the region your Cal.com account lives in. Choose EU if you sign in at cal.e
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in CAL_COM_ENDPOINTS.items()},
+        )
 
     def get_endpoint_permissions(
         self, config: CalComSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None

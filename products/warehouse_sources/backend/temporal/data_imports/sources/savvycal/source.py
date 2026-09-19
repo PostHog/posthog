@@ -98,7 +98,12 @@ You can create a token under [Developer Settings](https://savvycal.com/developer
     ) -> list[SourceSchema]:
         # Only events expose a server-side cursor (`from` bound on start date); every other stream
         # has no updated-after filter, so it's full refresh only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in SAVVYCAL_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

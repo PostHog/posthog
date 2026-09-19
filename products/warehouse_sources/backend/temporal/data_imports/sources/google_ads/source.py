@@ -212,6 +212,7 @@ class GoogleAdsSource(
                 ],
                 description=endpoint_config.description,
                 should_sync_default=endpoint_config.should_sync_default,
+                detected_primary_keys=endpoint_config.primary_key or None,
                 # Only the incremental stats tables (those with a segments.date filter) need the
                 # lookback; the full-refresh dimension tables re-read everything each run anyway.
                 default_incremental_lookback_seconds=(

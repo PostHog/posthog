@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    USERSNAP_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap import (
     UsersnapResumeConfig,
@@ -115,6 +116,7 @@ The Usersnap REST API is a gated feature: it must be enabled on your plan by Use
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=_description(endpoint),
+                detected_primary_keys=USERSNAP_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

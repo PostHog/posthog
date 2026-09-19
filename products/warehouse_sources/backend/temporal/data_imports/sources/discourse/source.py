@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.
     validate_credentials as validate_discourse_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.settings import (
+    DISCOURSE_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -115,7 +116,12 @@ Generate an Admin API key under **Admin > API > Keys** on your Discourse instanc
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in DISCOURSE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

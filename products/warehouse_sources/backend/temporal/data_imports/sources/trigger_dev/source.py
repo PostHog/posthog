@@ -122,6 +122,7 @@ API keys are per environment (dev / staging / prod), so one connection syncs one
                 supports_append=has_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=TRIGGER_DEV_ENDPOINTS[endpoint].should_sync_default,
+                detected_primary_keys=TRIGGER_DEV_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

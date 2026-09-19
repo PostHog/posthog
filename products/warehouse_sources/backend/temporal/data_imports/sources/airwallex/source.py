@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.
     validate_credentials as validate_airwallex_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.settings import (
+    AIRWALLEX_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -116,7 +117,12 @@ Create an API key under **Developer** then **API keys** in the Airwallex web app
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in AIRWALLEX_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.
     validate_credentials as validate_aha_ideas_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.settings import (
+    AHA_IDEAS_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -113,7 +114,12 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
         # `build_endpoint_schemas` treats any endpoint present in the mapping as incremental, so
         # drop the full-refresh endpoints (empty `incremental_fields`) to keep them full refresh.
         incremental_fields = {name: fields for name, fields in INCREMENTAL_FIELDS.items() if fields}
-        return build_endpoint_schemas(ENDPOINTS, incremental_fields, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            incremental_fields,
+            names,
+            primary_keys={name: config.primary_keys for name, config in AHA_IDEAS_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

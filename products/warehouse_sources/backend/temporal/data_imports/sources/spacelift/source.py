@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     RUNS_INCREMENTAL_LOOKBACK_SECONDS,
+    SPACELIFT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.spacelift import (
     SpaceliftResumeConfig,
@@ -140,6 +141,7 @@ Your account name is the subdomain you use to access Spacelift (e.g. `my-company
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=self._description(endpoint),
+                detected_primary_keys=SPACELIFT_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

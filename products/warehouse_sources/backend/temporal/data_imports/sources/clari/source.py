@@ -100,7 +100,15 @@ Generate an API key in Clari under your account's API settings. The forecast ID 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={
+                "activity": ["activityId"],
+                "audit_events": ["eventTimestamp", "actorId", "sessionId", "event"],
+            },
+        )
 
     def validate_credentials(
         self, config: ClariSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

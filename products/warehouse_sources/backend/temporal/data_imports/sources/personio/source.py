@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.personio.p
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PERSONIO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -107,7 +108,12 @@ An admin can create API credentials in Personio under Settings > Integrations > 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: [config.primary_key] for name, config in PERSONIO_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

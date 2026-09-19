@@ -96,7 +96,12 @@ You can create an API key under **My Account → API keys** in [Smartwaiver](htt
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in SMARTWAIVER_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

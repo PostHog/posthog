@@ -129,6 +129,7 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=OPENROUTER_ENDPOINTS[endpoint].should_sync_default,
                 description=_description(endpoint),
+                detected_primary_keys=OPENROUTER_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

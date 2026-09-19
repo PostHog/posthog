@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.a
     validate_credentials as validate_airtable_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.settings import (
+    AIRTABLE_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -82,7 +83,12 @@ Create a personal access token at [airtable.com/create/tokens](https://airtable.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in AIRTABLE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

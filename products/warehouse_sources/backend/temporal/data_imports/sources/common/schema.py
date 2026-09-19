@@ -172,6 +172,7 @@ def build_endpoint_schemas(
     descriptions: Mapping[str, str] | None = None,
     should_sync_default: Mapping[str, bool] | None = None,
     supports_webhooks: Collection[str] = (),
+    primary_keys: Mapping[str, list[str] | tuple[str, ...] | None] | None = None,
 ) -> list[SourceSchema]:
     """Build the ``SourceSchema`` list for a static endpoint-catalog source's ``get_schemas``.
 
@@ -182,14 +183,18 @@ def build_endpoint_schemas(
     - ``append_only``: endpoints that support append but not incremental merge.
     - ``merge_only``: endpoints that support incremental merge but not append.
     - ``descriptions`` / ``should_sync_default`` / ``supports_webhooks``: per-endpoint metadata.
+    - ``primary_keys``: the key each endpoint's sync merges on. Pass the same values the sync
+      reads: table creation stores this key, and a stored key wins over the sync's own.
 
     ``names`` (the schema-picker filter) keeps only the requested endpoints when set.
     """
     descriptions = descriptions or {}
     should_sync_default = should_sync_default or {}
+    primary_keys = primary_keys or {}
     schemas = []
     for name in endpoints:
         fields = incremental_fields.get(name) or []
+        keys = primary_keys.get(name)
         # An endpoint counts as incremental only when it actually has tracking fields; an empty
         # (or missing) list means full-refresh.
         has_incremental = bool(fields)
@@ -202,6 +207,7 @@ def build_endpoint_schemas(
                 description=descriptions.get(name),
                 should_sync_default=should_sync_default.get(name, True),
                 supports_webhooks=name in supports_webhooks,
+                detected_primary_keys=list(keys) if keys else None,
             )
         )
 

@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.settings import (
     ENDPOINTS,
+    HUBPLANNER_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -96,7 +97,12 @@ Generate a **Read Only** API key in Hub Planner under **Settings → API** (admi
         # Only bookings and time_entries carry a searchable `updatedDate`, so they're the only
         # endpoints with incremental fields — build_endpoint_schemas derives incremental/append
         # support from that (has_incremental == incremental_search_field is not None).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in HUBPLANNER_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

@@ -166,12 +166,14 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
                 continue
             incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
             supports_incremental = bool(incremental_fields)
+            primary_key = SENTRY_ENDPOINTS[endpoint].primary_key
             schemas.append(
                 SourceSchema(
                     name=endpoint,
                     supports_incremental=supports_incremental,
                     supports_append=supports_incremental,
                     incremental_fields=incremental_fields,
+                    detected_primary_keys=primary_key if isinstance(primary_key, list) else [primary_key],
                 )
             )
         return schemas

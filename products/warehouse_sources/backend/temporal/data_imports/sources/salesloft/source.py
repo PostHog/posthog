@@ -96,7 +96,9 @@ You can create an API key in your [Salesloft account](https://accounts.salesloft
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only the incremental endpoints carry advertised fields; full-refresh ones are empty.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys={name: ["id"] for name in ENDPOINTS}
+        )
 
     def validate_credentials(
         self,

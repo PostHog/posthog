@@ -76,6 +76,7 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
                 supports_append=endpoint.supports_append,
                 incremental_fields=endpoint.incremental_fields,
                 description="Only syncs the last 30 days on initial sync" if endpoint.name == EVENTS_ENDPOINT else None,
+                detected_primary_keys=endpoint.primary_keys,
             )
             for endpoint in AMPLITUDE_ENDPOINTS.values()
         ]

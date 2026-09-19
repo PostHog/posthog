@@ -14,7 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex 
     brex_source,
     validate_credentials as validate_brex_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import (
+    BREX_ENDPOINTS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -101,7 +105,12 @@ Note: Brex tokens expire after 90 days without API activity, so a token that has
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in BREX_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: BrexSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

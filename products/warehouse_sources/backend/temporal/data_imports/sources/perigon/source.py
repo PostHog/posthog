@@ -100,7 +100,12 @@ Datasets available to sync depend on your Perigon plan. Perigon caps each search
     ) -> list[SourceSchema]:
         # Only articles and stories have a documented server-side timestamp filter; the
         # reference datasets are full refresh.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_keys for name, config in PERIGON_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

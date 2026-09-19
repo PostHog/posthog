@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linear.lin
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LINEAR_ENDPOINTS,
     SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -111,6 +112,7 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
             INCREMENTAL_FIELDS,
             names,
             should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: [config.primary_key] for name, config in LINEAR_ENDPOINTS.items()},
         )
 
     def validate_credentials(

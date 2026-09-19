@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsigh
 from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -73,7 +74,7 @@ class PluralsightFlowSource(ResumableSource[PluralsightFlowSourceConfig, Plurals
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, primary_keys=PRIMARY_KEYS)
 
     def validate_credentials(
         self,

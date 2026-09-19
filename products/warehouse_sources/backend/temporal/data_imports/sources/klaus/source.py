@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.klau
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    KLAUS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -110,6 +111,7 @@ Note that the Zendesk QA public API is heavily rate limited, so large initial sy
                 supports_incremental=(fields := INCREMENTAL_FIELDS.get(endpoint)) is not None,
                 supports_append=fields is not None,
                 incremental_fields=fields or [],
+                detected_primary_keys=KLAUS_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

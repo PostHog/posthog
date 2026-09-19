@@ -106,6 +106,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                 supports_incremental=True,
                 supports_append=True,
                 incremental_fields=incremental_field,
+                detected_primary_keys=["_id"],
             )
             for table_name in tables
         ]

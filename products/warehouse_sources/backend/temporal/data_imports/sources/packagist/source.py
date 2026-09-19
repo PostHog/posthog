@@ -106,6 +106,7 @@ Download statistics sync incrementally per day; the other tables sync as a full 
                 should_sync_default=PACKAGIST_ENDPOINTS[endpoint].should_sync_default,
                 description=PACKAGIST_ENDPOINTS[endpoint].description,
                 default_incremental_lookback_seconds=PACKAGIST_ENDPOINTS[endpoint].default_incremental_lookback_seconds,
+                detected_primary_keys=PACKAGIST_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

@@ -141,6 +141,7 @@ In the [Zoho API console](https://api-console.zoho.com), create a **Self Client*
             INCREMENTAL_FIELDS,
             names,
             should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: ["id"] for name in ENDPOINTS},
         )
 
     def validate_credentials(

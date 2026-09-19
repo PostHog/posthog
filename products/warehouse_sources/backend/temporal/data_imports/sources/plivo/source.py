@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.sett
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PLIVO_BASE_URL,
+    PLIVO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -117,6 +118,7 @@ class PlivoSource(ResumableSource[PlivoSourceConfig, PlivoResumeConfig]):
             INCREMENTAL_FIELDS,
             names,
             descriptions=ENDPOINT_DESCRIPTIONS,
+            primary_keys={name: config.primary_keys for name, config in PLIVO_ENDPOINTS.items()},
         )
 
     def validate_credentials(

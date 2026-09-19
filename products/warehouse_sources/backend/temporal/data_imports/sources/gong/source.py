@@ -112,6 +112,7 @@ To also sync the `transcripts` table (what was said on each call), additionally 
                 description="Only syncs the last 365 days on initial sync"
                 if endpoint_config.uses_date_window
                 else None,
+                detected_primary_keys=[endpoint_config.primary_key],
             )
             for endpoint, endpoint_config in GONG_ENDPOINTS.items()
         ]

@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.set
     INCREMENTAL_FIELDS,
     SHOULD_SYNC_DEFAULT,
     TWILIO_API_HOST,
+    TWILIO_ENDPOINTS,
     TWILIO_VERIFY_HOST,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
@@ -177,7 +178,13 @@ Create the key in the same Twilio account as the Account SID above, in Twilio's 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+            primary_keys={name: [config.primary_key] for name, config in TWILIO_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

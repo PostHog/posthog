@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_de
 from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_deploy.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    OCTOPUS_DEPLOY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -117,6 +118,7 @@ You can create an API key in the Octopus web portal under **your profile > My AP
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description=_description(endpoint),
+                detected_primary_keys=["SpaceId", "Id"] if OCTOPUS_DEPLOY_ENDPOINTS[endpoint].space_scoped else ["Id"],
             )
             for endpoint in ENDPOINTS
         ]

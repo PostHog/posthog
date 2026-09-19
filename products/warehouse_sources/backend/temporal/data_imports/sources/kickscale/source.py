@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     INCREMENTAL_LOOKBACK_SECONDS,
+    KICKSCALE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -67,7 +68,12 @@ class KickscaleSource(ResumableSource[KickscaleSourceConfig, KickscaleResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        schemas = build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_key for name, config in KICKSCALE_ENDPOINTS.items()},
+        )
         for schema in schemas:
             # Comments, ratings, CRM links and re-analysis can land on a record after its
             # `date`, and there's no updated-since filter to catch them otherwise.

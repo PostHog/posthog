@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.settings import (
     ENDPOINTS,
+    EVENTBRITE_ENDPOINTS,
     INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -88,6 +89,7 @@ The token needs read access to your organizations, events, orders, and attendees
                 supports_incremental=endpoint in INCREMENTAL_ENDPOINTS,
                 supports_append=endpoint in INCREMENTAL_ENDPOINTS,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=EVENTBRITE_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
         ]

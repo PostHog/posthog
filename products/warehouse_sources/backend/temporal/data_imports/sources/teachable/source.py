@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    TEACHABLE_ENDPOINTS,
     TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable import (
@@ -67,7 +68,12 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        schemas = build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            primary_keys={name: config.primary_key for name, config in TEACHABLE_ENDPOINTS.items()},
+        )
         for schema in schemas:
             if schema.name == "transactions":
                 # New transactions can take up to two minutes to appear via the API, and the

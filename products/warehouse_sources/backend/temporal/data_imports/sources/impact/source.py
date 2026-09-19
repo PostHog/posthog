@@ -120,6 +120,7 @@ Find these in impact.com under **Settings > Technical > API**. Create a Read-Onl
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=IMPACT_ENDPOINTS[endpoint].should_sync_default,
                 description=IMPACT_ENDPOINTS[endpoint].description,
+                detected_primary_keys=IMPACT_ENDPOINTS[endpoint].primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
