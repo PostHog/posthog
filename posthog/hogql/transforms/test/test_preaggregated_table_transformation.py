@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 import unittest
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
 
 from parameterized import parameterized
@@ -802,6 +803,11 @@ GROUP BY date
         assert not is_integer_timezone("Asia/Kathmandu")  # UTC+5:45
         assert not is_integer_timezone("Asia/Kolkata")  # UTC+5:30
         assert not is_integer_timezone("Australia/Adelaide")  # UTC+9:30
+
+    @freeze_time("2026-09-05 22:30:00")
+    def test_integer_timezones_during_a_dst_gap(self):
+        # Pacific/Easter skips the 22:00 hour on this date, so this wall clock does not exist there
+        assert is_integer_timezone("Pacific/Easter")
 
     def test_enable_for_integer_team_timezones(self):
         self.team.timezone = "Europe/London"

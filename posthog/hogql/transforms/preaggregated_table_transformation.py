@@ -565,10 +565,14 @@ def is_integer_timezone(timezone: str) -> bool:
     # this is currently true for all timezones in the tz database
     try:
         parsed = pytz.timezone(timezone)
-    except pytz.UnknownTimeZoneError:
+        # the reference instant must be aware: a naive wall clock inside a DST transition is
+        # non-existent or ambiguous, and pytz raises instead of returning an offset
+        offset = datetime.now(pytz.utc).astimezone(parsed).utcoffset()
+    except Exception:
+        # an unusable timezone makes the team ineligible, it must not break the query
         return False
-    now = datetime.now()
-    offset = parsed.utcoffset(now)
+    if offset is None:
+        return False
     return offset.total_seconds() % 3600 == 0
 
 
