@@ -4787,7 +4787,7 @@ class FeatureFlagViewSet(
 
         return Response({"affected": result.affected, "total": result.total})
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["feature_flag:write"])
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):
         feature_flag = self.get_object()
         feature_flag_key = feature_flag.key
