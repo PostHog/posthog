@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from litellm.exceptions import APIConnectionError
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
@@ -180,6 +181,59 @@ class ProviderError(HTTPException):
     """
 
 
+# litellm rejects a message shape that is not OpenAI's before it calls any provider, and maps that
+# rejection to an error with no status code, so the gateway reported a caller mistake as its own 500.
+_INVALID_MESSAGE_MARKER = "valid openai chat completion messages"
+
+
+def _to_http_error(
+    error: Exception,
+    *,
+    provider_config: ProviderConfig,
+    streaming: bool,
+    capture_context: dict[str, Any],
+) -> HTTPException:
+    """Log a failed provider call, report it, and convert it for the caller.
+
+    A message-shape rejection is the caller's 400 and is not reported: no provider ever saw the
+    request, so it says nothing about provider health and needs no error-tracking issue.
+    """
+    if isinstance(error, APIConnectionError) and _INVALID_MESSAGE_MARKER in str(error).lower():
+        logger.warning(
+            "llm_request_invalid_messages",
+            endpoint=provider_config.endpoint_name,
+            streaming=streaming,
+            error_message=str(error),
+        )
+        return HTTPException(
+            status_code=400,
+            detail={"error": {"message": str(error), "type": "invalid_request_error", "code": None}},
+        )
+
+    status_code = getattr(error, "status_code", 500)
+    capture_exception(error, capture_context)
+    logger.exception(
+        "llm_request_failed",
+        endpoint=provider_config.endpoint_name,
+        streaming=streaming,
+        status_code=status_code,
+        error_type=type(error).__name__,
+        error_message=getattr(error, "message", str(error)),
+        provider_error_type=getattr(error, "type", None),
+        provider_error_code=getattr(error, "code", None),
+    )
+    return ProviderError(
+        status_code=status_code,
+        detail={
+            "error": {
+                "message": getattr(error, "message", str(error)),
+                "type": getattr(error, "type", "internal_error"),
+                "code": getattr(error, "code", None),
+            }
+        },
+    )
+
+
 def _raise_unsupported_model(model: str) -> None:
     raise HTTPException(
         status_code=400,
@@ -292,27 +346,11 @@ async def handle_llm_request(
         raise
     except Exception as e:
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
-        capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
-        status_code = getattr(e, "status_code", 500)
-        logger.exception(
-            "llm_request_failed",
-            endpoint=provider_config.endpoint_name,
+        raise _to_http_error(
+            e,
+            provider_config=provider_config,
             streaming=False,
-            status_code=status_code,
-            error_type=type(e).__name__,
-            error_message=getattr(e, "message", str(e)),
-            provider_error_type=getattr(e, "type", None),
-            provider_error_code=getattr(e, "code", None),
-        )
-        raise ProviderError(
-            status_code=status_code,
-            detail={
-                "error": {
-                    "message": getattr(e, "message", str(e)),
-                    "type": getattr(e, "type", "internal_error"),
-                    "code": getattr(e, "code", None),
-                }
-            },
+            capture_context={"provider": provider_config.name, "model": model, "user_id": user.user_id},
         ) from e
     finally:
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
@@ -360,23 +398,17 @@ async def _handle_streaming_request(
     except Exception as e:
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
-        capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
-        status_code = getattr(e, "status_code", 500)
-        logger.exception(
-            "llm_request_failed",
-            endpoint=provider_config.endpoint_name,
+        http_error = _to_http_error(
+            e,
+            provider_config=provider_config,
             streaming=True,
-            status_code=status_code,
-            error_type=type(e).__name__,
-            error_message=getattr(e, "message", str(e)),
-            provider_error_type=getattr(e, "type", None),
-            provider_error_code=getattr(e, "code", None),
+            capture_context={"provider": provider_config.name, "model": model, "streaming": True},
         )
         REQUEST_COUNT.labels(
             endpoint=provider_config.endpoint_name,
             provider=provider_config.name,
             model=model,
-            status_code=str(status_code),
+            status_code=str(http_error.status_code),
             auth_method=user.auth_method,
             product=product,
         ).inc()
@@ -386,16 +418,7 @@ async def _handle_streaming_request(
             streaming="true",
             product=product,
         ).observe(time.monotonic() - start_time)
-        raise ProviderError(
-            status_code=status_code,
-            detail={
-                "error": {
-                    "message": getattr(e, "message", str(e)),
-                    "type": getattr(e, "type", "internal_error"),
-                    "code": getattr(e, "code", None),
-                }
-            },
-        ) from e
+        raise http_error from e
 
     async def stream_generator() -> AsyncGenerator[bytes]:
         ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).inc()

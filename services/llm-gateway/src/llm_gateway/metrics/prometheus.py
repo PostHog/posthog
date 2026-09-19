@@ -137,6 +137,15 @@ PROVIDER_ERRORS = Counter(
     labelnames=["provider", "error_type", "product"],
 )
 
+UNSUPPORTED_CONTENT_REJECTED = Counter(
+    "llm_gateway_unsupported_content_rejected_total",
+    "Chat-completion requests rejected with 400 because a user message carried content the "
+    "OpenAI-compatible backend or the model cannot accept, such as an Anthropic-shaped image part "
+    "or an image for a model without vision. Keeps these caller-side mistakes visible now that "
+    "they no longer surface as gateway errors.",
+    labelnames=["provider", "model", "reason", "product"],
+)
+
 ACTIVE_STREAMS = Gauge(
     "llm_gateway_active_streams",
     "Currently active streaming connections",

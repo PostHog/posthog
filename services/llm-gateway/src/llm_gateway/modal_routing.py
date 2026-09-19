@@ -14,6 +14,7 @@ from llm_gateway.api.handler import (
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import Settings, get_settings
 from llm_gateway.modal import (
+    ensure_modal_chat_content_supported,
     ensure_modal_model_allowed,
     ensure_modal_model_configured,
     make_modal_anthropic_call,
@@ -64,6 +65,7 @@ async def send_modal_anthropic_messages(
 async def send_modal_chat_completions(
     request_data: dict[str, Any], user: AuthenticatedUser, is_streaming: bool, product: str
 ) -> dict[str, Any] | StreamingResponse:
+    ensure_modal_chat_content_supported(request_data, product)
     return await send_modal_request(
         request_data, user, is_streaming, product, MODAL_OPENAI_CONFIG, make_modal_completion_call
     )

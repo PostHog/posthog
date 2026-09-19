@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, NoReturn
 
 import litellm
 from fastapi import HTTPException
@@ -12,10 +12,13 @@ from fastapi import HTTPException
 from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
+from litellm.types.llms.openai import ValidUserMessageContentTypes
 
 from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive, force_stream_usage
 from llm_gateway.anthropic_stream import repair_anthropic_stream
 from llm_gateway.config import Settings, _normalize_cost_key
+from llm_gateway.metrics.prometheus import UNSUPPORTED_CONTENT_REJECTED
+from llm_gateway.rate_limiting.model_cost_service import get_model_costs
 
 # Modal endpoints are OpenAI-compatible vLLM servers; no native litellm provider.
 _MODAL_LITELLM_PREFIX = "openai/"
@@ -100,6 +103,53 @@ def ensure_modal_model_allowed(model: str) -> None:
                 }
             },
         )
+
+
+# litellm checks user content parts against the OpenAI set before it calls the backend, and the
+# error it raises for anything else carries no status code, so the gateway answered 500 for a
+# caller mistake. Read the set from litellm so the two stay in step.
+_OPENAI_USER_CONTENT_TYPES: Final[frozenset[str]] = frozenset(ValidUserMessageContentTypes)
+
+
+def _reject_content(model: str, product: str, reason: str, message: str) -> NoReturn:
+    UNSUPPORTED_CONTENT_REJECTED.labels(provider="modal", model=model, reason=reason, product=product).inc()
+    raise HTTPException(
+        status_code=400,
+        detail={"error": {"message": message, "type": "invalid_request_error", "code": reason}},
+    )
+
+
+def ensure_modal_chat_content_supported(request_data: dict[str, Any], product: str) -> None:
+    """Reject content the Modal chat-completions path can never serve, before the litellm call."""
+    model = request_data["model"]
+    costs = get_model_costs(model)
+    # Only a declared-false capability rejects. A model the cost map does not price yet has an
+    # unknown capability, and must still reach the backend.
+    rejects_images = costs is not None and costs.get("supports_vision") is False
+    for message in request_data.get("messages") or []:
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            part_type = part.get("type")
+            if part_type not in _OPENAI_USER_CONTENT_TYPES:
+                _reject_content(
+                    model,
+                    product,
+                    "invalid_content_type",
+                    f"Message content of type '{part_type}' is not valid in a chat completions request",
+                )
+            if part_type == "image_url" and rejects_images:
+                _reject_content(
+                    model,
+                    product,
+                    "vision_not_supported",
+                    f"Model '{model}' does not accept image input",
+                )
 
 
 def _traffic_bucket(user_key: str) -> float:

@@ -1,7 +1,10 @@
 from collections.abc import Iterator
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
+from litellm.exceptions import APIConnectionError
 
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
@@ -9,6 +12,7 @@ from llm_gateway.api.handler import (
     CLOUDFLARE_ANTHROPIC_CONFIG,
     CLOUDFLARE_OPENAI_CONFIG,
     CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
+    MODAL_OPENAI_CONFIG,
     OPENAI_CONFIG,
     OPENAI_RESPONSES_CONFIG,
     OPENAI_TRANSCRIPTION_CONFIG,
@@ -104,3 +108,65 @@ class TestEffortInstrumentation:
         )
 
         assert captured["effort"] == expected
+
+
+class TestMessageShapeRejection:
+    """litellm validates OpenAI message shape before it calls a provider and raises an error with
+    no status code, which the handler used to report as a gateway 500 and an error-tracking issue.
+    """
+
+    @pytest.mark.parametrize("is_streaming", [False, True])
+    @pytest.mark.asyncio
+    async def test_invalid_message_shape_is_an_unreported_400(
+        self, authenticated_user: AuthenticatedUser, is_streaming: bool
+    ) -> None:
+        error = APIConnectionError(
+            message="Invalid user message at index 0. Please ensure all user messages are valid "
+            "OpenAI chat completion messages.",
+            llm_provider="openai",
+            model="moonshotai/kimi-k3",
+        )
+
+        async def failing_call(**kwargs: Any) -> dict[str, Any]:
+            raise error
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            with pytest.raises(HTTPException) as exc_info:
+                await handle_llm_request(
+                    request_data={"messages": [{"role": "user", "content": [{"type": "image"}]}]},
+                    user=authenticated_user,
+                    model="test-model",
+                    is_streaming=is_streaming,
+                    provider_config=MODAL_OPENAI_CONFIG,
+                    llm_call=failing_call,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["error"]["type"] == "invalid_request_error"
+        mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize("is_streaming", [False, True])
+    @pytest.mark.asyncio
+    async def test_statusless_provider_failure_stays_a_reported_500(
+        self, authenticated_user: AuthenticatedUser, is_streaming: bool
+    ) -> None:
+        error = APIConnectionError(
+            message="Connection reset by peer", llm_provider="openai", model="moonshotai/kimi-k3"
+        )
+
+        async def failing_call(**kwargs: Any) -> dict[str, Any]:
+            raise error
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            with pytest.raises(HTTPException) as exc_info:
+                await handle_llm_request(
+                    request_data={"messages": [{"role": "user", "content": "hi"}]},
+                    user=authenticated_user,
+                    model="test-model",
+                    is_streaming=is_streaming,
+                    provider_config=MODAL_OPENAI_CONFIG,
+                    llm_call=failing_call,
+                )
+
+        assert exc_info.value.status_code == 500
+        mock_capture.assert_called_once()

@@ -16,7 +16,7 @@ from llm_gateway.modal import (
     make_modal_responses_call,
     should_route_glm_to_modal,
 )
-from llm_gateway.modal_routing import send_modal_anthropic_messages
+from llm_gateway.modal_routing import send_modal_anthropic_messages, send_modal_chat_completions
 from llm_gateway.rate_limiting.cost_refresh import ALIAS_METRIC_LABELS, COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_overrides import MODEL_COST_OVERRIDES
 
@@ -248,3 +248,61 @@ async def test_make_modal_responses_call_forces_bridge_and_ignores_smuggled_flag
     assert kwargs["extra_headers"]["Modal-Key"] == "wk"
     assert kwargs["extra_headers"]["Modal-Secret"] == "ws"
     assert kwargs["input"] == "hi"
+
+
+@pytest.mark.parametrize(
+    ("content_part", "expected_code"),
+    [
+        # Anthropic's image shape in an OpenAI request: litellm rejects it with an error that
+        # carries no status code, which the gateway used to report as its own 500.
+        pytest.param({"type": "image", "source": {"type": "base64", "data": "AAAA"}}, "invalid_content_type"),
+        pytest.param({"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}, "vision_not_supported"),
+    ],
+)
+async def test_modal_chat_completions_rejects_image_kimi_cannot_serve(
+    content_part: dict[str, Any], expected_code: str
+) -> None:
+    request = {"model": KIMI_MODEL, "messages": [{"role": "user", "content": [content_part]}]}
+
+    with patch("llm_gateway.modal_routing.send_modal_request", new=AsyncMock()) as send_request:
+        with pytest.raises(HTTPException) as exc_info:
+            await send_modal_chat_completions(request, MagicMock(), False, "posthog_code")
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["error"]["type"] == "invalid_request_error"
+    assert exc_info.value.detail["error"]["code"] == expected_code
+    send_request.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "messages",
+    [
+        pytest.param([{"role": "user", "content": "Hello"}], id="plain_text"),
+        pytest.param([{"role": "user", "content": [{"type": "text", "text": "Hello"}]}], id="text_part"),
+        # Only user messages are shape-checked, so an assistant part litellm allows must pass.
+        pytest.param([{"role": "assistant", "content": [{"type": "thinking", "thinking": "hm"}]}], id="assistant"),
+    ],
+)
+async def test_modal_chat_completions_forwards_servable_content(messages: list[dict[str, Any]]) -> None:
+    request = {"model": KIMI_MODEL, "messages": messages}
+
+    with patch("llm_gateway.modal_routing.send_modal_request", new=AsyncMock(return_value={})) as send_request:
+        await send_modal_chat_completions(request, MagicMock(), False, "posthog_code")
+
+    send_request.assert_awaited_once()
+
+
+async def test_modal_chat_completions_forwards_image_for_model_of_unknown_capability() -> None:
+    # GLM is not priced under its public id, so its vision support is unknown. Unknown must reach
+    # the backend: only a capability the cost map declares false is rejected here.
+    request = {
+        "model": GLM_MODEL,
+        "messages": [
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}]}
+        ],
+    }
+
+    with patch("llm_gateway.modal_routing.send_modal_request", new=AsyncMock(return_value={})) as send_request:
+        await send_modal_chat_completions(request, MagicMock(), False, "posthog_code")
+
+    send_request.assert_awaited_once()
