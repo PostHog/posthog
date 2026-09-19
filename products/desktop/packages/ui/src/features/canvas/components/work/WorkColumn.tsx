@@ -8,6 +8,8 @@ import {
 } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import {
+  Autocomplete,
+  AutocompleteList,
   Button,
   cn,
   InputGroup,
@@ -24,8 +26,10 @@ import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import type { TaskRowMenuProps } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { WorkItemRow } from "@posthog/ui/features/canvas/components/work/WorkItemRow";
+import { WorkRowSurface } from "@posthog/ui/features/canvas/components/work/WorkRowSurface";
 import { useChannelStarMutations } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
   type Channel,
@@ -39,7 +43,6 @@ import {
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
-import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
   navigateToChannel,
@@ -53,8 +56,12 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 const RECENT_COLLAPSED_COUNT = 5;
 
-/** A section's label, foldable, with room for one control at its end. */
-function SectionHeader({
+/**
+ * A section's heading. The label's left edge is the line every row beneath it
+ * lines up to, so the caret sits at the far end rather than pushing the label
+ * in — the same shape the space list's headings take.
+ */
+function SectionHeading({
   label,
   expanded,
   onToggle,
@@ -67,20 +74,18 @@ function SectionHeader({
 }) {
   const Caret = expanded ? CaretDownIcon : CaretRightIcon;
   return (
-    <div className="group/section flex items-center pr-1 pl-2">
-      <button
-        type="button"
+    <div className="flex items-center gap-1">
+      {/* The caret rides with the label rather than at the far right: this
+          heading carries a control of its own there, and the two collide. */}
+      <MenuLabel
+        render={<button type="button" />}
         aria-expanded={expanded}
         onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-1 rounded-sm text-left"
+        className="flex min-w-0 flex-1 items-center gap-1 rounded-sm py-1 hover:text-foreground"
       >
-        <Caret
-          size={10}
-          weight="bold"
-          className="shrink-0 text-muted-foreground opacity-60 transition-opacity group-hover/section:opacity-100"
-        />
-        <MenuLabel className="px-0">{label}</MenuLabel>
-      </button>
+        {label}
+        <Caret size={11} className="shrink-0 opacity-60" />
+      </MenuLabel>
       {trailing}
     </div>
   );
@@ -118,43 +123,7 @@ function IconAction({
   );
 }
 
-function RecentRows({
-  items,
-  activeKey,
-  actions,
-}: {
-  items: RecentWorkItem[];
-  activeKey: string | null;
-  actions: ChannelItemActions;
-}) {
-  return (
-    <div className="flex flex-col gap-px px-1.5">
-      {items.map(({ item, channelId }) => (
-        <WorkItemRow
-          key={item.key}
-          item={item}
-          isActive={item.key === activeKey}
-          onOpen={() => actions.open(item)}
-          menu={
-            {
-              kind: item.kind,
-              id: item.id,
-              title: item.title,
-              isPinned: item.pinned,
-              task: item.task ?? undefined,
-              channelId,
-              onTogglePin: () => actions.togglePin(item),
-              onArchive:
-                item.kind === "task" ? () => actions.archive(item) : undefined,
-            } satisfies TaskRowMenuProps
-          }
-        />
-      ))}
-    </div>
-  );
-}
-
-/** One space. Same 28px line as a Recent row, so the two lists share a rhythm. */
+/** One space. Same row as a Recent item, so the two lists share a rhythm. */
 function SpaceRow({
   channel,
   isActive,
@@ -165,15 +134,9 @@ function SpaceRow({
   unread: boolean;
 }) {
   return (
-    <button
-      type="button"
+    <WorkRowSurface
+      optionValue={channel.id}
       data-selected={isActive || undefined}
-      className={cn(
-        "group flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors",
-        "text-muted-foreground hover:bg-fill-hover hover:text-foreground",
-        "data-selected:bg-fill-selected data-selected:font-medium data-selected:text-foreground",
-        unread && !isActive && "font-medium text-foreground",
-      )}
       onClick={() => {
         track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
           action_type: "nav_click",
@@ -194,7 +157,11 @@ function SpaceRow({
           private: channel.channelType === "private",
         })}
       </span>
-      <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+      <span
+        className={cn("min-w-0 flex-1 truncate", unread && "font-semibold")}
+      >
+        {channel.name}
+      </span>
       {unread && !isActive && (
         <span
           role="img"
@@ -202,7 +169,7 @@ function SpaceRow({
           className="size-1.5 shrink-0 rounded-full bg-primary"
         />
       )}
-    </button>
+    </WorkRowSurface>
   );
 }
 
@@ -233,7 +200,7 @@ function AddSpacePanel({
     : candidates;
 
   return (
-    <div className="mx-2 mt-1 mb-2 flex flex-col overflow-hidden rounded-md border border-border bg-background">
+    <div className="my-1 flex flex-col overflow-hidden rounded-md border border-border bg-background">
       <div className="p-1.5">
         <InputGroup className="h-7">
           <InputGroupAddon>
@@ -244,9 +211,12 @@ function AddSpacePanel({
             value={query}
             placeholder="Add a space…"
             aria-label="Search spaces to add"
-            className="text-[13px]"
+            className="text-[12px]"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
+              // The column's own list is listening for these; this input is a
+              // surface of its own and keeps them.
+              event.stopPropagation();
               if (event.key === "Escape") {
                 event.preventDefault();
                 onClose();
@@ -267,7 +237,7 @@ function AddSpacePanel({
       </div>
       <div className="flex max-h-56 flex-col gap-px overflow-y-auto px-1.5 pb-1">
         {shown.length === 0 ? (
-          <p className="px-2 py-2 text-muted-foreground text-xs">
+          <p className="px-2 py-2 text-[12px] text-muted-foreground">
             {needle ? "No space by that name." : "Every space is already here."}
           </p>
         ) : (
@@ -275,7 +245,7 @@ function AddSpacePanel({
             <button
               key={channel.id}
               type="button"
-              className="group/add flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[13px] text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
+              className="group/add flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left font-medium text-[12px] text-muted-foreground leading-snug transition-colors hover:bg-fill-hover hover:text-foreground"
               onClick={() => onStar(channel)}
             >
               <span className="flex size-3.5 shrink-0 items-center justify-center">
@@ -297,7 +267,7 @@ function AddSpacePanel({
       </div>
       <button
         type="button"
-        className="flex items-center gap-1.5 border-border border-t px-3 py-2 text-left text-[13px] text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
+        className="flex items-center gap-1.5 border-border border-t px-3 py-2 text-left font-medium text-[12px] text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
         onClick={onCreate}
       >
         <PlusIcon size={13} aria-hidden />
@@ -311,12 +281,21 @@ function AddSpacePanel({
  * The Work column: what you touched recently, then the spaces you starred, in
  * a column that never changes shape. Entering a space or a session does not
  * swap it for another pane; the active row just moves.
+ *
+ * Like the space list and the activity feed it is one permanently open inline
+ * Autocomplete: the search box is the column's only focus holder, and ↑/↓/⏎
+ * walk every row it is showing.
  */
 export function WorkColumn() {
+  const [query, setQuery] = useState("");
+  // Two separate things: whether the section is open at all (the caret), and
+  // whether it is showing everything or its first few (the count button).
+  const [recentOpen, setRecentOpen] = useState(true);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [spacesExpanded, setSpacesExpanded] = useState(true);
   const [adding, setAdding] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [_scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
 
   const { items, isLoading } = useRecentWorkItems();
   const { channels } = useChannels();
@@ -335,14 +314,24 @@ export function WorkColumn() {
     ? currentChannelId
     : null;
 
+  const needle = query.trim().toLowerCase();
+  const matchingItems = useMemo(
+    () =>
+      needle
+        ? items.filter(({ item }) => item.title.toLowerCase().includes(needle))
+        : items,
+    [items, needle],
+  );
   // #me leads, then the starred spaces in the list's own (name) order.
-  const starredSpaces = useMemo(
-    () => [
+  const starredSpaces = useMemo(() => {
+    const starred = [
       ...channels.filter((c) => c.channelType === "personal"),
       ...channels.filter((c) => c.channelType !== "personal" && c.starred),
-    ],
-    [channels],
-  );
+    ];
+    return needle
+      ? starred.filter((c) => c.name.toLowerCase().includes(needle))
+      : starred;
+  }, [channels, needle]);
   const candidateSpaces = useMemo(
     () => channels.filter((c) => c.channelType !== "personal" && !c.starred),
     [channels],
@@ -410,107 +399,166 @@ export function WorkColumn() {
     });
   };
 
-  const shownItems = recentExpanded
-    ? items
-    : items.slice(0, RECENT_COLLAPSED_COUNT);
-  const canExpandRecent = items.length > RECENT_COLLAPSED_COUNT;
+  // A search is the user asking for everything that matches, so it opens the
+  // list rather than making them expand it first.
+  const showAllRecent = recentExpanded || needle !== "";
+  const shownItems = showAllRecent
+    ? matchingItems
+    : matchingItems.slice(0, RECENT_COLLAPSED_COUNT);
+  const canExpandRecent =
+    needle === "" && matchingItems.length > RECENT_COLLAPSED_COUNT;
+  const optionValues = useMemo(
+    () => [
+      ...shownItems.map(({ item }) => item.key),
+      ...starredSpaces.map((channel) => channel.id),
+    ],
+    [shownItems, starredSpaces],
+  );
+
+  const menuFor = (entry: RecentWorkItem): TaskRowMenuProps => ({
+    kind: entry.item.kind,
+    id: entry.item.id,
+    title: entry.item.title,
+    isPinned: entry.item.pinned,
+    task: entry.item.task ?? undefined,
+    channelId: entry.channelId,
+    onTogglePin: () => actions.togglePin(entry.item),
+    onArchive:
+      entry.item.kind === "task"
+        ? () => actions.archive(entry.item)
+        : undefined,
+  });
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <ChromeBar>
-        <h2 className="font-bold text-base">Work</h2>
-      </ChromeBar>
-      <div className="scroll-mask-8 min-h-0 flex-1 overflow-y-auto pt-1 pb-3">
-        <SectionHeader
-          label="Recent"
-          expanded={recentExpanded}
-          onToggle={() => setRecentExpanded((value) => !value)}
-          trailing={
-            canExpandRecent ? (
-              <button
-                type="button"
-                className="rounded-sm px-1 text-[11px] text-muted-foreground tabular-nums transition-colors hover:text-foreground"
-                onClick={() => setRecentExpanded((value) => !value)}
-              >
-                {recentExpanded ? "Fewer" : `All ${items.length}`}
-              </button>
-            ) : null
-          }
+    <Autocomplete<string>
+      inline
+      // Pinned open: this list is the pane itself, and a closed combobox stops
+      // answering the arrow keys.
+      open
+      items={optionValues}
+      filter={null}
+      value={query}
+      onValueChange={(value, eventDetails) => {
+        if (
+          eventDetails.reason === "input-change" &&
+          typeof value === "string"
+        ) {
+          setQuery(value);
+        }
+      }}
+    >
+      <div className="flex h-full min-h-0 flex-col">
+        <SidebarSearchHeader
+          title="Work"
+          query={query}
+          placeholder="Search sessions and spaces…"
+          searchLabel="Search work"
+          onClear={() => setQuery("")}
         />
-        {isLoading && items.length === 0 ? (
-          <div className="flex flex-col gap-2 px-4 py-1.5">
-            <Skeleton className="h-3.5 w-4/5" />
-            <Skeleton className="h-3.5 w-3/5" />
-            <Skeleton className="h-3.5 w-2/3" />
-          </div>
-        ) : items.length === 0 ? (
-          <p className="px-4 py-1.5 text-muted-foreground text-xs">
-            Sessions and canvases you open show up here.
-          </p>
-        ) : (
-          <RecentRows
-            items={shownItems}
-            activeKey={activeKey}
-            actions={actions}
-          />
-        )}
-
-        <div className="mt-3">
-          <SectionHeader
-            label="Spaces"
-            expanded={spacesExpanded}
-            onToggle={() => setSpacesExpanded((value) => !value)}
+        <AutocompleteList
+          ref={setScrollRoot}
+          className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !px-2 !pt-2 !pb-2 min-h-0 flex-1 scroll-py-8 flex-col gap-px overflow-y-auto"
+        >
+          <SectionHeading
+            label="Recent"
+            expanded={recentOpen}
+            onToggle={() => setRecentOpen((value) => !value)}
             trailing={
-              <IconAction
-                label={adding ? "Done adding" : "Add a space"}
-                active={adding}
-                onClick={() => {
-                  setSpacesExpanded(true);
-                  setAdding((value) => !value);
-                }}
-              >
-                <PlusIcon size={14} />
-              </IconAction>
+              recentOpen && canExpandRecent ? (
+                <button
+                  type="button"
+                  className="rounded-sm px-1 text-[11px] text-muted-foreground tabular-nums transition-colors hover:text-foreground"
+                  onClick={() => setRecentExpanded((value) => !value)}
+                >
+                  {recentExpanded ? "Fewer" : `All ${matchingItems.length}`}
+                </button>
+              ) : null
             }
           />
-          {spacesExpanded && (
-            <>
-              {adding && (
-                <AddSpacePanel
-                  candidates={candidateSpaces}
-                  onStar={starSpace}
-                  onCreate={() => {
-                    setAdding(false);
-                    setCreateOpen(true);
-                  }}
-                  onClose={() => setAdding(false)}
-                />
-              )}
-              <div className="flex flex-col gap-px px-1.5">
-                {starredSpaces.map((channel) => (
-                  <SpaceRow
-                    key={channel.id}
-                    channel={channel}
-                    isActive={channel.id === activeChannelId}
-                    unread={isChannelUnread(channel.id)}
+          {recentOpen &&
+            (isLoading && items.length === 0 ? (
+              <div className="flex flex-col gap-2 px-2 py-1.5">
+                <Skeleton className="h-3.5 w-4/5" />
+                <Skeleton className="h-3.5 w-3/5" />
+                <Skeleton className="h-3.5 w-2/3" />
+              </div>
+            ) : shownItems.length === 0 ? (
+              <p className="px-2 py-1 text-[12px] text-muted-foreground">
+                {needle
+                  ? "Nothing here matches."
+                  : "Sessions and canvases you open show up here."}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-px">
+                {shownItems.map((entry) => (
+                  <WorkItemRow
+                    key={entry.item.key}
+                    item={entry.item}
+                    isActive={entry.item.key === activeKey}
+                    onOpen={() => actions.open(entry.item)}
+                    menu={menuFor(entry)}
                   />
                 ))}
-                {starredSpaces.length <= 1 && !adding && (
-                  <button
-                    type="button"
-                    className="mx-1 mt-1 flex items-center gap-1.5 rounded-md border border-border border-dashed px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
-                    onClick={() => setAdding(true)}
-                  >
-                    <PlusIcon size={13} aria-hidden />
-                    Add the spaces you work in
-                  </button>
-                )}
               </div>
-            </>
-          )}
-        </div>
+            ))}
+
+          <div className="mt-2">
+            <SectionHeading
+              label="Spaces"
+              expanded={spacesExpanded}
+              onToggle={() => setSpacesExpanded((value) => !value)}
+              trailing={
+                <IconAction
+                  label={adding ? "Done adding" : "Add a space"}
+                  active={adding}
+                  onClick={() => {
+                    setSpacesExpanded(true);
+                    setAdding((value) => !value);
+                  }}
+                >
+                  <PlusIcon size={14} />
+                </IconAction>
+              }
+            />
+            {spacesExpanded && (
+              <>
+                {adding && (
+                  <AddSpacePanel
+                    candidates={candidateSpaces}
+                    onStar={starSpace}
+                    onCreate={() => {
+                      setAdding(false);
+                      setCreateOpen(true);
+                    }}
+                    onClose={() => setAdding(false)}
+                  />
+                )}
+                <div className="flex flex-col gap-px">
+                  {starredSpaces.map((channel) => (
+                    <SpaceRow
+                      key={channel.id}
+                      channel={channel}
+                      isActive={channel.id === activeChannelId}
+                      unread={isChannelUnread(channel.id)}
+                    />
+                  ))}
+                  {starredSpaces.length <= 1 && !adding && needle === "" && (
+                    <button
+                      type="button"
+                      className="mt-1 flex items-center gap-1.5 rounded-md border border-border border-dashed px-2 py-1.5 text-left font-medium text-[12px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
+                      onClick={() => setAdding(true)}
+                    >
+                      <PlusIcon size={13} aria-hidden />
+                      Add the spaces you work in
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </AutocompleteList>
       </div>
       <CreateChannelModal open={createOpen} onOpenChange={setCreateOpen} />
-    </div>
+    </Autocomplete>
   );
 }

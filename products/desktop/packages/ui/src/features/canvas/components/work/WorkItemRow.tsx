@@ -1,5 +1,4 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
-import { cn } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
@@ -7,19 +6,21 @@ import {
   TaskRowContextMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
+import { WorkRowSurface } from "@posthog/ui/features/canvas/components/work/WorkRowSurface";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { TaskStatusDot } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  OverflowTickerText,
+  useOverflowTickerReveal,
+} from "@posthog/ui/primitives/OverflowTickerText";
 
 /**
  * One line in the Work column's Recent list: what state it is in, what it is
- * called, and when you last touched it.
+ * called, and — once the pointer is on it — when you last touched it.
  *
- * Deliberately not `ChannelItemRow`. That row belongs to a space's own list,
- * where a title clips and tickers on hover and a trailing badge stack says
- * which space facts apply. Here the list crosses every space and is read at a
- * glance, so a name that does not fit ends in an ellipsis and the only trailing
- * mark is its age.
+ * The marks are the session list's own (`taskDot`), so a row here and the same
+ * session in its space say the same thing about it.
  */
 export function WorkItemRow({
   item,
@@ -35,34 +36,36 @@ export function WorkItemRow({
   // No PR lookup: that is a query into git per row, and this list spans every
   // space the viewer has.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
+  // The session lists' own overflow behaviour: a name too long to fit tickers
+  // under the pointer rather than stopping at an ellipsis nobody can read past.
+  const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
   return (
     <TaskRowContextMenu menu={menu}>
       <ChannelItemHoverCard item={item} menu={menu}>
-        <button
-          type="button"
-          onClick={onOpen}
+        <WorkRowSurface
+          optionValue={item.key}
           data-selected={isActive || undefined}
-          className={cn(
-            "group flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors",
-            "text-muted-foreground hover:bg-fill-hover hover:text-foreground",
-            "data-selected:bg-fill-selected data-selected:text-foreground",
-          )}
+          onClick={onOpen}
+          {...hoverProps}
+          {...focusProps}
         >
           <span className="flex size-3.5 shrink-0 items-center justify-center">
             {item.kind === "canvas" ? (
               iconForTemplate(item.templateId ?? "freeform", {
-                size: 12,
+                size: 13,
                 className: "text-violet-9",
               })
             ) : (
               <TaskStatusDot dot={taskDot(status ?? {})} hitArea="row" />
             )}
           </span>
-          <span className="min-w-0 flex-1 truncate">{item.title}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover:opacity-100 group-data-selected:opacity-100">
+          <OverflowTickerText reveal={reveal} className="flex-1">
+            {item.title}
+          </OverflowTickerText>
+          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/button:opacity-100 group-data-selected/button:opacity-100">
             {formatRelativeTimeShort(item.ts)}
           </span>
-        </button>
+        </WorkRowSurface>
       </ChannelItemHoverCard>
     </TaskRowContextMenu>
   );
