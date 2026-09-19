@@ -192,8 +192,16 @@ const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
 // marker); below it the dead-zone clamp handles things silently and a warning would be noise
 const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 
-// Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
-const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
+// Cadence for re-running syncPlayerState while buffering, since neither backed-off source polling
+// nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own. A
+// viewer abandons a buffering recording after a few seconds, so the first re-evaluations land
+// inside the wait they tolerate, and the delay then grows so a long ingestion wait stays cheap.
+// The last delay repeats until the buffer ends.
+const BUFFERING_REEVALUATION_DELAYS_MS = [1000, 2000, 2000, 4000, 8000, 15000, 30000]
+
+// The overlay offers a retry action from this re-evaluation on. The delays before it sum to five
+// seconds, past which a viewer has waited longer than a healthy recording ever buffers for.
+const BUFFERING_STALLED_AFTER_ATTEMPTS = 3
 
 // a stretch of the recording playback cannot render
 export interface UnplayableSpan {
@@ -626,6 +634,7 @@ export interface sessionRecordingPlayerLogicValues {
     hasUnrenderableWindow: boolean
     hoverModeIsEnabled: boolean
     isBuffering: boolean
+    isBufferingStalled: boolean
     isCommenting: boolean
     isFullScreen: boolean
     isHovering: boolean
@@ -800,6 +809,9 @@ export interface sessionRecordingPlayerLogicActions {
     } // snapshotDataLogic
     allowPlayerChromeToHide: () => {
         value: true
+    }
+    armBufferingReevaluation: (attempt: number) => {
+        attempt: number
     }
     caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => {
         errorDetails: ResourceErrorDetails
@@ -1269,6 +1281,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setEndReached: (reached: boolean = true) => ({ reached }),
         startBuffer: true,
         endBuffer: true,
+        armBufferingReevaluation: (attempt: number) => ({ attempt }),
         startScrub: true,
         endScrub: true,
         setPlayerError: (reason: string) => ({ reason }),
@@ -1524,6 +1537,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
+        isBufferingStalled: [
+            false,
+            {
+                armBufferingReevaluation: (_, { attempt }) => attempt >= BUFFERING_STALLED_AFTER_ATTEMPTS,
+                endBuffer: () => false,
+            },
+        ],
         playerFrameLoadFailures: [0, { playerFrameDocumentLoadFailed: (failures) => failures + 1 }],
         // PlayerFrame adds this to the frame's src, because a frame loads again only when its src changes.
         playerFrameLoadRetries: [0, { retryPlayerFrameLoad: (retries) => retries + 1 }],
@@ -2144,7 +2164,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // change, not when the grace period elapses. That's fine: it only drives the overlay
         // message, and the buffer machinery (seekToTimestamp, syncPlayerState) re-reads
         // seekRenderability fresh at event time, so the actual ERROR transition isn't gated on it.
-        // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS nudge guarantees that re-read happens
+        // The BUFFERING_REEVALUATION_DELAYS_MS cadence guarantees that re-read happens
         // even when no events fire, so a stuck-buffering recording still flips once grace lapses.
         isWaitingForIngestion: [
             (s) => [s.seekRenderability, s.currentTimestamp],
@@ -2926,19 +2946,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         // Both are terminal give-ups: unlike the per-attempt failures above they fire even when other
         // data already loaded, because the missing range would otherwise buffer forever with no error.
+        // Each ends the buffer, or the re-evaluation cadence would keep clearing the error it just set
+        // and retrying a source that has already run out of attempts. Only a retry re-enters buffering.
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
+            actions.endBuffer()
             actions.setPlayerError(
                 values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
             )
         },
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
+            actions.endBuffer()
             actions.setPlayerError('snapshotProcessingFailed')
         },
         retryLoadingSnapshots: () => {
             actions.clearPlayerError()
+            // A retry re-enters buffering, both after a terminal failure ended it and from the
+            // buffering overlay itself, so the cadence restarts at its shortest delay and
+            // syncPlayerState revives a loading chain that no longer has a request in flight.
+            actions.startBuffer()
+            actions.armBufferingReevaluation(0)
             actions.retrySnapshotLoading()
+            actions.syncPlayerState()
         },
         setPlay: () => {
             if (values.recordingTooLargeToPlay) {
@@ -3021,6 +3051,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         startBuffer: () => {
             actions.stopAnimation()
+            // syncPlayerState re-fires startBuffer on every re-evaluation while buffering, so only
+            // a buffer that was not already running restarts the cadence from the shortest delay.
+            if (!cache.bufferingReevaluationArmed) {
+                actions.armBufferingReevaluation(0)
+            }
+        },
+        endBuffer: () => {
+            cache.bufferingReevaluationArmed = false
+            cache.disposables.dispose('bufferingReevaluation')
+        },
+        armBufferingReevaluation: ({ attempt }) => {
+            cache.bufferingReevaluationArmed = true
+            const delay =
+                BUFFERING_REEVALUATION_DELAYS_MS[Math.min(attempt, BUFFERING_REEVALUATION_DELAYS_MS.length - 1)]
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.syncPlayerState()
+                    if (values.isBuffering) {
+                        actions.armBufferingReevaluation(attempt + 1)
+                    }
+                }, delay)
+                return () => clearTimeout(timerId)
+            }, 'bufferingReevaluation')
         },
         setPlayerError: () => {
             actions.incrementErrorCount()
@@ -3606,7 +3659,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         hasOversizedMutations: (detected: boolean) => {
             if (detected) {
                 posthog.capture('recording player skipped oversized mutations', {
@@ -3658,6 +3711,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (values.pauseForced) {
                     actions.setPause()
                 }
+            }
+            // The backoff and the retry threshold must measure the wait the viewer sees, and other
+            // states outrank BUFFER in this selector: the player is READY while the metadata loads,
+            // and a scrub shows the play state instead. A cadence that ran through such a stretch
+            // restarts from the shortest delay here, so the overlay gets its first re-evaluation one
+            // second after it appears. The flag keeps this a restart of a running cadence rather than
+            // a second way to arm one.
+            if (value === SessionPlayerState.BUFFER && cache.bufferingReevaluationArmed) {
+                actions.armBufferingReevaluation(0)
             }
             // Update tracking state whenever player state changes
             actions.updatePlayerTimeTracking()
@@ -3724,14 +3786,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
 
-        // Safety net: re-evaluate the buffering verdict at least this often. A recording stuck
-        // buffering on a still-ingesting position (waitingForIngestion) flips to the terminal
-        // error once the grace period lapses — but only on a re-read of seekRenderability, which
-        // otherwise happens solely on incoming events. Paused on hidden tabs by the plugin.
-        cache.disposables.add(() => {
-            const intervalId = setInterval(() => actions.syncPlayerState(), BUFFERING_REEVALUATION_INTERVAL_MS)
-            return () => clearInterval(intervalId)
-        }, 'bufferingReevaluation')
+        // Re-evaluate the buffering verdict on a backing-off cadence. A recording stuck buffering on
+        // a still-ingesting position (waitingForIngestion) flips to the terminal error once the
+        // grace period lapses, but only on a re-read of seekRenderability, which otherwise happens
+        // solely on incoming events. The player mounts buffering, so arm it here rather than
+        // waiting for the first startBuffer. Paused on hidden tabs by the plugin.
+        actions.armBufferingReevaluation(0)
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()
