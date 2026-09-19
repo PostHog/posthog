@@ -48,6 +48,7 @@ export function RecordingPreview({ sessionId, seekTime, exportedAssetId, alt }: 
         timestamp: seekTime,
         openPlayerIn: RecordingPlayerType.Modal,
         hasRecording,
+        subject: 'recording',
     })
 
     return (

@@ -158,6 +158,7 @@ export function SpanAttributes({
                             openPlayerIn={RecordingPlayerType.Modal}
                             label={record.value}
                             variant={ViewRecordingButtonVariant.Link}
+                            subject="span"
                             checkRecordingExists
                         />
                     </span>

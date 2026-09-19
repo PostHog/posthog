@@ -150,6 +150,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                     timestamp={selectedLog.timestamp}
                                     size="xsmall"
                                     openPlayerIn={RecordingPlayerType.Modal}
+                                    subject="log line"
                                     checkRecordingExists
                                 />
                             )}
