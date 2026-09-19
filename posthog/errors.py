@@ -707,8 +707,16 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     403: ErrorCodeMeta("INVALID_JOIN_ON_EXPRESSION", category=QueryErrorCategory.USER_ERROR),
     404: ErrorCodeMeta("BAD_ODBC_CONNECTION_STRING"),
     406: ErrorCodeMeta("TOP_AND_LIMIT_TOGETHER"),
-    # Fixed message: the raw CH text can format a converted decimal value into the overflow error.
-    407: ErrorCodeMeta("DECIMAL_OVERFLOW", user_safe="Decimal overflow while executing query."),
+    # ClickHouse names 407 DECIMAL_OVERFLOW, but also raises it when a cast to a narrower number
+    # type overflows, so the name covers both. Fixed message: the raw CH text can format the
+    # converted value into the overflow error.
+    407: ErrorCodeMeta(
+        "NUMERIC_OVERFLOW",
+        user_safe=(
+            "A value did not fit the number type the query converted it to. "
+            "Check the numeric casts and decimal arithmetic in your query."
+        ),
+    ),
     408: ErrorCodeMeta("BAD_REQUEST_PARAMETER"),
     410: ErrorCodeMeta("EXTERNAL_SERVER_IS_NOT_RESPONDING"),
     411: ErrorCodeMeta("PTHREAD_ERROR"),
