@@ -631,3 +631,43 @@ class TestProjectionPushdown(BaseTest):
         assert isinstance(inner, ast.SelectQuery)
         column_names = {self._col_name(col) for col in inner.select}
         assert column_names == {"event", "properties"}, f"pruner dropped the property base column: got {column_names}"
+
+    @parameterized.expand(
+        [
+            (
+                "limit_by",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub LIMIT 1 BY sub.b",
+                {"a", "b"},
+            ),
+            (
+                "qualify",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub QUALIFY sub.b > 1",
+                {"a", "b"},
+            ),
+            (
+                "array_join",
+                "SELECT x FROM (SELECT * FROM (SELECT 1 AS a, [1, 2] AS b)) AS sub ARRAY JOIN sub.b AS x",
+                {"b"},
+            ),
+            (
+                "interpolate",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub ORDER BY a WITH FILL INTERPOLATE (sub.b)",
+                {"a", "b"},
+            ),
+            (
+                "window_expr",
+                "SELECT a, count() OVER w FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub "
+                "WINDOW w AS (PARTITION BY sub.b)",
+                {"a", "b"},
+            ),
+        ]
+    )
+    def test_clause_only_reference_keeps_column(self, _name: str, query_str: str, expected: set[str]):
+        # Each clause here is the only reference to the column. If demand collection skips the clause,
+        # the `*` pruner drops the column and ClickHouse rejects the query with "Not found column".
+        optimized = self._optimize(query_str)
+
+        inner = optimized.select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        column_names = {self._col_name(col) for col in inner.select}
+        assert column_names == expected, f"pruner dropped a column the clause needs: got {column_names}"
