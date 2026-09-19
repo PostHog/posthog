@@ -7,7 +7,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from requests.structures import CaseInsensitiveDict
 
-from posthog.egress.github.observability import _normalize_github_endpoint, github_egress
+from posthog.egress.github.observability import github_egress, normalize_github_endpoint
 from posthog.egress.observability.observability import default_normalize_endpoint
 
 _COUNTER = "github_integration_api_requests_total"
@@ -55,7 +55,7 @@ class TestGithubObservability(SimpleTestCase):
         ]
     )
     def test_normalize_endpoint_bounds_cardinality(self, url: str | None, expected: str) -> None:
-        self.assertEqual(_normalize_github_endpoint(url), expected)
+        self.assertEqual(normalize_github_endpoint(url), expected)
 
     @parameterized.expand(
         [
