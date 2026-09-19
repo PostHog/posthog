@@ -8,6 +8,7 @@ import { installAgentsMdSnippet } from './agents-md'
 import { takeOption } from './args'
 import type { CliConfig } from './config'
 import { resolveCliConfig, requireApiKey } from './config'
+import { registerCliConfirmedActionRuntime } from './confirmed-action'
 import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
 import { buildToolCallProperties } from './tool-call-properties'
@@ -83,6 +84,9 @@ function buildStaticExec(): BuiltStaticExec {
 }
 
 async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltExec> {
+    // Generated -prepare/-execute handlers read a process-level runtime and
+    // throw without one, so register the CLI's before any tool dispatch.
+    registerCliConfirmedActionRuntime()
     const context = await buildCliContext(config)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const tools = getCliTools({ aiConsentGiven })
