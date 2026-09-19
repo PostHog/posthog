@@ -2093,7 +2093,10 @@ class InsightViewSet(
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
                     if tags_list:
-                        queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                        # Dedupe on the key, because a join plus `.distinct()` sorts every
+                        # selected column to do it, the wide insight JSON included.
+                        tagged_ids = queryset.filter(tagged_items__tag__name__in=tags_list).values("id")
+                        queryset = queryset.filter(id__in=tagged_ids)
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:
