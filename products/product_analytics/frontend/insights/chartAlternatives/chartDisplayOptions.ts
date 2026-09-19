@@ -4,8 +4,10 @@ import { ChartDisplayType } from '~/types'
 export type ChartDisplayIcon =
     | 'area'
     | 'bar'
+    | 'calendarHeatmap'
     | 'cumulative'
     | 'donut'
+    | 'horizontalBar'
     | 'line'
     | 'metric'
     | 'number'
@@ -155,7 +157,7 @@ export function getChartDisplayOptions({
                 },
                 {
                     display: ChartDisplayType.ActionsBarValue,
-                    icon: 'bar',
+                    icon: 'horizontalBar',
                     label: 'Bar chart',
                     description: 'Total values as horizontal bars.',
                     disabledReason: trendsOnlyDisabledReason,
@@ -187,7 +189,7 @@ export function getChartDisplayOptions({
                 },
                 {
                     display: ChartDisplayType.CalendarHeatmap,
-                    icon: 'bar',
+                    icon: 'calendarHeatmap',
                     label: 'Calendar heatmap',
                     description: 'Values per day and hour.',
                     disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
@@ -197,34 +199,7 @@ export function getChartDisplayOptions({
     ]
 }
 
-const CURRENT_DISPLAY_FALLBACKS: Partial<Record<ChartDisplayType, ChartDisplayOption>> = {
-    [ChartDisplayType.ActionsStackedBar]: {
-        display: ChartDisplayType.ActionsStackedBar,
-        icon: 'bar',
-        label: 'Stacked bar chart',
-        description: 'Trends over time as stacked vertical bars.',
-    },
-    [ChartDisplayType.Auto]: {
-        display: ChartDisplayType.Auto,
-        icon: 'line',
-        label: 'Automatic',
-        description: 'The chart type chosen for this insight.',
-    },
-    [ChartDisplayType.TwoDimensionalHeatmap]: {
-        display: ChartDisplayType.TwoDimensionalHeatmap,
-        icon: 'bar',
-        label: 'Heatmap',
-        description: 'Values displayed by two dimensions.',
-    },
-    [ChartDisplayType.ScatterPlot]: {
-        display: ChartDisplayType.ScatterPlot,
-        icon: 'line',
-        label: 'Scatter plot',
-        description: 'Values plotted as points.',
-    },
-}
-
-const ALTERNATIVE_DISPLAYS = [
+const RECOMMENDED_DISPLAYS = [
     ChartDisplayType.BoxPlot,
     ChartDisplayType.WorldMap,
     ChartDisplayType.Metric,
@@ -247,23 +222,17 @@ export function getChartAlternatives(
     const hasCountryBreakdown =
         !breakdownFilter?.breakdowns?.length &&
         (breakdownFilter?.breakdown === '$geoip_country_code' || breakdownFilter?.breakdown === '$geoip_country_name')
-    const preferredDisplays = ALTERNATIVE_DISPLAYS.filter(
-        (alternativeDisplay) =>
-            (alternativeDisplay !== ChartDisplayType.WorldMap || hasCountryBreakdown) &&
-            (alternativeDisplay !== ChartDisplayType.BoldNumber ||
-                !optionsByDisplay.has(ChartDisplayType.Metric) ||
-                currentDisplay === ChartDisplayType.Metric)
+    return RECOMMENDED_DISPLAYS.filter(
+        (recommended) =>
+            (recommended !== ChartDisplayType.WorldMap || hasCountryBreakdown) &&
+            (recommended !== ChartDisplayType.BoldNumber || !optionsByDisplay.has(ChartDisplayType.Metric))
     )
-    const currentOption = optionsByDisplay.get(currentDisplay) ?? CURRENT_DISPLAY_FALLBACKS[currentDisplay]
-    const alternatives = preferredDisplays
-        .map((alternativeDisplay) => optionsByDisplay.get(alternativeDisplay))
+        .map((recommended) => optionsByDisplay.get(recommended))
         .filter(
             (option): option is ChartDisplayOption =>
                 !!option && option.display !== currentDisplay && !option.disabledReason
         )
         .slice(0, 3)
-
-    return currentOption ? [currentOption, ...alternatives] : alternatives
 }
 
 export function getChartDisplayChangeWarning(
