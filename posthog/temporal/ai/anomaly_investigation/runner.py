@@ -25,7 +25,6 @@ from langchain_core.runnables import RunnableConfig
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
-from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport, salvage_report
@@ -63,12 +62,6 @@ class InvestigationRunResult:
     report: InvestigationReport
     tool_calls_used: int
     model: str
-
-
-@frozen
-class _ToolCallOutcome:
-    result: InvestigationRunResult | None
-    should_stop: bool
 
 
 def _result(report: InvestigationReport, tool_calls_used: int) -> InvestigationRunResult:
@@ -172,11 +165,11 @@ class _InvestigationRunner:
             self.messages.append(response)
 
             tool_calls = getattr(response, "tool_calls", None) or []
-            outcome = await self._handle_tool_calls(tool_calls)
-            if outcome.result is not None:
-                return outcome.result
-            if outcome.should_stop:
+            if not tool_calls:
                 break
+            result = await self._handle_tool_calls(tool_calls)
+            if result is not None:
+                return result
 
         return self._finish_investigation()
 
@@ -229,24 +222,20 @@ class _InvestigationRunner:
                     continue
         return None
 
-    async def _handle_tool_calls(self, tool_calls: list[dict[str, Any]]) -> _ToolCallOutcome:
+    async def _handle_tool_calls(self, tool_calls: list[dict[str, Any]]) -> InvestigationRunResult | None:
         report_error: str | None = None
         report_args = _final_report_args(tool_calls)
         if report_args is not None:
             self.report_args_history.append(report_args)
             try:
-                return _ToolCallOutcome(
-                    result=_result(InvestigationReport.model_validate(report_args), self.tool_calls_used),
-                    should_stop=False,
-                )
+                return _result(InvestigationReport.model_validate(report_args), self.tool_calls_used)
             except ValidationError as err:
                 report_error = _validation_error_summary(err)
                 logger.warning("anomaly_investigation.report_validation_error", extra={"error": report_error})
-        if not tool_calls:
-            return _ToolCallOutcome(result=None, should_stop=True)
-        return await self._run_tool_calls(tool_calls=tool_calls, report_error=report_error)
+        await self._run_tool_calls(tool_calls=tool_calls, report_error=report_error)
+        return None
 
-    async def _run_tool_calls(self, *, tool_calls: list[dict[str, Any]], report_error: str | None) -> _ToolCallOutcome:
+    async def _run_tool_calls(self, *, tool_calls: list[dict[str, Any]], report_error: str | None) -> None:
         for call in tool_calls:
             content = await self._run_tool_call(call=call, report_error=report_error)
             if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
@@ -254,7 +243,6 @@ class _InvestigationRunner:
             self.messages.append(
                 ToolMessage(content=content, tool_call_id=call.get("id") or call.get("tool_call_id") or "")
             )
-        return _ToolCallOutcome(result=None, should_stop=False)
 
     async def _run_tool_call(self, *, call: dict[str, Any], report_error: str | None) -> str:
         name = call.get("name")
