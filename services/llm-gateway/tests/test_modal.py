@@ -257,6 +257,8 @@ async def test_make_modal_responses_call_forces_bridge_and_ignores_smuggled_flag
         # carries no status code, which the gateway used to report as its own 500.
         pytest.param({"type": "image", "source": {"type": "base64", "data": "AAAA"}}, "invalid_content_type"),
         pytest.param({"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}, "vision_not_supported"),
+        # An unhashable type must reject too, not raise out of the set test.
+        pytest.param({"type": []}, "invalid_content_type"),
     ],
 )
 async def test_modal_chat_completions_rejects_image_kimi_cannot_serve(

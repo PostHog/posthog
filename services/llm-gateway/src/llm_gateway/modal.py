@@ -136,7 +136,8 @@ def ensure_modal_chat_content_supported(request_data: dict[str, Any], product: s
             if not isinstance(part, dict):
                 continue
             part_type = part.get("type")
-            if part_type not in _OPENAI_USER_CONTENT_TYPES:
+            # An unhashable type, such as a list, would make the set test raise instead of reject.
+            if not isinstance(part_type, str) or part_type not in _OPENAI_USER_CONTENT_TYPES:
                 _reject_content(
                     model,
                     product,
