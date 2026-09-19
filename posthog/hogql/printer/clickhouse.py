@@ -88,6 +88,12 @@ def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_month
     )
 
 
+# ClickHouse resolves `dateAdd`/`dateSub` to `plus`/`minus`, which take two arguments. It only understands the
+# three-argument unit form when its own parser sees the unit as a bare keyword, which a printed HogQL string
+# literal never is. So the printer builds the interval itself.
+DATE_ARITHMETIC_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
+
+
 # The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
 # wrapping — so the index stays usable. Canonical set; ClickHouse property resolution imports it to make the same call.
 AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
@@ -900,6 +906,9 @@ class ClickHousePrinter(BasePrinter):
         if serialized is not None:
             return serialized
 
+        if node.name.lower() in ("dateadd", "datesub") and len(node.args) == 3:
+            return self.visit(self._date_arithmetic_with_unit(node))
+
         # Property-group call optimizations (isNull/isNotNull/JSONHas over a property-group key) now run in ClickHouse
         # property resolution, which rewrites them to the keys-index `has(group, key)` form before printing.
         # The type-name argument reaches ClickHouse's type parser verbatim, so bound it to
@@ -912,6 +921,22 @@ class ClickHousePrinter(BasePrinter):
                 raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
 
         return super().visit_call(node)
+
+    def _date_arithmetic_with_unit(self, node: ast.Call) -> ast.Call:
+        unit_arg, count_arg, date_arg = node.args
+        if not isinstance(unit_arg, ast.Constant) or not isinstance(unit_arg.value, str):
+            raise QueryError(f"Function '{node.name}' requires a constant string as its first argument")
+
+        unit = unit_arg.value.lower().removesuffix("s")
+        if unit not in DATE_ARITHMETIC_UNITS:
+            raise QueryError(
+                f"Unsupported unit '{unit_arg.value}' in function '{node.name}'. "
+                f"Supported units: {', '.join(sorted(DATE_ARITHMETIC_UNITS))}."
+            )
+
+        operation = "plus" if node.name.lower() == "dateadd" else "minus"
+        interval = ast.Call(name=f"toInterval{unit.capitalize()}", args=[count_arg])
+        return ast.Call(name=operation, args=[date_arg, interval])
 
     def visit_array_slice(self, node: ast.ArraySlice):
         array_str = self.visit(node.array)
