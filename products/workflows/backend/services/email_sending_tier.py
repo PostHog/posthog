@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
@@ -10,6 +11,7 @@ from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
+from posthog.models.team import Team
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.utils.email_sending_tiers import (
@@ -413,6 +415,35 @@ def apply_tier_decision(config: TeamWorkflowsConfig, decision: TierDecision) -> 
     return True
 
 
+def _create_missing_configs(team_ids: set[int]) -> None:
+    """Give every candidate team the row its tier is stored on.
+
+    A team that adopted workflow email without ever saving a workflows setting has no row, and the
+    tier lives on that row. The sweep could therefore see the team's sends and still have nowhere
+    to write a promotion, so the team held tier 0 however cleanly it sent. app_metrics2 outlives a
+    team deleted from Postgres, so only teams Postgres still has get a row.
+    """
+    existing = set(TeamWorkflowsConfig.objects.filter(team_id__in=team_ids).values_list("team_id", flat=True))
+    missing = sorted(team_ids - existing)
+    if not missing:
+        return
+    # One insert per team, each in its own transaction, so a team deleted between the read above
+    # and its own insert costs that row alone and no other team's promotion. Locking the Team rows
+    # to close the race instead would make every unrelated child-row writer wait on a hot parent
+    # row for the length of a fleet-wide sweep. The loop is bounded by teams that sent workflow
+    # email and still have no row, which the team extension signal keeps near zero.
+    created = 0
+    for team_id in Team.objects.filter(id__in=missing).values_list("id", flat=True):
+        try:
+            with transaction.atomic():
+                TeamWorkflowsConfig.objects.create(team_id=team_id)
+        except IntegrityError:
+            # Either the team was deleted in that gap, or the extension signal created the row.
+            continue
+        created += 1
+    logger.info("workflows_email_sending_tier_configs_created", team_count=created)
+
+
 def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[TierDecision]:
     """
     Move every candidate team at most one tier, up or down.
@@ -442,6 +473,8 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
     if not candidate_ids:
         return []
 
+    _create_missing_configs(candidate_ids)
+
     # select_related bypasses TeamManager's defer, so without only() the join pulls every wide Team
     # column, including the deprecated taxonomy blobs, for every candidate. The decision reads only
     # created_at from Team, so restrict the load to that plus the config fields it uses.
@@ -465,8 +498,8 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
     for team_id in sorted(candidate_ids):
         config = configs.get(team_id)
         if config is None:
-            # No row means tier 0 with no history worth acting on: a promotion needs volume the
-            # metrics sweep would have surfaced, and there is nothing stored to demote.
+            # Every live candidate was just given a row, so this is a team that ClickHouse still
+            # holds history for after Postgres dropped it.
             continue
         if config.email_sending_tier_pinned:
             continue
@@ -492,8 +525,8 @@ def recompute_email_sending_tier_for_team(team_id: int) -> Optional[TierDecision
     """
     Recompute one team now, so a staff suspension takes its tier down without waiting for the
     next periodic run. Returns the decision, held or applied, so the caller can say why a team
-    did not move. None means the team was not evaluated at all: it is pinned, it has no config
-    row, or its state changed while recomputing.
+    did not move. None means the team was not evaluated at all: it is pinned, it sent nothing and
+    holds no stored state, or its state changed while recomputing.
     """
     decisions = recompute_email_sending_tiers(team_ids=[team_id])
     return decisions[0] if decisions else None

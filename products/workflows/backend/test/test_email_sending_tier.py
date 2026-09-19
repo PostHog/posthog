@@ -3,10 +3,13 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import IntegrityError
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.models.team import Team
 
 from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
     Command as BackfillCommand,
@@ -405,6 +408,43 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         assert config.email_sending_tier == 1
         assert config.email_sending_tier_updated_at is not None
         assert config.email_sending_tier_updated_at > timezone.now() - timedelta(minutes=1)
+
+    def test_a_team_with_no_config_row_is_promoted_on_its_sending_history(self) -> None:
+        # A project that adopted workflow email without ever saving a workflows setting has no
+        # config row, and the tier is stored on that row. The sweep used to skip it, so the project
+        # held tier 0 and its 100-recipient batch cap however cleanly it sent.
+        # The deleted team in the same sweep is the other half: app_metrics2 outlives a team
+        # dropped from Postgres, and that team must neither get a row nor block a live promotion.
+        TeamWorkflowsConfig.objects.filter(team=self.team).delete()
+        # With no row there is no tier timestamp, so the dwell runs from when the project was made.
+        Team.objects.filter(pk=self.team.pk).update(created_at=timezone.now() - timedelta(days=30))
+        used = clean_days(2, TIER_DAILY_CAPS[0])
+        ghost_id = self.team.id + 10_000
+        self._run(
+            {
+                self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used),
+                ghost_id: history(team_id=ghost_id, sent=10, daily_sends=clean_days(2, 10)),
+            }
+        )
+
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 1
+        assert not TeamWorkflowsConfig.objects.filter(team_id=ghost_id).exists()
+
+    def test_a_failed_row_creation_does_not_abort_the_sweep(self) -> None:
+        # A team deleted between the live-team read and its insert leaves that insert with no
+        # foreign-key target. That must not stop the sweep from moving every other team.
+        self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
+        used = clean_days(2, TIER_DAILY_CAPS[0])
+        ghost_id = self.team.id + 10_000
+        with patch.object(TeamWorkflowsConfig.objects, "create", side_effect=IntegrityError):
+            self._run(
+                {
+                    self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used),
+                    ghost_id: history(team_id=ghost_id, sent=10, daily_sends=clean_days(2, 10)),
+                }
+            )
+
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 1
 
     def test_suspended_team_is_demoted_even_with_no_recent_sending(self) -> None:
         self._config(
