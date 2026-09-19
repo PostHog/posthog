@@ -1,4 +1,4 @@
-import { IconChevronDown, IconEllipsis, IconLineGraph } from '@posthog/icons'
+import { IconChevronDown, IconDashboard, IconEllipsis, IconLineGraph } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -6,7 +6,7 @@ import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { TileId, TileVisualizationOption } from './common'
 import { LearnMorePopover, LearnMorePopoverProps } from './WebAnalyticsDashboard'
-import { WebTileOpenInsightProps } from './webTileHeaderHooks'
+import { WebTileAddToDashboardProps, WebTileOpenInsightProps } from './webTileHeaderHooks'
 
 interface DropdownConfig<T extends string> {
     value: T
@@ -28,6 +28,7 @@ export interface WebTileHeaderProps {
         onChange: (value: TileVisualizationOption) => void
     }
     openInsight?: WebTileOpenInsightProps
+    addToDashboard?: WebTileAddToDashboardProps
     overflowMenuItems: LemonMenuItem[]
 }
 
@@ -62,6 +63,7 @@ export function WebTileHeader({
     intervalSelector,
     visualizationToggle,
     openInsight,
+    addToDashboard,
     overflowMenuItems,
 }: WebTileHeaderProps): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
@@ -116,6 +118,19 @@ export function WebTileHeader({
                 >
                     {isCompactHeader ? undefined : 'Open as insight'}
                 </LemonButton>
+            )}
+
+            {addToDashboard && (
+                <LemonButton
+                    size="small"
+                    icon={<IconDashboard />}
+                    tooltip="Add to dashboard"
+                    aria-label="Add to dashboard"
+                    onClick={addToDashboard.onClick}
+                    loading={addToDashboard.loading}
+                    disabledReason={addToDashboard.disabledReason}
+                    data-attr={`web-analytics-add-to-dashboard-${tileId}`}
+                />
             )}
 
             <LemonMenu items={overflowMenuItems} placement="bottom-end">

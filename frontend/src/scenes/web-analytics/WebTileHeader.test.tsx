@@ -114,4 +114,24 @@ describe('WebTileHeader', () => {
         const { container } = render(<WebTileHeader tileId={TileId.SOURCES} overflowMenuItems={noopMenuItems} />)
         expect(queryByDataAttr(container, 'web-analytics-open-insight-SOURCES')).toBeNull()
     })
+
+    test('renders the add-to-dashboard button and fires `onClick` when clicked', () => {
+        const onClick = jest.fn()
+        const { container } = render(
+            <WebTileHeader
+                tileId={TileId.SOURCES}
+                addToDashboard={{ onClick, loading: false }}
+                overflowMenuItems={noopMenuItems}
+            />
+        )
+        const button = queryByDataAttr(container, 'web-analytics-add-to-dashboard-SOURCES')
+        expect(button).toBeTruthy()
+        fireEvent.click(button!)
+        expect(onClick).toHaveBeenCalledTimes(1)
+    })
+
+    test('does not render the add-to-dashboard button when addToDashboard is omitted', () => {
+        const { container } = render(<WebTileHeader tileId={TileId.SOURCES} overflowMenuItems={noopMenuItems} />)
+        expect(queryByDataAttr(container, 'web-analytics-add-to-dashboard-SOURCES')).toBeNull()
+    })
 })
