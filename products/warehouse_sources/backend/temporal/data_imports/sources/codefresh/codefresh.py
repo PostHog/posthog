@@ -4,6 +4,7 @@ from typing import Any, Optional
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.settings import (
+    ACCOUNT_ID_PLACEHOLDER,
     CODEFRESH_ENDPOINTS,
     CodefreshEndpointConfig,
 )
@@ -25,10 +26,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 # let the user retarget yet (it would mean sending the stored API key to an arbitrary host).
 CODEFRESH_BASE_URL = "https://g.codefresh.io/api"
 
+REQUEST_TIMEOUT_SECONDS = 10.0
+
+# Prefix of the error raised when the account id cannot be resolved. Shared with the source's
+# non-retryable error map so the user reads one explanation instead of a raw exception.
+ACCOUNT_LOOKUP_FAILED = "Could not resolve the Codefresh account for this API key"
+
 
 @dataclasses.dataclass
 class CodefreshResumeConfig:
-    # Offset pagination position (projects, pipelines, images, step_types).
+    # Offset pagination position (projects, pipelines, images, step_types, environments).
     offset: int | None = None
     # Page pagination position (builds) plus the stable pagination session cursor so resumed pages
     # read against the same snapshot the first page opened.
@@ -131,6 +138,29 @@ def _transform_row(item: dict[str, Any], config: CodefreshEndpointConfig) -> dic
     return row
 
 
+def _resolve_account_id(api_key: str) -> str:
+    """Return the id of the account the API key belongs to.
+
+    ``/accounts/{accountId}/users`` needs that id in its path, and Codefresh publishes no endpoint
+    that reports the account a key is scoped to. ``/team`` is scoped to that same account, is not
+    paginated, and every team it returns carries the account it belongs to, so one request answers
+    it.
+    """
+    session = make_tracked_session(redact_values=(api_key,))
+    response = session.get(
+        f"{CODEFRESH_BASE_URL}/team",
+        headers={"Authorization": api_key, "Accept": "application/json"},
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    body = response.json()
+    for team in body if isinstance(body, list) else []:
+        account_id = team.get("account") if isinstance(team, dict) else None
+        if account_id:
+            return str(account_id)
+    raise ValueError(f"{ACCOUNT_LOOKUP_FAILED}: no team returned by /team names an account.")
+
+
 def _build_paginator_and_params(config: CodefreshEndpointConfig) -> tuple[BasePaginator, dict[str, Any]]:
     if config.pagination == "offset":
         # No usable body total; termination is short/empty page. The paginator injects limit+offset.
@@ -150,6 +180,9 @@ def codefresh_source(
 ) -> SourceResponse:
     config = CODEFRESH_ENDPOINTS[endpoint]
     paginator, params = _build_paginator_and_params(config)
+    path = config.path
+    if ACCOUNT_ID_PLACEHOLDER in path:
+        path = path.replace(ACCOUNT_ID_PLACEHOLDER, _resolve_account_id(api_key))
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -164,14 +197,16 @@ def codefresh_source(
             {
                 "name": endpoint,
                 "endpoint": {
-                    "path": config.path,
+                    "path": path,
                     "params": params,
                     # Codefresh returns either a bare array or an envelope ({docs: [...]},
                     # {workflows: {docs: [...]}}); data_key is the path to walk.
                     "data_selector": ".".join(config.data_key) if config.data_key else None,
-                    # For bare-array endpoints a 200 body that isn't a list means the response shape
-                    # changed — fail loud instead of syncing a stray object as a row.
-                    "data_selector_required": config.data_key is None,
+                    # For bare-array endpoints a 200 body that isn't a list means the response
+                    # shape changed, so fail loud instead of syncing a stray object as a row.
+                    # ``require_data_key`` extends the same treatment to an envelope endpoint whose
+                    # body shape the vendor does not document.
+                    "data_selector_required": config.data_key is None or config.require_data_key,
                 },
                 "data_map": lambda item, config=config: _transform_row(item, config),
             }
@@ -228,6 +263,10 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     and let the user pick the tables their key can reach. A 401 always means a bad token."""
     config = CODEFRESH_ENDPOINTS.get(schema_name) if schema_name else None
     path = config.path if config is not None else "/projects"
+    if ACCOUNT_ID_PLACEHOLDER in path:
+        # The path is only knowable once /team resolves the account id, and that lookup is the first
+        # request the sync makes, so probe /team instead of a path with an unfilled placeholder.
+        path = CODEFRESH_ENDPOINTS["teams"].path
 
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
