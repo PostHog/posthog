@@ -8,6 +8,7 @@ import { FetchResponse, fetch } from '~/common/utils/request'
 import { createExampleInvocation } from '../_tests/fixtures'
 import { template } from '../templates/_transformations/typesafe/typesafe.template'
 import { CyclotronJobInvocationHogFunction } from '../types'
+import type { TransformationExecutionOptions } from './hog-transformer.service'
 import { executeTypesafeTransformation } from './typesafe'
 
 jest.mock('~/common/utils/request', () => ({ fetch: jest.fn() }))
@@ -133,18 +134,21 @@ describe('TypeSafe transformation', () => {
         expect(captureError).not.toHaveBeenCalled()
     })
 
-    it.each([{ content_category: 'existing' }, { title: 'x'.repeat(20_000) }])(
-        'does not call the model for classified or oversized events',
-        async (properties) => {
-            const invocation = createInvocation()
+    it.each<{ properties?: Record<string, any>; options?: TransformationExecutionOptions }>([
+        { properties: { content_category: 'existing' } },
+        { properties: { title: 'x'.repeat(20_000) } },
+        { options: { mockAsyncFunctions: true } },
+    ])('does not call the model for classified, oversized, or mocked events', async ({ properties, options }) => {
+        const invocation = createInvocation()
+        if (properties) {
             invocation.state.globals.event.properties = properties
-            expect(await executeTypesafeTransformation(invocation)).toMatchObject({
-                execResult: invocation.state.globals.event,
-            })
-            expect(request).not.toHaveBeenCalled()
-            await expectNoCallTelemetry()
         }
-    )
+        expect(await executeTypesafeTransformation(invocation, options)).toMatchObject({
+            execResult: invocation.state.globals.event,
+        })
+        expect(request).not.toHaveBeenCalled()
+        await expectNoCallTelemetry()
+    })
 
     it.each([
         [{ type: 'choice', choice: 'art', confidence: 0.2 }, false],

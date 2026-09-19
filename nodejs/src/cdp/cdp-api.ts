@@ -598,7 +598,10 @@ export class CdpApi {
                     team_id: triggerGlobals.project.id,
                     now: '',
                 }
-                const response = await this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration])
+                const response = await this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration], {
+                    // The endpoint documents mock_async_functions as true by default, so absent means mocked.
+                    mockAsyncFunctions: mock_async_functions ?? true,
+                })
 
                 result = response.event
 

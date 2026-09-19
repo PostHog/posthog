@@ -70,6 +70,11 @@ export interface TransformationResult extends HogTransformationResult {
     invocationResults: CyclotronJobInvocationResult[]
 }
 
+export interface TransformationExecutionOptions {
+    // A test invocation promises simulated async calls, so a transformation that calls out must not.
+    mockAsyncFunctions?: boolean
+}
+
 export class HogTransformerService implements HogTransformer {
     private invocationResults: CyclotronJobInvocationResult[] = []
     private cachedGeoIp?: GeoIp
@@ -167,7 +172,8 @@ export class HogTransformerService implements HogTransformer {
 
     private async transformEventImpl(
         event: PluginEvent,
-        teamHogFunctions: HogFunctionType[]
+        teamHogFunctions: HogFunctionType[],
+        options?: TransformationExecutionOptions
     ): Promise<TransformationResult> {
         hogTransformationInvocations.inc()
 
@@ -209,7 +215,7 @@ export class HogTransformerService implements HogTransformer {
 
             let result: CyclotronJobInvocationResult
             try {
-                result = await this.executeHogFunction(hogFunction, globals)
+                result = await this.executeHogFunction(hogFunction, globals, options)
             } catch (err) {
                 hogTransformationUnexpectedErrors.inc()
                 logger.error('⚠️', 'Unexpected error executing transformation', {
@@ -307,7 +313,11 @@ export class HogTransformerService implements HogTransformer {
         }
     }
 
-    public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResult> {
+    public transformEvent(
+        event: PluginEvent,
+        teamHogFunctions: HogFunctionType[],
+        options?: TransformationExecutionOptions
+    ): Promise<TransformationResult> {
         // These properties are retired, so drop any a client sends rather than letting them through
         if (event.properties) {
             for (const key of ['$transformations_failed', '$transformations_skipped', '$transformations_succeeded']) {
@@ -317,19 +327,22 @@ export class HogTransformerService implements HogTransformer {
             }
         }
 
-        return instrumentFn(`hogTransformer.transformEvent`, () => this.transformEventImpl(event, teamHogFunctions))
+        return instrumentFn(`hogTransformer.transformEvent`, () =>
+            this.transformEventImpl(event, teamHogFunctions, options)
+        )
     }
 
     private async executeHogFunction(
         hogFunction: HogFunctionType,
-        globals: HogFunctionInvocationGlobals
+        globals: HogFunctionInvocationGlobals,
+        options?: TransformationExecutionOptions
     ): Promise<CyclotronJobInvocationResult> {
         const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         if (hogFunction.template_id === typesafeTemplate.id) {
-            return await executeTypesafeTransformation(invocation)
+            return await executeTypesafeTransformation(invocation, options)
         }
 
         if (isLegacyPluginHogFunction(hogFunction)) {

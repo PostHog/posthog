@@ -8,6 +8,7 @@ import { fetch } from '~/common/utils/request'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
+import type { TransformationExecutionOptions } from './hog-transformer.service'
 
 const configSchema = z.object({
     api_key: z.string().min(1),
@@ -52,7 +53,8 @@ function excludeProperties(value: unknown, excluded: Set<string>, path = ''): un
 }
 
 export async function executeTypesafeTransformation(
-    invocation: CyclotronJobInvocationHogFunction
+    invocation: CyclotronJobInvocationHogFunction,
+    options?: TransformationExecutionOptions
 ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
     const event = invocation.state.globals.event
     const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { execResult: event })
@@ -67,6 +69,11 @@ export async function executeTypesafeTransformation(
     const config = parsed.data
     const properties = event.properties ?? {}
     if (Object.hasOwn(properties, config.property)) {
+        return result
+    }
+    // The caller asked for simulated async calls, so the event and the key must not leave PostHog.
+    if (options?.mockAsyncFunctions) {
+        log('info', 'TypeSafe request mocked. Event unchanged. Turn off mocking to send a real request.')
         return result
     }
 
