@@ -9,6 +9,12 @@ export const STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT = {
     [REPLAY_VISION_PRODUCT_KEY]: 3000,
 } as const satisfies Record<string, number>
 
+// The billing API product names are too verbose for copy (e.g. "PostHog Desktop (usage-based)").
+export const STARTUP_PROGRAM_CAPPED_PRODUCTS = [
+    { key: POSTHOG_CODE_USAGE_PRODUCT_KEY, name: 'Desktop' },
+    { key: REPLAY_VISION_PRODUCT_KEY, name: 'Replay vision' },
+] as const satisfies readonly { key: keyof typeof STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT; name: string }[]
+
 export type BillingLimitConfig = {
     max: number
     help: string | null
@@ -52,8 +58,7 @@ const currentAboveStartupCapNotice = (
 }
 
 // Mirrors the caps the billing service enforces for startup-program customers, so the form
-// rejects out-of-range limits before the API does. The billing API product names are too
-// verbose for copy (e.g. "PostHog Desktop (usage-based)").
+// rejects out-of-range limits before the API does.
 const startupProgramCapResolver = (productName: string, cap: number): BillingLimitConfigResolver => {
     return ({ billing, customLimitUsd, billingLimitNextPeriod }) => {
         if (!billing?.startup_program_label) {
@@ -75,16 +80,12 @@ const startupProgramCapResolver = (productName: string, cap: number): BillingLim
     }
 }
 
-const BILLING_LIMIT_CONFIG_BY_PRODUCT: Record<string, BillingLimitConfigResolver> = {
-    [POSTHOG_CODE_USAGE_PRODUCT_KEY]: startupProgramCapResolver(
-        'Desktop',
-        STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT[POSTHOG_CODE_USAGE_PRODUCT_KEY]
-    ),
-    [REPLAY_VISION_PRODUCT_KEY]: startupProgramCapResolver(
-        'Replay vision',
-        STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT[REPLAY_VISION_PRODUCT_KEY]
-    ),
-}
+const BILLING_LIMIT_CONFIG_BY_PRODUCT: Record<string, BillingLimitConfigResolver> = Object.fromEntries(
+    STARTUP_PROGRAM_CAPPED_PRODUCTS.map(({ key, name }) => [
+        key,
+        startupProgramCapResolver(name, STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT[key]),
+    ])
+)
 
 export const getBillingLimitConfig = (context: BillingLimitConfigContext): BillingLimitConfig => {
     const productConfig = BILLING_LIMIT_CONFIG_BY_PRODUCT[context.product.type]?.(context)
