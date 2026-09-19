@@ -1136,7 +1136,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # response shape
         self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
         self.assertEqual(0, response.results[0]["count"])  # it has always been so :shrug:
-        self.assertEqual(None, response.results[0].get("data"))
+        self.assertEqual([], response.results[0]["data"])
 
     def test_formula_with_compare_to_total_value(self):
         self._create_test_events()
@@ -1167,7 +1167,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # response shape
         self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
         self.assertEqual(0, response.results[0]["count"])  # it has always been so :shrug:
-        self.assertEqual(None, response.results[0].get("data"))
+        self.assertEqual([], response.results[0]["data"])
 
     def test_formula_with_breakdown(self):
         self._create_test_events()
@@ -1284,7 +1284,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["label"] == "Formula (A+2*B)"
         assert response.results[0]["aggregated_value"] == 3
         assert response.results[0]["count"] == 0
-        assert response.results[0].get("data") is None
+        assert response.results[0]["data"] == []
 
         assert response.results[1]["compare_label"] == "current"
         assert response.results[1]["breakdown_value"] == "Safari"

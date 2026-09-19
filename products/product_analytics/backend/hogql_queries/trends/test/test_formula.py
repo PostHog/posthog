@@ -806,17 +806,16 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["data"], [0.0, 1200.0])
 
     def test_aggregated(self):
-        self.assertEqual(
-            self._run(
-                {
-                    "trendsFilter": {
-                        "display": TRENDS_PIE,
-                        "formula": "A + B",
-                    }
+        response = self._run(
+            {
+                "trendsFilter": {
+                    "display": TRENDS_PIE,
+                    "formula": "A + B",
                 }
-            )[0]["aggregated_value"],
-            2160.0,
+            }
         )
+        self.assertEqual(response[0]["aggregated_value"], 2160.0)
+        self.assertEqual(response[0]["data"], [])
 
     def test_cumulative(self):
         response = self._run({"trendsFilter": {"display": TRENDS_CUMULATIVE, "formula": "A + B"}})
