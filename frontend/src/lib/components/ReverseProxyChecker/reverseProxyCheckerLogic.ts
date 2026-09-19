@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { NetworkError, shouldReportApiFailure } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -75,9 +76,16 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         // This check is advisory (used only to auto-complete a setup task).
                         // Swallow errors so kea-loaders does not surface a user-visible toast
                         // on every scene that mounts ProductSetupButton.
-                        posthog.captureException(error, {
-                            posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
-                        })
+                        //
+                        // A request that never reached the server, or a response the app already
+                        // recovers from, says nothing about this code, and the next mount runs the
+                        // check again. `client_request_failure` still records every failed request,
+                        // so failure rates stay queryable.
+                        if (!(error instanceof NetworkError) && shouldReportApiFailure(error)) {
+                            posthog.captureException(error, {
+                                posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
+                            })
+                        }
                         return values.hasReverseProxy
                     }
                 },
