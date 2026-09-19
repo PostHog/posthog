@@ -24,6 +24,7 @@ from posthog.scopes import (
     get_oauth_scopes_supported,
     get_scope_descriptions,
     grantable_ceiling,
+    is_truncated_scope_request,
     narrow_scopes_to_ceiling,
     resolve_ceiling,
     scopes_outside_ceiling,
@@ -453,6 +454,24 @@ class TestClampScopesToCeiling(SimpleTestCase):
         for requested, app_scopes in cases:
             clamped = clamp_scopes_to_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
             assert scopes_within_ceiling(clamped, app_scopes, allow_wildcard_under_empty_ceiling=True)
+
+
+class TestIsTruncatedScopeRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("cut_mid_token", ["insight:read", "canvas:read", "can"], True),
+            ("cut_after_the_colon", ["insight:read", "feature_flag:"], True),
+            ("complete_request", ["insight:read", "canvas:read"], False),
+            ("stale_scope", ["insight:read", "legacy_object:read"], False),
+            ("junk_tail_that_prefixes_nothing", ["insight:read", "zzz"], False),
+            ("fragment_in_the_middle", ["insight:read", "can", "canvas:read"], False),
+            ("stale_scope_before_the_fragment", ["legacy_object:read", "can"], False),
+            ("fragment_alone", ["can"], False),
+            ("empty", [], False),
+        ]
+    )
+    def test_resolution(self, _name: str, requested: list[str], expected: bool) -> None:
+        assert is_truncated_scope_request(requested) is expected
 
 
 class TestFilterToUnprivilegedScopes(SimpleTestCase):
