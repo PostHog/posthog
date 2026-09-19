@@ -84,12 +84,55 @@ class HogInvocationResult:
     is_retry: bool
 
 
+# Sentinel accepted by `include_globals` to request the whole payload.
+ALL_INVOCATION_GLOBALS = "all"
+
+
+@dataclasses.dataclass(frozen=True)
+class InvocationGlobalsSummary:
+    # Byte size of each top-level key's JSON, so a caller sees what the payload holds and
+    # which keys are worth the tokens before asking for them by name.
+    key_sizes: dict[str, int]
+    event_name: Optional[str]
+    current_action_id: Optional[str]
+
+
 @dataclasses.dataclass(frozen=True)
 class HogInvocationResultDetail(HogInvocationResult):
-    # The triggering payload (event/person/groups) the run executed against, decoded from the
-    # stored gzip+base64 blob into a JSON object so callers get structured data directly. Shape
-    # is caller-defined and unbounded.
+    invocation_globals_summary: InvocationGlobalsSummary
+    # Only the top-level keys the caller asked for. The producer stores the persisted run state,
+    # which is unbounded because a parked action keeps its own nested globals, so it is opt-in per key.
     invocation_globals: dict[str, Any]
+
+
+def _parse_include_globals(value: Optional[str]) -> set[str]:
+    """Split the comma-separated `include_globals` parameter into the keys to return in full."""
+    if not value:
+        return set()
+    return {part.strip() for part in value.split(",") if part.strip()}
+
+
+def _summarize_invocation_globals(parsed: dict[str, Any]) -> InvocationGlobalsSummary:
+    event = parsed.get("event")
+    current_action = parsed.get("currentAction")
+    return InvocationGlobalsSummary(
+        # SafeJSONRenderer sends UTF-8 without ASCII escaping, so measure that same encoding.
+        # `json.dumps` defaults to ensure_ascii=True, which counts a non-ASCII value by its
+        # escaped characters and overstates it about 2x for CJK and 3x for emoji.
+        key_sizes={
+            key: len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+            for key, value in parsed.items()
+        },
+        event_name=event.get("event") if isinstance(event, dict) else None,
+        current_action_id=current_action.get("id") if isinstance(current_action, dict) else None,
+    )
+
+
+def _select_invocation_globals(parsed: dict[str, Any], include_globals: Optional[str]) -> dict[str, Any]:
+    include = _parse_include_globals(include_globals)
+    if ALL_INVOCATION_GLOBALS in include:
+        return parsed
+    return {key: value for key, value in parsed.items() if key in include}
 
 
 def _decode_invocation_globals(stored: str) -> dict[str, Any]:
@@ -120,13 +163,39 @@ class InvocationGlobalsField(serializers.JSONField):
     pass
 
 
+class InvocationGlobalsSummarySerializer(DataclassSerializer):
+    key_sizes = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Byte size of each top-level key of the stored run state. Pass the keys you need to 'include_globals'.",
+    )
+
+    class Meta:
+        dataclass = InvocationGlobalsSummary
+
+
 class HogInvocationResultDetailSerializer(DataclassSerializer):
+    invocation_globals_summary = InvocationGlobalsSummarySerializer(
+        help_text="What the stored run state holds, without the state itself."
+    )
     invocation_globals = InvocationGlobalsField(
-        help_text="The triggering payload (event/person/groups) the run executed against, as a JSON object."
+        help_text="The top-level keys of the stored run state named by 'include_globals'. Empty by default."
     )
 
     class Meta:
         dataclass = HogInvocationResultDetail
+
+
+class HogInvocationResultDetailRequestSerializer(serializers.Serializer):
+    include_globals = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated top-level keys of the stored run state to return in full, e.g. 'event'. "
+            f"Pass '{ALL_INVOCATION_GLOBALS}' for the whole state. Omitted, the response stays bounded and "
+            "describes the state in 'invocation_globals_summary' instead. The state holds the trigger event "
+            "plus run bookkeeping such as 'personId', 'currentAction' and 'variables'. There is no top-level "
+            "'person' or 'groups' key, so ask only for the keys 'invocation_globals_summary' lists."
+        ),
+    )
 
 
 class HogInvocationResultsFiltersSerializer(serializers.Serializer):
@@ -176,7 +245,7 @@ class HogInvocationResultsCountSerializer(serializers.Serializer):
     )
 
 
-def _build_invocation(row: tuple, detail: bool) -> Any:
+def _build_invocation(row: tuple, detail: bool, include_globals: Optional[str] = None) -> Any:
     common = {
         "invocation_id": row[0],
         "status": row[1],
@@ -192,7 +261,12 @@ def _build_invocation(row: tuple, detail: bool) -> Any:
         "is_retry": bool(row[11]),
     }
     if detail:
-        return HogInvocationResultDetail(**common, invocation_globals=_decode_invocation_globals(row[12]))
+        parsed = _decode_invocation_globals(row[12])
+        return HogInvocationResultDetail(
+            **common,
+            invocation_globals_summary=_summarize_invocation_globals(parsed),
+            invocation_globals=_select_invocation_globals(parsed, include_globals),
+        )
     return HogInvocationResult(**common)
 
 
@@ -339,8 +413,9 @@ def fetch_hog_invocation_result(
     function_kind: str,
     function_id: str,
     invocation_id: str,
+    include_globals: Optional[str] = None,
 ) -> Optional[HogInvocationResultDetail]:
-    """Fetch a single invocation by id, including its triggering payload."""
+    """Fetch a single invocation by id, with the requested keys of its triggering payload."""
     kwargs = {
         "team_id": team_id,
         "function_kind": function_kind,
@@ -365,4 +440,4 @@ def fetch_hog_invocation_result(
     results = cast(list, sync_execute(query, kwargs))
     if not results:
         return None
-    return _build_invocation(results[0], detail=True)
+    return _build_invocation(results[0], detail=True, include_globals=include_globals)
