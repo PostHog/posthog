@@ -159,7 +159,9 @@ export function dataSourceSetupReturnUrl(source: WarehouseBackedSource): string 
 }
 
 function readSetupSourceParam(value: unknown): WarehouseBackedSource | null {
-    return typeof value === 'string' && value in WAREHOUSE_SOURCE_SETUP ? (value as WarehouseBackedSource) : null
+    return typeof value === 'string' && Object.hasOwn(WAREHOUSE_SOURCE_SETUP, value)
+        ? (value as WarehouseBackedSource)
+        : null
 }
 
 /** Values subset used by data-warehouse source helpers */
