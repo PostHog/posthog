@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/cdp_functions/api'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -124,7 +125,16 @@ const cdpFunctionsDiscardDraft = (): ToolBase<
 
 const CdpFunctionsGetRevisionSchema = () => {
     const HogFunctionsRevisionsRetrieveParams = orvalSchemas.HogFunctionsRevisionsRetrieveParams()
-    return HogFunctionsRevisionsRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({
+            id: ['function_id', 'functionId', 'hog_function_id', 'hogFunctionId', 'destination_id', 'destinationId'],
+        }),
+        HogFunctionsRevisionsRetrieveParams.omit({ project_id: true }).extend({
+            id: HogFunctionsRevisionsRetrieveParams.shape['id'].describe(
+                "UUID of the function (destination, transformation, or site app). Find it with cdp-functions-list, which returns each function's id next to its name."
+            ),
+        })
+    )
 }
 
 const cdpFunctionsGetRevision = (): ToolBase<
@@ -241,7 +251,18 @@ const cdpFunctionsList = (): ToolBase<
 const CdpFunctionsListRevisionsSchema = () => {
     const HogFunctionsRevisionsListParams = orvalSchemas.HogFunctionsRevisionsListParams()
     const HogFunctionsRevisionsListQueryParams = orvalSchemas.HogFunctionsRevisionsListQueryParams()
-    return HogFunctionsRevisionsListParams.omit({ project_id: true }).extend(HogFunctionsRevisionsListQueryParams.shape)
+    return z.preprocess(
+        normalizeParamAliases({
+            id: ['function_id', 'functionId', 'hog_function_id', 'hogFunctionId', 'destination_id', 'destinationId'],
+        }),
+        HogFunctionsRevisionsListParams.omit({ project_id: true })
+            .extend(HogFunctionsRevisionsListQueryParams.shape)
+            .extend({
+                id: HogFunctionsRevisionsListParams.shape['id'].describe(
+                    "UUID of the function (destination, transformation, or site app). Find it with cdp-functions-list, which returns each function's id next to its name."
+                ),
+            })
+    )
 }
 
 const cdpFunctionsListRevisions = (): ToolBase<
@@ -456,8 +477,17 @@ const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
 const CdpFunctionsRestoreRevisionSchema = () => {
     const HogFunctionsRevisionsRestoreCreateBody = orvalSchemas.HogFunctionsRevisionsRestoreCreateBody()
     const HogFunctionsRevisionsRestoreCreateParams = orvalSchemas.HogFunctionsRevisionsRestoreCreateParams()
-    return HogFunctionsRevisionsRestoreCreateParams.omit({ project_id: true }).extend(
-        HogFunctionsRevisionsRestoreCreateBody.shape
+    return z.preprocess(
+        normalizeParamAliases({
+            id: ['function_id', 'functionId', 'hog_function_id', 'hogFunctionId', 'destination_id', 'destinationId'],
+        }),
+        HogFunctionsRevisionsRestoreCreateParams.omit({ project_id: true })
+            .extend(HogFunctionsRevisionsRestoreCreateBody.shape)
+            .extend({
+                id: HogFunctionsRevisionsRestoreCreateParams.shape['id'].describe(
+                    "UUID of the function (destination, transformation, or site app). Find it with cdp-functions-list, which returns each function's id next to its name."
+                ),
+            })
     )
 }
 

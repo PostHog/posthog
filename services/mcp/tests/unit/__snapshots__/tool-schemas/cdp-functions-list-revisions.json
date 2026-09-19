@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "A UUID string identifying this hog function.",
+            "description": "UUID of the function (destination, transformation, or site app). Find it with cdp-functions-list, which returns each function's id next to its name.",
             "type": "string"
         },
         "limit": {
