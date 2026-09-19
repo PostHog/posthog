@@ -78,7 +78,7 @@ describe("CloudGithubSetupDialog", () => {
     expect(
       screen.getByRole("button", { name: "Details" }).closest("p"),
     ).toHaveTextContent(
-      "Read and write access to the repos you select. Details",
+      "Read/write access to authorized repos, plus read access to email addresses and organization membership. PostHog can act as you on GitHub. Details",
     );
     await user.click(
       screen.getByRole("button", {

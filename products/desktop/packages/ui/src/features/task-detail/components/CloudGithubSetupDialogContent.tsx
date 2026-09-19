@@ -102,7 +102,9 @@ export function CloudGithubSetupDialogContent({
                 Not now
               </Button>
               <p className="mt-2 text-balance text-center text-muted-foreground text-xs">
-                Read and write access to the repos you select.{" "}
+                Read/write access to authorized repos, plus read access to email
+                addresses and organization membership. PostHog can act as you on
+                GitHub.{" "}
                 <Button
                   type="button"
                   variant="link-muted"
