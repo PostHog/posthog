@@ -1,15 +1,23 @@
 # Golden-dataset eval for Replay Vision scanner prompts (products/replay_vision/evals).
 #
-# Manual dispatch only, deliberately. The suite re-runs production scans over real dogfood session
-# recordings, so a run spends secrets and LLM calls, and the number it returns moves on its own:
-# Gemini is nondeterministic and the dataset is re-sampled per run. That makes the score a
-# directional signal rather than a merge gate, which is not worth attaching to every push.
+# Runs on manual dispatch and on pull requests that change the scanner prompts, the scan pipeline,
+# the model config, or the eval suite itself. It re-runs production scans over real dogfood session
+# recordings and scores each fresh output against the recorded production output and the human thumbs
+# label, so a prompt change shows its effect on scan quality before it ships.
+#
+# It is advisory, never a merge gate. Gemini is nondeterministic and the dataset is re-sampled per
+# run, so the score is a directional signal. Read the two paired scorers together: labeled_outcome
+# flat or up while output_stability drops means the change only added churn.
 #
 # The dataset is collected fresh on the ephemeral runner each run, which re-verifies AI
 # data-processing consent; it is never cached, uploaded as an artifact, or otherwise persisted.
 # Only aggregate scores reach the public job log and step summary.
 # If any required secret is missing the job skips green with a warning, so a fork or a
 # not-yet-configured environment is unaffected.
+#
+# A dataset pinned to the same sessions across runs (a standing benchmark comparable over time)
+# needs an internal store plus a data-governance decision on persisting recordings; see
+# products/replay_vision/evals/README.md.
 name: Replay Vision Evals
 
 on:
@@ -23,6 +31,20 @@ on:
                 description: 'Trials per case, for variance on Gemini nondeterminism'
                 default: '1'
                 type: string
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - '.github/workflows/ci-replay-vision-evals.yml'
+            - 'products/replay_vision/backend/temporal/scanners/**'
+            - 'products/replay_vision/backend/temporal/activities/call_scanner_provider.py'
+            - 'products/replay_vision/backend/temporal/gemini.py'
+            - 'products/replay_vision/backend/prompt_evaluation.py'
+            - 'products/replay_vision/evals/**'
+
+# Advisory suite, so cancel a superseded PR run rather than spend a second heavy scan pass on it.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
     contents: read
@@ -131,7 +153,8 @@ jobs:
                   # Django refuses to boot with the checked-in SECRET_KEY unless DEBUG is set.
                   DEBUG: '1'
                   # Through env, not inline ${{ }}, so a dispatch input can never inject into the shell.
-                  PER_TYPE: ${{ inputs.per_type }}
+                  # inputs is null on a pull_request, so a PR run collects a fixed 20 cases per type.
+                  PER_TYPE: ${{ inputs.per_type || '20' }}
               run: |
                   # To the runner-local file only, never the public job log: the collector emits
                   # session and observation ids for missing-event and failed cases.
@@ -162,7 +185,7 @@ jobs:
                   LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   # The summary_alignment judge (autoevals) calls its model with the OpenAI client.
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  TRIALS: ${{ inputs.trials }}
+                  TRIALS: ${{ inputs.trials || '1' }}
               run: |
                   # To the runner-local file only, never the public job log: the eval calls run_scan
                   # directly, without the activity-level exception sanitizer, so a provider error can
