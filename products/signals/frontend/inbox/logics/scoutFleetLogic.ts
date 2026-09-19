@@ -62,10 +62,6 @@ import { computeScoutCostRollups, ScoutCostRollup } from '../utils/scoutCosts'
 import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
-/**
- * Roster order: A to Z by name, by lifecycle group so scouts that need a decision lead, or newest
- * first on one of the scout's three timestamps.
- */
 export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
 import type { BreakPointFunction } from 'kea'
 
@@ -93,7 +89,6 @@ import type { ScoutTagOption } from '../utils/scoutTags'
 export type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
 
-/** Which timestamp each recency sort reads. `name` and `status` order by something else entirely. */
 const SCOUT_RECENCY_TIMESTAMPS: Record<
     'created' | 'updated' | 'last_run',
     (config: SignalScoutConfig) => string | null
@@ -1445,8 +1440,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 extra: { filter, filter_match_count: values.rosterScouts.length },
             })
         },
-        // Which order a big fleet is actually read in is the question the recency sorts were added to
-        // answer, so the chosen order rides on the event.
         setScoutRosterSort: ({ sort }) => {
             captureScoutAction({
                 actionType: 'sort_roster',

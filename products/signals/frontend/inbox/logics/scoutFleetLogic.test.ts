@@ -361,9 +361,6 @@ describe('scoutFleetLogic', () => {
         }
     })
 
-    // Each timestamp orders this fleet differently, so a sort reading the wrong field, sorting
-    // oldest first, or treating a never-run scout as time zero lands somewhere else. `bravo` ties
-    // `zulu` on two of the three, which is where the A→Z pre-sort has to carry the tie.
     const RECENCY_FLEET: SignalScoutConfigApi[] = [
         {
             ...BASE_CONFIG,
@@ -403,7 +400,6 @@ describe('scoutFleetLogic', () => {
         ['name', ['alpha', 'bravo', 'mike', 'zulu']],
         ['created', ['bravo', 'zulu', 'mike', 'alpha']],
         ['updated', ['mike', 'alpha', 'zulu', 'bravo']],
-        // The scout that never ran sorts last rather than reading as the least recently run.
         ['last_run', ['bravo', 'zulu', 'alpha', 'mike']],
     ])('orders the roster by %s', (sort, expected) => {
         logic.actions.loadScoutConfigsSuccess(RECENCY_FLEET)
