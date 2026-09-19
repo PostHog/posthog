@@ -133,7 +133,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
 }
 
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
-    const { logicProps, isMuted, hasReachedExportFullVideoLimit, sessionPlayerData } =
+    const { logicProps, isMuted, hasReachedExportFullVideoLimit, sessionPlayerData, replayerNotReadyReason } =
         useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
         useActions(sessionRecordingPlayerLogic)
@@ -216,6 +216,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                     (hasReachedExportFullVideoLimit ? 'You have reached your export limit.' : undefined) ??
                     tooLongToExportReason ??
                     exportAccessControlDisabledReason ??
+                    replayerNotReadyReason ??
                     undefined,
                 'data-attr': 'replay-export-mp4',
                 className: hasReachedExportFullVideoLimit ? 'replay-export-limit-reached-button' : '',
@@ -250,6 +251,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         hasReachedExportFullVideoLimit,
         tooLongToExportReason,
         exportAccessControlDisabledReason,
+        replayerNotReadyReason,
     ])
 
     return (

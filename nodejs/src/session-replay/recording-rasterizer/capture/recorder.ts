@@ -100,7 +100,7 @@ export async function rasterizeRecording(
         )
 
         const blockProxy = new BlockProxy(cfg, log)
-        const blockCount = await blockProxy.fetchBlocks(input)
+        const blockCount = await blockProxy.fetchBlocks(input, signal)
         const compressedBytes = blockProxy.totalCompressedBytes
         log.info({ blockCount, compressedBytes }, 'block listing fetched')
         if (!Number.isFinite(compressedBytes)) {

@@ -36,7 +36,7 @@ function calculateClipTimes(currentTimeMs: number | null, sessionDurationMs: num
 }
 
 export function ClipOverlay(): JSX.Element | null {
-    const { currentPlayerTime, sessionPlayerData, showingClipParams, sessionRecordingId } =
+    const { currentPlayerTime, sessionPlayerData, showingClipParams, sessionRecordingId, replayerNotReadyReason } =
         useValues(sessionRecordingPlayerLogic)
     const { getClip, setShowingClipParams } = useActions(sessionRecordingPlayerLogic)
     const [duration, setDuration] = useState(MIN_CLIP_DURATION_SECONDS)
@@ -110,9 +110,10 @@ export function ClipOverlay(): JSX.Element | null {
                 type="primary"
                 className="mt-3 mx-auto"
                 disabledReason={
-                    durationOptions.some((option) => option.value === duration)
+                    replayerNotReadyReason ??
+                    (durationOptions.some((option) => option.value === duration)
                         ? undefined
-                        : 'Pick one of the durations above'
+                        : 'Pick one of the durations above')
                 }
                 data-attr="replay-clip-create"
             >

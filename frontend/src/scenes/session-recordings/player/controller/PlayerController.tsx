@@ -182,10 +182,12 @@ function SkipToNext(): JSX.Element | null {
 
 export function Screenshot({ className }: { className?: string }): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+    const { replayerNotReadyReason } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <LemonButton
             size="xsmall"
+            disabledReason={replayerNotReadyReason ?? undefined}
             onClick={(e) => {
                 e.stopPropagation()
                 takeScreenshot()
