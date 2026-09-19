@@ -15,6 +15,9 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import {
   adapterForModelId,
@@ -37,6 +40,7 @@ import {
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import { SubscriptionSubmenu } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
+import { shortModelLabel } from "@posthog/ui/features/sessions/components/shortModelLabel";
 import type { WorkspaceModeForAccess } from "@posthog/ui/features/settings/adapterSubscription";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
@@ -286,6 +290,7 @@ export function ReasoningLevelSelector({
     ? (modelEntries.find((entry) => entry.value === currentModel)?.name ??
       currentModel)
     : undefined;
+  const shortLabel = modelLabel ? shortModelLabel(modelLabel) : undefined;
 
   const changeModel = (value: string) => {
     if (onModelChange) {
@@ -481,7 +486,7 @@ export function ReasoningLevelSelector({
   // "Reasoning: undefined".
   const triggerAriaLabel =
     modelLabel && effortLabel
-      ? `Model and reasoning: ${modelLabel} ${effortLabel}`
+      ? `Model and reasoning: ${modelLabel}, ${effortLabel}`
       : modelLabel
         ? `Model: ${modelLabel}`
         : effortLabel
@@ -511,45 +516,67 @@ export function ReasoningLevelSelector({
         }
       }}
     >
-      <DropdownMenuTrigger
-        render={
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            disabled={isDisabled}
-            aria-label={triggerAriaLabel}
-            className={
-              fastActive ? "ring-1 ring-amber-9 ring-inset" : undefined
-            }
-          >
-            {fastActive && (
-              <span className="text-amber-11">
-                <Lightning size={14} weight="fill" />
-              </span>
-            )}
-            {modelLabel && (
-              <span className="font-medium text-foreground">
-                {isDefaultSelection ? `Default · ${modelLabel}` : modelLabel}
-              </span>
-            )}
-            {effortLabel && (
-              <span
-                className={
-                  modelLabel
-                    ? "font-normal text-muted-foreground/80"
-                    : undefined
-                }
-              >
-                {effortLabel}
-              </span>
-            )}
-            {!modelLabel && !effortLabel && (
-              <span className="font-medium text-foreground">Model</span>
-            )}
-          </Button>
-        }
-      />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  disabled={isDisabled}
+                  aria-label={triggerAriaLabel}
+                  className={
+                    fastActive ? "ring-1 ring-amber-9 ring-inset" : undefined
+                  }
+                >
+                  {fastActive && (
+                    <span className="text-amber-11">
+                      <Lightning size={14} weight="fill" />
+                    </span>
+                  )}
+                  {modelLabel && (
+                    <span className="font-medium text-foreground">
+                      {/* A container query cannot swap text, so a narrow composer
+                        hides the full name and shows the short one instead. The
+                        button carries its own aria-label, so the copy that is
+                        hidden never reaches the accessible name. */}
+                      <span className="@max-[480px]/composer:hidden">
+                        {isDefaultSelection
+                          ? `Default · ${modelLabel}`
+                          : modelLabel}
+                      </span>
+                      <span className="@max-[480px]/composer:inline hidden">
+                        {isDefaultSelection
+                          ? `Default · ${shortLabel}`
+                          : shortLabel}
+                      </span>
+                    </span>
+                  )}
+                  {effortLabel && (
+                    <span
+                      className={
+                        modelLabel
+                          ? "font-normal text-muted-foreground/80"
+                          : undefined
+                      }
+                    >
+                      {effortLabel}
+                    </span>
+                  )}
+                  {!modelLabel && !effortLabel && (
+                    <span className="font-medium text-foreground">Model</span>
+                  )}
+                </Button>
+              }
+            />
+          }
+        />
+        {/* The full model name, which the trigger shortens or drops when
+            the composer is narrow. */}
+        <TooltipContent side="top">{triggerAriaLabel}</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent
         align="start"
         side="top"
