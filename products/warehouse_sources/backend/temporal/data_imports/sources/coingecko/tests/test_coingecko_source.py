@@ -93,6 +93,18 @@ class TestCoinGeckoSource:
 
         assert self.source.validate_credentials(self.config, self.team_id, "coins_list") == (True, None)
 
+    @pytest.mark.parametrize("start_date", ["", "   ", None])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
+    )
+    def test_blank_start_date_falls_back_to_the_default_window(
+        self, mock_validate: mock.MagicMock, start_date: str | None
+    ) -> None:
+        mock_validate.return_value = True
+        config = CoinGeckoSourceConfig(api_key="CG-test", plan="demo", start_date=start_date)
+
+        assert self.source.validate_credentials(config, self.team_id) == (True, None)
+
     @pytest.mark.parametrize(
         "config_kwargs, expected_message",
         [
@@ -101,6 +113,12 @@ class TestCoinGeckoSource:
                 f"Too many coin IDs. List at most {MAX_COINS}.",
             ),
             ({"start_date": "1970-01-01"}, "CoinGecko has no data before 2018-01-01. Enter that date or a later one."),
+            (
+                # An unreadable date silently fell back to the default window, so the source synced
+                # a different range than the one that was configured.
+                {"start_date": "01/15/2025"},
+                "Couldn't read '01/15/2025' as a date. Use the format YYYY-MM-DD, for example 2025-01-01.",
+            ),
         ],
     )
     def test_rejects_a_configuration_that_would_run_away(

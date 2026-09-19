@@ -49,6 +49,10 @@ PLAN_PRO = "pro"
 # /coins/markets allows up to 250 per page; other paginated endpoints accept it too.
 PAGE_SIZE = 250
 MAX_RETRY_ATTEMPTS = 6
+# Per-request (connect, read) ceiling. Left unset, a server that accepts the connection and then
+# never answers holds an import worker open for the whole run. The per-coin endpoints issue one
+# request per coin per page or per window, so one stalled request blocks every coin behind it.
+REQUEST_TIMEOUT_SECONDS = 60
 
 NO_COINS_ERROR = "No coin IDs configured"
 
@@ -69,7 +73,7 @@ _MARKET_CHART_SERIES = {"prices": "price", "market_caps": "market_cap", "total_v
 _OHLC_COLUMNS = ("open", "high", "low", "close")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CoinGeckoResumeConfig:
     # Next page to fetch for paginated endpoints. Unused for single-response reference endpoints.
     page: int = 1
@@ -109,6 +113,7 @@ def _client_config(plan: str, api_key: str) -> ClientConfig:
             "location": "header",
         },
         "max_retries": MAX_RETRY_ATTEMPTS,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 
@@ -122,6 +127,7 @@ def _rest_client(plan: str, api_key: str) -> RESTClient:
         headers=config["headers"],
         auth=create_auth(config["auth"]),
         max_retry_attempts=config["max_retries"],
+        request_timeout=config["request_timeout"],
     )
 
 
@@ -187,14 +193,20 @@ def default_start_date() -> date:
 
 
 def start_date_error(start_date: Optional[str]) -> Optional[str]:
-    """Validation-time check for a too-old `start_date`.
+    """Validation-time check for an unusable `start_date`.
 
-    A parsed value earlier than `MINIMUM_START_DATE` is rejected here (credential validation) so a
-    new source can't be configured to run away, and re-checked in `_chart_pages` so a previously
-    stored configuration can't either. An unparseable value falls back to the default start date.
+    A value earlier than `MINIMUM_START_DATE` is rejected here (credential validation) so a new
+    source can't be configured to run away, and re-checked in `_chart_pages` so a previously stored
+    configuration can't either. A value that doesn't parse is rejected too, because the sync falls
+    back to the default window and would otherwise sync a different range than the one asked for.
     """
-    parsed = _coerce_date(start_date) if start_date else None
-    if parsed is not None and parsed < MINIMUM_START_DATE:
+    if not start_date or not start_date.strip():
+        return None
+
+    parsed = _coerce_date(start_date)
+    if parsed is None:
+        return f"Couldn't read '{start_date}' as a date. Use the format YYYY-MM-DD, for example 2025-01-01."
+    if parsed < MINIMUM_START_DATE:
         return f"CoinGecko has no data before {MINIMUM_START_DATE.isoformat()}. Enter that date or a later one."
     return None
 
