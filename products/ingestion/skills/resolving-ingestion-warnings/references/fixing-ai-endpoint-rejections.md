@@ -8,7 +8,7 @@ These come from capture's dedicated LLM analytics endpoints, not from the ingest
 - `/i/v0/ai/otel` — OTLP trace export, protobuf or JSON. Warnings carry `path: ai_otel`.
 - `/i/v1/ai/events` — JSON batch, the same request shape as the standard v1 capture endpoint. Only `misrouted_event` comes from here.
 
-Both reject at the edge, so a rejected event reaches nothing downstream. It is not in `events`, not in any insight, and has no other trace beyond the warning. `count` is the number of events or spans that didn't land.
+All three reject at the edge, so a rejected event reaches nothing downstream. The v0 endpoints refuse the whole request; `/i/v1/ai/events` drops only the offending event and accepts the rest of the batch. It is not in `events`, not in any insight, and has no other trace beyond the warning. `count` is the number of events or spans that didn't land.
 
 Check `lib` and `libVersion` first on every one of these. A rejection concentrated on one SDK version is an upgrade, not a payload problem.
 
@@ -65,4 +65,4 @@ A batch sent to `/i/v1/ai/events` contained an event whose name does not start w
 
 This is always a routing mistake on the sending side: a proxy rule, a host override, or an SDK configured to send all events through its AI capture method. Send ordinary analytics events through the standard capture endpoint. Nothing about the event itself needs to change.
 
-The reverse case (an `$ai_*` event sent to the standard endpoint) does not warn. Capture forwards it to the LLM analytics lane.
+The reverse case (an `$ai_*` event sent to the standard endpoint) does not warn. Capture routes AI-lane names to the LLM analytics pipeline.
