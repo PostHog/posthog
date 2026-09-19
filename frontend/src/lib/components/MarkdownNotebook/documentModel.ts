@@ -669,6 +669,17 @@ export function ensureEditableNotebookDocument(document: NotebookDocument): Note
         didChange = true
     }
 
+    // The renderer, the content check, and the serializer all read a code block's `text` as a
+    // string, so a node that carries something else throws during render and blanks the notebook.
+    // Every document passes through here on its way into state, so this repair also reaches the
+    // next save
+    nodes.forEach((node, index) => {
+        if (node.type === 'code' && typeof node.text !== 'string') {
+            nodes[index] = { ...node, text: '' }
+            didChange = true
+        }
+    })
+
     const uniqueNodes = ensureUniqueNodeIds(nodes)
     if (uniqueNodes !== nodes) {
         didChange = true
