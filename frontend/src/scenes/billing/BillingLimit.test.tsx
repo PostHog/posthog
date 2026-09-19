@@ -90,6 +90,21 @@ describe('BillingLimit', () => {
         }
     )
 
+    // The limit writes custom_limits_usd[product.type] only, so a row that stops naming the product
+    // scope reads as an account-wide cap, and people are billed past it on every other product.
+    it('states that a billing limit covers one product', async () => {
+        await seedBilling({})
+        render(
+            <Provider>
+                <BillingLimit product={makeProduct()} />
+            </Provider>
+        )
+
+        expect(await screen.findByTestId('billing-limit-scope-product_analytics')).toHaveTextContent(
+            'Billing limits apply to one product. Set a limit on each product you want to cap.'
+        )
+    })
+
     it('removing an existing limit PATCHes a null limit and re-renders as unset', async () => {
         await seedBilling({ product_analytics: 500 })
         render(

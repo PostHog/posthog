@@ -43,6 +43,9 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                 data-attr={`billing-limit-input-wrapper-${product.type}`}
             >
                 <h4>Billing limit</h4>
+                <div className="text-xs text-secondary mb-2" data-attr={`billing-limit-scope-${product.type}`}>
+                    Billing limits apply to one product. Set a limit on each product you want to cap.
+                </div>
                 <div className="flex flex-col xl:flex-row w-full items-stretch xl:items-center justify-start xl:justify-between gap-2">
                     <div className="flex items-center gap-1">
                         {!isEditingBillingLimit ? (
