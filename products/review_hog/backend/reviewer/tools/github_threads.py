@@ -64,11 +64,30 @@ class ThreadComment(BaseModel):
     author_login: str = ""
     # From GraphQL `author { __typename }` — authoritative, unlike login-suffix heuristics.
     author_is_bot: bool = False
-    # OWNER / MEMBER / COLLABORATOR / CONTRIBUTOR / NONE … — feeds the trust weighting in the prompt.
+    # OWNER / MEMBER / COLLABORATOR / CONTRIBUTOR / NONE … — drives `comment_is_trusted` below.
     author_association: str = "NONE"
     body: str = ""
     created_at: str = ""
     url: str = ""
+
+
+# The author-permission gate: whose ask may drive a code-writing turn (ARCHITECTURE.md — resolution-
+# stage injection hardening). GitHub reports anyone with standing in the repository as OWNER, MEMBER
+# or COLLABORATOR, so their ask carries the same weight as a push to the branch. Every other human
+# association — CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, NONE — is a drive-by comment anyone with a
+# GitHub account can leave on a public PR.
+_TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+
+def comment_is_trusted(comment: ThreadComment) -> bool:
+    """Whether this comment's author may ask the stage for a code change.
+
+    A bot author is trusted on GraphQL's `__typename`, not its association: review bots and outside
+    contributors both carry `author_association: NONE`, so association alone would drop exactly the
+    bot threads the stage exists to settle. A bot can only comment here because somebody with repo
+    admin installed its App, which is the standing the gate is looking for.
+    """
+    return comment.author_is_bot or comment.author_association in _TRUSTED_ASSOCIATIONS
 
 
 class ReviewThread(BaseModel):
@@ -93,6 +112,17 @@ class ReviewThread(BaseModel):
     def author_is_bot(self) -> bool:
         first = self.first_comment
         return first.author_is_bot if first else False
+
+    @property
+    def ask_is_trusted(self) -> bool:
+        """Whether this thread's ask may drive a code-writing turn (the author-permission gate).
+
+        Read off the OPENING comment, because that is the comment that asks for something — later
+        replies argue about the ask, they don't replace it. A thread with no comments asks for
+        nothing, so it fails closed.
+        """
+        first = self.first_comment
+        return first is not None and comment_is_trusted(first)
 
     @property
     def latest_comment_id(self) -> int | None:
@@ -534,9 +564,15 @@ def should_resolve(verdict: ThreadVerdictArtefact) -> bool:
     A FIXED verdict whose commit failed server-side verification never resolves either: the model's
     claim is unproven, so the thread stays open for a human. None (unchecked) keeps legacy behavior.
     The same holds for a commit touching restricted paths (`commit_restricted`) — the hard-floor
-    backstop leaves it for a human.
+    backstop leaves it for a human — and for any fix the author-permission gate has not positively
+    cleared. That gate reads `ask_trusted is not True`, not `is False`: a row written before the
+    gate existed carries `None`, and treating an absent trust decision as a pass would let a
+    pre-gate verdict resolve a thread nobody ever judged. `_prepare_run` fills `None` in from the
+    live thread before delivery, so a legacy row that was genuinely trusted still resolves.
     """
-    if verdict.outcome == "fixed" and (verdict.commit_verified is False or verdict.commit_restricted):
+    if verdict.outcome == "fixed" and (
+        verdict.commit_verified is False or verdict.commit_restricted or verdict.ask_trusted is not True
+    ):
         return False
     return verdict.author_is_bot and verdict.outcome != "escalate"
 

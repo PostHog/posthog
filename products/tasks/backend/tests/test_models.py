@@ -154,6 +154,52 @@ class TestTask(TestCase):
         self.assertEqual(state["repositories"], ["posthog/posthog", "posthog/posthog-js"])
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_untrusted_checkout_into_state(self, mock_execute_workflow):
+        from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+            TaskProcessingContext,
+        )
+
+        user = User.objects.create(email="untrusted@test.com")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Review run",
+                description="session on a PR branch somebody else wrote",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                untrusted_checkout=True,
+            )
+
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        # The launch reads the flag back only through this property, so a drift between the writer
+        # and the reader would leave a caller's opt-in silently doing nothing — and the caller has
+        # no other way to tell, because the quarantine leaves no trace when it does not run.
+        ctx = TaskProcessingContext(
+            task_id="t",
+            run_id="r",
+            team_id=1,
+            team_uuid="u",
+            organization_id="o",
+            github_integration_id=None,
+            repository=None,
+            distinct_id="d",
+            state=state,
+        )
+        self.assertTrue(ctx.untrusted_checkout)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Own-branch run",
+                description="ordinary task on the requester's own branch",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+            )
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertNotIn("untrusted_checkout", state)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_github_read_access_into_state(self, mock_execute_workflow):
         from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
             TaskProcessingContext,

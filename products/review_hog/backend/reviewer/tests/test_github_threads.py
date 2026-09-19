@@ -16,6 +16,7 @@ from products.review_hog.backend.reviewer.tools.github_threads import (
     ThreadAction,
     ThreadComment,
     classify_thread,
+    comment_is_trusted,
     fetch_unresolved_threads,
     github_graphql_request,
     inspect_fix_commit,
@@ -32,6 +33,8 @@ def _thread(
     *,
     author_login: str = "alice",
     author_is_bot: bool = False,
+    author_association: str = "NONE",
+    reply_association: str = "NONE",
     created_at: str = "2026-07-01T00:00:00Z",
     comment_ids: list[int | None] | None = None,
     first_body: str = "please fix",
@@ -42,6 +45,7 @@ def _thread(
             id=comment_id,
             author_login=author_login if index == 0 else "someone",
             author_is_bot=author_is_bot if index == 0 else False,
+            author_association=author_association if index == 0 else reply_association,
             body=first_body if index == 0 else "a reply",
             created_at=created_at,
         )
@@ -60,6 +64,7 @@ def _verdict(
     resolved: bool = False,
     commit_verified: bool | None = None,
     commit_restricted: bool | None = None,
+    ask_trusted: bool | None = True,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -72,6 +77,7 @@ def _verdict(
         resolved=resolved,
         commit_verified=commit_verified,
         commit_restricted=commit_restricted,
+        ask_trusted=ask_trusted,
     )
 
 
@@ -137,6 +143,19 @@ class TestGitHubThreads:
                 [100],
                 ThreadAction.SKIP,
             ),
+            # And for a fix the author-permission gate refused: proven commit, no standing to act on.
+            (
+                "bot_fixed_untrusted_ask_delivered_skips",
+                {
+                    "author_is_bot": True,
+                    "outcome": "fixed",
+                    "commit_verified": True,
+                    "ask_trusted": False,
+                    "resolved": False,
+                },
+                [100],
+                ThreadAction.SKIP,
+            ),
         ]
     )
     def test_classify_thread(self, _name: str, verdict_kwargs: dict | None, comment_ids: list, expected: str) -> None:
@@ -162,6 +181,51 @@ class TestGitHubThreads:
     def test_should_resolve_restricted_fixed_never(self) -> None:
         verdict = _verdict(author_is_bot=True, outcome="fixed", commit_verified=True, commit_restricted=True)
         assert should_resolve(verdict) is False
+
+    @parameterized.expand([("refused", False), ("no_decision_recorded", None)])
+    def test_should_resolve_fixed_without_a_trust_pass_never(self, _name: str, ask_trusted: bool | None) -> None:
+        # A proven commit still has no standing behind it, so the thread stays open for a human.
+        # None is the pre-gate row: an absent decision read as a pass would resolve a thread whose
+        # asker nobody ever judged.
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_verified=True, ask_trusted=ask_trusted)
+        assert should_resolve(verdict) is False
+
+    def test_should_resolve_trusted_ask_fixed_resolves(self) -> None:
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_verified=True, ask_trusted=True)
+        assert should_resolve(verdict) is True
+
+    @parameterized.expand(
+        [
+            ("owner", "OWNER", False, True),
+            ("member", "MEMBER", False, True),
+            ("collaborator", "COLLABORATOR", False, True),
+            # A past contributor to a public repo can comment on anyone's PR; that is not standing.
+            ("contributor", "CONTRIBUTOR", False, False),
+            ("first_time_contributor", "FIRST_TIME_CONTRIBUTOR", False, False),
+            ("drive_by", "NONE", False, False),
+            # A bot is trusted on __typename, not association: review bots report NONE, and a bot
+            # only comments here because somebody with repo admin installed its App.
+            ("review_bot_reporting_none", "NONE", True, True),
+        ]
+    )
+    def test_comment_is_trusted(self, _name: str, association: str, is_bot: bool, expected: bool) -> None:
+        comment = ThreadComment(id=1, author_association=association, author_is_bot=is_bot, body="fix this")
+        assert comment_is_trusted(comment) is expected
+
+    @parameterized.expand(
+        [
+            # The opener states the ask: a member replying to a drive-by thread does not adopt it,
+            # and a drive-by reply does not strip a member's own thread of its standing.
+            ("member_reply_does_not_lift_a_drive_by_ask", "NONE", "MEMBER", False),
+            ("drive_by_reply_does_not_sink_a_member_ask", "MEMBER", "NONE", True),
+        ]
+    )
+    def test_ask_trust_reads_the_opening_comment_only(self, _name: str, ask: str, reply: str, expected: bool) -> None:
+        thread = _thread(author_association=ask, reply_association=reply, comment_ids=[100, 101])
+        assert thread.ask_is_trusted is expected
+
+    def test_a_thread_with_no_comments_fails_closed(self) -> None:
+        assert ReviewThread(thread_id="PRRT_0").ask_is_trusted is False
 
     @parameterized.expand(
         [

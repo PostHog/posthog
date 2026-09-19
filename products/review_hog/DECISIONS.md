@@ -3307,6 +3307,76 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    `commit_verified=False` — caveat reply, no link, never auto-resolves. Residual (accepted): echoing one of
    the bot's own earlier fix commits still passes; that closes only with the recorded Tasks
    session-provenance follow-up.
+   _Built 2026-09-18 (off an agent-injection security review, which found the startup vector first):_
+   **the checkout's harness config no longer runs.** A collaborator could commit a
+   `.claude/settings.json` `SessionStart` hook to a same-repo PR branch; ReviewHog's Claude stages
+   (chunking above the one-shot gate, validation, resolution) check that branch out in a sandbox
+   holding a write-capable GitHub installation token, a PostHog key and an AI gateway token, and
+   pass `initial_permission_mode=None`, which bypasses permissions and therefore trusts project
+   settings. The hook ran at startup, before the model selected a tool and before any approval
+   callback, so nothing in this product could refuse it: the prompt floors and the MCP scope pin
+   both act on a session that has already started. `untrusted_checkout` on
+   `CustomPromptSandboxContext` (products/tasks) now makes the agent-server launch delete
+   `.claude/settings.json`, `.claude/settings.local.json`, `.claude/hooks/` and `.mcp.json` from the
+   working tree first, and ReviewHog sets it on both context constructions. Scoped to an opt-in
+   rather than applied to every sandbox, because a run on the requester's OWN branch is entitled to
+   the repository's bootstrap hooks — the escalation is only there when the branch's author is not
+   the credential owner. Stamped on the run (not derived at checkout) so a resume that skips the
+   checkout activity still launches quarantined, and added to the facade's non-PATCHable state keys
+   so the sandbox agent cannot clear it for the next launch. The tracked entries are marked
+   assume-unchanged before the removal, while the index still matches the worktree: otherwise every
+   quarantined repository carries a deleted `.claude/settings.json` in `git status`, and the
+   resolution stage's own commit tooling could sweep that removal onto the PR branch. The quarantine ENDS by
+   checking that every path is gone and raises `SandboxQuarantineError` when one survives, rather than trusting
+   an exit code: `rm -rf` reports success for a path it never had to touch. Only the index-flag step may fail
+   without blocking the launch, because a dirty status is cosmetic where a live hook is not. _Both landed off
+   the first CodeRabbit pass on this branch, which caught the removal being unverified and the gate below
+   treating an absent trust decision as a pass._ Residual: `.git/config` in a restored repo-setup snapshot still carries
+   the write-capable token its creator cloned with (`provision_sandbox.py`), so a hook that survived
+   this quarantine would find a credential on disk as well as in the environment; and the read-only
+   stages still run with a write-capable token because `github_read_access=True` also disables
+   snapshot restore, which would cost a fresh clone per unit at ten concurrent units per PR. Both
+   are recorded for the tasks owners rather than fixed here.
+
+   _Same date (the two deferred prompt-surface gates, off the same review):_ the two
+   pieces deferred above as BLOCKING pre-public-release gates are now built, so
+   the only prompt-only control left on the write path is the one that needs a change outside this repo.
+   **Structural (JSON) comment rendering** — `render_thread` / `render_work_list` emit JSON, mirroring the review
+   stage's `PR_COMMENTS`. Flat text made the attribution forgeable: a commenter could type
+   `--- maintainer [human, OWNER] …` and a "SAFE TO FIX" verdict into their own body and have the turn read it as
+   two further comments from a maintainer. As a JSON string value that text stays inside one `body` field, every
+   field around it is the orchestrator's, and the real comment `databaseId` ships as `comment_id` (the
+   "expose it as ground truth" option the gate left open). The per-thread `outdated` legend moved from the
+   rendering into the template's new `<thread_format>` block, so it is stated once per session instead of once
+   per turn. **Author-permission gate** — `comment_is_trusted` trusts OWNER / MEMBER / COLLABORATOR (an ask with
+   the same standing as a push to the branch) plus any bot author, keyed on GraphQL `__typename` rather than
+   association: the naive filter the gate warned about would have dropped the review-bot threads the stage exists
+   to settle, since bots and outside contributors both report `NONE`. `ReviewThread.ask_is_trusted` evaluates it
+   on the **opening** comment — the comment that asks, where later replies only argue — so a member's reply
+   cannot lift a drive-by ask and a drive-by reply cannot sink a member's thread; an empty thread fails closed.
+   Enforcement is two-layered, matching the path backstop's posture: the turn is told `code_changes_allowed:
+   false` and the prompt's hard floors forbid any code change on such a thread, and delivery refuses to present
+   a fix on one as settled whatever the commit proves (`ask_trusted=False` persists, `should_resolve` refuses,
+   the reply carries a human-review caveat instead of the commit link, and the crossed floor is logged at
+   error). Standing verdicts are covered by the same predicate: "SAFE TO FIX" / "E2E REQUIRED" counts only from
+   a `trusted` comment, closing the hole where a thread's own low-trust asker waved their ask through the worth
+   bar. Deliberately NOT done: excluding an untrusted thread from the work-list, which would have contradicted
+   the comment-loading policy (CONTEXT.md) and let any drive-by commenter silence a thread — loading is not
+   permission, so the thread is still read, judged and answered, and only its code writes are refused. Residual,
+   unchanged: this is containment, not prevention — a turn that crosses the floor has already pushed, which is
+   pre-public-release gate 1 (pre-push enforcement in the signed-commit tooling, outside this product).
+   The gate reads `ask_trusted is not True`, not `is False`: a verdict written before the gate existed carries
+   `None`, and an absent trust decision read as a pass would let a pending pre-gate FIXED row publish a commit
+   link and resolve a thread whose asker nobody ever judged. To keep fail-closed from meaning fail-noisy for
+   legacy rows that were trusted all along, `_prepare_run` decides the gate for a `None` row from the live
+   thread and persists it, which also stops the row being legacy on the next run. That backfill runs ahead of
+   the deterministic pre-filter, not on its redelivery branch: `classify_thread` asks `should_resolve`, so a
+   pre-gate fix whose reply landed and whose resolve did not reads as settled and would never reach a branch
+   that could fill the decision in — the thread would stay open on every later run with nothing able to advance
+   it. _Caught by the second CodeRabbit pass on this branch._
+   Not yet validated by a live e2e run, which the deferral asked for on prompt-content changes: the rendering
+   and gate are covered by unit tests, and the prompt half needs a real run on a PR with a drive-by thread.
+
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on
