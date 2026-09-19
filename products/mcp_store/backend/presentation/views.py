@@ -82,7 +82,7 @@ from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_sta
 from ..proxy import proxy_mcp_request, record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
-from ..visibility import slack_dev_mcp_ui_enabled
+from .visibility import slack_dev_mcp_ui_enabled
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):

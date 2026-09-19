@@ -66,7 +66,7 @@ from ..models import (
     TeamMCPGatewayConfig,
 )
 from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
-from ..visibility import slack_dev_mcp_ui_enabled
+from .visibility import slack_dev_mcp_ui_enabled
 
 logger = structlog.get_logger(__name__)
 
