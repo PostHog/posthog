@@ -13,6 +13,7 @@ const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 // ship oversized payloads, or hold a request slot forever.
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
 const MAX_CONCURRENT_CONNECTOR_REQUESTS = 8;
+const MAX_QUEUE_SIZE = 1000;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
 const REPLAYABLE_SHORTCUT_KEYS = new Set([
@@ -92,6 +93,8 @@ export function createCanvasHostMessageRouter(
   let lastExternalOpen = 0;
   let activeDataRequests = 0;
   let activeConnectorRequests = 0;
+  const dataRequestQueue: (() => void)[] = [];
+  const connectorRequestQueue: (() => void)[] = [];
 
   return async (message) => {
     switch (message.type) {
@@ -115,66 +118,108 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
+
+        if (!isBoundedPayload(message.payload)) {
+          options.post({
+            channel: "posthog-canvas",
+            type: "data-response",
+            id: message.id,
+            ok: false,
+            error: "Canvas data request payload exceeds size limit",
+          });
+          break;
+        }
+
         // Approval waits must not consume ordinary read/write slots.
         // Connector calls have their own limit; agent requests are single-flight.
         const isConnectorRequest = message.method === "connectorCall";
         const holdsSlot =
           message.method !== "agentRequest" && !isConnectorRequest;
-        if (
-          (holdsSlot && activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) ||
-          (isConnectorRequest &&
-            activeConnectorRequests >= MAX_CONCURRENT_CONNECTOR_REQUESTS) ||
-          !isBoundedPayload(message.payload)
-        ) {
-          options.post({
-            channel: "posthog-canvas",
-            type: "data-response",
-            id: message.id,
-            ok: false,
-            error: "Canvas data request exceeds runtime limits",
-          });
-          break;
-        }
-        if (holdsSlot) activeDataRequests += 1;
-        if (isConnectorRequest) activeConnectorRequests += 1;
-        try {
-          const call = options
-            .callbacks()
-            .onDataRequest(message.method, message.payload);
-          // Approval dialogs can stay open longer than the I/O timeout.
-          // Do not report a failure while a later approval can still run the call.
-          const result =
-            message.method === "agentRequest" ||
-            message.method === "connectorCall"
-              ? await call
-              : await Promise.race([
-                  call,
-                  new Promise<never>((_, reject) =>
-                    setTimeout(
-                      () => reject(new Error("Canvas data request timed out")),
-                      DATA_REQUEST_TIMEOUT_MS,
+
+        const runDataRequest = async () => {
+          if (holdsSlot) activeDataRequests += 1;
+          if (isConnectorRequest) activeConnectorRequests += 1;
+          try {
+            const call = options
+              .callbacks()
+              .onDataRequest(message.method, message.payload);
+            // Approval dialogs can stay open longer than the I/O timeout.
+            // Do not report a failure while a later approval can still run the call.
+            const result =
+              message.method === "agentRequest" ||
+              message.method === "connectorCall"
+                ? await call
+                : await Promise.race([
+                    call,
+                    new Promise<never>((_, reject) =>
+                      setTimeout(
+                        () => reject(new Error("Canvas data request timed out")),
+                        DATA_REQUEST_TIMEOUT_MS,
+                      ),
                     ),
-                  ),
-                ]);
-          options.post({
-            channel: "posthog-canvas",
-            type: "data-response",
-            id: message.id,
-            ok: true,
-            result,
-          });
-        } catch (error) {
-          options.post({
-            channel: "posthog-canvas",
-            type: "data-response",
-            id: message.id,
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        } finally {
-          if (holdsSlot) activeDataRequests -= 1;
-          if (isConnectorRequest) activeConnectorRequests -= 1;
+                  ]);
+            options.post({
+              channel: "posthog-canvas",
+              type: "data-response",
+              id: message.id,
+              ok: true,
+              result,
+            });
+          } catch (error) {
+            options.post({
+              channel: "posthog-canvas",
+              type: "data-response",
+              id: message.id,
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          } finally {
+            if (holdsSlot) {
+              activeDataRequests -= 1;
+              const next = dataRequestQueue.shift();
+              if (next) next();
+            }
+            if (isConnectorRequest) {
+              activeConnectorRequests -= 1;
+              const next = connectorRequestQueue.shift();
+              if (next) next();
+            }
+          }
+        };
+
+        if (holdsSlot) {
+          if (activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) {
+            if (dataRequestQueue.length >= MAX_QUEUE_SIZE) {
+              options.post({
+                channel: "posthog-canvas",
+                type: "data-response",
+                id: message.id,
+                ok: false,
+                error: "Canvas data request queue is full",
+              });
+              break;
+            }
+            dataRequestQueue.push(runDataRequest);
+            break;
+          }
+        } else if (isConnectorRequest) {
+          if (activeConnectorRequests >= MAX_CONCURRENT_CONNECTOR_REQUESTS) {
+            if (connectorRequestQueue.length >= MAX_QUEUE_SIZE) {
+              options.post({
+                channel: "posthog-canvas",
+                type: "data-response",
+                id: message.id,
+                ok: false,
+                error: "Canvas connector request queue is full",
+              });
+              break;
+            }
+            connectorRequestQueue.push(runDataRequest);
+            break;
+          }
         }
+
+        runDataRequest();
         break;
       }
       case "error":
