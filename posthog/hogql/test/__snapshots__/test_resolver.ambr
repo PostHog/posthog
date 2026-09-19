@@ -81,7 +81,7 @@
                             hidden: False
                           },
                           distinct_id: {
-                            description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                            description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                             hidden: False
                           },
                           elements_chain: {
@@ -209,11 +209,11 @@
                             hidden: False
                           },
                           person: {
-                            description: None,
+                            description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                             hidden: False
                           },
                           person_id: {
-                            description: None,
+                            description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                             hidden: False
                           },
                           person_mode: {
@@ -2340,7 +2340,7 @@
                     hidden: False
                   },
                   distinct_id: {
-                    description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                    description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                     hidden: False
                   },
                   elements_chain: {
@@ -2472,11 +2472,11 @@
                     hidden: False
                   },
                   person: {
-                    description: None,
+                    description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                     hidden: False
                   },
                   person_id: {
-                    description: None,
+                    description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                     hidden: False
                   },
                   person_mode: {
@@ -5327,7 +5327,7 @@
                                 hidden: False
                               },
                               distinct_id: {
-                                description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                                description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                                 hidden: False
                               },
                               elements_chain: {
@@ -5455,11 +5455,11 @@
                                 hidden: False
                               },
                               person: {
-                                description: None,
+                                description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                                 hidden: False
                               },
                               person_id: {
-                                description: None,
+                                description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                                 hidden: False
                               },
                               person_mode: {
@@ -6349,7 +6349,7 @@
                                 hidden: False
                               },
                               distinct_id: {
-                                description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                                description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                                 hidden: False
                               },
                               elements_chain: {
@@ -6477,11 +6477,11 @@
                                 hidden: False
                               },
                               person: {
-                                description: None,
+                                description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                                 hidden: False
                               },
                               person_id: {
-                                description: None,
+                                description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                                 hidden: False
                               },
                               person_mode: {
@@ -9492,7 +9492,7 @@
                     hidden: False
                   },
                   distinct_id: {
-                    description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                    description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                     hidden: False
                   },
                   elements_chain: {
@@ -9620,11 +9620,11 @@
                     hidden: False
                   },
                   person: {
-                    description: None,
+                    description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                     hidden: False
                   },
                   person_id: {
-                    description: None,
+                    description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                     hidden: False
                   },
                   person_mode: {
@@ -11163,7 +11163,7 @@
                       hidden: False
                     },
                     distinct_id: {
-                      description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                      description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                       hidden: False
                     },
                     elements_chain: {
@@ -11291,11 +11291,11 @@
                       hidden: False
                     },
                     person: {
-                      description: None,
+                      description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                       hidden: False
                     },
                     person_id: {
-                      description: None,
+                      description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                       hidden: False
                     },
                     person_mode: {
@@ -12836,7 +12836,7 @@
                         hidden: False
                       },
                       distinct_id: {
-                        description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                        description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                         hidden: False
                       },
                       elements_chain: {
@@ -12964,11 +12964,11 @@
                         hidden: False
                       },
                       person: {
-                        description: None,
+                        description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                         hidden: False
                       },
                       person_id: {
-                        description: None,
+                        description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                         hidden: False
                       },
                       person_mode: {
@@ -13136,7 +13136,7 @@
                         hidden: False
                       },
                       distinct_id: {
-                        description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                        description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                         hidden: False
                       },
                       elements_chain: {
@@ -13264,11 +13264,11 @@
                         hidden: False
                       },
                       person: {
-                        description: None,
+                        description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                         hidden: False
                       },
                       person_id: {
-                        description: None,
+                        description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                         hidden: False
                       },
                       person_mode: {
@@ -13783,7 +13783,7 @@
                     hidden: False
                   },
                   distinct_id: {
-                    description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                    description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                     hidden: False
                   },
                   elements_chain: {
@@ -13911,11 +13911,11 @@
                     hidden: False
                   },
                   person: {
-                    description: None,
+                    description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                     hidden: False
                   },
                   person_id: {
-                    description: None,
+                    description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                     hidden: False
                   },
                   person_mode: {
@@ -14119,7 +14119,7 @@
                       hidden: False
                     },
                     distinct_id: {
-                      description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                      description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                       hidden: False
                     },
                     elements_chain: {
@@ -14247,11 +14247,11 @@
                       hidden: False
                     },
                     person: {
-                      description: None,
+                      description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                       hidden: False
                     },
                     person_id: {
-                      description: None,
+                      description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                       hidden: False
                     },
                     person_mode: {
@@ -14459,7 +14459,7 @@
                         hidden: False
                       },
                       distinct_id: {
-                        description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                        description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                         hidden: False
                       },
                       elements_chain: {
@@ -14587,11 +14587,11 @@
                         hidden: False
                       },
                       person: {
-                        description: None,
+                        description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                         hidden: False
                       },
                       person_id: {
-                        description: None,
+                        description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                         hidden: False
                       },
                       person_mode: {
@@ -14839,7 +14839,7 @@
                                 hidden: False
                               },
                               distinct_id: {
-                                description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                                description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                                 hidden: False
                               },
                               elements_chain: {
@@ -14967,11 +14967,11 @@
                                 hidden: False
                               },
                               person: {
-                                description: None,
+                                description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                                 hidden: False
                               },
                               person_id: {
-                                description: None,
+                                description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                                 hidden: False
                               },
                               person_mode: {
@@ -15225,7 +15225,7 @@
                     hidden: False
                   },
                   distinct_id: {
-                    description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                    description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                     hidden: False
                   },
                   elements_chain: {
@@ -15353,11 +15353,11 @@
                     hidden: False
                   },
                   person: {
-                    description: None,
+                    description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                     hidden: False
                   },
                   person_id: {
-                    description: None,
+                    description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                     hidden: False
                   },
                   person_mode: {
@@ -15580,7 +15580,7 @@
                       hidden: False
                     },
                     distinct_id: {
-                      description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                      description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                       hidden: False
                     },
                     elements_chain: {
@@ -15708,11 +15708,11 @@
                       hidden: False
                     },
                     person: {
-                      description: None,
+                      description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                       hidden: False
                     },
                     person_id: {
-                      description: None,
+                      description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                       hidden: False
                     },
                     person_mode: {
@@ -15936,7 +15936,7 @@
                     hidden: False
                   },
                   distinct_id: {
-                    description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                    description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                     hidden: False
                   },
                   elements_chain: {
@@ -16064,11 +16064,11 @@
                     hidden: False
                   },
                   person: {
-                    description: None,
+                    description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                     hidden: False
                   },
                   person_id: {
-                    description: None,
+                    description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                     hidden: False
                   },
                   person_mode: {
@@ -16276,7 +16276,7 @@
                       hidden: False
                     },
                     distinct_id: {
-                      description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                      description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                       hidden: False
                     },
                     elements_chain: {
@@ -16404,11 +16404,11 @@
                       hidden: False
                     },
                     person: {
-                      description: None,
+                      description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                       hidden: False
                     },
                     person_id: {
-                      description: None,
+                      description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                       hidden: False
                     },
                     person_mode: {
@@ -16728,7 +16728,7 @@
                       hidden: False
                     },
                     distinct_id: {
-                      description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                      description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                       hidden: False
                     },
                     elements_chain: {
@@ -16856,11 +16856,11 @@
                       hidden: False
                     },
                     person: {
-                      description: None,
+                      description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                       hidden: False
                     },
                     person_id: {
-                      description: None,
+                      description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                       hidden: False
                     },
                     person_mode: {
@@ -17025,7 +17025,7 @@
                           hidden: False
                         },
                         distinct_id: {
-                          description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                          description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                           hidden: False
                         },
                         elements_chain: {
@@ -17153,11 +17153,11 @@
                           hidden: False
                         },
                         person: {
-                          description: None,
+                          description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                           hidden: False
                         },
                         person_id: {
-                          description: None,
+                          description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                           hidden: False
                         },
                         person_mode: {
@@ -17344,7 +17344,7 @@
                     hidden: False
                   },
                   distinct_id: {
-                    description: "Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+                    description: "Identifier of the user/device that sent the event. It changes when a user identifies: earlier events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to follow one user across both.",
                     hidden: False
                   },
                   elements_chain: {
@@ -17472,11 +17472,11 @@
                     hidden: False
                   },
                   person: {
-                    description: None,
+                    description: "The person this event is attributed to. Access person properties via `person.properties.*`.",
                     hidden: False
                   },
                   person_id: {
-                    description: None,
+                    description: "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` events.",
                     hidden: False
                   },
                   person_mode: {
