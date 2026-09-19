@@ -534,6 +534,9 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             },
 
             loadOverviewStats: async (_, breakpoint) => {
+                // Held for the catch below. A later mount puts a fresh manager on the cache, so a
+                // read of `cache.disposables` after the request would find the next life's live one.
+                const mountDisposables = cache.disposables
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId || props.scannerId === 'new') {
                     actions.loadOverviewStatsFailure()
@@ -565,6 +568,11 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
                 } catch (error) {
                     if (error instanceof Error && isBreakpoint(error)) {
                         throw error
+                    }
+                    // `breakpoint()` guards only the success path, so a request that rejects after the
+                    // user leaves would otherwise read a selector whose store path is already gone.
+                    if (mountDisposables.isDisposed) {
+                        return
                     }
                     // Background retries behind the pending panel would otherwise stack a toast per interval.
                     if (!values.firstScanPending) {
