@@ -57,6 +57,9 @@ const createFeatureFlag = (): ToolBase<
         if (params.is_remote_configuration !== undefined) {
             body['is_remote_configuration'] = params.is_remote_configuration
         }
+        if (params.has_encrypted_payloads !== undefined) {
+            body['has_encrypted_payloads'] = params.has_encrypted_payloads
+        }
         if (params.ensure_experience_continuity !== undefined) {
             body['ensure_experience_continuity'] = params.ensure_experience_continuity
         }
@@ -922,6 +925,9 @@ const updateFeatureFlag = (): ToolBase<
         }
         if (params.is_remote_configuration !== undefined) {
             body['is_remote_configuration'] = params.is_remote_configuration
+        }
+        if (params.has_encrypted_payloads !== undefined) {
+            body['has_encrypted_payloads'] = params.has_encrypted_payloads
         }
         if (params.ensure_experience_continuity !== undefined) {
             body['ensure_experience_continuity'] = params.ensure_experience_continuity

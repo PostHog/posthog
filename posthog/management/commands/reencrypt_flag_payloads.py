@@ -45,7 +45,7 @@ class Command(BaseCommand):
             except InvalidToken as e:
                 # A payload no key can decrypt (corrupt, or already-plaintext). Skip
                 # the whole flag rather than write a half-rotated payloads dict.
-                # Narrow to InvalidToken so DB and programming errors propagate
+                # Narrow to InvalidToken so unrelated errors propagate
                 # instead of being silently counted as skips on a "successful" run.
                 skipped += 1
                 logger.warning(

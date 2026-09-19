@@ -494,7 +494,13 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe(
-            'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+            'Whether this flag delivers a remote configuration payload. This must be true when has_encrypted_payloads is true.'
+        ),
+    has_encrypted_payloads: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true.'
         ),
     ensure_experience_continuity: zod
         .boolean()
@@ -573,8 +579,18 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
             ),
-        is_remote_configuration: zod.boolean().nullish(),
-        has_encrypted_payloads: zod.boolean().nullish(),
+        is_remote_configuration: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether this flag delivers a remote configuration payload. This must be true when has_encrypted_payloads is true.'
+            ),
+        has_encrypted_payloads: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true.'
+            ),
         evaluation_runtime: zod
             .union([
                 zod
@@ -930,7 +946,13 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe(
-            'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+            'Whether this flag delivers a remote configuration payload. This must be true when has_encrypted_payloads is true.'
+        ),
+    has_encrypted_payloads: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true.'
         ),
     ensure_experience_continuity: zod
         .boolean()
@@ -1009,8 +1031,18 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .describe(
                 "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
             ),
-        is_remote_configuration: zod.boolean().nullish(),
-        has_encrypted_payloads: zod.boolean().nullish(),
+        is_remote_configuration: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether this flag delivers a remote configuration payload. This must be true when has_encrypted_payloads is true.'
+            ),
+        has_encrypted_payloads: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true.'
+            ),
         evaluation_runtime: zod
             .union([
                 zod
