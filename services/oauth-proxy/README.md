@@ -43,7 +43,7 @@ Trailing slashes are optional; paths are normalized before matching.
    It loads no third-party asset; the RoundHog faces it uses are bundled from `@posthog/brand` and served by this worker (see `src/handlers/fonts.ts`).
    The picker re-requests the same URL with `_region=us|eu` appended.
 
-   Those two cookies are `SameSite=Lax`. A browser withholds a `Strict` cookie on the cross-site top-level navigation an OAuth client arrives by, so `ph_current_instance` and the other `Strict` cookies never reach this worker. Only page JavaScript can read them.
+   Those two cookies are `HttpOnly` and `SameSite=Lax`. Nothing in the browser reads them, because the worker takes them from the request Cookie header, so `HttpOnly` keeps a script on any sibling `posthog.com` origin from reading or overwriting them. A browser withholds a `Strict` cookie on the cross-site top-level navigation an OAuth client arrives by, so `ph_current_instance` and the other `Strict` cookies never reach this worker. Only page JavaScript can read them.
    The worker stores the region choice in KV under the `client_id`, swaps in the regional `client_id`, replaces `redirect_uri` with the proxy callback, and redirects to the region.
    For clients with a stored `redirect_uris` list, it also generates a nonce, stores the client's original `redirect_uri` and `state` under it, and sends the regional server that nonce as `state` instead of the client's own.
 
