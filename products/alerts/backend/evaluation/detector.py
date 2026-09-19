@@ -125,16 +125,38 @@ def _anomaly_breach(
     )
 
 
-def _format_sub_detector(sub_result: dict[str, Any]) -> str:
+def _format_sub_detector(sub_result: dict[str, Any], last_index: int) -> str:
     """Render one ensemble sub-detector's score for the breach message suffix."""
-    score = sub_result.get("score")
+    scores = sub_result.get("all_scores") or []
+    score = scores[-1] if scores else None
     score_pct = f"{score:.0%}" if score is not None else "n/a"
-    fired = " [fired]" if sub_result.get("is_anomaly", False) else ""
+    fired = " [fired]" if last_index in (sub_result.get("triggered_indices") or []) else ""
     return f"{sub_result.get('type', 'unknown')}: {score_pct}{fired}"
+
+
+def _anomalous_run(triggered_indices: list[int], last_index: int) -> list[int]:
+    """The unbroken run of anomalous intervals that ends at the newest complete interval.
+
+    An alert check is about the interval that just closed, so it fires only when that interval
+    itself scored anomalous. A deviation that spans several intervals reports the whole run, so
+    the notification names where it started instead of only where the check happened to land.
+    """
+    fired = set(triggered_indices)
+    run: list[int] = []
+    index = last_index
+    while index in fired:
+        run.append(index)
+        index -= 1
+    return list(reversed(run))
 
 
 def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, Any]) -> AlertEvaluationResult:
     """Score an extracted trends series with an anomaly detector (the non-threshold alert path).
+
+    Scoring uses ``detect_batch`` so every interval in the lookback window gets its own score.
+    ``detect`` scores only the newest point, so the indices it reports are the newest point by
+    construction. It therefore cannot name the interval that deviated, and it leaves the stored
+    scores a single number rather than the series the history chart and the agent read.
 
     Breakdown alerts fire on the first anomalous breakdown value; non-breakdown alerts score the
     single selected series.
@@ -150,15 +172,16 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
     if result.is_breakdown:
         for bd_index, s in enumerate(result.series):
             data = np.array([p.value for p in s.points])
-            detection = get_detector(detector_config).detect(data)
-            if detection.is_anomaly:
+            detection = get_detector(detector_config).detect_batch(data)
+            triggered = _anomalous_run(detection.triggered_indices, len(data) - 1)
+            if triggered:
                 current_value = float(data[-1])
                 return AlertEvaluationResult(
                     value=current_value,
                     breaches=[_anomaly_breach(s.label, current_value, detection.score, detector_type_str)],
                     anomaly_scores=detection.all_scores or None,
-                    triggered_points=detection.triggered_indices or None,
-                    triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
+                    triggered_points=triggered,
+                    triggered_dates=_triggered_dates(s, triggered) or None,
                     interval=interval_value,
                     triggered_metadata={"series_index": bd_index},
                 )
@@ -166,16 +189,18 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
 
     s = result.series[0]
     data = np.array([p.value for p in s.points])
-    detection = get_detector(detector_config).detect(data)
+    last_index = len(data) - 1
+    detection = get_detector(detector_config).detect_batch(data)
+    triggered = _anomalous_run(detection.triggered_indices, last_index)
 
     breaches: list[str] = []
-    if detection.is_anomaly:
+    if triggered:
         current_value = float(data[-1])
         suffix = ""
         if detector_type_str == "ensemble" and detection.metadata:
             sub_results = detection.metadata.get("sub_results", [])
             if sub_results:
-                parts = [_format_sub_detector(sr) for sr in sub_results]
+                parts = [_format_sub_detector(sr, last_index) for sr in sub_results]
                 suffix = f" | sub-detectors: {', '.join(parts)}"
         breaches.append(_anomaly_breach(s.label, current_value, detection.score, detector_type_str, suffix))
 
@@ -183,8 +208,8 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
         value=float(data[-1]) if len(data) > 0 else None,
         breaches=breaches,
         anomaly_scores=detection.all_scores or None,
-        triggered_points=detection.triggered_indices or None,
-        triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
+        triggered_points=triggered or None,
+        triggered_dates=_triggered_dates(s, triggered) or None,
         interval=interval_value,
     )
 
