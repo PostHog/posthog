@@ -208,6 +208,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamFeatureFlagPolicyConfig",
         # OneToOne extension keyed on the authorized Team; no independently addressable config ID.
         "TeamHeatmapConfig",
+        "TeamEventVolume",
         "TeamTasksConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",

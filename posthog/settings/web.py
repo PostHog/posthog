@@ -957,6 +957,12 @@ API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR: int = get_from_env(
 )
 API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 10.0, type_cast=float)
 API_QUERIES_BUDGET_CAPACITY_HOURS: float = get_from_env("API_QUERIES_BUDGET_CAPACITY_HOURS", 24.0, type_cast=float)
+API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR", 82_000.0, type_cast=float
+)
+API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR", 5_000_000_000_000.0, type_cast=float
+)
 
 ####
 # /api/environments deprecation
