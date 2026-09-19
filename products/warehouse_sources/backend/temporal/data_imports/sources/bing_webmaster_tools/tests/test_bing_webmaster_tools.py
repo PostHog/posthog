@@ -17,8 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webma
     parse_site_urls,
     parse_wcf_date,
     select_site_urls,
-    suggest_verified_site,
     validate_credentials,
+    verified_sites_for_host,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import (
     BASE_URL,
@@ -172,23 +172,38 @@ class TestSiteSelection:
     @pytest.mark.parametrize(
         "filter_url,expected",
         [
-            # A bare hostname can never match Bing's scheme-prefixed site key, so it resolves to the
-            # verified site sharing that host, with or without a trailing slash and regardless of case.
-            ("example.com", "https://example.com/"),
-            ("example.com/", "https://example.com/"),
-            ("EXAMPLE.COM", "https://example.com/"),
-            # An entry that already carries a scheme is matched exactly, so no suggestion is offered.
-            ("https://example.com/", None),
-            # A host that isn't verified has nothing to suggest.
-            ("unknown.example.net", None),
+            # A bare hostname can never match Bing's scheme-prefixed site key, so it resolves by
+            # host, with or without a trailing slash and regardless of case.
+            ("example.com", ["https://example.com/"]),
+            ("example.com/", ["https://example.com/"]),
+            ("EXAMPLE.COM", ["https://example.com/"]),
+            # An entry that already carries a scheme is matched exactly, so it resolves nothing here.
+            ("https://example.com/", []),
+            # A host that isn't verified has no candidates.
+            ("unknown.example.net", []),
         ],
     )
-    def test_suggest_verified_site(self, filter_url, expected):
-        assert suggest_verified_site(filter_url, ["https://example.com/"]) == expected
+    def test_verified_sites_for_host(self, filter_url, expected):
+        assert verified_sites_for_host(filter_url, ["https://example.com/"]) == expected
 
-    def test_bare_hostname_error_names_the_verified_form(self):
-        with pytest.raises(ValueError, match=r"'example.com' is verified as 'https://example.com/'"):
-            select_site_urls(_SITES, ["example.com"])
+    @pytest.mark.parametrize("filter_url", ["example.com", "example.com/", "EXAMPLE.COM"])
+    def test_bare_hostname_resolves_to_the_verified_site(self, filter_url):
+        # Bing lists sites with a scheme, so a hostname typed without one matches no site key even
+        # though exactly one verified site carries that host.
+        assert select_site_urls(_SITES, [filter_url]) == ["https://example.com/"]
+
+    def test_two_spellings_of_one_site_are_not_synced_twice(self):
+        assert select_site_urls(_SITES, ["example.com", "https://example.com/"]) == ["https://example.com/"]
+
+    def test_ambiguous_bare_hostname_names_every_verified_form(self):
+        # Both schemes are verified separately in Bing, so picking one would silently sync the
+        # wrong site's stats.
+        sites = [
+            {"Url": "https://example.com/", "IsVerified": True},
+            {"Url": "http://example.com/", "IsVerified": True},
+        ]
+        with pytest.raises(ValueError, match=r"'https://example.com/' and 'http://example.com/'"):
+            select_site_urls(sites, ["example.com"])
 
 
 class TestRequest:
