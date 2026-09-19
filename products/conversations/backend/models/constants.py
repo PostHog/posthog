@@ -9,6 +9,10 @@ class Channel(models.TextChoices):
     GITHUB = "github", "GitHub"
 
 
+# A ticket message's source is its ticket's Channel, or this for messages written inside PostHog.
+MESSAGE_SOURCE_POSTHOG = "posthog"
+
+
 class ChannelDetail(models.TextChoices):
     # Slack sub-types
     SLACK_CHANNEL_MESSAGE = "slack_channel_message", "Channel message"

@@ -2687,6 +2687,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             "author_email",
             "is_private",
             "has_full_email_content",
+            "message_source",
             "created_at",
             "version",
         }
@@ -2809,6 +2810,41 @@ class TestTicketMessagesAPI(APIBaseTest):
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["author_name"] == expected_name
+
+    @parameterized.expand(
+        [
+            ("widget_customer", Channel.WIDGET, {"author_type": "customer"}, False, "widget"),
+            ("widget_team_reply", Channel.WIDGET, {"author_type": "support"}, True, "posthog"),
+            ("slack_customer", Channel.SLACK, {"author_type": "customer", "from_slack": True}, False, "slack"),
+            # A team member replying in the Slack thread is linked to their PostHog user,
+            # but wrote the message in Slack.
+            ("slack_team_in_thread", Channel.SLACK, {"author_type": "support", "from_slack": True}, True, "slack"),
+            ("slack_team_from_posthog", Channel.SLACK, {"author_type": "support"}, True, "posthog"),
+            ("email_team_emailed_in", Channel.EMAIL, {"author_type": "support", "from_email": True}, True, "email"),
+            ("compose_outbound_email", Channel.EMAIL, {"author_type": "human"}, True, "posthog"),
+            ("private_note", Channel.SLACK, {"author_type": "support", "is_private": True}, True, "posthog"),
+            ("ai", Channel.SLACK, {"author_type": "AI"}, False, "posthog"),
+            # Imported team messages aren't linked to a PostHog user.
+            ("imported_team_message", Channel.EMAIL, {"author_type": "support"}, False, "email"),
+            # Only the ticket's own channel flag counts, the same flag outbound delivery checks.
+            ("other_channel_flag", Channel.SLACK, {"author_type": "support", "from_email": True}, True, "posthog"),
+        ]
+    )
+    def test_messages_message_source(self, mock_on_commit, _name, channel, item_context, by_user, expected):
+        self.ticket.channel_source = channel
+        self.ticket.save(update_fields=["channel_source"])
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user if by_user else None,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="msg",
+            item_context=item_context,
+        )
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["message_source"] == expected
 
     @parameterized.expand(
         [

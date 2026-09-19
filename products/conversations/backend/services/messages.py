@@ -2,11 +2,55 @@ from django.db.models import Q, QuerySet
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.models.constants import MESSAGE_SOURCE_POSTHOG, Channel
+
 # Ticket messages are stored as comments under this scope.
 TICKET_MESSAGE_SCOPE = "conversations_ticket"
 
 # "team" is analytics-only. "AI" and "customer" are not learning evidence.
 PUBLIC_HUMAN_AUTHOR_TYPES = ("support", "human")
+
+
+def is_team_authored(item_context: object, created_by_id: int | None) -> bool:
+    """A message from the team rather than the customer: a PostHog user, or the AI.
+
+    That covers team members replying from inside a channel too (a Slack thread reply
+    links created_by), which originated_in_channel tells apart.
+    """
+    if not isinstance(item_context, dict):
+        return False
+    author_type = item_context.get("author_type")
+    return bool(created_by_id and author_type != "customer") or author_type == "AI"
+
+
+def channel_origin_key(channel: str) -> str:
+    return f"from_{channel}"
+
+
+# Server-only: the comments API strips these from client input (RESERVED_ITEM_CONTEXT_KEYS), since a
+# forged flag would stop a reply being delivered and label it as written in the channel.
+CHANNEL_ORIGIN_KEYS = frozenset(channel_origin_key(channel) for channel in Channel.values)
+
+
+def originated_in_channel(item_context: object, channel: str) -> bool:
+    """True when the message was ingested from ``channel`` rather than written in PostHog.
+
+    Every channel's ingestion stamps ``from_<channel>`` on the comment. Outbound delivery relies
+    on it not to echo a message back where it came from, so a channel that forgets the flag
+    loops its own messages back to itself, and message_source reads the same flag.
+    """
+    return isinstance(item_context, dict) and bool(item_context.get(channel_origin_key(channel)))
+
+
+def message_source(item_context: object, created_by_id: int | None, ticket_channel: str) -> str:
+    """Where a ticket message was written: the ticket's channel, or PostHog.
+
+    A customer can only write in through the ticket's channel, so only team messages need
+    telling apart, and those came from the channel exactly when delivery wouldn't echo them.
+    """
+    if is_team_authored(item_context, created_by_id) and not originated_in_channel(item_context, ticket_channel):
+        return MESSAGE_SOURCE_POSTHOG
+    return ticket_channel
 
 
 def _public_ticket_message_context() -> Q:
