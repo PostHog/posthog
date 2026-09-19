@@ -8,6 +8,13 @@ The shared PR-linking service applies this rule to task outputs and agent attach
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
 
+## Repository selection
+
+The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
+For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
+The agent can check visibility through GitHub metadata without new pipeline parameters.
+This is prompt guidance, not an enforced access control, and it does not validate repositories selected outside the agent.
+
 ## Scout revisions
 
 Scout edits increment the content revision count only when the title or summary changes. Notes, evidence, routing updates, and unchanged text do not spend a revision. The edit response always includes the report's running revision total.
