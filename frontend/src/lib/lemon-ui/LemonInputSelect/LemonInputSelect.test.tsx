@@ -417,6 +417,26 @@ describe('LemonInputSelect', () => {
         expect(lastCall[0]).toContain('alice@example.com')
     })
 
+    it('multiple-select mode: clicking away from an untouched edit keeps a value missing from options', async () => {
+        const onChange = jest.fn()
+
+        render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                options={[{ key: 'Acme', label: 'Acme' }]}
+                value={['Hedgebox Inc ']}
+                onChange={onChange}
+                allowCustomValues
+            />
+        )
+
+        // Click the snack text to edit the value, then click away without changing it
+        await userEvent.click(screen.getByText('Hedgebox Inc'))
+        await userEvent.click(document.body)
+
+        expect(onChange).toHaveBeenLastCalledWith(['Hedgebox Inc '])
+    })
+
     it.each([
         {
             name: 'adds nothing when the limit is reached',

@@ -157,6 +157,7 @@ describe('PropertyValue', () => {
             label: 'trims surrounding whitespace from a pasted value before committing it',
             propertyKey: '$ai_trace_id',
             operator: PropertyOperator.Exact,
+            staticValues: null,
             pastedValue: ' 9c8a6265-382a-4972-9640-b400dabdd83e ',
             expectedArg: ['9c8a6265-382a-4972-9640-b400dabdd83e'],
         },
@@ -164,10 +165,19 @@ describe('PropertyValue', () => {
             label: 'preserves surrounding whitespace for regex operators, where it can be meaningful',
             propertyKey: '$current_url',
             operator: PropertyOperator.Regex,
+            staticValues: null,
             pastedValue: 'foo ',
             expectedArg: 'foo ',
         },
-    ])('$label', async ({ propertyKey, operator, pastedValue, expectedArg }) => {
+        {
+            label: 'keeps a trailing space that a suggested value also has, so exact matching still works',
+            propertyKey: 'name',
+            operator: PropertyOperator.Exact,
+            staticValues: [{ name: 'Hedgebox Inc ' }],
+            pastedValue: 'Hedgebox Inc ',
+            expectedArg: ['Hedgebox Inc '],
+        },
+    ])('$label', async ({ propertyKey, operator, staticValues, pastedValue, expectedArg }) => {
         const onSet = jest.fn()
         render(
             <Provider>
@@ -177,6 +187,7 @@ describe('PropertyValue', () => {
                     operator={operator}
                     onSet={onSet}
                     value={[]}
+                    staticValues={staticValues}
                 />
             </Provider>
         )
@@ -189,6 +200,221 @@ describe('PropertyValue', () => {
 
         await waitFor(() => {
             expect(onSet).toHaveBeenCalledWith(expectedArg)
+        })
+    })
+
+    it('keeps a typed comma inside the value when the suggested values contain commas', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                    staticValues={[{ name: 'Hedgebox, Inc.' }]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Hedgebox, Inc.')
+        await user.keyboard('{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Hedgebox, Inc.'])
+        })
+    })
+
+    it('keeps a typed comma when only a searched value contains one', async () => {
+        useMocks({
+            get: {
+                '/api/event/values': ({ request }) => ({
+                    results: new URL(request.url).searchParams.get('value')
+                        ? [{ name: 'Zenith, Inc.' }]
+                        : [{ name: 'Acme' }, { name: 'Initech' }],
+                    refreshing: false,
+                }),
+            },
+        })
+
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Zenith')
+
+        // the comma value is outside the first page of results, so wait for the search to return it
+        await waitFor(
+            () => {
+                expect(screen.getByText('Zenith, Inc.')).toBeInTheDocument()
+            },
+            { timeout: 3000 }
+        )
+
+        await user.keyboard(', Inc.{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Zenith, Inc.'])
+        })
+    })
+
+    it('keeps a typed comma when the values were already cached before mount', async () => {
+        // A closed filter popover unmounts the editor while the loaded values stay in the model,
+        // so a later open starts from a cached response instead of a fresh request
+        propertyDefinitionsModel.actions.setOptions('name', [{ name: 'Hedgebox, Inc.' }], true)
+
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Hedgebox, Inc.')
+        await user.keyboard('{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Hedgebox, Inc.'])
+        })
+    })
+
+    it('splits again after the property switches to one whose values hold no comma', async () => {
+        propertyDefinitionsModel.actions.setOptions('name', [{ name: 'Hedgebox, Inc.' }], true)
+        propertyDefinitionsModel.actions.setOptions('city', [{ name: 'Berlin' }], true)
+
+        const onSet = jest.fn()
+        const { rerender } = render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+        rerender(
+            <Provider>
+                <PropertyValue
+                    propertyKey="city"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Berlin,')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Berlin'])
+        })
+    })
+
+    it('still splits typed input at a comma when no suggested value contains one', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                    staticValues={[{ name: 'Chrome' }, { name: 'Firefox' }]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Acme,')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Acme'])
+        })
+    })
+
+    it('keeps the space on an already committed value when a second value is added', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={['Hedgebox Inc ']}
+                    staticValues={null}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.paste('Acme')
+        await user.keyboard('{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Hedgebox Inc ', 'Acme'])
+        })
+    })
+
+    it('keeps a trailing space on a suggested value when the person clicks away', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                    staticValues={[{ name: 'Hedgebox Inc ' }]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.paste('Hedgebox Inc ')
+        await user.click(document.body)
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Hedgebox Inc '])
         })
     })
 
