@@ -45,5 +45,9 @@ The task persists the end-of-call report and retries a transient database error,
 It acknowledges late, so a worker that dies mid-task gives the report back to the broker.
 The handler is idempotent on the call id, which is what makes both the retry and the redelivery safe.
 
-The product keeps a per-IP throttle in front of the endpoint, because the endpoint is public and Vapi calls it a small number of times per interview.
-See the [Endpoints table](../README.md#endpoints).
+## Throttle
+
+The provider sets `throttle_class` to `VapiWebhookIPThrottle`, a per-IP cap of 1200/minute from `posthog/rate_limit.py`.
+The endpoint is public and unauthenticated, so the cap bounds how much HMAC-verification CPU and structured-log volume one source can drive.
+Vapi's egress is shared across all tenants, so the bucket sits well above legitimate aggregate volume: a busy interview hour must not bleed onto a normal one.
+The refusal is the shared lane's 429 with a `Retry-After`.

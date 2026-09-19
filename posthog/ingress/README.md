@@ -75,8 +75,7 @@ The customer-facing GitHub App is shared across products, so its two endpoints a
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
 The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
 
-The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
-It moves onto `throttle_class` next.
+The Vapi endpoint is the only one that caps request volume: its provider sets `throttle_class` to a per-IP throttle, because the endpoint is public and Vapi's egress is shared across tenants.
 
 ## Non-goals
 
