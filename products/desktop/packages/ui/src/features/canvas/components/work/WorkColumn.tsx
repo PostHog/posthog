@@ -94,7 +94,7 @@ function SectionHeading({
         render={<button type="button" />}
         aria-expanded={expanded}
         onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-1 rounded-sm py-1 hover:text-foreground"
+        className="flex min-w-0 flex-1 items-center gap-1 rounded-sm py-1 font-semibold text-foreground/70 hover:text-foreground"
       >
         {label}
         <Caret size={11} className="shrink-0 opacity-60" />
@@ -488,7 +488,11 @@ export function WorkColumn() {
               <div className="flex flex-col gap-px">
                 {shownSections.map((section) => (
                   <Fragment key={section.key}>
-                    {section.label && <MenuLabel>{section.label}</MenuLabel>}
+                    {section.label && (
+                      <div className="px-2 pt-2 pb-0.5 pl-[30px] text-[11px] text-muted-foreground/70">
+                        {section.label}
+                      </div>
+                    )}
                     {section.items.map((item) => (
                       <WorkItemRow
                         key={item.key}

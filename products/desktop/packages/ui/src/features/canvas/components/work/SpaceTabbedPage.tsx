@@ -19,11 +19,16 @@ import {
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
+import {
+  useChannelContextWikiPage,
+  useContextWikiPage,
+} from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { track } from "@posthog/ui/shell/analytics";
-import { useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useMemo } from "react";
+import { useNavigate, useRouter } from "@tanstack/react-router";
+import { type ReactNode, useEffect, useMemo } from "react";
 
 export type SpaceTab =
   | "context"
@@ -97,12 +102,28 @@ export function SpaceTabbedPage({
   children: ReactNode;
 }) {
   const navigate = useNavigate();
+  const router = useRouter();
   const { channels, isLoading } = useChannels();
   const channel = channels.find((c) => c.id === channelId);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   useMarkChannelSeen(channelId);
+  // Both halves of the Context tab's read, held open for as long as the space
+  // is. That tab's own lookups refetch on mount, so without a copy here the
+  // first visit paints a spinner while two requests go out in sequence.
+  const contextLayerEnabled = useContextLayerFlag();
+  const contextPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
+  useContextWikiPage(contextPage.data?.path ?? "");
   const tabs = loopsEnabled ? TABS : TABS.filter((t) => t.key !== "loops");
   const base = `/spaces/${channelId}`;
+
+  // Warm every sibling's route the moment the space opens. There are four of
+  // them and each is split into its own chunk, so without this the first visit
+  // to a tab pays for a fetch before it can paint.
+  useEffect(() => {
+    for (const entry of tabs) {
+      void router.preloadRoute({ to: `${base}${entry.segment}` });
+    }
+  }, [base, router, tabs]);
 
   // The space's name goes where every other screen puts its title, rather than
   // into a header of this page's own invention.
@@ -150,7 +171,16 @@ export function SpaceTabbedPage({
         >
           <TabsList variant="line" aria-label="Space pages">
             {tabs.map((entry) => (
-              <TabsTrigger key={entry.key} value={entry.key}>
+              <TabsTrigger
+                key={entry.key}
+                value={entry.key}
+                // Belt and braces for a tab added while the page is open.
+                onPointerEnter={() => {
+                  void router.preloadRoute({
+                    to: `${base}${entry.segment}`,
+                  });
+                }}
+              >
                 {entry.label}
               </TabsTrigger>
             ))}
