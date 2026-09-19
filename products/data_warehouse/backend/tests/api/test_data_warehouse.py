@@ -418,6 +418,28 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(types.count("Stripe"), 1)
         self.assertEqual(types.count("Materialized view"), 1)
 
+    def test_completed_activity_clamps_the_cutoff_window(self):
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        recent = ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, status="Completed"
+        )
+        old = ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=200, status="Completed"
+        )
+        ExternalDataJob.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=120))
+
+        response = self.client.get(endpoint, {"cutoff_days": 100000})
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([activity["id"] for activity in data["results"]], [str(recent.pk)])
+
     def test_running_activity_pagination(self):
         """Test running_activity endpoint pagination"""
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/running_activity"
