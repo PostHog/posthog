@@ -14,6 +14,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
 # Low-level scoring/extraction primitives still live in the legacy detector module.
 from posthog.tasks.alerts.detector import (
+    DETECTOR_DEFAULT_MIN_BASELINE,
     MAX_DETECTOR_BREAKDOWN_VALUES,
     _compute_min_samples_for_detector,
     _date_range_override_for_detector,
@@ -111,6 +112,21 @@ def extract_detector_series(
     return ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval)
 
 
+def _with_volume_floor(config: dict[str, Any]) -> dict[str, Any]:
+    """Apply the alert volume floor to a stored detector config.
+
+    Relative-deviation detectors score a move against the recent spread, with no floor on
+    absolute volume. On a count series of a handful of events per interval, one extra event is
+    both a large relative move and a new maximum, so the detector fires on noise. Configs saved
+    before the floor existed carry no ``min_baseline``, and an ensemble holds the floor only
+    when every sub-detector does.
+    """
+    if config.get("type") == "ensemble":
+        return {**config, "detectors": [_with_volume_floor(d) for d in config.get("detectors", [])]}
+    min_baseline = config.get("min_baseline")
+    return {**config, "min_baseline": DETECTOR_DEFAULT_MIN_BASELINE if min_baseline is None else min_baseline}
+
+
 def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> list[str]:
     """Map triggered indices to their date strings, skipping points that carry no date."""
     return [date for i in triggered_indices if i < len(series.points) and (date := series.points[i].date) is not None]
@@ -150,7 +166,7 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
     if result.is_breakdown:
         for bd_index, s in enumerate(result.series):
             data = np.array([p.value for p in s.points])
-            detection = get_detector(detector_config).detect(data)
+            detection = get_detector(_with_volume_floor(detector_config)).detect(data)
             if detection.is_anomaly:
                 current_value = float(data[-1])
                 return AlertEvaluationResult(
@@ -166,7 +182,7 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
 
     s = result.series[0]
     data = np.array([p.value for p in s.points])
-    detection = get_detector(detector_config).detect(data)
+    detection = get_detector(_with_volume_floor(detector_config)).detect(data)
 
     breaches: list[str] = []
     if detection.is_anomaly:
@@ -315,7 +331,9 @@ def _sim_from_series(
     series: ComparableSeries, detector_config: dict[str, Any], detector_type_str: str
 ) -> dict[str, Any]:
     """Score a single extracted series with detect_batch and shape it for the simulation chart."""
-    detection = get_detector(detector_config).detect_batch(np.array([p.value for p in series.points]))
+    detection = get_detector(_with_volume_floor(detector_config)).detect_batch(
+        np.array([p.value for p in series.points])
+    )
     triggered = detection.triggered_indices or []
     scores = detection.all_scores if detection.all_scores else [None] * len(series.points)
 

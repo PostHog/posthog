@@ -2,6 +2,9 @@ import { AlertCalculationInterval, SingleDetectorConfig } from '~/queries/schema
 
 export const DEFAULT_ANOMALY_DETECTION_THRESHOLD = 0.95
 
+/** Volume floor the server applies when a detector config does not set one. Shown as a placeholder. */
+export const DEFAULT_ANOMALY_MIN_BASELINE = 5
+
 /** Default window size in data points based on how often the alert checks.
  * Every 15 minutes: 672 (7 days), Hourly: 168 (7 days), Daily: 90 (90 days),
  * Weekly: 26 (6 months), Monthly: 12 (1 year). */

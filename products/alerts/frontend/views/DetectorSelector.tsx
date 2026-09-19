@@ -26,6 +26,7 @@ import {
 
 import {
     DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+    DEFAULT_ANOMALY_MIN_BASELINE,
     getDefaultZScoreDetectorConfig,
     getDefaultWindow,
 } from '../logic/detectorConfigDefaults'
@@ -464,6 +465,12 @@ function SingleDetectorConfigSection({
                     calculationInterval={calculationInterval}
                 />
             )}
+            {config.type !== 'threshold' && (
+                <MinBaselineInput
+                    value={config.min_baseline}
+                    onChange={(val) => onChange({ ...config, min_baseline: val } as SingleDetectorConfig)}
+                />
+            )}
             <PreprocessingSection config={config} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
         </div>
     )
@@ -483,6 +490,38 @@ function AnomalyThresholdInput({ value, onChange }: { value: number; onChange: (
                 step={0.05}
                 value={value}
                 onChange={(val) => onChange(val ? parseFloat(String(val)) : DEFAULT_ANOMALY_DETECTION_THRESHOLD)}
+            />
+        </div>
+    )
+}
+
+function MinBaselineInput({
+    value,
+    onChange,
+}: {
+    // A stored config that never set a floor comes back from the API as null, so the value
+    // reaching this input is wider than the schema type.
+    value: number | null | undefined
+    onChange: (value: number | undefined) => void
+}): JSX.Element {
+    return (
+        <div>
+            <Label
+                text="Minimum volume"
+                tooltip="Skip the check when the metric's typical value is below this. On a few events per interval, one extra event is a large relative move, so the comparison is not reliable. This applies to whole numbers only, so a metric with fractional values, like a rate or an average, is never skipped. Use 0 to always check."
+            />
+            <LemonInput
+                data-attr="alertForm-detector-min-baseline"
+                type="number"
+                min={0}
+                step={1}
+                // An unset floor renders as NaN, which LemonInput shows as an empty controlled
+                // input. Passing undefined would turn the input uncontrolled and leave the text
+                // the user typed on screen after the config drops the floor.
+                value={value ?? NaN}
+                placeholder={String(DEFAULT_ANOMALY_MIN_BASELINE)}
+                onChange={(val) => onChange(Number.isFinite(val) ? val : undefined)}
+                fullWidth
             />
         </div>
     )

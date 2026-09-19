@@ -32,6 +32,9 @@ class BasePyODDetector(BaseDetector):
         if not self._validate_data(data, min_length=self.MIN_SAMPLES):
             return DetectionResult(is_anomaly=False)
 
+        if self.below_volume_floor(data):
+            return DetectionResult(is_anomaly=False)
+
         data = self.preprocess(data)
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
 
@@ -65,6 +68,9 @@ class BasePyODDetector(BaseDetector):
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
         if not self._validate_data(data, min_length=self.MIN_SAMPLES):
+            return DetectionResult(is_anomaly=False)
+
+        if self.below_volume_floor(data):
             return DetectionResult(is_anomaly=False)
 
         data = self.preprocess(data)
