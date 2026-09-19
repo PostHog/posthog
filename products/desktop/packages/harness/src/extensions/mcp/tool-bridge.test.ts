@@ -198,6 +198,7 @@ describe("ToolBridge", () => {
       tools: [
         {
           name: "echo",
+          title: "Echo text tool",
           description: "Echo text",
           inputSchema: {
             type: "object",
@@ -212,6 +213,8 @@ describe("ToolBridge", () => {
 
     expect(registered.has("mcp_demo_echo")).toBe(true);
     expect(registered.get("mcp_demo_echo")?.description).toBe("Echo text");
+    expect(registered.get("mcp_demo_echo")?.label).toBe("Echo text tool");
+    expect(bridge.getToolMeta("mcp_demo_echo")?.title).toBe("Echo text tool");
     // Args are surfaced in the TUI via a custom call renderer.
     expect(typeof registered.get("mcp_demo_echo")?.renderCall).toBe("function");
     expect(getActive()).toContain("mcp_demo_echo");

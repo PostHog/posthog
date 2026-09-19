@@ -110,6 +110,7 @@ export function convertMcpContent(items: unknown[]): BridgedContent[] {
 
 export interface McpToolDefinition {
   name: string;
+  title?: string;
   description?: string;
   inputSchema: Record<string, unknown>;
   annotations?: {
@@ -173,6 +174,7 @@ export interface ToolCollision {
 export interface ToolMeta {
   serverName: string;
   mcpName: string;
+  title?: string;
   description: string;
 }
 
@@ -224,6 +226,7 @@ export interface McpCallDetails {
     mcp: {
       server: string;
       tool: string;
+      title?: string;
       result?: McpResultMeta;
     };
   };
@@ -233,6 +236,7 @@ export function mcpCallDetails(
   server: string,
   tool: string,
   result: McpResultMeta,
+  title?: string,
 ): McpCallDetails["posthog"] {
   const hasResult =
     result.structuredContent !== undefined || result._meta !== undefined;
@@ -240,6 +244,7 @@ export function mcpCallDetails(
     mcp: {
       server,
       tool,
+      ...(title ? { title } : {}),
       ...(hasResult
         ? {
             result: {
@@ -490,6 +495,9 @@ export class ToolBridge {
       this.toolMeta.set(piName, {
         serverName,
         mcpName: tool.name,
+        ...(tool.title || tool.annotations?.title
+          ? { title: tool.title ?? tool.annotations?.title }
+          : {}),
         description,
       });
       const isDirect =
@@ -525,6 +533,9 @@ export class ToolBridge {
         tools: tools.map((tool) => ({
           name: buildToolName(this.settings.toolPrefix, serverName, tool.name),
           mcpName: tool.name,
+          ...(tool.title || tool.annotations?.title
+            ? { title: tool.title ?? tool.annotations?.title }
+            : {}),
           description: buildDescription(tool),
         })),
       };
@@ -586,12 +597,17 @@ export class ToolBridge {
 
     this.pi.registerTool({
       name: piName,
-      label: tool.annotations?.title ?? tool.name,
+      label: tool.title ?? tool.annotations?.title ?? tool.name,
       description,
       parameters: convertJsonSchemaToTypebox(tool.inputSchema),
 
       renderCall(args, theme, context) {
-        return renderMcpToolCall(piName, args, theme, context.expanded);
+        return renderMcpToolCall(
+          `${serverName} - ${tool.title ?? tool.annotations?.title ?? tool.name}`,
+          args,
+          theme,
+          context.expanded,
+        );
       },
 
       async execute(_toolCallId, params, signal) {
@@ -607,10 +623,15 @@ export class ToolBridge {
         return {
           content,
           details: {
-            posthog: mcpCallDetails(serverName, tool.name, {
-              structuredContent,
-              _meta,
-            }),
+            posthog: mcpCallDetails(
+              serverName,
+              tool.name,
+              {
+                structuredContent,
+                _meta,
+              },
+              tool.title ?? tool.annotations?.title,
+            ),
           },
         };
       },
