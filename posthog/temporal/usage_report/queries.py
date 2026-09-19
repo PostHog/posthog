@@ -75,6 +75,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_logs_retention_bytes_in_period,
+    get_teams_with_metrics_usage_in_period,
     get_teams_with_mobile_billable_recording_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
@@ -583,6 +584,16 @@ QUERIES: list[QuerySpec] = [
         multi_keys_mapping={
             "bytes": "teams_with_apm_tracing_bytes_in_period",
             "spans": "teams_with_apm_tracing_spans_in_period",
+        },
+    ),
+    # ---- ClickHouse: Metrics (OTel) -------------------------------------------
+    QuerySpec(
+        name="metrics_usage",
+        fn=get_teams_with_metrics_usage_in_period,
+        output="multi",
+        multi_keys_mapping={
+            "bytes": "teams_with_metrics_bytes_in_period",
+            "records": "teams_with_metrics_records_in_period",
         },
     ),
     # ---- Snapshot queries (kind="snapshot") ---------------------------------

@@ -3,17 +3,27 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.db import DatabaseError, connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
+from posthog.schema import CachedHogQLQueryResponse, CacheMissResponse, HogQLQuery
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.api import record_check_run
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
@@ -96,6 +106,146 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert rows == [("orders_status_accepted", "orders", "accepted_values", '{"values": ["paid"]}', "error")]
+
+    @parameterized.expand([("data_quality_checks",), ("data_quality_check_runs",), ("data_quality_health",)])
+    def test_catalog_denial_hides_metric_definitions_history_and_health(self, table: str) -> None:
+        metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS signups"},
+            referenced_table_names=[],
+        )
+        check = self._check(
+            subject_type=SubjectType.METRIC,
+            saved_query_id=None,
+            metric_id=metric.id,
+            subject_name="signups",
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM {metric}"},
+        )
+        self._run_for(check, referenced_subjects=[])
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        denied_user = self._create_user("catalog-denied@example.com")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_catalog",
+            organization_member=denied_user.organization_memberships.get(organization=self.organization),
+            access_level="none",
+        )
+        query = HogQLQuery(query=f"SELECT subject_name FROM system.information_schema.{table}")
+        allowed_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        denied_runner = HogQLQueryRunner(query=query, team=self.team, user=denied_user)
+        allowed_response = allowed_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(allowed_response, CachedHogQLQueryResponse)
+        assert allowed_response.is_cached is False
+        assert allowed_response.results == [("signups",)]
+        allowed_cached_response = allowed_runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        assert isinstance(allowed_cached_response, CachedHogQLQueryResponse)
+        assert allowed_cached_response.is_cached is True
+        assert allowed_cached_response.results == [["signups"]]
+
+        denied_cache_miss = denied_runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        assert isinstance(denied_cache_miss, CacheMissResponse)
+        denied_response = denied_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(denied_response, CachedHogQLQueryResponse)
+        assert denied_response.results == []
+        assert denied_response.is_cached is False
+        denied_cached_response = denied_runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        assert isinstance(denied_cached_response, CachedHogQLQueryResponse)
+        assert denied_cached_response.is_cached is True
+        assert denied_cached_response.results == []
+
+    def test_catalog_only_member_can_discover_only_metric_checks(self) -> None:
+        self._check()
+        metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            referenced_table_names=[],
+        )
+        metric_check = self._check(
+            subject_type=SubjectType.METRIC,
+            saved_query_id=None,
+            metric_id=metric.id,
+            subject_name=metric.name,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM {metric}"},
+        )
+        self._run_for(metric_check, referenced_subjects=[])
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_objects",
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        for table in ("data_quality_checks", "data_quality_check_runs", "data_quality_health"):
+            assert self._query(f"SELECT subject_name FROM system.information_schema.{table}") == [("signups",)]
+
+    @parameterized.expand([("catalog_member", True), ("catalog_denied", False)])
+    def test_a_query_scoped_token_reads_metric_checks_on_the_users_own_catalog_access(
+        self, _name: str, allowed: bool
+    ) -> None:
+        metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            referenced_table_names=[],
+        )
+        self._check(
+            subject_type=SubjectType.METRIC,
+            saved_query_id=None,
+            metric_id=metric.id,
+            subject_name=metric.name,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM {metric}"},
+        )
+        if not allowed:
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(
+                team=self.team,
+                resource="data_catalog",
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+            cache.clear()
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="raw hogql", secure_value=hash_key_value(token), scopes=["query:read"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT subject_name FROM system.information_schema.data_quality_checks "
+                    "WHERE subject_type = 'metric'",
+                }
+            },
+            format="json",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["results"] == ([["signups"]] if allowed else [])
+
+    def test_soft_deleted_subject_hides_active_checks_but_preserves_admin_history(self) -> None:
+        check = self._check()
+        self._run_for(check)
+        self.subject.deleted = True
+        self.subject.save(update_fields=["deleted"])
+        assert self._query("SELECT id FROM system.information_schema.data_quality_checks") == []
+        assert self._query("SELECT subject_uuid FROM system.information_schema.data_quality_health") == []
+        assert len(self._query("SELECT id FROM system.information_schema.data_quality_check_runs")) == 1
 
     def test_deleted_checks_disappear_but_their_runs_stay_queryable(self) -> None:
         check = self._check()

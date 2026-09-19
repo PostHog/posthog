@@ -5,7 +5,8 @@ import { LemonCheckbox, LemonTable, LemonTableColumn, LemonTableColumns } from '
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 
-import { BillingSeriesType } from './BillingLineGraph'
+import { BillingSeriesType } from './BillingChart'
+import { BILLING_TABLE_PAGE_SIZE } from './constants'
 
 export function SeriesColorDot({ colorIndex }: { colorIndex: number }): JSX.Element {
     return <div className={`series-color-dot series-color-dot-${colorIndex % 15}`} />
@@ -34,6 +35,17 @@ export function BillingDataTable({
     valueFormatter = defaultFormatter,
     totalLabel = 'Total',
 }: BillingDataTableProps): JSX.Element {
+    // A set, not the array: `includes` inside a row render is a linear scan, so an organization
+    // with ten thousand series would do ten thousand scans per render.
+    const hidden = useMemo(() => new Set(hiddenSeries), [hiddenSeries])
+
+    // Summed once per series rather than inside the sorter's comparator, which would call
+    // reduce() on both operands for every comparison.
+    const totals = useMemo(
+        () => new Map(series.map((s) => [s.id, s.data.reduce((sum, value) => sum + value, 0)])),
+        [series]
+    )
+
     const headerChecked: boolean | 'indeterminate' =
         hiddenSeries.length === 0 ? true : hiddenSeries.length === series.length ? false : 'indeterminate'
 
@@ -68,19 +80,14 @@ export function BillingDataTable({
         () => ({
             width: `${100 / (dates.length + 1)}%`,
             title: totalLabel,
-            render: (_: unknown, record: BillingSeriesType) => {
-                const total = record.data.reduce((sum, val) => sum + val, 0)
-                return <div className="text-right font-semibold">{valueFormatter(total)}</div>
-            },
+            render: (_: unknown, record: BillingSeriesType) => (
+                <div className="text-right font-semibold">{valueFormatter(totals.get(record.id) ?? 0)}</div>
+            ),
             key: 'total',
-            sorter: (a: BillingSeriesType, b: BillingSeriesType) => {
-                const totalA = a.data.reduce((sum, val) => sum + val, 0)
-                const totalB = b.data.reduce((sum, val) => sum + val, 0)
-                return totalA - totalB
-            },
+            sorter: (a: BillingSeriesType, b: BillingSeriesType) => (totals.get(a.id) ?? 0) - (totals.get(b.id) ?? 0),
             align: 'right',
         }),
-        [dates.length, totalLabel, valueFormatter]
+        [dates.length, totalLabel, valueFormatter, totals]
     )
 
     // Combine series checkbox column, total column, and all date columns
@@ -94,7 +101,7 @@ export function BillingDataTable({
                     </div>
                 ),
                 render: (_, record: BillingSeriesType) => {
-                    const isHidden = hiddenSeries.includes(record.id)
+                    const isHidden = hidden.has(record.id)
                     return (
                         <div className="flex items-center gap-1">
                             <LemonCheckbox
@@ -115,7 +122,7 @@ export function BillingDataTable({
             totalColumn,
             ...dateColumns,
         ],
-        [headerChecked, totalColumn, dateColumns, toggleSeries, toggleAllSeries, hiddenSeries]
+        [headerChecked, totalColumn, dateColumns, toggleSeries, toggleAllSeries, hidden]
     )
 
     return (
@@ -127,12 +134,13 @@ export function BillingDataTable({
                 loading={isLoading}
                 embedded
                 size="small"
-                rowClassName={(record) => (hiddenSeries.includes(record.id) ? 'opacity-50' : '')}
+                rowClassName={(record) => (hidden.has(record.id) ? 'opacity-50' : '')}
                 defaultSorting={{
                     columnKey: 'total',
                     order: -1,
                 }}
                 rowRibbonColor={(record) => getSeriesColor(record.id % 15)}
+                pagination={{ pageSize: BILLING_TABLE_PAGE_SIZE }}
                 firstColumnSticky
             />
         </div>

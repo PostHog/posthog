@@ -1,6 +1,7 @@
 import {
     ActivityLogItem,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
@@ -19,11 +20,17 @@ export function signalScoutConfigActivityDescriber(
     const user = userNameForLogItem(logItem)
 
     if (logItem.activity === 'created') {
-        return { description: `${user} created scout ${name}` }
+        return {
+            description: `${user} created scout ${name}`,
+            summary: activityLogSummary(logItem, 'Created the scout', name),
+        }
     }
 
     if (logItem.activity === 'deleted') {
-        return { description: `${user} deleted scout ${name}` }
+        return {
+            description: `${user} deleted scout ${name}`,
+            summary: activityLogSummary(logItem, 'Deleted the scout', name),
+        }
     }
 
     if (logItem.activity === 'updated') {
@@ -33,10 +40,16 @@ export function signalScoutConfigActivityDescriber(
         // Single-field enable/disable toggle gets a dedicated phrasing.
         if (enabledChange && changes.length === 1) {
             const verb = enabledChange.after ? 'enabled' : 'disabled'
-            return { description: `${user} ${verb} scout ${name}` }
+            return {
+                description: `${user} ${verb} scout ${name}`,
+                summary: activityLogSummary(logItem, `${verb} the scout`, name),
+            }
         }
 
-        return { description: `${user} updated scout ${name}` }
+        return {
+            description: `${user} updated scout ${name}`,
+            summary: activityLogSummary(logItem, 'Updated the scout', name),
+        }
     }
 
     return defaultDescriber(logItem, asNotification, name)

@@ -17,6 +17,7 @@ import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
 import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
+import { cssLoaderScript } from './cssLoader.mjs'
 
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
 // built after the toolbar app build so it can embed the hashed entry filename). Consumers
@@ -123,53 +124,21 @@ export function copyIndexHtml(
     }
     const chunkCode = Object.keys(chunks).length > 0 ? chunkLoaderScript(chunksToServe, chunkMapFile) : ''
 
-    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
-    // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
+    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed version fails or
+    // stalls (e.g. CDN returns 403, or the request hangs). Mirrors the JS fallback above.
     const cssFileFallback = `${entry}.css?t=${buildId}`
-    const needsCssFallback = cssFile !== cssFileFallback
-    const cssLoader = `
-        const link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.crossOrigin = "anonymous";
-        link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
-        ${
-            needsCssFallback
-                ? `link.onerror = function() {
-            link.onerror = null;
-            console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
-            var fallbackLink = document.createElement("link");
-            fallbackLink.rel = "stylesheet";
-            fallbackLink.crossOrigin = "anonymous";
-            fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
-            document.head.appendChild(fallbackLink);
-        };`
-                : ''
-        }
-        // Resolves once the boot stylesheet is applied (or failed), so the entry script can hold
-        // React's first render until then. The entry JS is small enough to win the race against
-        // the stylesheet on slow networks; rendering before the sheet arrives paints the app
-        // unstyled for a frame or two.
-        window.ESBUILD_CSS_READY = new Promise(function (resolve) {
-            link.addEventListener("load", function () { resolve(true) }, { once: true });
-            link.addEventListener("error", function () { resolve(false) }, { once: true });
-        });
-        document.head.appendChild(link)
-    `
+    const cssLoader = cssFile ? cssLoaderScript(cssFile, cssFileFallback) : ''
 
     fse.writeFileSync(
         path.resolve(absWorkingDir, to),
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
             `   <script nonce="{{ request.csp_nonce }}" type="application/javascript">
-                    // NOTE: the link for the stylesheet will be added just
-                    // after this script block. The react code will need the
-                    // body to have been parsed before it is able to interact
-                    // with it and add anything to it.
-                    //
-                    // Fingers crossed the browser waits for the stylesheet to
-                    // load such that it's in place when react starts
-                    // adding elements to the DOM
-                    ${cssFile ? cssLoader : ''}
+                    // The stylesheet link is added just below, at runtime, so a slow CSS fetch does
+                    // not hold up these boot scripts. The loader publishes window.ESBUILD_CSS_READY,
+                    // and the app entry waits on it before its first render, so React does not paint
+                    // real markup that no stylesheet reaches. See cssLoader.mjs.
+                    ${cssLoader}
                     ${scriptCode}
                     ${chunkCode}
                 </script>

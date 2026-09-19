@@ -153,6 +153,9 @@ export function InsertMenu({
                                     <span className="MarkdownNotebook__insert-item-icon">{command.icon}</span>
                                 ) : null}
                                 <span>{renderHighlightedInsertCommandLabel(command.label, query)}</span>
+                                {command.badge ? (
+                                    <span className="MarkdownNotebook__insert-item-badge">{command.badge}</span>
+                                ) : null}
                             </button>
                         ))}
                     </div>
@@ -520,6 +523,7 @@ export function buildInsertCommands(
                 description: insertCommand.description ?? definition.description,
                 aliases: insertCommand.aliases ?? definition.aliases,
                 icon: insertCommand.icon ?? definition.icon,
+                badge: insertCommand.badge,
                 run: (targetNodeId) =>
                     insertRegisteredComponent(
                         targetNodeId,

@@ -18,13 +18,16 @@ import type {
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
+    CanvasConnectorCallApi,
+    CanvasConnectorCallResultApi,
+    CanvasConnectorsResponseApi,
     CanvasCreateApi,
     CanvasErrorReportResultApi,
     CanvasFixRequestResultApi,
     CanvasLayoutPatchApi,
     CanvasLayoutPublishApi,
     CanvasLayoutPublishResponseApi,
-    CanvasLayoutResponseApi,
+    CanvasLayoutWithComponentsResponseApi,
     CanvasPromoteApi,
     CanvasPublishCurrentVersionApi,
     CanvasReportErrorApi,
@@ -39,14 +42,18 @@ import type {
     CanvasStateEntryApi,
     CanvasStateResponseApi,
     CanvasStateSetApi,
+    CanvasStateValueResponseApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
+    CanvasViewResponseApi,
     CanvasesBuildsRetrieveParams,
+    CanvasesConnectorsRetrieveParams,
     CanvasesDraftsRetrieveParams,
     CanvasesLayoutRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
     CanvasesStateRetrieveParams,
+    CanvasesStateValueRetrieveParams,
     CanvasesVersionsRetrieveParams,
     PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
@@ -208,7 +215,8 @@ export const getCanvasesBuildsRetrieveUrl = (projectId: string, id: string, para
  *
  * A publish queues a build; poll this until it is ready (the live pointer
  * advances) or failed (fix the error diagnostics and publish again — the
- * last good build stays live).
+ * last good build stays live). Send the response's ETag back as
+ * If-None-Match to make the poll revalidate without a body.
  */
 export const canvasesBuildsRetrieve = async (
     projectId: string,
@@ -240,6 +248,31 @@ export const canvasesBuildActionCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasBuildActionApi),
+    })
+}
+
+export const getCanvasesConnectorsCallUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/connectors/call/`
+}
+
+/**
+ * Call one declared connector tool as the viewer.
+ *
+ * The canvas must declare the provider and tool in capabilities.connectors
+ * (the reviewed permission boundary); the call runs with the viewer's own
+ * connection, so two viewers of the same canvas see their own data.
+ */
+export const canvasesConnectorsCall = async (
+    projectId: string,
+    id: string,
+    canvasConnectorCallApi: CanvasConnectorCallApi,
+    options?: RequestInit
+): Promise<CanvasConnectorCallResultApi> => {
+    return apiMutator<CanvasConnectorCallResultApi>(getCanvasesConnectorsCallUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasConnectorCallApi),
     })
 }
 
@@ -361,8 +394,8 @@ export const canvasesLayoutRetrieve = async (
     id: string,
     params?: CanvasesLayoutRetrieveParams,
     options?: RequestInit
-): Promise<CanvasLayoutResponseApi> => {
-    return apiMutator<CanvasLayoutResponseApi>(getCanvasesLayoutRetrieveUrl(projectId, id, params), {
+): Promise<CanvasLayoutWithComponentsResponseApi> => {
+    return apiMutator<CanvasLayoutWithComponentsResponseApi>(getCanvasesLayoutRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -676,6 +709,44 @@ export const canvasesStateSet = async (
     })
 }
 
+export const getCanvasesStateValueRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: CanvasesStateValueRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/state/value/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/state/value/`
+}
+
+/**
+ * Canvases: agent-built sandboxed browser apps, filed into channels.
+ *
+ * Source is versioned per publish and built server-side; the canvas app
+ * renders the published build's artifact from the isolated artifact origin.
+ */
+export const canvasesStateValueRetrieve = async (
+    projectId: string,
+    id: string,
+    params: CanvasesStateValueRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasStateValueResponseApi> => {
+    return apiMutator<CanvasStateValueResponseApi>(getCanvasesStateValueRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getCanvasesValidateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/validate/`
 }
@@ -736,6 +807,29 @@ export const canvasesVersionsRetrieve = async (
     })
 }
 
+export const getCanvasesViewRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/view/`
+}
+
+/**
+ * Everything needed to open the canvas, in one round trip.
+ *
+ * Returns the record, the live build (with its signed artifact URL), and —
+ * only when there is nothing built to render — the head source project
+ * (freeform/component) or the layout document (grid). Send the response's
+ * ETag back as If-None-Match to revalidate without a body.
+ */
+export const canvasesViewRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasViewResponseApi> => {
+    return apiMutator<CanvasViewResponseApi>(getCanvasesViewRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getCanvasesActionsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/canvases/actions/`
 }
@@ -748,6 +842,40 @@ export const canvasesActionsRetrieve = async (
     options?: RequestInit
 ): Promise<CanvasActionsResponseApi> => {
     return apiMutator<CanvasActionsResponseApi>(getCanvasesActionsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesConnectorsRetrieveUrl = (projectId: string, params?: CanvasesConnectorsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/connectors/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/connectors/`
+}
+
+/**
+ * List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
+ *
+ * Authoring agents read this to write ph.connectors.call sites and the
+ * matching capabilities.connectors declarations. Sandbox tokens receive
+ * only static native tools, with no connection lookup or MCP installation data.
+ */
+export const canvasesConnectorsRetrieve = async (
+    projectId: string,
+    params?: CanvasesConnectorsRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasConnectorsResponseApi> => {
+    return apiMutator<CanvasConnectorsResponseApi>(getCanvasesConnectorsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

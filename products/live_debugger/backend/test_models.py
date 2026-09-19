@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.models.event.util import bulk_create_events
@@ -189,7 +189,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
         now = datetime.now()
 
         # Create event from 30 minutes ago (should be included)
-        with freeze_time(now - timedelta(minutes=30)):
+        with time_machine.travel(now - timedelta(minutes=30), tick=False):
             bulk_create_events(
                 [
                     {
@@ -210,7 +210,7 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
             )
 
         # Create event from 2 hours ago (should be excluded)
-        with freeze_time(now - timedelta(hours=2)):
+        with time_machine.travel(now - timedelta(hours=2), tick=False):
             bulk_create_events(
                 [
                     {

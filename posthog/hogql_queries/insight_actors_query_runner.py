@@ -24,7 +24,6 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -40,6 +39,7 @@ from products.product_analytics.backend.facade.queries import (
     PathsV2QueryRunner,
     RetentionQueryRunner,
     StickinessQueryRunner,
+    TrendsQueryRunner,
 )
 
 

@@ -29,3 +29,13 @@ def default_pageview_query() -> dict[str, Any]:
             "trendsFilter": {},
         }
     )
+
+
+def browser_filtered_pageview_query() -> dict[str, Any]:
+    return insight_query(
+        {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X", "type": "event"}],
+        }
+    )

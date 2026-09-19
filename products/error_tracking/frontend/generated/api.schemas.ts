@@ -71,6 +71,20 @@ export interface ErrorTrackingAlertDestinationApi {
     config: ErrorTrackingAlertSlackConfigApi
     /** Unique identifier of the destination. */
     readonly id: string
+    /**
+     * When a notification last reached this destination.
+     * @nullable
+     */
+    readonly last_delivered_at: string | null
+    /**
+     * When delivery to this destination last failed.
+     * @nullable
+     */
+    readonly last_failure_at: string | null
+    /** Message of the most recent delivery failure. */
+    readonly last_error: string
+    /** Delivery failures since the last successful delivery. */
+    readonly consecutive_failures: number
 }
 
 export interface ErrorTrackingAlertApi {
@@ -128,9 +142,9 @@ export interface ErrorTrackingAlertCreateRequestApi {
     /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
     filters?: ErrorTrackingAlertFiltersApi
     /**
-     * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+     * Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.
      * @minimum 0
-     * @maximum 2147483647
+     * @maximum 2592000
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. */
@@ -148,9 +162,9 @@ export interface ErrorTrackingAlertPutRequestApi {
     /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
     filters?: ErrorTrackingAlertFiltersApi
     /**
-     * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+     * Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.
      * @minimum 0
-     * @maximum 2147483647
+     * @maximum 2592000
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. */
@@ -172,9 +186,9 @@ export interface PatchedErrorTrackingAlertUpdateRequestApi {
     /** Property filters a transition must match to open a notification thread. Omit to keep the current filters. */
     filters?: ErrorTrackingAlertFiltersApi
     /**
-     * Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.
+     * Minimum seconds between thread-opening notifications per issue, at most 30 days. Omit to keep the current value.
      * @minimum 0
-     * @maximum 2147483647
+     * @maximum 2592000
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
@@ -2134,21 +2148,6 @@ export interface ErrorTrackingSymbolSetFinishUploadApi {
     content_hash: string
 }
 
-export interface ErrorTrackingSymbolSetBulkDeleteApi {
-    /** Symbol set IDs to delete. */
-    ids: string[]
-}
-
-/**
- * Map of symbol set ID to uploaded content hash.
- */
-export type ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes = { [key: string]: string }
-
-export interface ErrorTrackingSymbolSetBulkFinishUploadApi {
-    /** Map of symbol set ID to uploaded content hash. */
-    content_hashes: ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes
-}
-
 export interface ErrorTrackingSymbolSetUploadApi {
     /** Symbol set reference to upload. */
     chunk_id: string
@@ -2164,7 +2163,42 @@ export interface ErrorTrackingSymbolSetUploadApi {
     content_hash?: string | null
 }
 
+export interface ErrorTrackingSymbolSetBulkCheckUploadApi {
+    /** Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. Send at most 1000 per request. */
+    symbol_sets: ErrorTrackingSymbolSetUploadApi[]
+    /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+    force?: boolean
+    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+    skip_on_conflict?: boolean
+}
+
+export interface ErrorTrackingSymbolSetBulkCheckUploadResponseApi {
+    /** Chunk IDs to send to `bulk_start_upload`: the symbol set is missing, its upload never completed, its content differs, or it still needs the release bound. The other chunks are already uploaded with identical content and were marked as still in use. */
+    chunk_ids_to_upload: string[]
+}
+
+export interface ErrorTrackingSymbolSetBulkDeleteApi {
+    /** Symbol set IDs to delete. */
+    ids: string[]
+}
+
+/**
+ * Map of symbol set ID to uploaded content hash.
+ */
+export type ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes = { [key: string]: string }
+
+export interface ErrorTrackingSymbolSetBulkFinishUploadApi {
+    /** Map of symbol set ID to uploaded content hash. */
+    content_hashes: ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes
+}
+
 export interface ErrorTrackingSymbolSetBulkStartUploadApi {
+    /** Symbol sets to upload with per-symbol release IDs and content hashes. */
+    symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
+    /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+    force?: boolean
+    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+    skip_on_conflict?: boolean
     /** Legacy list of symbol set references to upload, all associated with `release_id`. */
     chunk_ids?: string[]
     /**
@@ -2172,12 +2206,6 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
      * @nullable
      */
     release_id?: string | null
-    /** Symbol sets to upload with per-symbol release IDs and content hashes. */
-    symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
-    /** Whether to overwrite uploaded symbol sets whose content hash changed. */
-    force?: boolean
-    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
-    skip_on_conflict?: boolean
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { LogLevel as LogLevelType, OnLogCallback } from "../types";
+import { redactSecrets } from "./redact-secrets";
 
 export interface LoggerConfig {
   debug?: boolean;
@@ -36,6 +37,8 @@ export class Logger {
   }
 
   private emitLog(level: LogLevelType, message: string, data?: unknown) {
+    message = redactSecrets(message) as string;
+    data = redactSecrets(data);
     if (this.onLog) {
       this.onLog(level, this.scope, message, data);
       return;

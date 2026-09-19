@@ -1,9 +1,7 @@
 import json
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from django.urls import resolve
 
 from parameterized import parameterized
 from rest_framework import status
@@ -73,7 +71,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(results, dict)
         return results
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_groups_by_log_attribute_with_counts_and_last_seen(self) -> None:
         self._insert(
             [
@@ -114,7 +112,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("top_level_column", "severity_level", "column", ["error", "info"]),
         ]
     )
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_groups_by_source(self, _name: str, group_by: str, source: str, expected_values: list[str]) -> None:
         self._insert(
             [
@@ -129,7 +127,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert [g["value"] for g in results["groups"]] == expected_values
         assert [g["log_count"] for g in results["groups"]] == [2, 1]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_limit_truncates_but_reports_full_totals(self) -> None:
         self._insert(
             [self._log(attributes={"session_id": f"s{i}"}, minute=i) for i in range(3)]
@@ -144,7 +142,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["total_logs"] == 4
         assert results["truncated"] is True
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_order_groups_by_error_count_reranks(self) -> None:
         self._insert(
             [self._log(attributes={"session_id": "noisy"}, severity="info", minute=m) for m in range(3)]
@@ -157,7 +155,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert [g["value"] for g in by_count["groups"]] == ["noisy", "failing"]
         assert [g["value"] for g in by_errors["groups"]] == ["failing", "noisy"]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_window_bounds_are_row_precise_not_day_precise(self) -> None:
         # The shared filter builder bounds only time_bucket (day precision); the runner must
         # add per-row timestamp bounds or same-day rows outside the window leak into counts.
@@ -173,7 +171,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["total_logs"] == 1
         assert results["groups"][0]["log_count"] == 1
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_respects_service_filter(self) -> None:
         self._insert(
             [
@@ -186,7 +184,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [g["value"] for g in results["groups"]] == ["s1"]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_combined_dimensions_group_by_value_tuples(self) -> None:
         # Combined grouping must count per value-combination with values in request order;
         # a row missing one of the log-attribute dimensions is not a group member.
@@ -211,7 +209,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             (["s2", "info"], 1, 0),
         ]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_combined_resource_dimension_joins_without_fanout(self) -> None:
         # A resource dimension inside a combination still translates via the fingerprint
         # join; broken composition would drop rows (missed join) or double-count (fan-out).
@@ -281,16 +279,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
-    @classmethod
-    def setUpClass(cls) -> None:
-        super().setUpClass()
-        # The process's first request imports the URLconf, which transitively pulls
-        # langchain's pydantic.v1 shim — an import that crashes if it first runs under
-        # freeze_time (FakeDate breaks pydantic.v1's date metaclass). Load it unfrozen
-        # so no frozen test is the one to trigger it.
-        resolve("/")
-
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_endpoint_returns_grouped_results(self) -> None:
         sync_execute(
             "INSERT INTO logs FORMAT JSONEachRow\n"
@@ -330,7 +319,7 @@ class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
             }
         ]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_endpoint_accepts_combined_dimensions(self) -> None:
         # Wiring guard for the groupBys request shape: the view must parse the dimension
         # list (not fall back to the legacy single-key fields) and surface per-dimension

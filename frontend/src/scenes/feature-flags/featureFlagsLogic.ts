@@ -23,6 +23,10 @@ import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 
 export const FLAGS_PER_PAGE = 100
 
+// The server rejects search terms longer than this (see products/feature_flags/backend/api/feature_flag.py).
+// The search input caps at the same length so the client and server agree.
+export const FEATURE_FLAG_SEARCH_MAX_LENGTH = 200
+
 export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
     if (!search?.trim()) {
         return true
@@ -200,6 +204,7 @@ export interface featureFlagsLogicValues {
     featureFlagsUpdating: Record<number, boolean>
     filters: FeatureFlagsFilters
     filtersChanged: boolean
+    hasActiveFilters: boolean
     pagination: PaginationManual
     paramsFromFilters: {
         active?: string | undefined
@@ -248,6 +253,9 @@ export interface featureFlagsLogicActions {
     ) => {
         featureFlags: FeatureFlagsResult
         payload?: void
+    }
+    resetFilters: () => {
+        value: true
     }
     setActiveTab: (tabKey: FeatureFlagsTab) => {
         tabKey: FeatureFlagsTab
@@ -401,10 +409,11 @@ export interface featureFlagsLogicMeta {
             tags?: string[] | undefined
             type?: string | undefined
         }
+        hasActiveFilters: (filters: FeatureFlagsFilters) => boolean
         shouldShowEmptyState: (
             featureFlagsLoading: boolean,
             featureFlags: FeatureFlagsResult,
-            filters: FeatureFlagsFilters
+            hasActiveFilters: boolean
         ) => boolean
         pagination: (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult) => PaginationManual
         displayedFlags: (featureFlags: FeatureFlagsResult) => FeatureFlagType[]
@@ -437,6 +446,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         deleteFlag: (id: number) => ({ id }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
+        resetFilters: true,
         toggleFeatureFlagActive: (id: number, active: boolean) => ({ id, active }),
         closeEnrichAnalyticsNotice: true,
         setFeatureFlagUpdating: (id: number, updating: boolean) => ({ id, updating }),
@@ -615,13 +625,28 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 },
             ],
         ],
-        // Check to see if any non-default filters are being used
+        // True when a real filter narrows the list. Checks filter values directly rather than
+        // comparing the whole object to the defaults: `page` and `order` are not filters, and a
+        // bare URL leaves `page` undefined (not 1), so a shape comparison reports the default view
+        // as filtered and the empty state offers "Clear filters" when nothing is set.
+        hasActiveFilters: [
+            (s) => [s.filters],
+            (filters: FeatureFlagsFilters): boolean =>
+                Boolean(
+                    filters.search?.trim() ||
+                    filters.active ||
+                    filters.archived ||
+                    filters.type ||
+                    filters.evaluation_runtime ||
+                    filters.created_by_id?.length ||
+                    filters.tags?.length ||
+                    filters.excluded_tags?.length
+                ),
+        ],
         shouldShowEmptyState: [
-            (s) => [s.featureFlagsLoading, s.featureFlags, s.filters],
-            (featureFlagsLoading: boolean, featureFlags: FeatureFlagsResult, filters: FeatureFlagsFilters): boolean => {
-                return (
-                    !featureFlagsLoading && featureFlags.results.length <= 0 && objectsEqual(filters, DEFAULT_FILTERS)
-                )
+            (s) => [s.featureFlagsLoading, s.featureFlags, s.hasActiveFilters],
+            (featureFlagsLoading: boolean, featureFlags: FeatureFlagsResult, hasActiveFilters: boolean): boolean => {
+                return !featureFlagsLoading && featureFlags.results.length <= 0 && !hasActiveFilters
             },
         ],
         pagination: [
@@ -709,6 +734,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setActiveTab: () => {
             // Don't carry over pagination from previous tab
             actions.setFeatureFlagsFilters({ page: 1 }, true)
+        },
+        resetFilters: () => {
+            actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, order: values.filters.order }, true)
         },
         loadFeatureFlagsSuccess: () => {
             if (values.featureFlags.results.length > 0) {

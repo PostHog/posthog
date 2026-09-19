@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from posthog.hogql_queries.properties_timeline.query_date_range import QueryDateRange
@@ -7,7 +7,7 @@ from posthog.models.filters.filter import Filter
 
 class TestQueryDateRange(APIBaseTest):
     def test_parsed_date(self):
-        with freeze_time("2021-08-25T00:00:00.000Z"):
+        with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
             filter = Filter(
                 data={
                     "date_from": "-48h",
@@ -30,7 +30,7 @@ class TestQueryDateRange(APIBaseTest):
         )
 
     def test_parsed_date_hour(self):
-        with freeze_time("2021-08-25T00:00:00.000Z"):
+        with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
             filter = Filter(
                 data={
                     "date_from": "-48h",
@@ -53,7 +53,7 @@ class TestQueryDateRange(APIBaseTest):
         )  # ensure last hour is included
 
     def test_parsed_date_middle_of_hour(self):
-        with freeze_time("2021-08-25T00:00:00.000Z"):
+        with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
             filter = Filter(
                 data={
                     "date_from": "2021-08-23 05:00:00",
@@ -77,7 +77,7 @@ class TestQueryDateRange(APIBaseTest):
         )  # ensure last hour is included
 
     def test_parsed_date_week_rounded(self):
-        with freeze_time("2021-08-25T00:00:00.000Z"):
+        with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
             filter = Filter(
                 data={
                     "date_from": "-7d",
@@ -100,7 +100,7 @@ class TestQueryDateRange(APIBaseTest):
         )
 
     def test_is_hourly(self):
-        with freeze_time("2021-08-25T00:00:00.000Z"):
+        with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
             filter = Filter(
                 data={
                     "date_from": "-48h",
@@ -115,7 +115,7 @@ class TestQueryDateRange(APIBaseTest):
         self.assertTrue(query_date_range.is_hourly("-48h"))
         self.assertFalse(query_date_range.is_hourly(None))
 
-        with freeze_time("2021-08-25T00:00:00.000Z"):
+        with time_machine.travel("2021-08-25T00:00:00.000Z", tick=False):
             filter = Filter(
                 data={
                     "date_from": "-48h",

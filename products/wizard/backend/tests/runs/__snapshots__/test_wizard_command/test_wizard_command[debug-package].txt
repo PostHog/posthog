@@ -1,0 +1,10 @@
+timeout -k 30 2700 sh -c 'rm -rf /tmp/posthog-wizard-package && mkdir -p /tmp/posthog-wizard-package && rm -f /tmp/posthog-wizard-global.npmrc && touch /tmp/posthog-wizard-global.npmrc && npm --userconfig=/dev/null --globalconfig=/tmp/posthog-wizard-global.npmrc install --ignore-scripts --no-package-lock --no-save --prefix /tmp/posthog-wizard-package --registry=https://registry.npmjs.org @posthog/wizard@2.67.0 && cd '"'"'/workspace/example user'"'"'"'"'"'"'"'"'s project'"'"' && node /tmp/posthog-wizard-package/node_modules/@posthog/wizard/dist/bin.js --headless-DONOTUSE-EXPERIMENTAL --install-dir . --region us --project-id 7 --base-url "$POSTHOG_API_URL"'
+
+Shell script:
+rm -rf /tmp/posthog-wizard-package
+mkdir -p /tmp/posthog-wizard-package
+rm -f /tmp/posthog-wizard-global.npmrc
+touch /tmp/posthog-wizard-global.npmrc
+npm --userconfig=/dev/null --globalconfig=/tmp/posthog-wizard-global.npmrc install --ignore-scripts --no-package-lock --no-save --prefix /tmp/posthog-wizard-package --registry=https://registry.npmjs.org @posthog/wizard@2.67.0
+cd '/workspace/example user'"'"'s project'
+node /tmp/posthog-wizard-package/node_modules/@posthog/wizard/dist/bin.js --headless-DONOTUSE-EXPERIMENTAL --install-dir . --region us --project-id 7 --base-url "$POSTHOG_API_URL"

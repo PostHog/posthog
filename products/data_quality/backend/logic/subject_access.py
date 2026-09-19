@@ -12,28 +12,35 @@ know is absent from that snapshot and therefore out of reach.
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Collection, Sequence
+from dataclasses import field
+from functools import cache
+from itertools import batched
 from typing import TYPE_CHECKING, Any, Optional, TypeVar
 from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.schema.information_schema import references_denied_table
+from posthog.hogql.database.database import Database, system_table_denials
+from posthog.hogql.database.schema.information_schema import DeniedTableMatcher
+from posthog.hogql.database.schema.system import SystemTables
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
+from products.data_catalog.backend.facade import api as data_catalog_facade
+from products.data_catalog.backend.facade.contracts import MetricSummary
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun
 from .checks import latest_run_ids
-from .contracts import SubjectIdentity
+from .contracts import SubjectIdentity, SubjectRef
+from .exceptions import SubjectAccessUnverifiable
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
-from .subjects import resolve_subject, resolve_subject_by_name
+from .subjects import resolve_metric_subjects, resolve_subject, resolve_subject_by_name
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -42,23 +49,10 @@ if TYPE_CHECKING:
 
 _SUBJECT_TYPE_KEY = "subject_type"
 _SUBJECT_UUID_KEY = "subject_uuid"
+_SYSTEM_SCHEMA = SystemTables().name
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
-
-
-def denied_subject_names(
-    team: "Team", user: "User", user_access_control: Optional["UserAccessControl"] = None
-) -> set[str]:
-    """The warehouse table/view identifiers this caller cannot query, as the HogQL database sees them.
-
-    This is the exact set the ``information_schema`` loaders consult, so the two paths stay in
-    lock-step. Fails closed with no principal (the database denies every warehouse table)."""
-    database = Database.create_for(team=team, user=user, user_access_control=user_access_control)
-    return set(database._denied_tables)
-
-
-def is_subject_denied(subject_name: str, denied: set[str]) -> bool:
-    """Whether a check's subject is in the caller's denied set, matched the same way the loaders match."""
-    return references_denied_table([subject_name], denied)
+_CHECK_VISIBILITY_BATCH_SIZE = 200
+_CHECK_VISIBILITY_FIELDS = ("id", "subject_type", "table_id", "saved_query_id", "metric_id", "check_type", "config")
 
 
 def can_be_object_denied(user_access_control: Optional["UserAccessControl"]) -> bool:
@@ -88,6 +82,7 @@ class ReadableSubjects:
 
     table_ids: frozenset[UUID]
     view_ids: frozenset[UUID]
+    metric_ids: frozenset[UUID] = frozenset()
 
     def contains(self, subject_type: str, subject_uuid: str | UUID | None) -> bool:
         if subject_uuid is None:
@@ -100,7 +95,43 @@ class ReadableSubjects:
             return identifier in self.table_ids
         if subject_type == SubjectType.VIEW:
             return identifier in self.view_ids
+        if subject_type == SubjectType.METRIC:
+            return identifier in self.metric_ids
         return False
+
+
+class DeferredDatabase:
+    """The caller's HogQL database, built at most once and only if a verdict needs it.
+
+    Only one question needs the whole HogQL name universe: whether a name a definition reads can be
+    confirmed to resolve at all. Every other gate here is answered from identities and names, so a
+    surface that asks none of them -- the run-history routes -- must not pay for a database holding
+    every warehouse table of the team as a pydantic object.
+
+    A plain class rather than a frozen dataclass, because it memoizes and :class:`DenialContext`
+    stays frozen around it.
+    """
+
+    def __init__(self, build: Callable[[], Database]) -> None:
+        self._build = build
+        self._database: Database | None = None
+
+    @classmethod
+    def built(cls, database: Database) -> "DeferredDatabase":
+        return cls(lambda: database)
+
+    @classmethod
+    def lazy(cls, build: Callable[[], Database]) -> "DeferredDatabase":
+        return cls(build)
+
+    def get(self) -> Database:
+        if self._database is None:
+            try:
+                self._database = self._build()
+            except Exception as err:
+                capture_exception(err)
+                raise SubjectAccessUnverifiable
+        return self._database
 
 
 @frozen
@@ -108,46 +139,237 @@ class DenialContext:
     """Everything a gate needs about one caller, resolved once and passed down.
 
     ``readable`` answers the identity-keyed questions a stored row asks, ``denied`` the name-keyed
-    ones a definition asks, and ``database`` is the caller's own HogQL database -- carried so a
-    surface that has already built one never builds a second.
+    ones a definition asks, and ``database`` is the caller's own HogQL database -- deferred, so it
+    is built only where a verdict needs it and a surface that has one already never builds a second.
     """
 
     readable: ReadableSubjects
     denied: set[str]
-    database: Database
+    database: DeferredDatabase
+    metadata: "SubjectMetadata"
+    matcher: DeniedTableMatcher = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "matcher", DeniedTableMatcher(self.denied))
 
 
-def readable_subjects(team_id: int, denied: set[str]) -> ReadableSubjects:
+@frozen
+class NoticeReferences:
+    """The subjects one notification's failure count says something about, besides its own subject.
+
+    A ``custom_sql`` check reads whatever its query selects and a ``relationships`` check reads the
+    table it points at, so the count is an oracle over those too. Resolved once per notice and held
+    up against every recipient, because resolving a name to the object it reaches costs the same
+    queries whoever is asking.
+
+    ``identities`` are the subjects that resolve to a warehouse object, either pinned by the run or
+    resolved from the definition's names. ``unresolved_names`` are the rest: ``system.*`` tables,
+    PostHog tables, and names that no longer reach anything.
+    """
+
+    identities: tuple[SubjectIdentity, ...]
+    unresolved_names: tuple[str, ...]
+
+
+def notice_references(
+    team_id: int, *, executed_references: Sequence[dict[str, str]] = (), names: Sequence[str] = ()
+) -> NoticeReferences:
+    """Resolve what a notice reads into identities, keeping the names that reach no object."""
+    pinned = _pin_names(team_id, names)
+    identities = [
+        SubjectIdentity(subject_type=ref[_SUBJECT_TYPE_KEY], subject_uuid=ref[_SUBJECT_UUID_KEY])
+        for ref in executed_references
+    ]
+    identities.extend(pinned.values())
+    return NoticeReferences(
+        identities=tuple(identities),
+        unresolved_names=tuple(name for name in names if name not in pinned),
+    )
+
+
+@frozen
+class ReferenceGate:
+    """Decides whether one person may be told a check failed.
+
+    Holds the two things that answer this over a :class:`NoticeReferences`: the subjects among those
+    the person may read, and a matcher for the names they are denied.
+    """
+
+    readable: ReadableSubjects
+    matcher: DeniedTableMatcher = field(compare=False)
+
+    def admits(self, references: NoticeReferences) -> bool:
+        if not all(self.readable.contains(ref.subject_type, ref.subject_uuid) for ref in references.identities):
+            return False
+        return not self.matcher.matches(references.unresolved_names)
+
+
+def reference_gate(
+    team: "Team",
+    user: "User",
+    user_access_control: "UserAccessControl",
+    *,
+    references: NoticeReferences,
+    unentitled: Collection[str] | None = None,
+) -> ReferenceGate:
+    """One person's access to the subjects a single check reads. A few narrow queries, no build.
+
+    Cost tracks what the check reads, not what the team owns, so a project with thousands of
+    warehouse tables costs the same as one with three.
+    """
+    referenced: dict[str, set[UUID]] = {SubjectType.TABLE: set(), SubjectType.VIEW: set()}
+    for reference in references.identities:
+        # A run pins its references into an unrestricted JSON column, so one that does not parse is
+        # left out of the lookup and fails closed in ``ReadableSubjects.contains``.
+        if reference.subject_type in referenced and (identifier := _as_uuid(reference.subject_uuid)) is not None:
+            referenced[reference.subject_type].add(identifier)
+    return ReferenceGate(
+        readable=ReadableSubjects(
+            table_ids=warehouse_facade.allowed_table_ids(
+                team.id, user_access_control, ids=referenced[SubjectType.TABLE]
+            ),
+            view_ids=data_modeling_facade.allowed_saved_query_ids(
+                team.id, user_access_control, ids=referenced[SubjectType.VIEW]
+            ),
+        ),
+        matcher=DeniedTableMatcher(system_table_denials(team, user, user_access_control, unentitled=unentitled)),
+    )
+
+
+@frozen
+class SubjectMetadata:
+    """The team's live subjects by id. ``table_keys`` is the dotted form a query writes."""
+
+    table_names: dict[UUID, str]
+    table_keys: dict[UUID, str]
+    view_names: dict[UUID, str]
+    metrics: tuple[MetricSummary, ...]
+
+
+def subject_metadata(team_id: int) -> SubjectMetadata:
+    tables = warehouse_facade.all_queryable_table_keys(team_id)
+    excluded_table_ids = set(data_modeling_facade.backing_table_ids_by_saved_query(team_id))
+    excluded_table_ids.update(warehouse_facade.direct_access_table_ids(team_id))
+    included = {table_id: names for table_id, names in tables.items() if table_id not in excluded_table_ids}
+    return SubjectMetadata(
+        table_names={table_id: names.row_name for table_id, names in included.items()},
+        table_keys={table_id: names.queryable_key for table_id, names in included.items()},
+        view_names={
+            UUID(view_id): name for view_id, name in data_modeling_facade.all_saved_query_names(team_id).items()
+        },
+        metrics=tuple(data_catalog_facade.live_metric_summaries(team_id)),
+    )
+
+
+def readable_subjects(
+    team_id: int,
+    denied: set[str],
+    *,
+    can_read_catalog: bool = True,
+    metadata: SubjectMetadata | None = None,
+) -> ReadableSubjects:
     """The team's live warehouse subjects, minus the ones this caller is denied. Four queries.
 
     Cost tracks the objects the team has, not the length of retained history, which is what makes
     it safe to hold a whole page of run history up against.
     """
-    tables = warehouse_facade.all_queryable_table_names(team_id)
-    views = data_modeling_facade.all_saved_query_names(team_id)
-    excluded_table_ids = set(data_modeling_facade.backing_table_ids_by_saved_query(team_id))
-    excluded_table_ids.update(warehouse_facade.direct_access_table_ids(team_id))
+    metadata = metadata if metadata is not None else subject_metadata(team_id)
+    matcher = DeniedTableMatcher(denied)
     return ReadableSubjects(
-        table_ids=frozenset(
-            table_id
-            for table_id, name in tables.items()
-            if table_id not in excluded_table_ids and not is_subject_denied(name, denied)
+        table_ids=frozenset(table_id for table_id, name in metadata.table_names.items() if not matcher.matches([name])),
+        view_ids=frozenset(view_id for view_id, name in metadata.view_names.items() if not matcher.matches([name])),
+        metric_ids=frozenset(
+            metric.id
+            for metric in metadata.metrics
+            if can_read_catalog and not matcher.matches(metric.referenced_table_names)
         ),
-        view_ids=frozenset(UUID(view_id) for view_id, name in views.items() if not is_subject_denied(name, denied)),
     )
 
 
-def denial_context(team_id: int, database: Database) -> DenialContext:
+def unreachable_subject_names(
+    team_id: int, user_access_control: Optional["UserAccessControl"], metadata: SubjectMetadata
+) -> set[str]:
+    """Every name this caller cannot reach, in both spellings a query can write.
+
+    A source table answers to its row name and to its dotted key, and the gate that reads this
+    matches leaf names, so recording only one of the two would let the other spelling through. No
+    access-control context means nothing is reachable, which is how a service token fails closed.
+    """
+    allowed_tables = (
+        warehouse_facade.allowed_table_ids(team_id, user_access_control)
+        if user_access_control is not None
+        else frozenset()
+    )
+    allowed_views = (
+        data_modeling_facade.allowed_saved_query_ids(team_id, user_access_control)
+        if user_access_control is not None
+        else frozenset()
+    )
+    denied = {
+        spelling
+        for identifier, name in metadata.table_names.items()
+        if identifier not in allowed_tables
+        for spelling in (name, metadata.table_keys.get(identifier, name))
+    }
+    denied.update(name for identifier, name in metadata.view_names.items() if identifier not in allowed_views)
+    return denied
+
+
+def denial_context(team_id: int, database: Database, *, metadata: SubjectMetadata | None = None) -> DenialContext:
     """The caller's denial state, from a HogQL database that has already been built for them."""
-    denied = set(database._denied_tables)
-    return DenialContext(readable=readable_subjects(team_id, denied), denied=denied, database=database)
+    metadata = metadata if metadata is not None else subject_metadata(team_id)
+    access = database.user_access_control
+    denied = set(database._denied_tables) | unreachable_subject_names(team_id, access, metadata)
+    can_read_catalog = access is not None and access.check_access_level_for_resource("data_catalog", "viewer")
+    return DenialContext(
+        readable=readable_subjects(
+            team_id,
+            denied,
+            can_read_catalog=can_read_catalog,
+            metadata=metadata,
+        ),
+        denied=denied,
+        database=DeferredDatabase.built(database),
+        metadata=metadata,
+    )
 
 
 def caller_denial_context(
-    team: "Team", user: "User", user_access_control: Optional["UserAccessControl"] = None
+    team: "Team",
+    user: "User",
+    user_access_control: "UserAccessControl",
+    *,
+    metadata: SubjectMetadata | None = None,
 ) -> DenialContext:
-    """The caller's denial state, building the HogQL database this request will reuse."""
-    return denial_context(team.id, Database.create_for(team=team, user=user, user_access_control=user_access_control))
+    """The caller's denial state, read from their grants. Defers the HogQL database build.
+
+    The denial set a database would compute for this caller is the same object access check over the
+    same objects, so it is derived here instead. The build is kept behind
+    :class:`DeferredDatabase` for the one verdict that needs the whole name universe.
+    """
+    try:
+        metadata = metadata if metadata is not None else subject_metadata(team.id)
+        denied = set(system_table_denials(team, user, user_access_control))
+        denied.update(unreachable_subject_names(team.id, user_access_control, metadata))
+        readable = readable_subjects(
+            team.id,
+            denied,
+            can_read_catalog=user_access_control.check_access_level_for_resource("data_catalog", "viewer"),
+            metadata=metadata,
+        )
+    except Exception as err:
+        # The snapshot walks every saved query; one malformed definition must not 500 the surface,
+        # and failing open would leak denied subjects.
+        capture_exception(err)
+        raise SubjectAccessUnverifiable
+    return DenialContext(
+        readable=readable,
+        denied=denied,
+        database=DeferredDatabase.lazy(
+            lambda: Database.create_for(team=team, user=user, user_access_control=user_access_control)
+        ),
+        metadata=metadata,
+    )
 
 
 def unreadable_runs_q(context: DenialContext) -> Q:
@@ -215,16 +437,36 @@ def hidden_check_ids(team_id: int, checks: Sequence[DataQualityCheck], context: 
     tenses at once, so each is judged by the rule for its own tense -- the definition by the names it
     resolves today, the stored run by the identities it recorded.
     """
-    hidden = {check.id for check in checks if not context.readable.contains(check.subject_type, check.subject_uuid)}
-    verdicts: dict[str, bool] = {}
-    for check in checks:
-        if check.id in hidden:
-            continue
-        if _memoized_definition_verdict(team_id, check.check_type, check.config or {}, context, verdicts):
-            hidden.add(check.id)
+    hidden = definition_hidden_ids(team_id, checks, context, {})
     return hidden | _checks_whose_latest_run_is_unreadable(
         team_id, [check.id for check in checks if check.id not in hidden], context
     )
+
+
+def definition_hidden_ids(
+    team_id: int, checks: Sequence[DataQualityCheck], context: DenialContext, verdicts: dict[str, bool]
+) -> set[UUID]:
+    """The present-tense half of :func:`hidden_check_ids`: unreadable subject, or unreadable definition.
+
+    ``verdicts`` is carried in by the caller so a scan that runs in batches parses a definition it has
+    already seen once, whichever batch it lands in.
+    """
+    hidden = {check.id for check in checks if not context.readable.contains(check.subject_type, check.subject_uuid)}
+    metric_subjects = resolve_metric_subjects(
+        team_id,
+        {
+            UUID(str(check.metric_id))
+            for check in checks
+            if check.id not in hidden and check.subject_type == SubjectType.METRIC and check.metric_id is not None
+        },
+    )
+    for check in checks:
+        if check.id in hidden:
+            continue
+        subject = metric_subjects.get(UUID(str(check.metric_id))) if check.metric_id is not None else None
+        if memoized_definition_verdict(team_id, check.check_type, check.config or {}, context, verdicts, subject):
+            hidden.add(check.id)
+    return hidden
 
 
 def visible_checks(team_id: int, checks: Sequence[DataQualityCheck], context: DenialContext) -> list[DataQualityCheck]:
@@ -237,8 +479,39 @@ def visible_checks(team_id: int, checks: Sequence[DataQualityCheck], context: De
     return [check for check in checks if check.id not in hidden]
 
 
+def readable_check_subjects(
+    queryset: QuerySet[DataQualityCheck], readable: ReadableSubjects
+) -> QuerySet[DataQualityCheck]:
+    return queryset.filter(
+        Q(subject_type=SubjectType.TABLE, table_id__in=readable.table_ids)
+        | Q(subject_type=SubjectType.VIEW, saved_query_id__in=readable.view_ids)
+        | Q(subject_type=SubjectType.METRIC, metric_id__in=readable.metric_ids)
+    )
+
+
+def visible_check_queryset(
+    team_id: int, queryset: QuerySet[DataQualityCheck], context: DenialContext
+) -> QuerySet[DataQualityCheck]:
+    queryset = readable_check_subjects(queryset, context.readable)
+    candidates = queryset.select_related(None).prefetch_related(None).only(*_CHECK_VISIBILITY_FIELDS)
+    hidden: set[UUID] = set()
+    survivors: list[UUID] = []
+    verdicts: dict[str, bool] = {}
+    # The definition scan stays batched, because it holds a parsed config per row. The history scan
+    # only needs ids, so it runs once over everything the definition scan let through rather than
+    # once per batch.
+    for batch in batched(
+        candidates.iterator(chunk_size=_CHECK_VISIBILITY_BATCH_SIZE), _CHECK_VISIBILITY_BATCH_SIZE, strict=False
+    ):
+        batch_hidden = definition_hidden_ids(team_id, batch, context, verdicts)
+        hidden |= batch_hidden
+        survivors.extend(check.id for check in batch if check.id not in batch_hidden)
+    hidden |= _checks_whose_latest_run_is_unreadable(team_id, survivors, context)
+    return queryset.exclude(id__in=hidden)
+
+
 def definition_reads_unreadable_subject(
-    team_id: int, check_type: str, config: dict[str, Any], context: DenialContext
+    team_id: int, check_type: str, config: dict[str, Any], context: DenialContext, *, subject: SubjectRef | None = None
 ) -> bool:
     """Whether the definition a check would run next reads a subject beyond a caller's reach.
 
@@ -251,24 +524,32 @@ def definition_reads_unreadable_subject(
     """
     if not check_type_reads_beyond_subject(check_type):
         return False
-    refs = referenced_subjects(team_id, check_type, config)
+    try:
+        refs = referenced_subjects(team_id, check_type, config, subject=subject)
+    except Exception as err:
+        capture_exception(err)
+        return True
     if refs.related_subject is not None and not context.readable.contains(
         refs.related_subject.subject_type, refs.related_subject.subject_uuid
     ):
         return True
-    if any(is_subject_denied(name, context.denied) for name in refs.names):
+    if not refs.names:
+        return False
+    if context.matcher.matches(refs.names):
         return True
-    return bool(unconfirmable_subject_names(refs.names, context.database))
+    return bool(unconfirmable_subject_names(refs.names, context.database.get()))
 
 
 def unconfirmable_subject_names(names: tuple[str, ...], database: Database) -> set[str]:
-    """The referenced names this caller can neither resolve nor be shown to have been denied.
+    """Every referenced name the caller's own database does not expose.
 
-    Deleting a warehouse object takes its denial with it: the name leaves the database the caller
-    can resolve *and* the denial set that is rebuilt from the objects that still exist, so a check
-    that once read a denied table starts reading as harmless. Neither state proves access, so both
-    are reported and the caller fails them closed."""
-    return {name for name in names if not database.has_table(name) and not database.is_table_access_denied(name)}
+    A name is absent from that database for two reasons, and neither proves access. It was deleted,
+    which takes its denial with it: the name leaves both the database and the denial set that is
+    rebuilt from the objects that still exist, so a check that once read a denied table starts
+    reading as harmless. Or the caller is denied it, which the denial set does not always carry --
+    the backing table of a soft-deleted saved query is denied in the database and absent from the
+    set. Both are reported and the caller fails them closed."""
+    return {name for name in names if not database.has_table(name)}
 
 
 # A check type reads beyond its declared subject only if it overrides one of these hooks: a
@@ -277,7 +558,8 @@ def unconfirmable_subject_names(names: tuple[str, ...], database: Database) -> s
 _REFERENCING_CHECK_TYPES: frozenset[str] = frozenset(
     str(spec.type_name)
     for spec in all_specs()
-    if type(spec).related_subject_ref is not CheckTypeSpec.related_subject_ref
+    if spec.reads_beyond_subject
+    or type(spec).related_subject_ref is not CheckTypeSpec.related_subject_ref
     or type(spec).referenced_table_names is not CheckTypeSpec.referenced_table_names
 )
 
@@ -310,7 +592,9 @@ class ReferencedSubjects:
     related_subject: SubjectIdentity | None
 
 
-def referenced_subjects(team_id: int, check_type: str, config: dict[str, Any]) -> ReferencedSubjects:
+def referenced_subjects(
+    team_id: int, check_type: str, config: dict[str, Any], *, subject: SubjectRef | None = None
+) -> ReferencedSubjects:
     """Every warehouse name a check reads *besides* its declared subject.
 
     A ``relationships`` check names a second subject and a ``custom_sql`` query selects from arbitrary
@@ -324,12 +608,15 @@ def referenced_subjects(team_id: int, check_type: str, config: dict[str, Any]) -
         if (related := spec.related_subject_ref(parsed))
         else None
     )
-    return ReferencedSubjects(names=tuple(spec.referenced_table_names(parsed)), related_subject=related_subject)
+    names = spec.referenced_table_names(parsed, subject)
+    return ReferencedSubjects(names=tuple(names), related_subject=related_subject)
 
 
-def referenced_subject_names(team_id: int, check_type: str, config: dict[str, Any]) -> list[str]:
+def referenced_subject_names(
+    team_id: int, check_type: str, config: dict[str, Any], *, subject: SubjectRef | None = None
+) -> list[str]:
     """The names from :func:`referenced_subjects`, for callers that only report or match on them."""
-    referenced = referenced_subjects(team_id, check_type, config)
+    referenced = referenced_subjects(team_id, check_type, config, subject=subject)
     names = list(referenced.names)
     if referenced.related_subject is not None:
         related = resolve_subject(
@@ -340,7 +627,9 @@ def referenced_subject_names(team_id: int, check_type: str, config: dict[str, An
     return names
 
 
-def pin_referenced_subjects(team_id: int, check_type: str, config: dict[str, Any]) -> list[dict[str, str]] | None:
+def pin_referenced_subjects(
+    team_id: int, check_type: str, config: dict[str, Any], *, subject: SubjectRef | None = None
+) -> list[dict[str, str]] | None:
     """The identities of the subjects this run reads besides its own, to record alongside the run.
 
     Names cannot carry this. Deleting a warehouse object frees its name, so a recorded name starts
@@ -356,16 +645,12 @@ def pin_referenced_subjects(team_id: int, check_type: str, config: dict[str, Any
     run by its type rather than reading an empty list as "read nothing".
     """
     try:
-        spec = get_spec(check_type)
-        parsed = spec.parse_config(config)
-        backing_tables = data_modeling_facade.backing_table_ids_by_saved_query(team_id)
-        pinned = [
-            subject
-            for name in spec.referenced_table_names(parsed)
-            if (subject := _pin_name(team_id, name, backing_tables)) is not None
-        ]
-        if related := spec.related_subject_ref(parsed):
-            pinned.append(SubjectIdentity(subject_type=str(related[0]), subject_uuid=str(related[1])))
+        references = referenced_subjects(team_id, check_type, config, subject=subject)
+        if not references.names and references.related_subject is None:
+            return []
+        pinned = list(_pin_names(team_id, references.names).values())
+        if references.related_subject is not None:
+            pinned.append(references.related_subject)
     except Exception as err:
         capture_exception(err)
         return None
@@ -373,15 +658,21 @@ def pin_referenced_subjects(team_id: int, check_type: str, config: dict[str, Any
 
 
 def _readable_subject_q(readable: ReadableSubjects) -> Q:
-    return Q(subject_type=SubjectType.TABLE, subject_uuid__in=readable.table_ids) | Q(
-        subject_type=SubjectType.VIEW, subject_uuid__in=readable.view_ids
+    return (
+        Q(subject_type=SubjectType.TABLE, subject_uuid__in=readable.table_ids)
+        | Q(subject_type=SubjectType.VIEW, subject_uuid__in=readable.view_ids)
+        | Q(subject_type=SubjectType.METRIC, subject_uuid__in=readable.metric_ids)
     )
 
 
 def _readable_identities(readable: ReadableSubjects) -> list[dict[str, str]]:
     return [
         {_SUBJECT_TYPE_KEY: str(subject_type), _SUBJECT_UUID_KEY: str(subject_uuid)}
-        for subject_type, ids in ((SubjectType.TABLE, readable.table_ids), (SubjectType.VIEW, readable.view_ids))
+        for subject_type, ids in (
+            (SubjectType.TABLE, readable.table_ids),
+            (SubjectType.VIEW, readable.view_ids),
+            (SubjectType.METRIC, readable.metric_ids),
+        )
         for subject_uuid in ids
     ]
 
@@ -401,19 +692,64 @@ def _checks_whose_latest_run_is_unreadable(
     return {check_id for check_id in unreadable if check_id is not None}
 
 
-def _memoized_definition_verdict(
-    team_id: int, check_type: str, config: dict[str, Any], context: DenialContext, verdicts: dict[str, bool]
+def memoized_definition_verdict(
+    team_id: int,
+    check_type: str,
+    config: dict[str, Any],
+    context: DenialContext,
+    verdicts: dict[str, bool],
+    subject: SubjectRef | None = None,
 ) -> bool:
-    key = json.dumps([check_type, config], sort_keys=True, default=str)
+    # The subject enters the key as its identity: serializing the whole ref would drag a metric's
+    # parsed HogQL definition into the hash of every row that shares it.
+    identity = [subject.subject_type, subject.subject_uuid] if subject is not None else None
+    key = json.dumps([check_type, config, identity], sort_keys=True, default=str)
     if key not in verdicts:
-        verdicts[key] = definition_reads_unreadable_subject(team_id, check_type, config, context)
+        verdicts[key] = definition_reads_unreadable_subject(team_id, check_type, config, context, subject=subject)
     return verdicts[key]
 
 
-def _pin_name(team_id: int, name: str, backing_tables: dict[UUID, UUID]) -> SubjectIdentity | None:
-    ref = resolve_subject_by_name(team_id, name)
-    if ref is None:
+def _as_uuid(value: str) -> UUID | None:
+    try:
+        return UUID(value)
+    except ValueError:
         return None
+
+
+def _pin_names(team_id: int, names: Sequence[str]) -> dict[str, SubjectIdentity]:
+    resolved = {name: ref for name in names if (ref := _resolve_pinnable(team_id, name)) is not None}
+    backing_tables = _backing_tables_of(team_id, resolved.values())
+    return {name: _pin_identity(ref, backing_tables) for name, ref in resolved.items()}
+
+
+def _resolve_pinnable(team_id: int, name: str) -> SubjectRef | None:
+    """The warehouse object this name reaches, or None when the name carries its own denial instead.
+
+    A ``system.*`` table is never pinned. Resolution rewrites a dotted name to an underscored one,
+    so ``system.annotations`` would otherwise reach a warehouse table a member happened to call
+    ``system_annotations``, and the member's denial of the system table would go unread.
+    """
+    if _is_system_table_name(name):
+        return None
+    return resolve_subject_by_name(team_id, name)
+
+
+def _backing_tables_of(team_id: int, refs: Collection[SubjectRef]) -> dict[UUID, UUID]:
+    table_ids = {UUID(ref.subject_uuid) for ref in refs if ref.subject_type == SubjectType.TABLE}
+    return data_modeling_facade.backing_table_ids_by_saved_query(team_id, table_ids=table_ids)
+
+
+def _pin_identity(ref: SubjectRef, backing_tables: dict[UUID, UUID]) -> SubjectIdentity:
     if ref.subject_type == SubjectType.TABLE and (saved_query_id := backing_tables.get(UUID(ref.subject_uuid))):
         return SubjectIdentity(subject_type=str(SubjectType.VIEW), subject_uuid=str(saved_query_id))
     return SubjectIdentity(subject_type=str(ref.subject_type), subject_uuid=ref.subject_uuid)
+
+
+def _is_system_table_name(name: str) -> bool:
+    schema, separator, leaf = name.partition(".")
+    return bool(separator) and schema.lower() == _SYSTEM_SCHEMA and leaf in _system_table_names()
+
+
+@cache
+def _system_table_names() -> frozenset[str]:
+    return frozenset(SystemTables().children)

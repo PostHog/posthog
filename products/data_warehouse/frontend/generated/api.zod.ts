@@ -513,7 +513,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -522,7 +522,9 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -613,7 +615,7 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -622,7 +624,9 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -715,7 +719,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -724,7 +728,9 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -832,7 +838,7 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -841,7 +847,9 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -973,7 +981,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -982,7 +990,9 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -1016,7 +1026,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
  * Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
  * the editor explain why the incremental option is unavailable before anything is saved.
  */
-export const warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax = 65536
+export const warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax = 262144
 
 export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMin = 0
 export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMax = 2592000

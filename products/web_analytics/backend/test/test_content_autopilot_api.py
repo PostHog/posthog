@@ -130,6 +130,25 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "domain")
 
+    def test_deleting_a_site_retires_it_and_its_history_and_frees_the_domain(self) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        run = create_content_autopilot_run(self.team, profile)
+        create_content_autopilot_proposal(self.team, run)
+        kept_profile = create_content_autopilot_profile(self.team, domain="https://docs.example.com")
+
+        deleted = self.client.delete(self._profiles_url(f"{profile.id}/"))
+        profiles = self.client.get(self._profiles_url())
+        runs = self.client.get(self._runs_url())
+        proposals = self.client.get(self._proposals_url())
+        readded = self.client.post(self._profiles_url(), self._profile_payload(), format="json")
+
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual([site["id"] for site in profiles.json()["results"]], [str(kept_profile.id)])
+        self.assertEqual(runs.json()["results"], [])
+        self.assertEqual(proposals.json()["results"], [])
+        self.assertEqual(readded.status_code, status.HTTP_201_CREATED, readded.json())
+        self.assertEqual(self.client.get(self._profiles_url(f"{profile.id}/")).status_code, status.HTTP_404_NOT_FOUND)
+
     @patch("products.web_analytics.backend.presentation.views.content_autopilot.discover_site")
     def test_discover_returns_editable_onboarding_defaults(self, discover_site: MagicMock) -> None:
         discover_site.return_value = DISCOVERED_SITE

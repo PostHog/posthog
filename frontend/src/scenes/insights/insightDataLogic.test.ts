@@ -6,16 +6,21 @@ jest.mock('~/queries/query', () => ({
 
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
@@ -73,6 +78,64 @@ describe('insightDataLogic', () => {
 
         theInsightLogic = insightLogic(props)
         theInsightLogic.mount()
+    })
+
+    describe('referenced cohorts on an individual insight', () => {
+        it('resolves saved, edited, and prop-synced cohort names without requesting the list', async () => {
+            await expectLogic(theInsightDataLogic).toFinishAllListeners()
+            initKeaTests()
+            router.actions.push('/insights/123')
+            const list = jest.fn(() => ({ count: 0, results: [] }))
+            const requestedIds: number[] = []
+            const query = (ids: number[]): InsightVizNode => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    breakdownFilter: { breakdown_type: 'cohort', breakdown: ids },
+                },
+            })
+            useMocks({
+                get: {
+                    '/api/environments/:team/insights/': {
+                        results: [{ id: 1, short_id: Insight123, query: query([1]) }],
+                    },
+                    '/api/projects/:team/cohorts/': list,
+                    '/api/projects/:team/cohorts/:id/': ({ params }) => {
+                        const id = Number(params.id)
+                        requestedIds.push(id)
+                        return {
+                            id,
+                            name: `Referenced cohort ${id}`,
+                            groups: [],
+                            filters: { properties: { type: 'AND', values: [] } },
+                        }
+                    },
+                },
+            })
+            const props = { dashboardItemId: Insight123, doNotLoad: true }
+            const dataLogic = insightDataLogic(props)
+            dataLogic.mount()
+            await expectLogic(dataLogic).toFinishAllListeners()
+            expect(list).not.toHaveBeenCalled()
+            expect(requestedIds).toEqual([])
+
+            await expectLogic(dataLogic, () =>
+                insightLogic(props).actions.loadInsight(Insight123)
+            ).toFinishAllListeners()
+            await expectLogic(cohortsModel).toFinishAllListeners()
+            expect(insightLogic(props).values.derivedName).toContain('Referenced cohort 1')
+
+            await expectLogic(dataLogic, () => dataLogic.actions.setQuery(query([1, 3000]))).toFinishAllListeners()
+            await expectLogic(cohortsModel).toFinishAllListeners()
+            expect(insightLogic(props).values.derivedName).toContain('Referenced cohort 3000')
+
+            await expectLogic(dataLogic, () => dataLogic.actions.syncQueryFromProps(query([2]))).toFinishAllListeners()
+            await expectLogic(cohortsModel).toFinishAllListeners()
+            expect(insightLogic(props).values.derivedName).toContain('Referenced cohort 2')
+            expect(requestedIds).toEqual([1, 3000, 2])
+            expect(list).not.toHaveBeenCalled()
+        })
     })
 
     describe('syncQueryFromProps', () => {
@@ -534,16 +597,22 @@ describe('insightDataLogic', () => {
 
         let logic: ReturnType<typeof insightDataLogic.build>
         let patchSpy: jest.Mock
+        let refreshAfterDisplayOptionsChange: jest.Mock
 
         beforeEach(() => {
-            patchSpy = jest.fn().mockResolvedValue([200, { id: insightId, short_id: Insight42, query: updatedQuery }])
+            patchSpy = jest.fn(async ({ request }: { request: Request }) => {
+                const body = (await request.json()) as Record<string, any>
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
             useMocks({
                 patch: { '/api/environments/:team_id/insights/:id': patchSpy },
             })
 
+            refreshAfterDisplayOptionsChange = jest.fn()
             const props = {
                 dashboardItemId: Insight42,
                 cachedInsight: { id: insightId, short_id: Insight42, query: baseQuery } as any,
+                refreshAfterDisplayOptionsChange,
             }
             insightsModel.mount()
             insightLogic(props).mount()
@@ -552,13 +621,35 @@ describe('insightDataLogic', () => {
         })
 
         it('debounces and fires renameInsightSuccess on success', async () => {
-            await expectLogic(logic, () => {
+            const expectation = expectLogic(logic, () => {
                 logic.actions.persistDisplayOptions(updatedQuery)
             })
-                .toFinishAllListeners()
-                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(logic.values.savingDisplayOptions).toBe(true)
+
+            await expectation.toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
 
             expect(patchSpy).toHaveBeenCalledTimes(1)
+            expect(refreshAfterDisplayOptionsChange).not.toHaveBeenCalled()
+            expect(logic.values.savingDisplayOptions).toBe(false)
+        })
+
+        it('refreshes dashboard data when the chart needs a different result shape', async () => {
+            const cumulativeQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    trendsFilter: { display: ChartDisplayType.ActionsLineGraphCumulative },
+                } as TrendsQuery,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(cumulativeQuery)
+            }).toFinishAllListeners()
+
+            expect(refreshAfterDisplayOptionsChange).toHaveBeenCalledWith(
+                expect.objectContaining({ query: cumulativeQuery })
+            )
         })
 
         it('collapses multiple rapid dispatches into a single PATCH', async () => {
@@ -599,6 +690,196 @@ describe('insightDataLogic', () => {
             } finally {
                 findMountedSpy.mockRestore()
                 sceneLogic.unmount()
+            }
+        })
+
+        it('sends overlapping saves one at a time, so the newest query is written last', async () => {
+            const laterQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { showLegend: true, showValuesOnSeries: true } as any,
+                },
+            }
+            const patchedQueries: Node[] = []
+            let markFirstPatchSent: () => void = () => {}
+            let releaseFirstPatch: () => void = () => {}
+            const firstPatchSent = new Promise<void>((resolve) => {
+                markFirstPatchSent = resolve
+            })
+            const firstPatchHeld = new Promise<void>((resolve) => {
+                releaseFirstPatch = resolve
+            })
+            const recordPatch = async (request: Request): Promise<Record<string, any>> => {
+                const body = (await request.json()) as Record<string, any>
+                patchedQueries.push(body.query)
+                return body
+            }
+            patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                const body = await recordPatch(request)
+                markFirstPatchSent()
+                await firstPatchHeld
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+            patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                const body = await recordPatch(request)
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+
+            logic.actions.persistDisplayOptions(updatedQuery)
+            await firstPatchSent
+
+            const secondSave = expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(laterQuery)
+            })
+            // Past the 700ms debounce, so the second PATCH would run next to the first one if the
+            // saves were not serialized.
+            await delay(800)
+            expect(patchedQueries).toEqual([updatedQuery])
+
+            releaseFirstPatch()
+            await secondSave.toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchedQueries).toEqual([updatedQuery, laterQuery])
+        })
+
+        it('restores the saved query when the current save fails', async () => {
+            patchSpy.mockResolvedValueOnce([500, { detail: 'Save failed' }])
+            logic.actions.setQuery(updatedQuery)
+
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(updatedQuery)
+            }).toFinishAllListeners()
+
+            expect(logic.values.query).toEqual(baseQuery)
+            expect(logic.values.savingDisplayOptions).toBe(false)
+        })
+
+        it('does not roll back a newer edit when the previous save fails', async () => {
+            const laterQuery: InsightVizNode = {
+                ...updatedQuery,
+                source: {
+                    ...updatedQuery.source,
+                    trendsFilter: { showLegend: true, showValuesOnSeries: true } as any,
+                } as TrendsQuery,
+            }
+            let failFirstPatch: () => void = () => {}
+            let markFirstPatchSent: () => void = () => {}
+            let markSecondPatchSent: () => void = () => {}
+            let releaseSecondPatch: () => void = () => {}
+            const firstPatchSent = new Promise<void>((resolve) => {
+                markFirstPatchSent = resolve
+            })
+            const firstPatchHeld = new Promise<[number, { detail: string }]>((resolve) => {
+                failFirstPatch = () => resolve([500, { detail: 'Save failed' }])
+            })
+            const secondPatchSent = new Promise<void>((resolve) => {
+                markSecondPatchSent = resolve
+            })
+            const secondPatchHeld = new Promise<void>((resolve) => {
+                releaseSecondPatch = resolve
+            })
+
+            patchSpy.mockImplementationOnce(async () => {
+                markFirstPatchSent()
+                return await firstPatchHeld
+            })
+            patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                const body = (await request.json()) as Record<string, any>
+                markSecondPatchSent()
+                await secondPatchHeld
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+
+            logic.actions.setQuery(updatedQuery)
+            logic.actions.persistDisplayOptions(updatedQuery)
+            await firstPatchSent
+
+            logic.actions.setQuery(laterQuery)
+            logic.actions.persistDisplayOptions(laterQuery)
+            failFirstPatch()
+            await secondPatchSent
+
+            expect(logic.values.query).toEqual(laterQuery)
+            expect(logic.values.savingDisplayOptions).toBe(true)
+
+            releaseSecondPatch()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('keeps the optimistic query when a save times out', async () => {
+            jest.useFakeTimers()
+            const warningToast = jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+            const updateSpy = jest.spyOn(insightsApi, 'update').mockImplementationOnce(
+                async (_id: number, _update: Record<string, any>, options?: { signal?: AbortSignal }): Promise<never> =>
+                    await new Promise((_, reject) => {
+                        options?.signal?.addEventListener('abort', () => reject(new Error('Request aborted')))
+                    })
+            )
+
+            try {
+                logic.actions.setQuery(updatedQuery)
+                logic.actions.persistDisplayOptions(updatedQuery)
+                await jest.advanceTimersByTimeAsync(700)
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(15_000)
+                await jest.advanceTimersByTimeAsync(0)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.query).toEqual(updatedQuery)
+                expect(logic.values.savingDisplayOptions).toBe(false)
+                expect(warningToast).toHaveBeenCalledWith(
+                    "Couldn't confirm whether the insight was updated. Refresh the dashboard to check."
+                )
+            } finally {
+                warningToast.mockRestore()
+                updateSpy.mockRestore()
+                jest.useRealTimers()
+            }
+        })
+
+        it('lets the latest save proceed when the previous request hangs', async () => {
+            jest.useFakeTimers()
+            const laterQuery: InsightVizNode = {
+                ...updatedQuery,
+                source: {
+                    ...updatedQuery.source,
+                    trendsFilter: { showLegend: true, showValuesOnSeries: true } as any,
+                } as TrendsQuery,
+            }
+            const updateSpy = jest.spyOn(insightsApi, 'update') as jest.Mock
+            updateSpy
+                .mockImplementationOnce(
+                    async (
+                        _id: number,
+                        _update: Record<string, any>,
+                        options?: { signal?: AbortSignal }
+                    ): Promise<never> =>
+                        await new Promise((_, reject) => {
+                            options?.signal?.addEventListener('abort', () => reject(new Error('Request aborted')))
+                        })
+                )
+                .mockResolvedValueOnce({ id: insightId, short_id: Insight42, query: laterQuery })
+
+            try {
+                logic.actions.persistDisplayOptions(updatedQuery)
+                await jest.advanceTimersByTimeAsync(700)
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                logic.actions.persistDisplayOptions(laterQuery)
+                await jest.advanceTimersByTimeAsync(700)
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(15_000)
+                await jest.advanceTimersByTimeAsync(0)
+
+                expect(updateSpy).toHaveBeenCalledTimes(2)
+                expect(logic.values.query).toEqual(laterQuery)
+            } finally {
+                updateSpy.mockRestore()
+                jest.useRealTimers()
             }
         })
     })

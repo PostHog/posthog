@@ -1,7 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import (
+    AMAZON_ADS_ENDPOINTS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.source import AmazonAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonads import (
     AmazonAdsSourceConfig,
@@ -39,21 +42,23 @@ class TestAmazonAdsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_are_full_refresh_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
+    def test_report_schemas_carry_a_cursor_and_entity_schemas_do_not(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["sp_campaigns"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "sp_campaigns"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+        assert set(schemas) == set(ENDPOINTS)
+        for name, config in AMAZON_ADS_ENDPOINTS.items():
+            schema = schemas[name]
+            assert not schema.supports_append
+            if config.report is None:
+                assert not schema.supports_incremental
+                assert schema.incremental_fields == []
+                assert schema.default_incremental_lookback_seconds is None
+            else:
+                assert schema.supports_incremental
+                # Amazon only lets a report be windowed on `date`, and it restates recent days as
+                # attribution lands, so the schema has to re-read a trailing window every run.
+                assert [field["field"] for field in schema.incremental_fields] == ["date"]
+                assert schema.default_incremental_lookback_seconds
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

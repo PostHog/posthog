@@ -1,8 +1,12 @@
+import { callCanvasConnector } from "@posthog/core/canvas/callCanvasConnector";
+import type { CanvasConnectorPermission } from "@posthog/core/canvas/canvasConnectorPermissionService";
 import type {
   CanvasCaptureInput,
+  CanvasConnectorCallInput,
   CanvasDataQueryInput,
   CanvasLoadInsightInput,
 } from "@posthog/core/canvas/freeformSchemas";
+import { canvasConnectorCallInput } from "@posthog/core/canvas/freeformSchemas";
 import type { QueryClient } from "@tanstack/react-query";
 import { hostClient } from "../hostClient";
 
@@ -39,6 +43,12 @@ function stableStringify(value: unknown): string {
   return `{${entries.join(",")}}`;
 }
 
+// How long a STALE host result (served cache-first while the server recomputes
+// in the background) stays in the client cache before the next canvas read
+// re-asks the host: long enough to absorb render-loop reads, short enough
+// that the recomputed numbers arrive promptly.
+const STALE_RESULT_RETRY_SECONDS = 15;
+
 // Reads go through the shared QueryClient cache: an iframe re-boot, a canvas
 // code-swap, and live edit re-renders all resolve a repeated read from cache
 // instead of re-hitting ClickHouse, and concurrent identical reads dedupe. The key
@@ -48,17 +58,70 @@ function cachedRead<T>(
   queryClient: QueryClient,
   method: string,
   input: unknown,
-  run: () => Promise<T>,
+  run: (signal: AbortSignal) => Promise<T>,
   refreshSeconds?: number,
 ) {
+  const queryKey = [CANVAS_QUERY_KEY, method, stableStringify(input)] as const;
+  // A stale entry (host said the server cache was older than the canvas's
+  // refresh window) is retried on a short leash instead of sitting for the
+  // whole window; the background recompute it triggered lands in between.
+  const cached = queryClient.getQueryData<{ stale?: boolean }>(queryKey);
+  const lifetimeSeconds = cached?.stale
+    ? STALE_RESULT_RETRY_SECONDS
+    : (refreshSeconds ?? 5 * 60);
   return queryClient.fetchQuery({
-    queryKey: [CANVAS_QUERY_KEY, method, stableStringify(input)] as const,
-    queryFn: run,
-    staleTime: (refreshSeconds ?? 5 * 60) * 1_000,
+    queryKey,
+    queryFn: ({ signal }) => run(signal),
+    ...(method === "connectorCall" ? { retry: false } : {}),
+    meta: method === "connectorCall" ? { authScoped: true } : undefined,
+    staleTime: lifetimeSeconds * 1_000,
     // At least the refresh interval, or GC would evict an inactive entry
     // before it goes stale and force an early backend re-read.
     gcTime: Math.max(refreshSeconds ?? 5 * 60, 10 * 60) * 1_000,
   });
+}
+
+// Connector results describe live external state (open pull requests, today's
+// meetings), so they go stale faster than a saved insight.
+const CONNECTOR_DEFAULT_REFRESH_SECONDS = 60;
+
+async function requireConnectorConsent(
+  queryClient: QueryClient,
+  dashboardId: string,
+  sourceVersionId: string,
+  input: CanvasConnectorCallInput,
+  requestPermission: (
+    input: CanvasConnectorPermission,
+    signal?: AbortSignal,
+  ) => Promise<boolean>,
+): Promise<void> {
+  const queryKey = [
+    "canvasData/connectorConsent",
+    dashboardId,
+    sourceVersionId,
+    input.provider,
+    input.tool,
+  ] as const;
+  if (
+    queryClient.getQueryData(queryKey) === false &&
+    navigator.userActivation?.isActive === true
+  ) {
+    queryClient.removeQueries({ queryKey, exact: true });
+  }
+  const allowed = await queryClient.fetchQuery({
+    queryKey,
+    queryFn: ({ signal }) =>
+      requestPermission({ ...input, reason: "canvas" }, signal),
+    retry: false,
+    staleTime: Infinity,
+    gcTime: 10 * 60 * 1_000,
+    meta: { authScoped: true },
+  });
+  if (!allowed) {
+    throw new Error(
+      "Connector access was not granted. Click in the canvas to try again.",
+    );
+  }
 }
 
 function refreshSeconds(value: unknown): number | undefined {
@@ -85,7 +148,14 @@ export async function handleFreeformDataRequest(
   queryClient: QueryClient,
   // State and actions are canvas-scoped, unlike the content-keyed reads above,
   // so the caller passes the canvas identity in.
-  context?: { dashboardId?: string },
+  context?: {
+    dashboardId?: string;
+    sourceVersionId?: string;
+    requestConnectorPermission?: (
+      input: CanvasConnectorPermission,
+      signal?: AbortSignal,
+    ) => Promise<boolean>;
+  },
 ): Promise<unknown> {
   const requireDashboardId = (): string => {
     if (!context?.dashboardId) {
@@ -104,18 +174,28 @@ export async function handleFreeformDataRequest(
           "ph.query requires a typed query node or a HogQL string",
         );
       }
+      const refresh = refreshSeconds(input.refresh);
+      // `refresh` stays out of the cache key (same data, different lifetime)
+      // but rides the host call: it is the staleness window the host serves
+      // cache-first against.
       const args = {
         query: input.query,
         hogql: input.hogql,
         params: input.params,
       };
-      return cachedRead(
+      const result = await cachedRead(
         queryClient,
         "query",
         args,
-        () => hostClient().canvasData.query.mutate(args),
-        refreshSeconds(input.refresh),
+        () => hostClient().canvasData.query.mutate({ ...args, refresh }),
+        refresh,
       );
+      // The stale marker is bridge-internal cache policy, not canvas data.
+      if (result && typeof result === "object" && "stale" in result) {
+        const { stale: _stale, ...clean } = result;
+        return clean;
+      }
+      return result;
     }
     case "loadInsight": {
       const input = payload as CanvasLoadInsightInput;
@@ -201,6 +281,52 @@ export async function handleFreeformDataRequest(
         verb: input.verb,
         payload: input.payload ?? {},
       });
+    }
+    case "connectorCall": {
+      const dashboardId = requireDashboardId();
+      const input = canvasConnectorCallInput.parse(payload);
+      if (!context?.sourceVersionId) {
+        throw new Error("Connector calls require a saved canvas version");
+      }
+      const requestPermission = context.requestConnectorPermission;
+      if (!requestPermission)
+        throw new Error("Connector permission dialog is not available");
+      await requireConnectorConsent(
+        queryClient,
+        dashboardId,
+        context.sourceVersionId,
+        input,
+        requestPermission,
+      );
+      // Keyed by canvas as well as content: the capability check that admitted
+      // the call is per canvas, so a result must not leak into a canvas that
+      // did not declare the tool.
+      const args = {
+        id: requireDashboardId(),
+        provider: input.provider,
+        tool: input.tool,
+        arguments: input.arguments ?? {},
+      };
+      return cachedRead(
+        queryClient,
+        "connectorCall",
+        { ...args, sourceVersionId: context.sourceVersionId },
+        (signal) =>
+          callCanvasConnector(
+            input,
+            (approvalToken, signal) =>
+              hostClient().dashboards.callConnector.mutate(
+                {
+                  ...args,
+                  ...(approvalToken ? { approval_token: approvalToken } : {}),
+                },
+                { signal },
+              ),
+            requestPermission,
+            signal,
+          ),
+        refreshSeconds(input.refresh) ?? CONNECTOR_DEFAULT_REFRESH_SECONDS,
+      );
     }
     case "run":
       // Named, server-stored insights land in Phase 3 (the live published tier).

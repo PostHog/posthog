@@ -28,9 +28,11 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck, _resolve
+from hogli_commands.workflow_lint.checks.pinned_runner_images import PinnedRunnerImagesCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
+from hogli_commands.workflow_lint.checks.reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
@@ -206,6 +208,199 @@ class TestJobTimeoutsCheck:
         )
         result = JobTimeoutsCheck().run(_read_all(tmp_path))
         assert result.issues == []
+
+
+# ---------------------------------------------------------------------------
+# PinnedRunnerImagesCheck
+# ---------------------------------------------------------------------------
+
+
+class TestPinnedRunnerImagesCheck:
+    @pytest.mark.parametrize(
+        "job_body",
+        [
+            "runs-on: ubuntu-24.04",
+            "runs-on: depot-ubuntu-24.04-4",
+            "runs-on: [self-hosted, linux]",
+            "runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}",
+            "runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: [ubuntu-24.04, macos-15]",
+            "runs-on: ubuntu-24.04\n    strategy:\n      matrix:\n        artifact: [cli-macos-latest, cli-windows-latest]",
+            "runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: [ubuntu-24.04]\n        artifact: [cli-macos-latest]",
+        ],
+        ids=["plain", "depot", "label-list", "expression", "matrix", "non-runner-matrix", "unreferenced-matrix-key"],
+    )
+    def test_passes_pinned_labels(self, tmp_path: Path, job_body: str) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            f"""
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                {job_body.replace(chr(10), chr(10) + "            ")}
+                timeout-minutes: 10
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "job_body,source,label",
+        [
+            ("runs-on: ubuntu-latest", "runs-on", "ubuntu-latest"),
+            ("runs-on: depot-ubuntu-latest-4", "runs-on", "depot-ubuntu-latest-4"),
+            ("runs-on: [macos-latest]", "runs-on", "macos-latest"),
+            (
+                "runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}",
+                "runs-on",
+                "ubuntu-latest",
+            ),
+            (
+                "runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: [ubuntu-latest, depot-ubuntu-24.04]",
+                "strategy.matrix.runner",
+                "ubuntu-latest",
+            ),
+            (
+                "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        include:\n          - os: windows-latest",
+                "strategy.matrix.os",
+                "windows-latest",
+            ),
+            (
+                "runs-on: ${{ matrix['runner'] }}\n    strategy:\n      matrix:\n        runner: [ubuntu-latest]",
+                "strategy.matrix.runner",
+                "ubuntu-latest",
+            ),
+        ],
+        ids=["plain", "depot-suffixed", "label-list", "expression", "matrix-list", "matrix-include", "matrix-bracket"],
+    )
+    def test_fails_floating_labels(self, tmp_path: Path, job_body: str, source: str, label: str) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            f"""
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                {job_body.replace(chr(10), chr(10) + "            ")}
+                timeout-minutes: 10
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues
+        assert issue.job == "build"
+        assert issue.message.startswith(source)
+        assert label in issue.message
+
+    def test_generated_runner_matrix_fails_closed_without_marker(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              plan:
+                runs-on: ubuntu-24.04
+                timeout-minutes: 10
+                outputs:
+                  matrix: ${{ steps.plan.outputs.matrix }}
+                steps:
+                  - id: plan
+                    run: echo ok
+              build:
+                needs: [plan]
+                runs-on: ${{ matrix.runner }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues
+        assert issue.job == "build"
+        assert "allow-generated-runner-matrix" in issue.message
+
+    def test_generated_matrix_used_only_in_a_comparison_needs_no_marker(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_generated_runner_matrix_passes_with_marker_and_reason(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              # hogli-lint: allow-generated-runner-matrix -- labels are pinned in dist-workspace.toml
+              build:
+                runs-on: ${{ matrix.runner }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_generated_runner_matrix_marker_without_reason_still_fails(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              # hogli-lint: allow-generated-runner-matrix
+              build:
+                runs-on: ${{ matrix.runner }}
+                timeout-minutes: 10
+                strategy:
+                  matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues
+        assert issue.job == "build"
+
+    def test_ignores_latest_outside_runner_fields(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-24.04
+                timeout-minutes: 10
+                steps:
+                  - run: docker pull ghcr.io/example/ubuntu-latest
+            """,
+        )
+        assert PinnedRunnerImagesCheck().run(_read_all(tmp_path)).issues == []
 
 
 # ---------------------------------------------------------------------------
@@ -701,9 +896,12 @@ class TestSemgrepServicesCoverageCheck:
                 runs-on: ubuntu-latest
                 timeout-minutes: 5
                 steps:
-                  - run: |
-                      semgrep scan services/api/
-                      semgrep scan services/worker/
+                  - run: semgrep scan services/api/
+              semgrep-go:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: semgrep scan services/worker/
               semgrep-js:
                 runs-on: ubuntu-latest
                 timeout-minutes: 5
@@ -1419,6 +1617,52 @@ def _nested_allow_marker_gate() -> str:
     )
 
 
+_CHAIN_GUARD = """
+    if [[ "${{ needs.DEP.result }}" != "success" && "${{ needs.DEP.result }}" != "skipped" ]]; then
+      exit 1
+    fi
+"""
+
+
+def _chained_gate(*dependencies: str, build_if: str | None = None) -> str:
+    """A gate over `build`, which itself needs `detect`.
+
+    GitHub skips `build` when `detect` fails, and the gate reads that skip as a
+    pass, so `detect` has to be a dependency of the gate too. `build_if` sets the
+    condition on `build`, which is what decides whether the skip travels: a job that
+    runs past a failed `detect` recovers, and the gate must not demand it.
+    """
+    body = "".join(_CHAIN_GUARD.replace("DEP", dep) for dep in dependencies)
+    build_condition = f"        if: {build_if}\n" if build_if else ""
+    return (
+        """
+    name: ci-thing
+    on: pull_request
+    jobs:
+      detect:
+        timeout-minutes: 5
+        steps:
+          - run: echo detect
+      build:
+        needs: [detect]
+"""
+        + build_condition
+        + """        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [DEPENDENCIES]
+        timeout-minutes: 5
+        if: ${{ !cancelled() }}
+        steps:
+          - run: |
+""".replace("DEPENDENCIES", ", ".join(dependencies))
+        + textwrap.indent(textwrap.dedent(body).strip(), " " * 14)
+        + "\n"
+    )
+
+
 class TestRequiredGateCheck:
     @pytest.mark.parametrize(
         "content",
@@ -1522,6 +1766,39 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [i.message.split("'")[1] for i in issues] == ["lint"]
         assert "never reaches" in issues[0].message
+
+    # Each row is a shape our workflows really use: a worker with no condition, a gate
+    # that names the whole chain, a suite that runs past a failed selector, a job held
+    # behind success(), a recovery job that reads the failure, and a consumer that
+    # demands a detector's output.
+    @pytest.mark.parametrize(
+        "dependencies,build_if,expected_missing",
+        [
+            (("build",), None, ["detect"]),
+            (("detect", "build"), None, []),
+            (("build",), "${{ !cancelled() }}", []),
+            (("build",), "${{ success() }}", ["detect"]),
+            (("build",), "${{ failure() && needs.detect.result == 'failure' }}", []),
+            (("build",), "${{ !cancelled() && success() }}", ["detect"]),
+            (("build",), "${{ !cancelled() && needs.detect.outputs.mode == 'go' }}", ["detect"]),
+        ],
+        ids=[
+            "upstream-of-a-dependency-unnamed",
+            "whole-chain-named",
+            "dependency-recovers-from-upstream",
+            "dependency-held-behind-success",
+            "dependency-recovers-on-the-failure-itself",
+            "dependency-mixes-a-surviving-and-a-skipping-status-call",
+            "dependency-demands-an-upstream-output",
+        ],
+    )
+    def test_flags_upstream_of_a_dependency_that_the_gate_never_tests(
+        self, tmp_path: Path, dependencies: tuple[str, ...], build_if: str | None, expected_missing: list[str]
+    ) -> None:
+        _write(tmp_path, "ci-thing.yml", _chained_gate(*dependencies, build_if=build_if))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split("'")[1] for i in issues] == expected_missing
+        assert all("is not a dependency of this gate" in i.message for i in issues)
 
     def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
         # Worker jobs share the !cancelled() condition, but they gate nothing,
@@ -1803,3 +2080,121 @@ class TestLiveTreeSmoke:
         workflows = list(read_workflows(workflows_dir))
         for check in CHECKS:
             assert isinstance(check.run(workflows), CheckResult)
+
+
+class TestReusableSecretPassthroughCheck:
+    @staticmethod
+    def _callee(required: bool, reads: bool = True) -> str:
+        env = "T: ${{ secrets.NEEDED }}" if reads else "T: static"
+        return f"""
+        name: R
+        on:
+          workflow_call:
+            secrets:
+              NEEDED:
+                required: {str(required).lower()}
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            timeout-minutes: 5
+            steps:
+              - run: echo
+                env:
+                  {env}
+        """
+
+    @pytest.mark.parametrize(
+        "on_block",
+        ["on:\n  workflow_call:", "on: workflow_call", "on: [workflow_call, push]"],
+        ids=["empty-mapping", "scalar", "list"],
+    )
+    def test_flags_a_read_the_callee_never_declares(self, tmp_path: Path, on_block: str) -> None:
+        _write(
+            tmp_path,
+            "_callee.yml",
+            "name: R\n"
+            + on_block
+            + "\njobs:\n  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n"
+            + "    steps:\n      - run: echo\n        env:\n          T: ${{ secrets.NEVER_ARRIVES }}\n",
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "does not declare it" in issues[0].message
+
+    def test_reads_come_only_from_expressions(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "_callee.yml",
+            """
+            name: R
+            # Needs secrets.COMMENTED_ONLY to be configured in the repo.
+            on:
+              workflow_call:
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo secrets.SHELL_LITERAL_ONLY
+                    env:
+                      T: ${{ secrets['BRACKETED'] }}
+            """,
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split(" ")[1] for i in issues] == ["secrets.BRACKETED"], [i.render() for i in issues]
+
+    @pytest.mark.parametrize("reads", [True, False], ids=["read", "declared-only"])
+    def test_flags_a_caller_omitting_a_required_secret(self, tmp_path: Path, reads: bool) -> None:
+        _write(tmp_path, "_callee.yml", self._callee(required=True, reads=reads))
+        _write(
+            tmp_path,
+            "caller.yml",
+            """
+            name: C
+            on: [push]
+            jobs:
+              call:
+                uses: ./.github/workflows/_callee.yml
+            """,
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert issues[0].job == "call"
+        assert "does not pass it" in issues[0].message
+
+    def test_allows_a_caller_omitting_an_optional_secret(self, tmp_path: Path) -> None:
+        # `required: false` is the callee sanctioning absence, which callers rely on
+        # to withhold a publish credential from a dry-run build.
+        _write(tmp_path, "_callee.yml", self._callee(required=False))
+        _write(
+            tmp_path,
+            "caller.yml",
+            """
+            name: C
+            on: [push]
+            jobs:
+              call:
+                uses: ./.github/workflows/_callee.yml
+            """,
+        )
+        assert ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "secrets_block",
+        [
+            "        secrets: inherit",
+            "        secrets:\n            NEEDED: ${{ secrets.SOME_OTHER_NAME }}",
+        ],
+        ids=["inherit", "renamed-passthrough"],
+    )
+    def test_satisfied_by_inherit_or_a_renamed_passthrough(self, tmp_path: Path, secrets_block: str) -> None:
+        _write(tmp_path, "_callee.yml", self._callee(required=True))
+        _write(
+            tmp_path,
+            "caller.yml",
+            "name: C\non: [push]\njobs:\n    call:\n        uses: ./.github/workflows/_callee.yml\n"
+            + secrets_block
+            + "\n",
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert issues == [], [i.render() for i in issues]

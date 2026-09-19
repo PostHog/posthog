@@ -98,10 +98,6 @@ export const getTabularExperimentResults =
         return tabularResults
     }
 
-/**
- * @deprecated
- * Use the experimentMathAggregationForTrends function from the experimentLogic instead.
- */
 export const getExperimentMathAggregationForTrends = (
     experiment: Experiment
 ): PropertyMathType | CountPerActorMathType | undefined => {

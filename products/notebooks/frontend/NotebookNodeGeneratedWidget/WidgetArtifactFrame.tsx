@@ -44,6 +44,8 @@ export function WidgetArtifactFrame({
     latest.current = { allowedFrames, onArtifactUnavailable, onError, onReadFrame, onRendered, theme }
 
     const themedArtifactUrl = new URL(artifactUrl)
+    // Artifact HTML is cached immutably, so a new URL must pick up the pointer-lock CSP.
+    themedArtifactUrl.searchParams.set('sandbox', 'allow-pointer-lock')
     themedArtifactUrl.hash = `theme=${initialTheme}`
     const themedArtifactHref = themedArtifactUrl.href
 
@@ -192,7 +194,7 @@ export function WidgetArtifactFrame({
         <iframe
             ref={iframeRef}
             title={title || 'Widget'}
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-pointer-lock"
             referrerPolicy="no-referrer"
             className={`w-full h-full border-0 bg-primary ${
                 theme === 'dark' ? '[color-scheme:dark]' : '[color-scheme:light]'

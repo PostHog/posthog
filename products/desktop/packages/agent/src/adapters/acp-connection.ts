@@ -1,12 +1,9 @@
 import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import type { Adapter } from "@posthog/shared";
 import type { ModelInfo } from "../gateway-models";
 import type { SessionLogWriter } from "../session-log-writer";
-import type {
-  ContextWikiEnv,
-  PostHogAPIConfig,
-  ProcessSpawnedCallback,
-} from "../types";
+import type { PostHogAPIConfig, ProcessSpawnedCallback } from "../types";
 import { createEventIdSource, type NextEventId } from "../utils/event-id";
 import { Logger } from "../utils/logger";
 import {
@@ -161,6 +158,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
   const agentConnection = new AgentSideConnection((client) => {
     agent = new ClaudeAcpAgent(client, {
       ...config.processCallbacks,
+      startupLogger: logger.child("ClaudeInitialization"),
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
@@ -250,6 +248,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
       },
       model: codexOptions.model,
       reasoningEffort: codexOptions.reasoningEffort,
+      serviceTier: codexOptions.serviceTier,
       gatewayModels: config.codexModels,
       processCallbacks: config.processCallbacks,
       onStructuredOutput: config.onStructuredOutput,

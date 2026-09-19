@@ -91,6 +91,10 @@ describe('savedInsightsLogic', () => {
         await expectLogic(logic).toDispatchActions(['setSavedInsightsFilters', 'loadInsights', 'loadInsightsSuccess'])
     })
 
+    it('always asks the API to exclude auto-generated feature flag insights', () => {
+        expect(logic.values.paramsFromFilters).toMatchObject({ hide_feature_flag_insights: true })
+    })
+
     it('can filter the insights', async () => {
         // makes a search query
         logic.actions.setSavedInsightsFilters({ search: 'hello' })
@@ -419,7 +423,6 @@ describe('savedInsightsLogic', () => {
             ['created by', { createdBy: [1] }],
             ['favorites', { favorited: true }],
             ['a date range', { dateFrom: '-7d' }],
-            ['the feature flag insights toggle', { hideFeatureFlagInsights: true }],
             ['a dashboard', { dashboardId: 5 }],
         ])('counts %s as a narrowing filter', (_label, overrides) => {
             expect(hasNarrowingFilters(cleanFilters(overrides))).toBe(true)

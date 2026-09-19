@@ -21,18 +21,22 @@ import type {
     LLMSkillFileCreateApi,
     LLMSkillFileRenameApi,
     LLMSkillImportApi,
+    LLMSkillMarkdownApi,
     LLMSkillMarketplaceCommandApi,
     LLMSkillMarketplaceIssueApi,
     LLMSkillPublishToCommunityApi,
     LLMSkillRenameApi,
     LLMSkillResolveResponseApi,
+    LLMSkillSearchResponseApi,
     LlmSkillsBundleRetrieveParams,
     LlmSkillsListParams,
     LlmSkillsNameExportRetrieveParams,
     LlmSkillsNameFilesDestroyParams,
     LlmSkillsNameFilesRetrieveParams,
     LlmSkillsNameRetrieveParams,
+    LlmSkillsNameSkillMdRetrieveParams,
     LlmSkillsResolveNameRetrieveParams,
+    LlmSkillsSearchRetrieveParams,
     PaginatedCommunitySkillListListApi,
     PaginatedLLMSkillListListApi,
     PatchedLLMSkillPublishApi,
@@ -491,7 +495,7 @@ export const getLlmSkillsNamePublishCommunityCreateUrl = (projectId: string, ski
 export const llmSkillsNamePublishCommunityCreate = async (
     projectId: string,
     skillName: string,
-    lLMSkillPublishToCommunityApi?: LLMSkillPublishToCommunityApi,
+    lLMSkillPublishToCommunityApi: LLMSkillPublishToCommunityApi,
     options?: RequestInit
 ): Promise<CommunitySkillPublishResultApi> => {
     return apiMutator<CommunitySkillPublishResultApi>(getLlmSkillsNamePublishCommunityCreateUrl(projectId, skillName), {
@@ -517,6 +521,44 @@ export const llmSkillsNameRenameCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMSkillRenameApi),
+    })
+}
+
+export const getLlmSkillsNameSkillMdRetrieveUrl = (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameSkillMdRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/name/${skillName}/skill-md/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/name/${skillName}/skill-md/`
+}
+
+/**
+ * The rendered SKILL.md plus its frontmatter as JSON, for a host that serves the file.
+ *
+ * Both halves come from one renderer, so a digest a client takes over ``content`` still
+ * describes the fields it reads from ``frontmatter``.
+ */
+export const llmSkillsNameSkillMdRetrieve = async (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameSkillMdRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillMarkdownApi> => {
+    return apiMutator<LLMSkillMarkdownApi>(getLlmSkillsNameSkillMdRetrieveUrl(projectId, skillName, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -547,6 +589,33 @@ export const llmSkillsResolveNameRetrieve = async (
     options?: RequestInit
 ): Promise<LLMSkillResolveResponseApi> => {
     return apiMutator<LLMSkillResolveResponseApi>(getLlmSkillsResolveNameRetrieveUrl(projectId, skillName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsSearchRetrieveUrl = (projectId: string, params: LlmSkillsSearchRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/search/`
+}
+
+export const llmSkillsSearchRetrieve = async (
+    projectId: string,
+    params: LlmSkillsSearchRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillSearchResponseApi> => {
+    return apiMutator<LLMSkillSearchResponseApi>(getLlmSkillsSearchRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

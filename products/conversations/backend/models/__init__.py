@@ -14,6 +14,7 @@ from .email_thread import (
     EmailThreadParticipantKind,
 )
 from .github_comment_mapping import GithubCommentMapping
+from .inbound_event import ConversationInboundEvent, ConversationInboundEventSource, InboundPayloadTooLargeError
 from .restore_token import ConversationRestoreToken
 from .signing_secret import SigningSecret
 from .team_conversations_email_config import EmailChannel, EmailChannelConnectionStatus, EmailChannelKind
@@ -28,6 +29,8 @@ from .zendesk_import_job import ZendeskImportJob
 __all__ = [
     "Channel",
     "ChannelDetail",
+    "ConversationInboundEvent",
+    "ConversationInboundEventSource",
     "ConversationRestoreToken",
     "EmailChannel",
     "EmailChannelConnectionStatus",
@@ -45,6 +48,7 @@ __all__ = [
     "EmailThreadParticipant",
     "EmailThreadParticipantKind",
     "GithubCommentMapping",
+    "InboundPayloadTooLargeError",
     "Priority",
     "RuleType",
     "SigningSecret",

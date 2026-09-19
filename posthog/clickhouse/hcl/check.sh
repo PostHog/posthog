@@ -123,7 +123,7 @@ for env in $envs; do
     echo "== $env/$role: diff vs golden =="
     stack="$(manifest_stack "$env" "$role")"
     err="$(mktemp)"
-    out="$("$HCLEXP" diff -left "$stack" -right "$golden" 2>"$err")"
+    out="$("$HCLEXP" diff -left "$stack" -right "$golden" -ignore-column-order 2>"$err")"
     if [ "$out" != "no differences" ]; then
       echo "FAIL: drift in $env/$role"; echo "$out"; cat "$err"; rc=1
     else

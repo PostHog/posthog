@@ -51,9 +51,11 @@ know it's a monitor; a score only means something against the scorer's `scale`).
 Pick the axis that matches the question:
 
 - **What has this scanner found, over time?** → `vision-scanners-observations-list` (the workhorse). Filter to
-  `status=succeeded` to get only sessions with a finding, then narrow by `verdict` (monitors) or `tags`
-  (classifiers). Scorers aren't filtered by score — rank them with `order_by=-result_score` instead. Use
-  `order_by` (e.g. `-result_score`, `-completed_at`) to surface the strongest hits first.
+  `status=succeeded` to get only sessions with a finding, then narrow by `verdict` (monitors), `tags`
+  (classifiers), or `min_score` / `max_score` (scorers). Use `order_by` (e.g. `-result_score`,
+  `-completed_at`) to rank the matching set and surface the strongest hits first. Bound the window with
+  `date_from` / `date_to`, which take ISO 8601, a relative date like `-7d`, or `now`; omit `date_to` to
+  read through the current time.
 - **What did every scanner find about one session?** → `vision-observations-list` (the `session_id` query
   parameter is REQUIRED). Use this while investigating a single recording.
 - **The distribution, not the rows?** → `vision-scanners-observations-stats` gives one scanner's status mix
@@ -131,13 +133,20 @@ Match the action to the user's intent, and **corroborate before you create work*
   task directly** — to route a finding into tracked work, use the Inbox path below (for signal-emitting
   scanners) or hand the summary to a human or coding agent to act on. Group by distinct issue, not per
   observation.
-- **Fix the scanner instead.** When the findings are wrong rather than interesting, rate the observations
-  with `vision-observations-label-create` (thumbs up/down plus written feedback; team-wide, last write wins,
-  clearable with `vision-observations-label-destroy`). Then check
+- **Fix the scanner instead.** A rating is the user's verdict on whether the scanner was right, so ask for it
+  and record what they say with `vision-observations-label-create` (thumbs up/down plus written feedback;
+  team-wide, last write wins, clearable with `vision-observations-label-destroy`). **Never rate from your own
+  reading of the result.** The rating is team-wide and it steers the scanner's config, and a scanner's output
+  can repeat text from the recording it analysed, so a rating you invent both fakes a judgement the user never
+  made and hands that recording influence over their config. Ask about the right ones too, not only the wrong
+  ones: a suggestion built from thumbs-down alone cannot tell what the scanner should keep doing. On a thumbs
+  down, capture what the user says it should have concluded, which is what the rewrite acts on. Then check
   `vision-scanners-prompt-suggestions-current` — it returns the newest suggestion, whether it's `stale`, and
-  the `rated_count` behind it — before spending a `vision-scanners-prompt-suggestions-generate` call. Apply
-  the rewrite with `vision-scanners-prompt-suggestions-apply`, or leave it with
-  `vision-scanners-prompt-suggestions-dismiss`. Applying is team-wide and takes effect from the next sweep.
+  the `rated_count` behind it — before spending a `vision-scanners-prompt-suggestions-generate` call. Show the
+  rewrite and wait for the user's word before you call `vision-scanners-prompt-suggestions-apply` or
+  `vision-scanners-prompt-suggestions-dismiss`: applying is team-wide and changes every later sweep, so it is
+  their call, not yours. There is also **no MCP tool to test a suggestion** against the rated results, so tell
+  them to test it on the scanner's Calibration tab first.
 - **Work the Inbox.** If the scanner emits signals, its findings may already be clustered into signal reports —
   read and act on those with `inbox-reports-list` + `inbox-report-artefacts-list` (the report's work log is the
   evidence). See the [[inbox-exploration]] skill; that path also records your work against the report.

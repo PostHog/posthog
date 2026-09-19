@@ -29,7 +29,6 @@ import type {
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
-    InsightsAnalyzeRetrieveParams,
     InsightsBulkDeleteCreateParams,
     InsightsBulkRestoreCreateParams,
     InsightsBulkSetTestAccountFilterCreateParams,
@@ -42,8 +41,6 @@ import type {
     InsightsMyLastViewedRetrieveParams,
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
-    InsightsSuggestionsCreateParams,
-    InsightsSuggestionsRetrieveParams,
     InsightsTrendingRetrieveParams,
     InsightsUpdateParams,
     InsightsViewedCreateParams,
@@ -362,14 +359,6 @@ export const getInsightsListUrl = (projectId: string, params?: InsightsListParam
         : `/api/projects/${projectId}/insights/`
 }
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const insightsList = async (
     projectId: string,
     params?: InsightsListParams,
@@ -397,14 +386,6 @@ export const getInsightsCreateUrl = (projectId: string, params?: InsightsCreateP
         : `/api/projects/${projectId}/insights/`
 }
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const insightsCreate = async (
     projectId: string,
     insightApi?: NonReadonly<InsightApi>,
@@ -435,14 +416,6 @@ export const getInsightsRetrieveUrl = (projectId: string, id: number | string, p
         : `/api/projects/${projectId}/insights/${id}/`
 }
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const insightsRetrieve = async (
     projectId: string,
     id: number | string,
@@ -471,14 +444,6 @@ export const getInsightsUpdateUrl = (projectId: string, id: number | string, par
         : `/api/projects/${projectId}/insights/${id}/`
 }
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const insightsUpdate = async (
     projectId: string,
     id: number | string,
@@ -514,14 +479,6 @@ export const getInsightsPartialUpdateUrl = (
         : `/api/projects/${projectId}/insights/${id}/`
 }
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const insightsPartialUpdate = async (
     projectId: string,
     id: number | string,
@@ -600,129 +557,6 @@ export const insightsActivityRetrieve = async (
     return apiMutator<ActivityLogPaginatedResponseApi>(getInsightsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getInsightsAnalyzeRetrieveUrl = (
-    projectId: string,
-    id: number,
-    params?: InsightsAnalyzeRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/insights/${id}/analyze/?${stringifiedParams}`
-        : `/api/projects/${projectId}/insights/${id}/analyze/`
-}
-
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const insightsAnalyzeRetrieve = async (
-    projectId: string,
-    id: number,
-    params?: InsightsAnalyzeRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsAnalyzeRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getInsightsSuggestionsRetrieveUrl = (
-    projectId: string,
-    id: number,
-    params?: InsightsSuggestionsRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/insights/${id}/suggestions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/insights/${id}/suggestions/`
-}
-
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const insightsSuggestionsRetrieve = async (
-    projectId: string,
-    id: number,
-    params?: InsightsSuggestionsRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsSuggestionsRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getInsightsSuggestionsCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: InsightsSuggestionsCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/insights/${id}/suggestions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/insights/${id}/suggestions/`
-}
-
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
-export const insightsSuggestionsCreate = async (
-    projectId: string,
-    id: number,
-    insightApi?: NonReadonly<InsightApi>,
-    params?: InsightsSuggestionsCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsSuggestionsCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(insightApi),
     })
 }
 
@@ -926,14 +760,6 @@ export const getInsightsCancelCreateUrl = (projectId: string, params?: InsightsC
         : `/api/projects/${projectId}/insights/cancel/`
 }
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const insightsCancelCreate = async (
     projectId: string,
     insightApi?: NonReadonly<InsightApi>,

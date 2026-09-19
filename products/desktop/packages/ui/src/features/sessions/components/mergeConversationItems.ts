@@ -1,13 +1,9 @@
 import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
+import {
+  hasInjectedBlocks,
+  stripInjectedBlocks,
+} from "@posthog/core/editor/injectedBlocks";
 import type { ConversationItem } from "./buildConversationItems";
-import {
-  extractChannelContext,
-  hasChannelContext,
-} from "./session-update/channelContext";
-import {
-  extractCustomInstructions,
-  hasCustomInstructions,
-} from "./session-update/customInstructions";
 
 interface MergeConversationItemsArgs {
   conversationItems: ConversationItem[];
@@ -17,24 +13,8 @@ interface MergeConversationItemsArgs {
 
 type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
 
-// The pinned optimistic bubble is seeded from the bare task description, but the
-// echoed `session/prompt` that streams back from the sandbox may additionally
-// carry the channel's CONTEXT.md and/or the user's personalization, folded into
-// the prompt at task creation (see buildChannelContextText /
-// buildCustomInstructionsText in @posthog/core). The description side instead
-// appends an `Attached files: <names>` summary line that the echo carries as
-// resource_link blocks, not text (see buildCloudTaskDescription). Dedupe and
-// upgrade compare on the text with all three stripped so the echo still matches
-// its placeholder.
 function strippedUserContent(content: string): string {
-  const withoutChannel = extractChannelContext(content)?.stripped ?? content;
-  const withoutInstructions =
-    extractCustomInstructions(withoutChannel)?.stripped ?? withoutChannel;
-  return stripTrailingAttachmentSummary(withoutInstructions);
-}
-
-function hasShadowContext(content: string): boolean {
-  return hasChannelContext(content) || hasCustomInstructions(content);
+  return stripTrailingAttachmentSummary(stripInjectedBlocks(content));
 }
 
 function reconcileInitialPromptEcho(
@@ -51,12 +31,12 @@ function reconcileInitialPromptEcho(
     }
     if (item.type !== "user_message") return items;
     if (!initial) {
-      if (hasShadowContext(item.content)) return items;
+      if (hasInjectedBlocks(item.content)) return items;
       initial = item;
       continue;
     }
     if (
-      !hasShadowContext(item.content) ||
+      !hasInjectedBlocks(item.content) ||
       strippedUserContent(initial.content) !== strippedUserContent(item.content)
     ) {
       return items;
@@ -126,14 +106,14 @@ export function mergeConversationItems({
           if (remaining > 0) {
             unconsumedPinnedKeyCounts.set(key, remaining - 1);
             echoedItemByKey.set(key, item);
-            if (!hasShadowContext(item.content))
+            if (!hasInjectedBlocks(item.content))
               consumedPlainEchoByKey.add(key);
             return false;
           }
 
           if (
             consumedPlainEchoByKey.has(key) &&
-            hasShadowContext(item.content)
+            hasInjectedBlocks(item.content)
           ) {
             echoedItemByKey.set(key, item);
             consumedPlainEchoByKey.delete(key);

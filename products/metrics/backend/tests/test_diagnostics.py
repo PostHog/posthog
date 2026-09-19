@@ -4,12 +4,10 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from posthog.clickhouse.client import sync_execute
-
 from products.metrics.backend import diagnostics
 from products.metrics.backend.diagnostics import decompose_bucket
 from products.metrics.backend.fundamentals import SpatialReducer, TemporalReducer
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 BUCKET = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
@@ -21,7 +19,7 @@ class TestBucketDecomposition(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def _seed_gauge_pair(self) -> None:
         # Two pods reporting the same gauge, three scrapes each inside one bucket.
@@ -206,7 +204,7 @@ class TestBucketDecomposition(ClickhouseTestMixin, APIBaseTest):
 class TestExplainEndpoint(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def test_explain_returns_the_series_behind_a_point(self) -> None:
         seed_metric(
@@ -258,7 +256,7 @@ class TestExplainEndpoint(ClickhouseTestMixin, APIBaseTest):
 class TestCounterBoundary(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         # The predecessor sample sits in the previous bucket; the chart's window
         # function diffs across that edge, so the check has to as well.
         seed_metric(
@@ -336,7 +334,7 @@ class TestCounterBoundary(ClickhouseTestMixin, APIBaseTest):
 class TestTruncatedBucket(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def test_truncated_read_reports_not_comparable_instead_of_a_verdict(self) -> None:
         seed_metric(

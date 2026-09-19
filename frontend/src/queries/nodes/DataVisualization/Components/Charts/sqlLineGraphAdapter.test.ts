@@ -21,6 +21,7 @@ import {
     type SqlLineYSeries,
     barLayoutForDisplay,
     buildBarChartConfig,
+    buildBarValueChartConfig,
     buildComboChartConfig,
     buildLineChartConfig,
     buildSeries,
@@ -75,6 +76,7 @@ describe('sqlLineGraphAdapter', () => {
             ['line graph', ChartDisplayType.ActionsLineGraph, 'line'],
             ['area graph', ChartDisplayType.ActionsAreaGraph, 'line'],
             ['bar graph', ChartDisplayType.ActionsBar, 'bar'],
+            ['horizontal bar graph', ChartDisplayType.ActionsBarValue, 'bar'],
             ['stacked bar graph', ChartDisplayType.ActionsStackedBar, 'bar'],
             // Pie never reaches dispatch — PieChart wraps it separately.
             ['pie graph', ChartDisplayType.ActionsPie, 'line'],
@@ -211,6 +213,7 @@ describe('sqlLineGraphAdapter', () => {
             ['auto on a line graph is a line', ChartDisplayType.ActionsLineGraph, {}, 'line'],
             ['auto on an area graph is an area', ChartDisplayType.ActionsAreaGraph, {}, 'area'],
             ['auto on a bar graph is a bar', ChartDisplayType.ActionsBar, {}, 'bar'],
+            ['auto on a horizontal bar graph is a bar', ChartDisplayType.ActionsBarValue, {}, 'bar'],
             ['auto on a stacked bar graph is a bar', ChartDisplayType.ActionsStackedBar, {}, 'bar'],
             [
                 "the 'auto' display type defers to the chart type",
@@ -587,14 +590,14 @@ describe('sqlLineGraphAdapter', () => {
             data: ['a', 'b'],
         }
 
-        it('adds an x-axis tick formatter for date axes', () => {
+        it('passes the timezone for date axes', () => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
-            expect(config.xAxis?.tickFormatter).toBeInstanceOf(Function)
+            expect(config.xAxis?.timezone).toBe('UTC')
         })
 
-        it('omits the tick formatter for non-date axes', () => {
+        it('omits the timezone for non-date axes', () => {
             const config = buildLineChartConfig({ xData: stringXData, chartSettings: {}, timezone: 'UTC' })
-            expect(config.xAxis?.tickFormatter).toBeUndefined()
+            expect(config.xAxis?.timezone).toBeUndefined()
             expect(config.xAxis?.tickLabelRotation).toBeUndefined()
         })
 
@@ -949,6 +952,69 @@ describe('sqlLineGraphAdapter', () => {
         })
     })
 
+    describe('buildBarValueChartConfig', () => {
+        const xData: AxisSeries<string> = {
+            column: { name: 'path', type: { name: 'STRING', isNumerical: false }, label: 'path', dataIndex: 0 },
+            data: ['/pricing', '/signup'],
+        }
+
+        it('maps SQL category and value settings onto horizontal chart axes', () => {
+            const config = buildBarValueChartConfig({
+                xData,
+                chartSettings: {
+                    xAxisLabel: 'Page',
+                    showXAxisTicks: false,
+                    showXAxisBorder: false,
+                    leftYAxisSettings: { label: 'Revenue', showTicks: false },
+                },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBarValue,
+                ySeriesData: [ySeries('revenue', [1200, 1800], { formatting: { prefix: '$' } })],
+                goalLines: [{ label: 'Target', value: 2000 }],
+                series: buildSeries(
+                    [ySeries('revenue', [1200, 1800], { formatting: { prefix: '$' } })],
+                    ChartDisplayType.ActionsBarValue
+                ),
+                embedded: true,
+            })
+
+            expect(config).toMatchObject({
+                axisOrientation: 'horizontal',
+                barLayout: 'grouped',
+                hideXAxis: true,
+                hideYAxis: true,
+                xAxisLabel: 'Revenue',
+                yAxisLabel: 'Page',
+                showAxisLines: { x: true, y: false },
+                maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
+                bars: { fitToHeight: true, valueDomain: { include: [2000] } },
+            })
+            expect(config.xTickFormatter!('0', 0)).toBe('/pricing')
+            expect(config.yTickFormatter!(1200)).toBe('$1200')
+            expect(config.tooltip!.labelFormatter!('1')).toBe('/signup')
+            expect(config.referenceLines).toEqual([
+                expect.objectContaining({ label: 'Target', value: 2000, axisOrientation: 'horizontal' }),
+            ])
+        })
+
+        it.each([
+            { category: null, label: '0', expected: '[No value]' },
+            { category: undefined, label: '0', expected: '[No value]' },
+            { category: 42, label: '0', expected: '42' },
+            { category: '/pricing', label: 'invalid', expected: 'invalid' },
+        ])('formats $expected when a category is $category', ({ category, label, expected }) => {
+            const config = buildBarValueChartConfig({
+                xData: { ...xData, data: [category] as unknown as string[] },
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBarValue,
+            })
+
+            expect(config.xTickFormatter!(label, 0)).toBe(expected)
+            expect(config.tooltip!.labelFormatter!(label)).toBe(expected)
+        })
+    })
+
     describe('buildComboChartConfig', () => {
         const dateXData: AxisSeries<string> = {
             column: { name: 'day', type: { name: 'DATE', isNumerical: false }, label: 'day', dataIndex: 0 },
@@ -1004,7 +1070,7 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.showAxisLines).toEqual({ x: true, y: false })
         })
 
-        it('wires goal lines, legend, and a date x-axis formatter', () => {
+        it('wires goal lines, legend, and the date x-axis timezone', () => {
             const config = buildComboChartConfig({
                 xData: dateXData,
                 chartSettings: { showLegend: true },
@@ -1012,7 +1078,7 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
                 goalLines: [{ label: 'Target', value: 100 }],
             })
-            expect(config.xAxis?.tickFormatter).toBeInstanceOf(Function)
+            expect(config.xAxis?.timezone).toBe('UTC')
             expect(config.goalLines).toHaveLength(1)
             expect(config.legend).toEqual({ show: true, position: 'top', interactive: true })
             expect(config.tooltip).toMatchObject({ enabled: true, pinnable: true })
