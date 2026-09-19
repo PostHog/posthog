@@ -26,8 +26,8 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
-from products.data_quality.backend.logic.metric_schedules import MetricScheduleKey, MetricSchedules
 from products.data_quality.backend.logic.runner import run_check
+from products.data_quality.backend.logic.subject_schedules import SubjectScheduleKey, SubjectSchedules
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
 from products.data_quality.backend.presentation.views import DataQualityCheckViewSet
@@ -211,21 +211,21 @@ class TestMetricCheckAPI(APIBaseTest):
                 "products.data_quality.backend.logic.schedules.async_connect", AsyncMock(side_effect=TimeoutError)
             )
         elif phase == "initial_read":
-            failure = patch.object(MetricSchedules, "describe", AsyncMock(side_effect=TimeoutError))
+            failure = patch.object(SubjectSchedules, "describe", AsyncMock(side_effect=TimeoutError))
         elif phase == "update":
-            failure = patch.object(MetricSchedules, "update", AsyncMock(side_effect=TimeoutError))
+            failure = patch.object(SubjectSchedules, "update", AsyncMock(side_effect=TimeoutError))
         else:
-            original_describe = MetricSchedules.describe
+            original_describe = SubjectSchedules.describe
             calls = 0
 
-            async def missing_after_update(schedules: MetricSchedules, key: MetricScheduleKey) -> object:
+            async def missing_after_update(schedules: SubjectSchedules, key: SubjectScheduleKey) -> object:
                 nonlocal calls
                 calls += 1
                 if calls == 1:
                     return await original_describe(schedules, key)
                 return None
 
-            failure = patch.object(MetricSchedules, "describe", cast(AsyncMock, missing_after_update))
+            failure = patch.object(SubjectSchedules, "describe", cast(AsyncMock, missing_after_update))
         with failure:
             response = self.client.patch(f"{self.url}/schedule/", {**self.subject, "enabled": False})
         assert response.status_code == 503

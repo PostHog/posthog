@@ -35,7 +35,7 @@ describe('DataQualitySchedule', () => {
             last_suite_run: null,
         })
 
-        render(<DataQualitySchedule metricId="metric-1" />)
+        render(<DataQualitySchedule subjectType="metric" subjectId="metric-1" />)
 
         const dueNow = await screen.findByText('due now')
         expect(dueNow).toBeInTheDocument()
