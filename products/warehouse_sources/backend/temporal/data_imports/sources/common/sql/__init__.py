@@ -20,9 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
+    UNUSABLE_INCREMENTAL_CURSOR_ERROR_PREFIX,
     IncrementalFieldFilter,
     build_incremental_fields,
     initial_value_for_incremental_type,
+    normalize_incremental_field_last_value,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
@@ -66,6 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 
 __all__ = [
+    "UNUSABLE_INCREMENTAL_CURSOR_ERROR_PREFIX",
     "AnsiIdentifierQuoter",
     "BacktickIdentifierQuoter",
     "BracketIdentifierQuoter",
@@ -96,6 +99,7 @@ __all__ = [
     "format_projected_select_clause",
     "initial_value_for_incremental_type",
     "is_multi_value_operator",
+    "normalize_incremental_field_last_value",
     "normalize_operator",
     "project_arrow_columns",
     "prune_enabled_columns",
