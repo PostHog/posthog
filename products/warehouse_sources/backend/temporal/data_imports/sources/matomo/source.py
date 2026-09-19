@@ -62,6 +62,16 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
         # it as tracked exception noise.
         return {"Matomo API error (retryable)"}
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Once Temporal's retries are spent too, the job keeps the internal marker above as its
+        # customer-facing error, down to the raw HTTP status. Name the failure instead.
+        return {
+            "Matomo API error (retryable)": (
+                "Matomo kept returning temporary errors, such as rate limits, so this sync run did "
+                "not finish. This usually clears on its own and the next sync runs on schedule."
+            ),
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
