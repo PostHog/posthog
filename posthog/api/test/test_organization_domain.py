@@ -16,6 +16,8 @@ from rest_framework import serializers, status
 
 from posthog.api.organization_domain import OrganizationDomainSerializer, OrganizationDomainViewset
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from ee.api.test.base import APILicensedTest
 from ee.models.scim_request_log import SCIMRequestLog
@@ -328,6 +330,28 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         )
 
         self.assertEqual(OrganizationDomain.objects.count(), count)
+
+    @parameterized.expand(
+        [
+            ("write_scope", ["organization:write"], status.HTTP_200_OK),
+            ("read_scope", ["organization:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_verification_with_personal_api_key(self, _name, scopes, expected_status):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        self.client.logout()
+
+        with patch("posthog.models.organization_domain.dnssec_resolver") as mock_dns_query:
+            mock_dns_query.return_value.resolve.side_effect = dns.resolver.NoAnswer()
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/verify",
+                headers={"Authorization": f"Bearer {value}"},
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
 
     def test_only_admin_can_request_verification(self):
         response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
@@ -669,6 +693,25 @@ class TestSCIMRequestLogsAPI(APILicensedTest):
         )
         response = self.client.get(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs")
         assert response.json()["count"] == 1
+
+    @parameterized.expand(
+        [
+            ("read_scope", ["organization:read"], status.HTTP_200_OK),
+            ("other_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_list_logs_with_personal_api_key(self, _name, scopes, expected_status):
+        self._create_log()
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs",
+            headers={"Authorization": f"Bearer {value}"},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
 
     def test_log_response_shape(self):
         self._create_log()
