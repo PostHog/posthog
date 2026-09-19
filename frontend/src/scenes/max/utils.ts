@@ -18,6 +18,7 @@ import {
     AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
+    MultiQuestionForm,
     MultiVisualizationMessage,
     NotebookArtifactContent,
     RootAssistantMessage,
@@ -107,20 +108,31 @@ export function isMultiQuestionFormMessage(
     )
 }
 
-export function threadEndsWithMultiQuestionForm(messages: RootAssistantMessage[]): boolean {
-    if (messages.length < 1) {
-        return false
-    }
-    const lastMessage = messages[messages.length - 1]
+export interface PendingMultiQuestionForm {
+    form: MultiQuestionForm
+    /** Identity of the `create_form` call, so one form never inherits the state of another. */
+    toolCallId: string
+}
 
+export function getPendingMultiQuestionForm(
+    message: RootAssistantMessage | undefined | null
+): PendingMultiQuestionForm | null {
+    if (!isMultiQuestionFormMessage(message)) {
+        return null
+    }
+    const toolCall = message.tool_calls.find((tc) => tc.name === 'create_form')
+    // A create_form call that is still streaming can arrive with no questions, and there is nothing to ask yet.
+    if (!toolCall || !Array.isArray(toolCall.args.questions) || toolCall.args.questions.length === 0) {
+        return null
+    }
+    return { form: toolCall.args as unknown as MultiQuestionForm, toolCallId: toolCall.id }
+}
+
+export function threadEndsWithMultiQuestionForm(messages: RootAssistantMessage[]): boolean {
     // The form is waiting for user input when the last message is an AssistantMessage with a create_form tool call.
     // The create_form tool raises NodeInterrupt(None) which doesn't produce any message, so the thread
     // ends with the AssistantMessage containing the tool call.
-    if (isMultiQuestionFormMessage(lastMessage)) {
-        return true
-    }
-
-    return false
+    return getPendingMultiQuestionForm(messages[messages.length - 1]) !== null
 }
 
 export interface PendingClientToolCall {

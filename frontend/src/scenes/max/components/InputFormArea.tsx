@@ -86,11 +86,20 @@ interface MultiQuestionFormInputProps {
     initialAnswers?: Record<string, string | string[]>
 }
 
-export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionFormInputProps): JSX.Element | null {
+export function MultiQuestionFormInput(props: MultiQuestionFormInputProps): JSX.Element | null {
+    // The guard stays above the hooks: the callbacks below read the current question in their
+    // dependency arrays, which React evaluates before any check inside the component body.
+    if (!props.form.questions?.length) {
+        return null
+    }
+    return <MultiQuestionFormBody {...props} />
+}
+
+function MultiQuestionFormBody({ form, initialAnswers = {} }: MultiQuestionFormInputProps): JSX.Element {
     const { continueAfterForm, continueAfterFormDismissal } = useActions(maxThreadLogic)
     const questions = form.questions
 
-    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+    const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0)
     // Track which multi_field questions the user has explicitly confirmed
     const [confirmedQuestions, setConfirmedQuestions] = useState<Set<string>>(() => new Set())
     const [skippedQuestions, setSkippedQuestions] = useState<Set<string>>(() => new Set())
@@ -122,6 +131,8 @@ export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuest
     const skippedQuestionsRef = useRef(skippedQuestions)
     skippedQuestionsRef.current = skippedQuestions
 
+    // Clamped, so the current question stays defined whatever index the user last selected.
+    const currentQuestionIndex = Math.min(selectedQuestionIndex, questions.length - 1)
     const currentQuestion = questions[currentQuestionIndex]
 
     const contentRef = useRef<HTMLDivElement>(null)
@@ -151,7 +162,7 @@ export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuest
                 )
 
                 if (nextIncompleteQuestionIndex !== -1) {
-                    setCurrentQuestionIndex(nextIncompleteQuestionIndex)
+                    setSelectedQuestionIndex(nextIncompleteQuestionIndex)
                     return
                 }
 
@@ -159,7 +170,7 @@ export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuest
                     (q) => !isQuestionComplete(q, updatedAnswers, nextConfirmedQuestions, nextSkippedQuestions)
                 )
                 if (firstIncompleteQuestionIndex !== -1) {
-                    setCurrentQuestionIndex(firstIncompleteQuestionIndex)
+                    setSelectedQuestionIndex(firstIncompleteQuestionIndex)
                 }
             }
         },
@@ -259,10 +270,10 @@ export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuest
     }, [continueAfterFormDismissal])
 
     const handleTabClick = useCallback((index: number) => {
-        setCurrentQuestionIndex(index)
+        setSelectedQuestionIndex(index)
     }, [])
 
-    if (!currentQuestion || submissionState !== 'idle') {
+    if (submissionState !== 'idle') {
         return (
             <div className="flex items-center gap-2 text-muted p-3">
                 <Spinner className="size-4" />
@@ -500,7 +511,7 @@ export function InputFormArea(): JSX.Element | null {
     }
 
     if (activeMultiQuestionForm) {
-        return <MultiQuestionFormInput form={activeMultiQuestionForm} />
+        return <MultiQuestionFormInput key={activeMultiQuestionForm.toolCallId} form={activeMultiQuestionForm.form} />
     }
 
     return null
