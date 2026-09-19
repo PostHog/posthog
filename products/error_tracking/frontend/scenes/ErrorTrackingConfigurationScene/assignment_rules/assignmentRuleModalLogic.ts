@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { ruleSaveErrorMessage } from '../rules/ruleSaveError'
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRuleType } from '../rules/types'
 
@@ -33,6 +34,7 @@ export interface assignmentRuleModalLogicValues {
     } | null
     matchResultLoading: boolean
     rule: ErrorTrackingAssignmentRule
+    saveError: string | null
     saving: boolean
     savingLoading: boolean
 }
@@ -153,6 +155,16 @@ export const assignmentRuleModalLogic = kea<assignmentRuleModalLogicType>([
 
     reducers({
         isOpen: [false, { openModal: () => true, closeModal: () => false }],
+        saveError: [
+            null as string | null,
+            {
+                openModal: () => null,
+                updateRule: () => null,
+                saveRule: () => null,
+                saveRuleFailure: (_: string | null, { errorObject }: { errorObject?: unknown }) =>
+                    ruleSaveErrorMessage(errorObject),
+            },
+        ],
         rule: [
             emptyRule() as ErrorTrackingAssignmentRule,
             {

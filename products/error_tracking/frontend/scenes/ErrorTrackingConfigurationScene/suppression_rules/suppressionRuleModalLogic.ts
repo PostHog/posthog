@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { ruleSaveErrorMessage } from '../rules/ruleSaveError'
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingRuleType, ErrorTrackingSuppressionRule } from '../rules/types'
 
@@ -32,6 +33,7 @@ export interface suppressionRuleModalLogicValues {
     } | null
     matchResultLoading: boolean
     rule: ErrorTrackingSuppressionRule
+    saveError: string | null
     saving: boolean
     savingLoading: boolean
 }
@@ -155,6 +157,16 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
 
     reducers({
         isOpen: [false, { openModal: () => true, closeModal: () => false }],
+        saveError: [
+            null as string | null,
+            {
+                openModal: () => null,
+                updateRule: () => null,
+                saveRule: () => null,
+                saveRuleFailure: (_: string | null, { errorObject }: { errorObject?: unknown }) =>
+                    ruleSaveErrorMessage(errorObject),
+            },
+        ],
         rule: [
             emptyRule() as ErrorTrackingSuppressionRule,
             {
