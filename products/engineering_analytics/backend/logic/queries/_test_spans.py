@@ -105,6 +105,7 @@ _RUN_EVIDENCE = """
                 max(span_timestamp) AS trial_at
             FROM (__SPAN_SCAN__)
             WHERE (run_id, attempt) NOT IN (__SETUP_BREAK_RUN_ATTEMPTS__)
+                AND (run_id, attempt, job_key) NOT IN (__SETUP_BREAK_JOB_ATTEMPTS__)
             GROUP BY runner, nodeid, run_id, job_key, attempt
         )
         GROUP BY runner, nodeid, run_id, job_key
@@ -116,13 +117,19 @@ _RUN_EVIDENCE = """
     HAVING failed_in_run OR recovered_in_run OR quarantined_in_run
 """
 
-# A CI setup break errors tests in many jobs, or tests of many owning teams, in one run attempt. Those
-# errors describe the attempt, not any one test, so run_evidence() drops every trial of that attempt:
-# its failures are not failures of a test, and its passes are not recovery proof. The attempts come from
-# an IN set rather than a window function, so an incident-sized scan never sorts every span in memory.
-# The thresholds are placeholders, not literals, because callers render the evidence SQL at import time.
+# A CI setup break describes CI, not any one test, so run_evidence() drops every trial it produced: its
+# failures are not failures of a test, and its passes are not recovery proof. It has two shapes:
+# - a run attempt whose errored tests span many jobs, or tests of many owning teams;
+# - a job attempt where many tests failed, such as a whole shard that fails and then passes on a re-run.
+# Both come from IN sets rather than window functions, so an incident-sized scan never sorts every span in
+# memory. The thresholds are placeholders, not literals, because callers render the evidence SQL at import time.
 SETUP_BREAK_MIN_JOBS = 3
 SETUP_BREAK_MIN_TEAMS = 3
+SETUP_BREAK_MIN_JOB_FAILURES = 100
+
+# The synthetic bucket _SCAN_TEMPLATE folds every keyless span into (pre-job_key history). It can
+# merge failures from several real jobs, so it must never trigger the per-job-attempt exclusion below.
+_LEGACY_JOB_KEY = "legacy"
 
 _SETUP_BREAK_RUN_ATTEMPTS = """
     SELECT run_id, attempt
@@ -131,6 +138,15 @@ _SETUP_BREAK_RUN_ATTEMPTS = """
     GROUP BY run_id, attempt
     HAVING uniq(job_key) >= {setup_break_min_jobs}
         OR uniqIf(owner_team, owner_team != {unowned_team}) >= {setup_break_min_teams}
+"""
+
+_SETUP_BREAK_JOB_ATTEMPTS = """
+    SELECT run_id, attempt, job_key
+    FROM (__SPAN_SCAN__)
+    WHERE outcome IN ('failed', 'error')
+        AND job_key != {legacy_job_key}
+    GROUP BY run_id, attempt, job_key
+    HAVING uniq(nodeid) >= {setup_break_min_job_failures}
 """
 
 
@@ -142,8 +158,10 @@ def run_evidence(*, bounded: bool) -> str:
 
     ``bounded`` adds the upper time bound; some callers scan to now.
     """
-    return _RUN_EVIDENCE.replace("__SETUP_BREAK_RUN_ATTEMPTS__", _SETUP_BREAK_RUN_ATTEMPTS).replace(
-        "__SPAN_SCAN__", _scan(bounded=bounded)
+    return (
+        _RUN_EVIDENCE.replace("__SETUP_BREAK_RUN_ATTEMPTS__", _SETUP_BREAK_RUN_ATTEMPTS)
+        .replace("__SETUP_BREAK_JOB_ATTEMPTS__", _SETUP_BREAK_JOB_ATTEMPTS)
+        .replace("__SPAN_SCAN__", _scan(bounded=bounded))
     )
 
 
@@ -181,7 +199,7 @@ _SCAN_TEMPLATE = """
         -- unstamped span from merging every execution of its test into one phantom run.
         coalesce(nullIf(resource_attributes['ci.run_id'], ''), trace_id) AS run_id,
         ifNull(accurateCastOrNull(resource_attributes['ci.run_attempt'], 'Int64'), 1) AS attempt,
-        coalesce(nullIf(attributes['test.job_key'], ''), 'legacy') AS job_key,
+        coalesce(nullIf(attributes['test.job_key'], ''), {legacy_job_key}) AS job_key,
         timestamp AS span_timestamp,
         timestamp >= {date_from} AS is_current
     FROM posthog.trace_spans
@@ -217,6 +235,8 @@ def scan_placeholders(
         "scan_from": ast.Constant(value=scan_from if scan_from is not None else date_from),
         "setup_break_min_jobs": ast.Constant(value=SETUP_BREAK_MIN_JOBS),
         "setup_break_min_teams": ast.Constant(value=SETUP_BREAK_MIN_TEAMS),
+        "setup_break_min_job_failures": ast.Constant(value=SETUP_BREAK_MIN_JOB_FAILURES),
+        "legacy_job_key": ast.Constant(value=_LEGACY_JOB_KEY),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
