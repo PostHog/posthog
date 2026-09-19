@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::future::pending;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{Mutex, Notify, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -3267,17 +3267,31 @@ async fn authority_lapses_when_renewals_stop() {
     );
 
     // A reconnectable blip must not cost the pod its claim: the lease is
-    // alive in etcd and the keepalive rebuilds its stream. Waiting past
-    // the renewal margin (6s at this TTL) is what makes the assertion
-    // mean something — surviving it requires renewals to have been
-    // confirmed *and* published through the rebuilt stream, not merely
-    // the stamp taken when the session began.
+    // alive in etcd and the keepalive rebuilds its stream.
+    //
+    // Two facts say so, and neither is a reading of the wall clock. A
+    // stamp younger than the outage can only come from a renewal
+    // published through the rebuilt stream. And the claim is not
+    // surrendered — that flag latches, so a pod that took the blip for
+    // lease loss is caught however late the check runs. Sleeping past
+    // the margin and then reading the claim once proves the same thing
+    // on an idle runner and nothing at all on a loaded one, where the
+    // keepalive can be starved across that single read.
     proxy.sever();
-    tokio::time::sleep(Duration::from_secs(8)).await;
+    let severed_at = Instant::now();
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "a renewal confirmed through the rebuilt stream",
+        || {
+            let authority = Arc::clone(&authority);
+            async move { authority.since_confirmed() < severed_at.elapsed() }
+        },
+    )
+    .await;
     assert!(
-        authority.is_valid(),
-        "authority must survive a blip the keepalive can ride out, on the strength of \
-         renewals published through the rebuilt stream"
+        !authority.is_surrendered(),
+        "a blip the keepalive can ride out must not cost the pod its claim"
     );
 
     // Now a real outage: new connections are refused too, so no renewal
@@ -3302,15 +3316,25 @@ async fn authority_lapses_when_renewals_stop() {
     })
     .await;
 
-    // And it must have *surrendered*, not merely aged out. With etcd
-    // dark the registration watch dies without seeing a deletion, so the
-    // only thing that can set this is the lease-loss branch giving the
-    // claim up before it drains — which is what stops the pod acking
-    // writes for a partition the coordinator may already be reassigning.
-    assert!(
-        authority.is_surrendered(),
-        "losing the lease must give the claim up, not just let it go stale"
-    );
+    // And it must *surrender*, not merely age out. With etcd dark the
+    // registration watch dies without seeing a deletion, so the only
+    // thing that can set this is the lease-loss branch giving the claim
+    // up before it drains — which is what stops the pod acking writes
+    // for a partition the coordinator may already be reassigning.
+    //
+    // Waited for rather than read at once: the stamp ages out with no
+    // task running, which is the whole point of the clock, so the lapse
+    // above says nothing about the session loop having reacted yet.
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "the lost lease to give the claim up, not just let it go stale",
+        || {
+            let authority = Arc::clone(&authority);
+            async move { authority.is_surrendered() }
+        },
+    )
+    .await;
 
     cancel.cancel();
 }
