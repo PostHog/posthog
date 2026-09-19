@@ -108,6 +108,7 @@ from posthog.schema_enums import (
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
+    EventMatchScope as EventMatchScope,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -28463,6 +28464,18 @@ class RecordingsQuery(BaseModel):
     date_from: str | None = "-3d"
     date_to: str | None = None
     distinct_ids: list[str] | None = None
+    event_match_scope: EventMatchScope | None = Field(
+        default=EventMatchScope.SESSION,
+        description=(
+            "Where a filter that is evaluated against events must match. 'session'"
+            " (default) matches an event anywhere in the session, including before the"
+            " recording started or after it ended. 'recording' only matches events from"
+            " one minute before the recording starts until one minute after it ends."
+            " This applies to every filter the events table answers: events, actions,"
+            " event properties, and, when the project resolves them on events, person,"
+            " group, and cohort properties."
+        ),
+    )
     events: list[dict[str, Any]] | None = None
     experiment_exposure: RecordingsQueryExperimentExposureFilter | None = Field(
         default=None,
