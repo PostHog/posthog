@@ -178,12 +178,15 @@ class TestFunnelCaptureOrderUsesMaterializedColumn(ClickhouseTestMixin, APIBaseT
             FunnelsQueryRunner(query=query, team=self.team).calculate()
         return "\n".join(queries)
 
-    def test_reads_the_materialized_column_when_one_exists(self) -> None:
+    @parameterized.expand([("not_nullable", False), ("nullable", True)])
+    def test_reads_the_materialized_column_when_one_exists(self, _name: str, is_nullable: bool) -> None:
+        # The Dagster job that creates these defaults to a nullable column, so the query has to
+        # hold for both shapes.
         _create_person(distinct_ids=["u1"], team_id=self.team.pk)
         flush_persons_and_events()
         self.addCleanup(cleanup_materialized_columns)
 
-        with materialized("events", "$client_capture_time") as column:
+        with materialized("events", "$client_capture_time", is_nullable=is_nullable) as column:
             sql = self._funnel_sql()
 
         assert column.name in sql, f"expected {column.name} in the query"
