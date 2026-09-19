@@ -3,12 +3,20 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/health_issues/api'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const HealthIssuesGetSchema = () => {
     const HealthIssuesRetrieveParams = orvalSchemas.HealthIssuesRetrieveParams()
-    return HealthIssuesRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['issue_id', 'issueId', 'health_issue_id', 'healthIssueId'] }),
+        HealthIssuesRetrieveParams.omit({ project_id: true }).extend({
+            id: HealthIssuesRetrieveParams.shape['id'].describe(
+                'The health issue\'s UUID, as returned in the `id` field of each health-issues-list result. Example call: `{"id": "018f3c2a-7b1e-7000-9c4d-5e6f7a8b9c0d"}`.'
+            ),
+        })
+    )
 }
 
 const healthIssuesGet = (): ToolBase<ReturnType<typeof HealthIssuesGetSchema>, Schemas.HealthIssueDetail> => ({
