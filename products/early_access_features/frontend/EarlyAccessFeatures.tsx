@@ -4,6 +4,7 @@ import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip }
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
@@ -24,6 +25,7 @@ import {
 } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 
+import { openEarlyAccessFeatureDeleteDialog } from './earlyAccessFeatureDeleteDialog'
 import { earlyAccessFeaturesLogic, waitlistSurveyId } from './earlyAccessFeaturesLogic'
 import { earlyAccessFeaturesEmptyState } from './emptyState/earlyAccessFeaturesEmptyState'
 
@@ -55,7 +57,7 @@ export function EarlyAccessFeatures(): JSX.Element {
         waitlistResponsesCountLoading,
         waitlistResponsesCountFailed,
     } = useValues(earlyAccessFeaturesLogic)
-    const { setSearchTerm, updateFeatureAssignee } = useActions(earlyAccessFeaturesLogic)
+    const { setSearchTerm, updateFeatureAssignee, deleteEarlyAccessFeature } = useActions(earlyAccessFeaturesLogic)
 
     // Creating an early access feature requires editor access to the resource.
     const accessControlDisabledReason = getAccessControlDisabledReason(
@@ -228,6 +230,35 @@ export function EarlyAccessFeatures(): JSX.Element {
                         EarlyAccessFeatureType,
                         keyof EarlyAccessFeatureType | undefined
                     >,
+                    {
+                        width: 0,
+                        render(_, feature) {
+                            const deleteDisabledReason = getAccessControlDisabledReason(
+                                AccessControlResourceType.EarlyAccessFeature,
+                                AccessControlLevel.Editor,
+                                feature.user_access_level
+                            )
+                            return (
+                                <More
+                                    overlay={
+                                        <LemonButton
+                                            status="danger"
+                                            fullWidth
+                                            data-attr="early-access-feature-list-delete"
+                                            disabledReason={deleteDisabledReason ?? undefined}
+                                            onClick={() =>
+                                                openEarlyAccessFeatureDeleteDialog(feature.name, () =>
+                                                    deleteEarlyAccessFeature(feature.id)
+                                                )
+                                            }
+                                        >
+                                            Delete
+                                        </LemonButton>
+                                    }
+                                />
+                            )
+                        },
+                    },
                 ]}
                 dataSource={filteredEarlyAccessFeatures}
                 emptyState={

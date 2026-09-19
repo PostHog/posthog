@@ -31,10 +31,10 @@ const mockFeature = (overrides: Partial<EarlyAccessFeatureType> = {}): EarlyAcce
     ...overrides,
 })
 
-// Guards the list scene's two mutations of server state: the chained waitlist-count fetch (wrong
+// Guards the list scene's mutations of server state: the chained waitlist-count fetch (wrong
 // survey_ids, a dropped chain, or a survey failure flagged so the cell shows a dash not a fake 0)
 // and the inline assignee PATCH (wrong body/route, and that a failure reverts only the edited row
-// without a full-list reload that would clobber a concurrent edit).
+// without a full-list reload that would clobber a concurrent edit), plus the row delete.
 describe('earlyAccessFeaturesLogic', () => {
     let logic: ReturnType<typeof earlyAccessFeaturesLogic.build>
 
@@ -164,6 +164,34 @@ describe('earlyAccessFeaturesLogic', () => {
         expect(patchBody).toEqual({ assignee: { type: 'user', id: 7 } })
         // A successful edit must not refetch the list
         expect(listRequests).toBe(1)
+    })
+
+    it('removes the deleted row from the list and keeps the other rows', async () => {
+        let deletedId: string | null = null
+        useMocks({
+            get: {
+                '/api/projects/:team_id/early_access_feature': {
+                    count: 2,
+                    results: [mockFeature({ id: 'feature-1' }), mockFeature({ id: 'feature-2' })],
+                },
+            },
+            delete: {
+                '/api/projects/:team_id/early_access_feature/:id': ({ params }) => {
+                    deletedId = params.id as string
+                    return [204, {}]
+                },
+            },
+        })
+
+        logic = earlyAccessFeaturesLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadEarlyAccessFeaturesSuccess'])
+
+        logic.actions.deleteEarlyAccessFeature('feature-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(deletedId).toEqual('feature-1')
+        expect(logic.values.earlyAccessFeatures.map((feature) => feature.id)).toEqual(['feature-2'])
     })
 
     it('reverts only the edited row when the assignee update fails', async () => {
