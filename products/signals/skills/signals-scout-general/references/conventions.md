@@ -102,7 +102,7 @@ escalation:
 - **Dev-environment exception bursts** — high counts on `$exception` events
   whose `service` or `properties.env` is `dev` / `local` / `test`. Filter before
   weighing.
-- **Sandbox-internal Docker / agentsh errors** — Docker `TimeoutExpired`,
+- **Sandbox-internal container errors** — container `TimeoutExpired`,
   sandbox sync failures. Internal harness operations, not user-facing.
 - **KEA store-path errors with single-session reach** — frontend logic state
   quirks; not user-impacting unless distinct_user counts climb.

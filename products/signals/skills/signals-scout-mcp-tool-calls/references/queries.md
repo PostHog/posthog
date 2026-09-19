@@ -73,9 +73,9 @@ WHERE event = '$mcp_tool_call'
 Read the result:
 
 - `pct_failures_classified` high → **hono regime with useful classes**: use query 3a. But don't assume
-  this is high just because you're on PostHog's own data — most `$mcp_is_error` failures are _tool-result_
+  this is high just because the project is in that regime — most `$mcp_is_error` failures are _tool-result_
   errors (the handler returned `{isError:true}` gracefully) which never get classified, so `error_type`
-  stays `'None'`. On PostHog's own project only ~4% of failures carry a real class. When
+  stays `'None'`, and the classified share can be a few percent. When
   `pct_failures_classified` is low, the **unclassified-failure bucket is the main story** — lean on
   query 1 (rate), query 2 (struggle), and query 7 (the gap), not the class breakdown.
 - `pct_failures_with_message` high (and classified ~0) → **external-SDK regime**: use query 3b to sample messages.
@@ -84,10 +84,10 @@ Read the result:
   report-worthy (see the scout's Decide section).
 - `pct_with_category` ≥ ~50 → **per-category report grain** (query 9 is the aggregation layer). Hono
   projects land around 70–100% — un-dispatched `exec` rows (discovery verbs, wrapper validation
-  errors) carry no category, so don't expect 100% and don't read ~70% as "coverage is broken"
-  (verified: PostHog's own project sits at ~72%). ~0 → external-SDK regime, fall back to the
+  errors) carry no category, so don't expect 100% and don't read ~70% as "coverage is broken".
+  ~0 → external-SDK regime, fall back to the
   per-tool report grain.
-- `pct_with_intent` ≥ ~20 → intent lens (query 5) is worth running. (On PostHog's own data this is ~100%.)
+- `pct_with_intent` ≥ ~20 → intent lens (query 5) is worth running. (In the hono regime it is usually near 100%.)
 - `distinct_clients` > 1 → the per-client split (query 6) can localize a client-specific break.
 
 ---
@@ -387,7 +387,6 @@ Read it:
   without the `HAVING`, filtered to that category.
 - The `Uncategorized` bucket is dominated by bare `exec` rows (discovery verbs, wrapper
   validation errors) plus uncatalogued tools like `render-ui` — attribution residue to
-  sanity-check, not an owning team (verified: on PostHog's own project it is exactly those two
-  tools at high volume).
+  sanity-check, not an owning team.
 - `category_error_rate_pct` alone is not a finding — a big category dilutes a broken tool; the
   per-tool entries in `problem_tool_details` are what clears the bar.

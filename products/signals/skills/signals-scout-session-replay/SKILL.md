@@ -206,7 +206,7 @@ Keep both sides pre-aggregated and pre-filtered exactly like this — a raw join
 
 Compare each URL against its own prior-13-day rate (same query, earlier window) — the reportable case is a step-change, not a steady grumble.
 
-Stored AI summaries are a second discovery surface here: `session-recording-summaries-list {"has_exceptions": true, "outcome": "failure"}` returns sessions whose summary flagged exceptions, each with a one-line outcome — free narrative for a candidate cohort. `outcome=failure` alone is mostly benign bounces on bulk-summarized projects; it is an enrichment filter, never a finding — require the exception flag or corroborating friction. **Boundary:** the underlying exceptions belong to the error-tracking scout. Check `inbox-reports-list` for an existing error-tracking finding on the same surface first — file a separate report only when you add the user-impact framing (sessions, persons, watchable recordings) the exception finding lacks; otherwise leave a scratchpad note. Honor `dedupe:error-tracking:*` entries.
+**Boundary:** the underlying exceptions belong to the error-tracking scout. Check `inbox-reports-list` for an existing error-tracking finding on the same surface first — file a separate report only when you add the user-impact framing (sessions, persons, watchable recordings) the exception finding lacks; otherwise leave a scratchpad note. Honor `dedupe:error-tracking:*` entries.
 
 #### Replay vision watch layer
 
@@ -295,7 +295,6 @@ Direct calls (read-only):
 - `execute-sql` against `events` — the friction stream: `$rageclick` (and `$dead_click` where enabled) with `$current_url`, `$el_text`, `$session_id`; replay SDK health properties (`$recording_status`, `$replay_sample_rate`, `$sdk_debug_recording_script_not_loaded`) on regular events.
 - `query-session-recordings-list` — resolve `$session_id`s to watchable recordings (pass `session_ids` + a matching `date_from`); order by `console_error_count` or `activity_score` when shortlisting.
 - `session-recording-get` — one recording's metadata for a finding's example links.
-- `session-recording-summaries-list` / `session-recording-summary-get` — stored AI summaries (list filters: `session_ids`, `has_exceptions`, `outcome`; get returns segment-level detail). A 404 just means no summary exists — never trigger generation.
 - `heatmaps-list` / `heatmaps-events` — spatial corroboration for a cluster.
 - `vision-scanners-list` / `vision-scanners-observations-list` / `vision-observations-list` / `vision-quota-retrieve` — scanner config, observation health, and quota. Feature-gated and often absent even where replay vision is in use — lead with `$recording_observed` SQL; these are the optional mechanism-confirmation layer.
 - `advanced-activity-logs-list` (`scopes: ["Team"]` + `start_date`/`end_date`) — dating recording-config changes against capture cliffs.

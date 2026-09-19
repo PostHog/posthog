@@ -8,7 +8,7 @@ compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the analytics and entity
   tools in the MCP tools section (read-data-schema, query-trends, query-paths, execute-sql
-  over system.* tables, event-definitions-list, alerts-list, dashboards-get-all).
+  over system.* tables, alerts-list, dashboards-get-all).
 allowed_tools:
   - emit_report
   - edit_report
@@ -73,9 +73,9 @@ Direct calls:
 
 - `read-data-schema events` — surface event names + 24h volumes.
 - `execute-sql` against `system.insights` — find insights mentioning the event name in `name`, `description`, or `query` JSON. Pattern: `query::text ILIKE '%{event_name}%'`.
-- Check `event-definitions-list` for `last_seen_at` recency and the `verified` flag — the team flagged it as worth tracking.
+- `execute-sql` against `events` — date the event with `min(timestamp)` and `max(timestamp)` over a wide window, so you can tell a settled event from one that fired twice last month.
 
-Strong signal: event > 1000/day, no insight, `verified=true`. Weak signal: event < 100/day, untyped, sporadic.
+Strong signal: event > 1000/day, no insight, firing steadily for weeks. Weak signal: event < 100/day, sporadic.
 
 Volume ranking has a blind spot: a recently-born event with broad reach but low per-user frequency may never rank into the count-ranked `top_events`, and a 7-day query window clamps `min(timestamp)` so it cannot tell new events from old ones. Probe emergence directly with a wide window — events table, last 60 days, `event NOT LIKE '$%'`, grouped by event, keeping only groups where `min(timestamp) >= now() - 14d` (genuinely new) and distinct users in the last 7 days clear a reach floor (~500+), ordered by that reach. Each hit is a candidate the top-events lens structurally cannot see; run it through the same coverage check and disqualifiers as any other candidate.
 
@@ -91,7 +91,7 @@ Direct calls:
 
 - `execute-sql` over `system.insights` to extract the events series each insight filters on.
 - `query-trends` to measure recent volume of those events.
-- For zero-volume events, search `event-definitions-list` for similar names suggesting a rename (Levenshtein-close, same prefix, same property shape).
+- For zero-volume events, search the event vocabulary from `read-data-schema` (`kind=events`) for similar names suggesting a rename (Levenshtein-close, same prefix, same property shape).
 
 Strong signal: the insight is live (recent `last_modified_at`, or pinned to a live dashboard via `system.dashboard_tiles`) AND its primary event has 0 firings in 7d AND a similar-named event is firing > 100/day. Note `system.insights` exposes `last_modified_at` but has **no** `last_viewed_at` column — prove "live" by modification recency or a live dashboard tile, not view recency.
 
@@ -208,7 +208,6 @@ Direct calls (read-only):
 - `query-paths` — sequence detection for funnel candidates.
 - `insights-list` — paginated insight catalog (use sparingly; SQL is faster).
 - `dashboards-get-all` — active dashboards + tags.
-- `event-definitions-list` — event-definition metadata: `verified` flag, `last_seen_at`, `created_at`, custom-vs-builtin marker.
 - `alerts-list` — existing alert configurations and what events they target.
 - `execute-sql` over `system.insights` / `system.dashboards` / `system.cohorts` — the fast path for "does an insight reference event X?" type queries.
 
