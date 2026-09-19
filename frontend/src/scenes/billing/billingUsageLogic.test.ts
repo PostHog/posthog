@@ -1,9 +1,14 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -120,6 +125,49 @@ describe('billingUsageLogic loader', () => {
 
         expect(logic.values.teamIdOptions).toEqual([3, 17])
         expect(logic.values.teamIdOptionsLoading).toBe(false)
+    })
+
+    it('leaves the project options alone for a person who may not read usage', async () => {
+        // The logic also mounts outside the billing pages, for people the endpoint answers 403.
+        let teamOptionsRequests = 0
+        useMocks({
+            get: {
+                '/api/billing': () => [200, billingJson],
+                '/api/billing/usage/': () => [200, { status: 'ok', type: 'timeseries', customer_id: 'c', results: [] }],
+                '/api/billing/usage/team_options/': () => {
+                    teamOptionsRequests += 1
+                    return [200, { team_id_options: [3, 17] }]
+                },
+            },
+        })
+        featureFlagLogic.mount()
+        organizationLogic.mount()
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            membership_level: OrganizationMembershipLevel.Member,
+        })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        logic = billingUsageLogic()
+        logic.mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadTeamIdOptions', 'loadTeamIdOptionsSuccess'])
+            .toFinishAllListeners()
+
+        expect(teamOptionsRequests).toBe(0)
+        expect(logic.values.teamIdOptions).toEqual([])
+
+        // The grant can arrive after the mount, with the flags. The filter has to fill in then.
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS, FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS],
+            {
+                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true,
+                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
+            }
+        )
+        await expectLogic(logic).toDispatchActions(['loadTeamIdOptionsSuccess']).toFinishAllListeners()
+
+        expect(logic.values.teamIdOptions).toEqual([3, 17])
     })
 
     it('keeps an open-ended preset open, and asks for a range that ends yesterday', async () => {
