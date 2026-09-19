@@ -217,6 +217,11 @@ class BaseTableType(Type):
     def resolve_database_table(self, context: HogQLContext) -> Table:
         raise NotImplementedError("BaseTableType.resolve_database_table not overridden")
 
+    def field_source_label(self) -> str:
+        """Human identity of this table source for field-not-found errors, e.g. 'table "events"' or
+        'CTE "stats"'. Subclasses carrying a real name override this; the fallback names the type."""
+        return f"table {self.__class__.__name__}"
+
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.resolve_database_table(context).has_field(name)
 
@@ -252,6 +257,9 @@ class TableType(BaseTableType):
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table
 
+    def field_source_label(self) -> str:
+        return f'table "{self.table.name}"' if self.table.name else BaseTableType.field_source_label(self)
+
 
 @dataclass(kw_only=True, slots=True)
 class LazyJoinType(BaseTableType):
@@ -261,6 +269,11 @@ class LazyJoinType(BaseTableType):
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.lazy_join.resolve_table(context)
+
+    def field_source_label(self) -> str:
+        join_table = self.lazy_join.join_table
+        name = join_table if isinstance(join_table, str) else join_table.name
+        return f'join table "{name}"' if name else BaseTableType.field_source_label(self)
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
         return self.get_child(self.field, context).resolve_constant_type(context)
@@ -273,6 +286,9 @@ class LazyTableType(BaseTableType):
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table
 
+    def field_source_label(self) -> str:
+        return f'table "{self.table.name}"' if self.table.name else BaseTableType.field_source_label(self)
+
 
 @dataclass(kw_only=True, slots=True)
 class TableAliasType(BaseTableType):
@@ -281,6 +297,9 @@ class TableAliasType(BaseTableType):
 
     def resolve_database_table(self, context: HogQLContext) -> Table | LazyTable:
         return self.table_type.table
+
+    def field_source_label(self) -> str:
+        return f'table alias "{self.alias}"'
 
 
 @dataclass(kw_only=True, slots=True)
@@ -298,6 +317,9 @@ class ColumnAliasedTableType(BaseTableType):
 
     def resolve_database_table(self, context: HogQLContext) -> Table | LazyTable:
         return self.table_type.table
+
+    def field_source_label(self) -> str:
+        return f'table alias "{self.alias}"'
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         if name == "*":
@@ -445,8 +467,14 @@ class SelectViewType(BaseTableType):
             raise ResolutionError("Database must be set for queries with views")
         return context.database.get_table(self.view_name)
 
+    def field_source_label(self) -> str:
+        return f'view "{self.view_name}"'
+
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
-        field = self.resolve_database_table(context).get_field(name)
+        table = self.resolve_database_table(context)
+        if not table.has_field(name):
+            raise QueryError(f'Field "{name}" not found on {self.field_source_label()}')
+        field = table.get_field(name)
         if isinstance(field, DatabaseField):
             return field.get_constant_type()
         return UnknownType()
@@ -467,8 +495,14 @@ class CTETableType(BaseTableType):
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return resolver_utils.resolve_cte_database_table(self.select_query_type, context)
 
+    def field_source_label(self) -> str:
+        return f'CTE "{self.name}"'
+
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
-        field = self.resolve_database_table(context).get_field(name)
+        table = self.resolve_database_table(context)
+        if not table.has_field(name):
+            raise QueryError(f'Field "{name}" not found on {self.field_source_label()}')
+        field = table.get_field(name)
         if isinstance(field, DatabaseField):
             return field.get_constant_type()
         return UnknownType()
@@ -481,6 +515,9 @@ class CTETableAliasType(BaseTableType):
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.cte_table_type.resolve_database_table(context)
+
+    def field_source_label(self) -> str:
+        return f'CTE alias "{self.alias}"'
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         return self.cte_table_type.resolve_column_constant_type(name, context)
@@ -691,6 +728,8 @@ class FieldType(Type):
                 # Map aliased name back to the original DB column name
                 if isinstance(self.table_type, ColumnAliasedTableType):
                     field_name = self.table_type.alias_to_original.get(field_name, field_name)
+                if not table.has_field(field_name):
+                    raise QueryError(f'Field "{field_name}" not found on {self.table_type.field_source_label()}')
                 return table.get_field(field_name)
         return None
 
@@ -709,6 +748,8 @@ class FieldType(Type):
         field_name = self.name
         if isinstance(self.table_type, ColumnAliasedTableType):
             field_name = self.table_type.alias_to_original.get(field_name, field_name)
+        if not table.has_field(field_name):
+            raise QueryError(f'Field "{field_name}" not found on {self.table_type.field_source_label()}')
         database_field = table.get_field(field_name)
         if isinstance(database_field, DatabaseField):
             return database_field.get_constant_type()
