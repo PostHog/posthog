@@ -219,13 +219,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
 
                 <div className="flex-[2] min-w-80 flex flex-col gap-4">
                     {multivariateEnabled && variants.length > 0 ? (
-                        <EditableOverviewSection
-                            disabledReason={
-                                featureFlag.experiment_set && featureFlag.experiment_set.length > 0
-                                    ? 'Variants are managed by the linked experiment'
-                                    : undefined
-                            }
-                        >
+                        <EditableOverviewSection>
                             <div className="flex flex-col gap-4">
                                 {flagTypeCard}
                                 <FeatureFlagVariantsSection featureFlag={featureFlag} variants={variants} />
