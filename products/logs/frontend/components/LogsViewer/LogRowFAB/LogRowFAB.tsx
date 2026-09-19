@@ -9,6 +9,7 @@ import {
     IconListTree,
     IconPin,
     IconPinFilled,
+    IconPulse,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -30,7 +31,8 @@ import { useCellScrollControls } from 'products/logs/frontend/components/Virtual
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
+import { ViewServiceMetricsButton } from 'products/metrics/frontend/components/ViewServiceMetricsButton'
+import { traceLookupDateRange, traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { FABGroup } from './FABGroup'
 
@@ -67,6 +69,10 @@ export function LogRowFAB({
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
     )
+    // The service a log came from lives in resource attributes (OTel `service.name`). ±1h around
+    // the log matches the window the tracing metrics pivot uses, so logs and traces agree.
+    const serviceName = String(log.resource_attributes?.['service.name'] ?? '').trim()
+    const serviceMetricsWindow = traceLookupDateRange(log.timestamp)
 
     return (
         <div
@@ -160,6 +166,19 @@ export function LogRowFAB({
                         disabledReason={metricsEditorDisabledReason ?? undefined}
                     />
                 )}
+                <ViewServiceMetricsButton
+                    serviceName={serviceName || null}
+                    dateFrom={serviceMetricsWindow.date_from}
+                    dateTo={serviceMetricsWindow.date_to}
+                    size="xsmall"
+                    // Pulse, not the default graph icon: IconGraph just above is "create log-based
+                    // metric", and two identical graph icons with opposite intent read as a bug.
+                    icon={<IconPulse />}
+                    iconOnly
+                    noPadding
+                    className="text-muted"
+                    data-attr="logs-viewer-view-service-metrics"
+                />
                 {sessionId && (
                     <ViewRecordingButton
                         sessionId={sessionId}
