@@ -18,6 +18,7 @@ comparing cluster behavior, and drilling into individual clusters.
 | `posthog:execute-sql`              | Query cluster run events and compute metrics    |
 | `posthog:query-llm-traces-list`    | Find traces belonging to a cluster              |
 | `posthog:query-llm-trace`          | Inspect a specific trace in detail              |
+| `posthog:generate-app-url`         | Build region- and project-qualified UI links    |
 
 ## How clustering works
 
@@ -274,9 +275,17 @@ For more detail, use the exploring LLM traces skill's [event reference](../explo
 
 ## Constructing UI links
 
-- **Clusters overview**: `https://app.posthog.com/ai-observability/clusters`
-- **Specific run**: `https://app.posthog.com/ai-observability/clusters/<url_encoded_run_id>`
-- **Cluster detail**: `https://app.posthog.com/ai-observability/clusters/<url_encoded_run_id>/<cluster_id>`
+Build links with `posthog:generate-app-url` — never hand-write the host or the `/project/<id>/` prefix.
+A fixed `app.posthog.com` host drops the region and the project,
+so the reader can land on a login page or in the wrong project.
+Pass concrete ids via `params`; the tool encodes them, so do not URL-encode a run id yourself.
+
+- **Clusters overview**: `generate-app-url {url: "/ai-observability/clusters"}`
+- **Cluster detail**: `generate-app-url {url: "/ai-observability/clusters/{runId}/{clusterId}", params: {runId: "<run_id>", clusterId: "<cluster_id>"}}`
+
+The catalog holds no run-only template.
+To point at one run, hand back the overview link and name the run, which the reader picks from the page's run selector.
+That page opens on the most recent run.
 
 Always surface these links so the user can verify visually in the PostHog UI.
 
