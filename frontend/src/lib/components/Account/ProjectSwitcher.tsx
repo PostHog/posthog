@@ -2,7 +2,7 @@ import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconLetter, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
+import { IconCheck, IconLetter, IconLock, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -51,7 +51,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason, projectCreationUpgradeReason } =
+        useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
@@ -134,7 +135,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                         setAccountMenuOpen(false)
                     },
                     {
-                        currentUsage: currentOrganization?.teams?.length,
+                        currentUsage: currentOrganization?.projects?.length,
                     }
                 )
                 closeProjectSwitcher()
@@ -157,7 +158,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             closeProjectSwitcher,
             guardAvailableFeature,
             showCreateProjectModal,
-            currentOrganization?.teams?.length,
+            currentOrganization?.projects?.length,
             setAccountMenuOpen,
             canCreateProject,
         ]
@@ -348,12 +349,15 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                         !canCreateProject
                                                             ? projectCreationForbiddenReason ||
                                                               'You do not have permission to create a project'
-                                                            : undefined
+                                                            : (projectCreationUpgradeReason ?? undefined)
                                                     }
                                                     tooltipPlacement="right"
                                                 >
                                                     <IconPlusSmall className="text-tertiary" />
                                                     <span className="truncate">{item.label}</span>
+                                                    {canCreateProject && projectCreationUpgradeReason && (
+                                                        <IconLock className="ml-auto shrink-0 text-tertiary" />
+                                                    )}
                                                 </ButtonPrimitive>
                                             )}
                                         />

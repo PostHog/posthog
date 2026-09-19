@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconLetter, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconLetter, IconGear, IconLock, IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -26,7 +26,8 @@ export function ProjectCombobox(): JSX.Element | null {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason, projectCreationUpgradeReason } =
+        useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
 
     if (!isAuthenticatedTeam(currentTeam)) {
@@ -181,14 +182,14 @@ export function ProjectCombobox(): JSX.Element | null {
                                 return
                             }
                             guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                                currentUsage: currentOrganization?.teams?.length,
+                                currentUsage: currentOrganization?.projects?.length,
                             })
                         }}
                     >
                         <ButtonPrimitive
                             menuItem
                             data-attr="new-project-button"
-                            tooltip="Create a new project"
+                            tooltip={projectCreationUpgradeReason ?? 'Create a new project'}
                             tooltipPlacement="right"
                             className="shrink-0"
                             disabledReasons={
@@ -197,6 +198,9 @@ export function ProjectCombobox(): JSX.Element | null {
                         >
                             <IconPlusSmall className="text-tertiary" />
                             New project
+                            {!projectCreationForbiddenReason && projectCreationUpgradeReason && (
+                                <IconLock className="ml-auto shrink-0 text-tertiary" />
+                            )}
                         </ButtonPrimitive>
                     </Combobox.Item>
                 )}
