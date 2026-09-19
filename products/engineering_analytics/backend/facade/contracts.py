@@ -74,6 +74,16 @@ class QuarantineWriteError(Exception):
         super().__init__(message)
 
 
+class UnknownDoraEnvironmentError(Exception):
+    """A DORA read named deploy environments the source did not deploy to in the scan window.
+    Framework-free; the presentation layer maps it to a 400 on the ``environment`` parameter.
+    """
+
+    def __init__(self, environments: list[str]) -> None:
+        super().__init__(f"Unknown deploy environments: {', '.join(environments)}")
+        self.environments = environments
+
+
 class PRState(StrEnum):
     OPEN = "open"
     CLOSED = "closed"
