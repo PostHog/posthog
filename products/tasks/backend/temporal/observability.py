@@ -91,6 +91,24 @@ def log_with_workflow_context(message: str, **extra_context: Any) -> None:
     bound_logger.info(message)
 
 
+FAILURE_REASON_MAX_CHARS = 500
+
+
+def _diagnosed_failure_reason(error: BaseException) -> str | None:
+    """The cause a ``ProcessTaskError`` diagnosed, so the failure log line names it.
+
+    ``str(error)`` is only the generic message the activity raises with, and the rest of the
+    diagnostics stay in the Temporal failure payload, which log search cannot reach. Without this
+    the log says which step failed and never says why. Only the reason is lifted, because the
+    sibling keys hold command output that can run to tens of kilobytes.
+    """
+    context = getattr(error, "context", None)
+    if not isinstance(context, dict):
+        return None
+    reason = context.get("failure_reason")
+    return str(reason)[:FAILURE_REASON_MAX_CHARS] if reason else None
+
+
 @contextmanager
 def log_activity_execution(
     activity_name: str,
@@ -167,10 +185,12 @@ def log_activity_execution(
                 properties={"activity_name": activity_name, **context},
             )
     except Exception as e:
+        failure_reason = _diagnosed_failure_reason(e)
         bound_logger.exception(
             f"{activity_name} failed",
             error_type=type(e).__name__,
             error_message=str(e),
+            failure_reason=failure_reason,
         )
 
         if distinct_id:
@@ -181,6 +201,7 @@ def log_activity_execution(
                     "activity_name": activity_name,
                     "error_type": type(e).__name__,
                     "error_message": str(e)[:500],
+                    "failure_reason": failure_reason,
                     **context,
                 },
             )
