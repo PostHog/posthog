@@ -60,7 +60,9 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
 COPY frontend/ frontend/
-RUN bin/turbo --filter=@posthog/frontend build
+# Cap the V8 heap so this build does not grow past the Depot builder's RAM and drop the keepalive,
+# which kills the build. Runs per platform on a native builder. 8192 matches the frontend build in CI.
+RUN NODE_OPTIONS="--max-old-space-size=8192" bin/turbo --filter=@posthog/frontend build
 
 
 #
@@ -204,7 +206,16 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     # is a runtime dependency (stamphog's digest reads owners.yaml through it), and --no-editable
     # copies it into the venv so the image never depends on this bind mount's path surviving.
     --mount=type=bind,source=tools/owners,target=tools/owners \
-    uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
+    # uv shells out to `git` for the git-pinned dependency, and git has no HTTP retry, so a single
+    # transient GitHub 503 during the fetch fails the whole two-platform build. Retry with bounded
+    # backoff; the uv cache mount persists across attempts, so a retry re-fetches only what the last
+    # attempt missed. This bounds one flaky network operation. It is not a blanket retry of the build.
+    for attempt in 1 2 3 4 5; do \
+        if uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec; then break; fi; \
+        if [ "$attempt" = 5 ]; then echo "uv sync failed after $attempt attempts" >&2; exit 1; fi; \
+        echo "uv sync attempt $attempt failed; retrying in $((attempt * 5))s" >&2; \
+        sleep $((attempt * 5)); \
+    done
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
