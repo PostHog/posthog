@@ -19,7 +19,7 @@ const CreateFeatureFlagSchema = () => {
             'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
         ),
         evaluation_runtime: FeatureFlagsCreateBody.shape['evaluation_runtime'].describe(
-            'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
+            "Filters which SDKs receive this flag, based on the runtime the caller reports: `server` (server SDKs only), `client` (client SDKs only), or `all` (both). Defaults to `all`. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag."
         ),
         bucketing_identifier: FeatureFlagsCreateBody.shape['bucketing_identifier'].describe(
             'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
@@ -881,7 +881,7 @@ const UpdateFeatureFlagSchema = () => {
                     'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
                 ),
                 evaluation_runtime: FeatureFlagsPartialUpdateBody.shape['evaluation_runtime'].describe(
-                    'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
+                    "Filters which SDKs receive this flag, based on the runtime the caller reports: `server` (server SDKs only), `client` (client SDKs only), or `all` (both). Defaults to `all`. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag."
                 ),
                 bucketing_identifier: FeatureFlagsPartialUpdateBody.shape['bucketing_identifier'].describe(
                     'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'

@@ -647,8 +647,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     labelClassName="text-sm font-medium"
                                                     info={
                                                         <>
-                                                            Control whether this flag evaluates on client, server, or
-                                                            both.{' '}
+                                                            Filters which SDKs receive this flag. It is not an access
+                                                            control: anyone with your public project API key can request
+                                                            any flag. To keep a value away from clients, use a remote
+                                                            config flag and encrypt the payload. Only a personal API key
+                                                            can read it.{' '}
                                                             <Link
                                                                 to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-environments-optional"
                                                                 target="_blank"
@@ -668,7 +671,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                             Both client and server
                                                                         </span>
                                                                         <span className="text-xs text-muted">
-                                                                            Single-user apps + multi-user systems
+                                                                            Sent to client and server SDKs
                                                                         </span>
                                                                     </div>
                                                                 ),
@@ -682,7 +685,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                             Client-side only
                                                                         </span>
                                                                         <span className="text-xs text-muted">
-                                                                            Single-user apps (mobile, desktop, embedded)
+                                                                            Sent to client SDKs only (browser, mobile,
+                                                                            desktop)
                                                                         </span>
                                                                     </div>
                                                                 ),
@@ -696,7 +700,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                             Server-side only
                                                                         </span>
                                                                         <span className="text-xs text-muted">
-                                                                            Multi-user systems in trusted environments
+                                                                            Sent to server SDKs only
                                                                         </span>
                                                                     </div>
                                                                 ),
