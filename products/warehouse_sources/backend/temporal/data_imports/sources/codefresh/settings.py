@@ -16,7 +16,7 @@ PaginationMode = Literal["offset", "page", "none"]
 ACCOUNT_ID_PLACEHOLDER = "{account_id}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class CodefreshEndpointConfig:
     name: str
     path: str

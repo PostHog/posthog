@@ -9,6 +9,8 @@ from requests import PreparedRequest, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import (
     ACCOUNT_LOOKUP_FAILED,
+    ACCOUNT_LOOKUP_MESSAGE,
+    CODEFRESH_BASE_URL,
     CodefreshResumeConfig,
     _flatten,
     _resolve_account_id,
@@ -410,15 +412,40 @@ class TestValidateCredentials:
         if not expected_valid:
             assert error is not None
 
-    def test_users_schema_probes_the_team_lookup_it_depends_on(self) -> None:
+    def test_users_schema_probes_the_resolved_users_path(self) -> None:
         # The users path is only knowable after /team resolves the account id, so probing the
         # unfilled path would report a 404 rather than whether the key can reach the data.
         session = mock.MagicMock()
-        session.get.return_value = _FakeResponse(200)
+        session.get.side_effect = [_response([{"account": "acc-9"}]), _FakeResponse(200)]
         with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
             valid, _error = validate_credentials("token", schema_name="users")
         assert valid is True
-        assert session.get.call_args.args[0] == "https://g.codefresh.io/api/team?limit=1"
+        assert session.get.call_args.args[0] == "https://g.codefresh.io/api/accounts/acc-9/users?limit=1"
+
+    def test_users_schema_is_rejected_when_no_team_names_an_account(self) -> None:
+        # A 200 from /team that names no account passes a status probe but fails the sync later,
+        # so validation has to reject it rather than report the table as reachable.
+        session = mock.MagicMock()
+        session.get.return_value = _response([{"_id": "t1", "name": "users"}])
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            valid, error = validate_credentials("token", schema_name="users")
+        assert valid is False
+        assert error == ACCOUNT_LOOKUP_MESSAGE
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_users_schema_reports_the_status_the_team_lookup_returned(self, _name: str, status: int) -> None:
+        # A denied /team lookup is a credential answer, not an account answer, so the status
+        # mapping must report it instead of the account-lookup message.
+        denied = Response()
+        denied.status_code = status
+        denied._content = b"{}"
+        denied.url = f"{CODEFRESH_BASE_URL}/team"
+        session = mock.MagicMock()
+        session.get.side_effect = [denied, _FakeResponse(status)]
+        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+            valid, error = validate_credentials("token", schema_name="users")
+        assert valid is False
+        assert error != ACCOUNT_LOOKUP_MESSAGE
 
     def test_connection_error_is_invalid(self) -> None:
         session = mock.MagicMock()

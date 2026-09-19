@@ -32,8 +32,13 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 # non-retryable error map so the user reads one explanation instead of a raw exception.
 ACCOUNT_LOOKUP_FAILED = "Could not resolve the Codefresh account for this API key"
 
+ACCOUNT_LOOKUP_MESSAGE = (
+    "PostHog could not work out which Codefresh account this API key belongs to, so the users table "
+    "cannot sync. Give the key access to your teams, then try again."
+)
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=True)
 class CodefreshResumeConfig:
     # Offset pagination position (projects, pipelines, images, step_types, environments).
     offset: int | None = None
@@ -265,8 +270,17 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     path = config.path if config is not None else "/projects"
     if ACCOUNT_ID_PLACEHOLDER in path:
         # The path is only knowable once /team resolves the account id, and that lookup is the first
-        # request the sync makes, so probe /team instead of a path with an unfilled placeholder.
-        path = CODEFRESH_ENDPOINTS["teams"].path
+        # request the sync makes, so run it here too. A 200 from /team is not enough on its own: a
+        # response that names no account fails the sync later, so reject it now.
+        try:
+            path = path.replace(ACCOUNT_ID_PLACEHOLDER, _resolve_account_id(api_key))
+        except ValueError:
+            return False, ACCOUNT_LOOKUP_MESSAGE
+        except Exception:
+            # The lookup failed for a reason that is not an answer about the account, such as a bad
+            # token, a missing scope, or a transport error. Probe /team so the status mapping below
+            # reports which of those it was.
+            path = CODEFRESH_ENDPOINTS["teams"].path
 
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),

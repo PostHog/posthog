@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import (
     ACCOUNT_LOOKUP_FAILED,
+    ACCOUNT_LOOKUP_MESSAGE,
     CodefreshResumeConfig,
     codefresh_source,
     validate_credentials as validate_codefresh_credentials,
@@ -98,7 +99,7 @@ Only the US SaaS host (`g.codefresh.io`) is supported. EU and self-hosted/on-pre
             "403 Client Error: Forbidden for url: https://g.codefresh.io": "Your Codefresh API key is missing the access scope needed to sync this data. Grant the required resource scopes to the key in your Codefresh user settings, then reconnect.",
             # The users table needs an account id, which is read from the teams the key can see. A
             # key that reaches no team can never resolve one, so retrying cannot help.
-            ACCOUNT_LOOKUP_FAILED: "PostHog could not work out which Codefresh account this API key belongs to, so the users table cannot sync. Give the key access to your teams, then sync again.",
+            ACCOUNT_LOOKUP_FAILED: ACCOUNT_LOOKUP_MESSAGE,
         }
 
     def get_schemas(
