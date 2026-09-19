@@ -91,6 +91,7 @@ from products.tasks.backend.feature_flags import (
 )
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
+    select_integration_for_repository,
 )
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.image_builder import (
@@ -5101,10 +5102,17 @@ def user_has_usable_personal_github(user_id: int) -> bool:
     return user_github_integration_is_usable(integration)
 
 
+def _default_github_integration(team_id: int, repository: str | None) -> Integration | None:
+    """The installation the provisioner should mint a token from for ``repository``."""
+    return select_integration_for_repository(
+        Integration.objects.filter(team_id=team_id, kind="github").order_by("created_at", "id"), repository
+    )
+
+
 def _ensure_task_team_github_integration(task: Task) -> bool:
     if task.github_integration_id is not None:
         return True
-    github_integration = Integration.objects.filter(team_id=task.team_id, kind="github").first()
+    github_integration = _default_github_integration(task.team_id, task.repository)
     if github_integration is None:
         return False
     task.github_integration = github_integration
@@ -6492,7 +6500,7 @@ def create_task(
         validated_data["created_by"] = User.objects.get(id=user_id)
 
     if validated_data.get("repository") and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        default_integration = _default_github_integration(team.id, validated_data.get("repository"))
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -6660,7 +6668,7 @@ def create_task(
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
     )
     if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        default_integration = _default_github_integration(team.id, validated_data.get("repository"))
         if default_integration:
             validated_data["github_integration"] = default_integration
 

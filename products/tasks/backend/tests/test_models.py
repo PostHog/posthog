@@ -467,6 +467,27 @@ class TestTask(TestCase):
         mock_execute_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_picks_the_installation_that_owns_the_repository(self, mock_execute_workflow):
+        # A project can connect several installations. Attaching the first one hands provisioning a
+        # valid token for the wrong account, and the run then fails to clone and to push.
+        user = User.objects.create(email="multi-install@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={"account": {"name": "posthog"}})
+        acme = Integration.objects.create(team=self.team, kind="github", config={"account": {"name": "acme"}})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="acme/widgets",
+            )
+
+        self.assertEqual(task.github_integration, acme)
+        mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_falls_back_to_user_integration(self, mock_execute_workflow):
         # Signal reports are BOT-authored. A broken team installation must not override the
         # healthy user integration that repository selection used for the report.
