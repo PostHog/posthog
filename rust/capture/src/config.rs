@@ -631,6 +631,7 @@ pub struct KafkaConfig {
 #[cfg(test)]
 mod tests {
     use super::{CaptureMode, Config};
+    use crate::v0_request::AiLanePredicate;
     use std::collections::HashMap;
     use std::str::FromStr;
 
@@ -667,6 +668,27 @@ mod tests {
         );
         let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
         assert_eq!(config.kafka.capture_analytics_ai_events_topic, "ai_events");
+    }
+
+    #[test]
+    fn ai_lane_predicate_binds_to_its_env_var_and_defaults_to_allowlist() {
+        // The charts flip sets CAPTURE_AI_LANE_PREDICATE=prefix; an unset var must
+        // keep master's behavior so the toggle is a no-op until each env opts in.
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert_eq!(config.ai_lane_predicate, AiLanePredicate::Allowlist);
+
+        let mut env = required_config_env();
+        env.insert("CAPTURE_AI_LANE_PREDICATE".into(), "prefix".into());
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.ai_lane_predicate, AiLanePredicate::Prefix);
+
+        env.insert("CAPTURE_AI_LANE_PREDICATE".into(), "everything".into());
+        let bad: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
+        assert!(
+            bad.is_err(),
+            "an unknown predicate must fail startup, not silently fall back"
+        );
     }
 
     #[test]
