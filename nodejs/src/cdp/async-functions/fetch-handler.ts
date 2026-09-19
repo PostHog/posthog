@@ -50,6 +50,10 @@ registerAsyncFunction('fetch', {
                 : {}),
         })
 
+        if (fetchQueueParameters.bearer_token_input && result.invocation.state.globals.inputs) {
+            // The fetch worker reads this secret from the function configuration on each attempt.
+            delete result.invocation.state.globals.inputs[fetchQueueParameters.bearer_token_input]
+        }
         result.invocation.queueParameters = fetchQueueParameters
     },
 

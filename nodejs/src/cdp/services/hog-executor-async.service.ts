@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { isCloud, isProdEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchOptions } from '~/common/utils/request'
@@ -452,6 +453,14 @@ export class HogExecutorAsyncService {
             result.error = new Error(error)
             result.finished = true
             return result
+        }
+
+        if (templateId === 'template-typesafe-classify' && (isProdEnv() || isCloud())) {
+            return failSigning('TypeSafe is available only in local development. Run this workflow locally.')
+        }
+
+        if (params.aws_sigv4 && params.bearer_token_input) {
+            return failSigning('Use either AWS signing or bearer authentication, then retry.')
         }
 
         let signedHeaders = headers

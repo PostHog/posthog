@@ -1,4 +1,6 @@
 import * as cdpFetch from '~/cdp/utils/cdp-fetch'
+import * as envUtils from '~/common/utils/env-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { FetchResponse } from '~/common/utils/request'
 
 import { TemplateTester } from '../../test/test-helpers'
@@ -27,17 +29,60 @@ describe('TypeSafe classification template', () => {
             .mockResolvedValueOnce({ fetchResponse: response(200), fetchDuration: 1, fetchError: null })
         try {
             const pending = await tester.invoke({ ...inputs, context: 'Example context' })
+            pending.invocation.state = parseJSON(JSON.stringify(pending.invocation.state))
+            expect(JSON.stringify(pending.invocation.state)).not.toContain(inputs.api_key)
             const retry = await tester.executeFetch(pending.invocation)
             expect(fetch.mock.calls[0][0].fetchParams.headers).toMatchObject({
                 Authorization: `Bearer ${inputs.api_key}`,
             })
             expect(retry.invocation.queueParameters?.type).toBe('fetch')
             expect(JSON.stringify(retry.invocation.queueParameters)).not.toContain(inputs.api_key)
+            expect(JSON.stringify(retry.invocation.state)).not.toContain(inputs.api_key)
             retry.invocation.hogFunction.inputs!.api_key = { value: 'rotated-fake-key' }
             await tester.executeFetch(retry.invocation)
             expect(fetch.mock.calls[1][0].fetchParams.headers).toMatchObject({
                 Authorization: 'Bearer rotated-fake-key',
             })
+        } finally {
+            fetch.mockRestore()
+        }
+    })
+
+    it.each([
+        [true, false],
+        [false, true],
+    ])('blocks requests in production (%s) and Cloud (%s)', async (production, cloud) => {
+        const productionCheck = jest.spyOn(envUtils, 'isProdEnv').mockReturnValue(production)
+        const cloudCheck = jest.spyOn(envUtils, 'isCloud').mockReturnValue(cloud)
+        const fetch = jest.spyOn(cdpFetch, 'cdpTrackedFetch')
+        try {
+            const pending = await tester.invoke({ ...inputs, context: 'Example context' })
+            const result = await tester.executeFetch(pending.invocation)
+            expect(result.error?.message).toContain('only in local development')
+            expect(fetch).not.toHaveBeenCalled()
+        } finally {
+            productionCheck.mockRestore()
+            cloudCheck.mockRestore()
+            fetch.mockRestore()
+        }
+    })
+
+    it('rejects conflicting authentication before sending a request', async () => {
+        const fetch = jest.spyOn(cdpFetch, 'cdpTrackedFetch')
+        try {
+            const pending = await tester.invoke({ ...inputs, context: 'Example context' })
+            if (pending.invocation.queueParameters?.type !== 'fetch') {
+                throw new Error('Expected a queued request')
+            }
+            pending.invocation.queueParameters.aws_sigv4 = {
+                service: 'sqs',
+                region: 'us-east-1',
+                access_key_id_input: 'access_key',
+                secret_access_key_input: 'secret_key',
+            }
+            const result = await tester.executeFetch(pending.invocation)
+            expect(result.error?.message).toContain('either AWS signing or bearer authentication')
+            expect(fetch).not.toHaveBeenCalled()
         } finally {
             fetch.mockRestore()
         }
@@ -64,7 +109,7 @@ describe('TypeSafe classification template', () => {
             }),
         })
         expect(JSON.stringify(pending.invocation.queueParameters)).not.toContain(inputs.api_key)
-        expect(JSON.stringify(pending.invocation.state.vmState)).not.toContain(inputs.api_key)
+        expect(JSON.stringify(pending.invocation.state)).not.toContain(inputs.api_key)
         const result = await tester.invokeFetchResponse(pending.invocation, {
             status: 200,
             body: { answers: { category: { type: 'choice', choice: 'gardening', confidence, extra: 'ignore' } } },

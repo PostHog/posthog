@@ -112,6 +112,8 @@ Disable the transformation in the UI to stop classification.
 
 ## TypeSafe workflow step
 
+Use this prototype in local development with invented data.
+The fetch worker blocks calls in production and PostHog Cloud, including saved workflows and test invocations.
 Enable `typesafe-workflow` for a test project and run `python manage.py sync_hog_function_templates`.
 The flag defaults to off and controls template access and workflow validation.
 It is separate from `typesafe-transformation`.
@@ -132,6 +134,7 @@ Workflow error settings determine whether execution stops or continues.
 
 The API key uses the workflow's encrypted secret storage.
 The queued request holds the input name, and the fetch worker adds the bearer token at execution time.
+The step removes the API key from its saved input state before it queues the request.
 Requests use the existing workflow HTTP timeout, retry policy, invocation logs, and HTTP metrics.
 Use workflow step success and failure counts to check the rollout.
 Turning the flag off blocks new use but does not cancel existing runs.

@@ -247,9 +247,10 @@ export function HogFlowFunctionConfiguration({
         <>
             {templateId === 'template-typesafe-classify' && (
                 <LemonBanner type="warning">
-                    This experimental step sends the question, categories, and selected context to TypeSafe using your
-                    API key. TypeSafe processes this data outside your PostHog agreements. Send only the data needed for
-                    the decision. Use the confidence output to handle uncertain answers in a branch condition.
+                    TypeSafe is available only in local development. This experimental step sends the question,
+                    categories, and selected context to TypeSafe using your API key. TypeSafe processes this data
+                    outside your PostHog agreements. Send only the data needed for the decision. Use the confidence
+                    output to handle uncertain answers in a branch condition.
                 </LemonBanner>
             )}
             {templateId === 'template-posthog-create-customer-task' ? (

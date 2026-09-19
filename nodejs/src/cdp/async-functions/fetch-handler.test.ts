@@ -8,7 +8,7 @@ describe('fetch handler', () => {
     const callFetch = async (
         fetchOptions: Record<string, any>
     ): Promise<CyclotronInvocationQueueParametersFetchType> => {
-        const result = { invocation: {} } as CyclotronJobInvocationResult<any>
+        const result = { invocation: { state: { globals: {} } } } as CyclotronJobInvocationResult<any>
         await getAsyncFunctionHandler('fetch')!.execute(['https://example.com', fetchOptions], {} as any, result)
         return result.invocation.queueParameters as CyclotronInvocationQueueParametersFetchType
     }
