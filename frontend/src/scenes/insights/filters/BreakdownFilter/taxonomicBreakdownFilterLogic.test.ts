@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
@@ -62,6 +63,25 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     {
                         property: 'c',
                         type: 'event',
+                    },
+                ],
+            })
+        })
+
+        it('sets breakdown for autocapture elements', async () => {
+            logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
+            logic.mount()
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.Elements, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown('tag_name', group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdowns: [
+                    {
+                        property: 'tag_name',
+                        type: 'element',
                     },
                 ],
             })
@@ -194,8 +214,10 @@ describe('taxonomicBreakdownFilterLogic', () => {
         it('rejects a taxonomic group that maps to a non-breakdown type', async () => {
             logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
             logic.mount()
+            const errorToast = jest.spyOn(lemonToast, 'error')
             // Error tracking issues map to the `error_tracking_issue` property filter type, which is
-            // not a valid `BreakdownType`. It must not reach the query as a breakdown.
+            // not a valid `BreakdownType`. It must not reach the query as a breakdown, and the user
+            // must hear about the rejection instead of the picker closing without a word.
             const group: TaxonomicFilterGroup = taxonomicGroupFor(
                 TaxonomicFilterGroupType.ErrorTrackingIssues,
                 undefined
@@ -206,6 +228,10 @@ describe('taxonomicBreakdownFilterLogic', () => {
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).not.toHaveBeenCalled()
+            expect(errorToast).toHaveBeenCalledWith(
+                'Breakdowns by unused in these tests are not supported here. Pick an event or person property instead.'
+            )
+            errorToast.mockRestore()
         })
 
         it('sets a hide other aggregation', async () => {

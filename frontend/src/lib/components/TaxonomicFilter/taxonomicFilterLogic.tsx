@@ -1334,9 +1334,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Autocapture elements',
                         searchPlaceholder: 'autocapture elements',
                         type: TaxonomicFilterGroupType.Elements,
-                        options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
-                            name: option,
-                        })) as SimpleOption[],
+                        options: (['tag_name', 'text', 'href', 'selector'] as const)
+                            .filter(
+                                (option) => !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(option)
+                            )
+                            .map((option) => ({
+                                name: option,
+                            })) as SimpleOption[],
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Autocapture Element',
@@ -2174,10 +2178,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 group: TaxonomicFilterGroupType.EventProperties,
                             })),
                             ...(eventNames.includes('$autocapture')
-                                ? (['text', 'selector'] as const).map((name) => ({
-                                      name,
-                                      group: TaxonomicFilterGroupType.Elements,
-                                  }))
+                                ? (['text', 'selector'] as const)
+                                      .filter(
+                                          (name) =>
+                                              !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(name)
+                                      )
+                                      .map((name) => ({
+                                          name,
+                                          group: TaxonomicFilterGroupType.Elements,
+                                      }))
                                 : []),
                             ...(eventNames.includes(MCP_TOOL_CALL_EVENT)
                                 ? MCP_TOOL_CALL_SUGGESTED_PROPERTIES.map((name) => ({

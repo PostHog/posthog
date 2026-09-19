@@ -1822,6 +1822,31 @@ def tag_name_to_expr(tag_name: str):
     return expr
 
 
+def element_property_key_to_breakdown_expr(key: str) -> ast.Expr:
+    """Map an element property filter key to the breakdown column expression for the same key.
+
+    Keep this in sync with the element branch of `property_to_expr`: a breakdown value must be a
+    value the same key's filter can match, or a broken-down series and its actors query disagree.
+    """
+    if key == "href":
+        # elements_chain_href is the first href in the chain, which is the innermost element with an href.
+        return ast.Field(chain=["elements_chain_href"])
+    if key == "text":
+        # elements_chain_texts holds one entry per chain element that has a text, innermost first.
+        # The filter matches on any entry, so the first entry is the deterministic innermost pick.
+        return parse_expr("arrayElement(elements_chain_texts, 1)")
+    if key == "tag_name":
+        # elements_chain_elements holds only the interactive tags (a, button, form, input, select,
+        # textarea, label), innermost first. The tag_name filter can match any tag in the chain, so
+        # only interactive tags appear as breakdown values. The column is an Array(Enum8) in
+        # ClickHouse, and arrayElement over an empty array yields enum value 0, which toString()
+        # rejects. Map to strings first so empty chains read as no value instead of failing.
+        return parse_expr("arrayElement(arrayMap(x -> toString(x), elements_chain_elements), 1)")
+    # A selector filter is a regex over the whole chain, so there is no per-event value that a
+    # selector breakdown could return without disagreeing with the filter.
+    raise QueryError(f"Breakdown by element property '{key}' is not supported. Use 'tag_name', 'text', or 'href'.")
+
+
 def selector_to_expr(selector_string: str):
     selector = Selector(selector_string, escape_slashes=False)
     exprs = []

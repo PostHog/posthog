@@ -10,6 +10,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -565,7 +566,18 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             const isHistogramable =
                 !!values.getPropertyDefinition(breakdown, propertyDefinitionType)?.is_numerical && props.isTrends
 
-            if (!props.updateBreakdownFilter || !breakdownType) {
+            if (!props.updateBreakdownFilter) {
+                return
+            }
+
+            if (!breakdownType) {
+                // propertyFilterType resolving means the group is pickable elsewhere, so a quiet
+                // return leaves the user with no feedback. Only report the case that used to drop silently.
+                if (propertyFilterType) {
+                    lemonToast.error(
+                        `Breakdowns by ${taxonomicGroup.name.toLowerCase()} are not supported here. Pick an event or person property instead.`
+                    )
+                }
                 return
             }
 
@@ -725,10 +737,19 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
 
             if (
                 !props.updateBreakdownFilter ||
-                !breakdownType ||
                 (breakdownType === previousBreakdown.type && breakdownValue === previousBreakdown.value) ||
-                checkBreakdownExists(values.breakdownFilter.breakdowns, breakdownValue, breakdownType)
+                (breakdownType != null &&
+                    checkBreakdownExists(values.breakdownFilter.breakdowns, breakdownValue, breakdownType))
             ) {
+                return
+            }
+
+            if (!breakdownType) {
+                if (newBreakdownPropertyFilterType) {
+                    lemonToast.error(
+                        `Breakdowns by ${newBreakdown.group.name.toLowerCase()} are not supported here. Pick an event or person property instead.`
+                    )
+                }
                 return
             }
 

@@ -55,6 +55,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 from posthog.models import Entity, Organization, Person
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
@@ -4385,6 +4386,77 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["label"], "p2")
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[1]["count"], 1)
+
+    def test_breakdown_by_element_property(self):
+        # One button and one link, each nested in a div, so the chains hold more than one
+        # element and the innermost pick is exercised. The button appears twice.
+        button_chain = (
+            'button.btn-primary:nth-child="1"nth-of-type="1"text="Sign up";div.container:nth-child="0"nth-of-type="0"'
+        )
+        link_chain = 'a.nav-link:href="/pricing"nth-child="2"nth-of-type="1"text="Pricing";div.container:nth-child="0"nth-of-type="0"'
+        self._create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="p1",
+            timestamp="2020-01-04T12:00:00Z",
+            elements_chain=button_chain,
+        )
+        self._create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="p2",
+            timestamp="2020-01-04T12:00:00Z",
+            elements_chain=link_chain,
+        )
+        self._create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="p1",
+            timestamp="2020-01-04T12:00:00Z",
+            elements_chain=button_chain,
+        )
+        # An autocapture on a plain div has no interactive tag, no text, and no href. Its
+        # tag_name column is an empty Enum array, where arrayElement(., 1) used to throw.
+        self._create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="p2",
+            timestamp="2020-01-04T12:00:00Z",
+            elements_chain='div.container:nth-child="0"nth-of-type="0"',
+        )
+
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
+            for breakdown, expected in [
+                ("text", [("Sign up", 2), ("Pricing", 1)]),
+                ("tag_name", [("button", 2), ("a", 1)]),
+                # the null bucket sorts after every valued series, whatever the counts
+                ("href", [("/pricing", 1), (BREAKDOWN_NULL_STRING_LABEL, 3)]),
+            ]:
+                response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=BreakdownFilter(
+                            breakdown=breakdown,
+                            breakdown_type=BreakdownType.ELEMENT,
+                        ),
+                        dateRange=DateRange(
+                            date_from="-7d",
+                        ),
+                        interval=IntervalType.HOUR,
+                        series=[
+                            EventsNode(
+                                event="$autocapture",
+                                name="$autocapture",
+                            ),
+                        ],
+                    ),
+                    self.team,
+                )
+
+                self.assertEqual(
+                    [(series["label"], series["count"]) for series in response[: len(expected)]],
+                    expected,
+                    f"breakdown by element {breakdown}",
+                )
 
     @also_test_with_materialized_columns(verify_no_jsonextract=False)
     def test_interval_filtering_breakdown(self):
