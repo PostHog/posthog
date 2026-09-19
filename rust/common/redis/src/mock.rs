@@ -229,6 +229,10 @@ pub struct MockRedisCall {
 
 #[async_trait]
 impl Client for MockRedisClient {
+    async fn heal(&self) {
+        self.record_call("heal", "", MockRedisValue::None);
+    }
+
     async fn zrangebyscore(
         &self,
         key: String,

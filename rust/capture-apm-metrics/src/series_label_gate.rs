@@ -93,6 +93,21 @@ pub struct CacheLimits {
     pub max_entries_per_token: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Cap {
+    Global,
+    Token,
+}
+
+impl Cap {
+    fn as_str(self) -> &'static str {
+        match self {
+            Cap::Global => "global",
+            Cap::Token => "token",
+        }
+    }
+}
+
 struct Entry {
     last_seen: i64,
     /// `None` for a series pulled from Redis, whose token is unknown here.
@@ -163,7 +178,8 @@ impl SeriesLabelGate {
         let mut sent = 0u64;
         let mut skipped = 0u64;
         let mut queue_full = 0u64;
-        let mut cache_full = 0u64;
+        let mut global_full = 0u64;
+        let mut token_full = 0u64;
 
         for row in rows.iter_mut() {
             let key = gate_key(token, row.series_fingerprint);
@@ -179,9 +195,16 @@ impl SeriesLabelGate {
             // pushed to Redis, so other pods never learn about series this
             // pod refused to remember.
             sent += 1;
-            if !self.remember(key, now, Some(token_hash)) {
-                cache_full += 1;
-                continue;
+            match self.remember(key, now, Some(token_hash)) {
+                Ok(()) => {}
+                Err(Cap::Global) => {
+                    global_full += 1;
+                    continue;
+                }
+                Err(Cap::Token) => {
+                    token_full += 1;
+                    continue;
+                }
             }
             if let Some(tx) = &self.tx {
                 if tx.try_send((key, now)).is_err() {
@@ -195,64 +218,71 @@ impl SeriesLabelGate {
         if queue_full > 0 {
             counter!("capture_metrics_series_redis_queue_full").increment(queue_full);
         }
-        if cache_full > 0 {
-            counter!("capture_metrics_series_cache_full", "source" => "request")
-                .increment(cache_full);
+        if global_full > 0 {
+            counter!("capture_metrics_series_cache_full", "source" => "request", "cap" => Cap::Global.as_str())
+                .increment(global_full);
+        }
+        if token_full > 0 {
+            let token: Arc<str> = Arc::from(token);
+            counter!("capture_metrics_series_cache_full", "source" => "request", "cap" => Cap::Token.as_str(), "token" => token)
+                .increment(token_full);
         }
     }
 
     fn seen_within_window(&self, key: u64, now: i64) -> bool {
         self.cache
             .get(&key)
-            .is_some_and(|entry| now - entry.last_seen < self.window_secs)
+            .is_some_and(|entry| now - entry.last_seen < self.window_for(key))
+    }
+
+    fn window_for(&self, key: u64) -> i64 {
+        self.window_secs - expiry_jitter(key, self.window_secs)
     }
 
     /// Record that `key` was labelled at `seen_at`. An entry past its window
     /// is refreshed in place and keeps its slot. A new entry needs a free slot
-    /// under both caps; returns `false` when there is none.
-    fn remember(&self, key: u64, seen_at: i64, token_hash: Option<u64>) -> bool {
+    /// under both caps.
+    fn remember(&self, key: u64, seen_at: i64, token_hash: Option<u64>) -> Result<(), Cap> {
         match self.cache.entry(key) {
             dashmap::Entry::Occupied(mut slot) => {
                 slot.get_mut().last_seen = seen_at;
-                true
+                Ok(())
             }
             dashmap::Entry::Vacant(slot) => {
-                if !self.reserve(token_hash) {
-                    return false;
-                }
+                self.reserve(token_hash)?;
                 slot.insert(Entry {
                     last_seen: seen_at,
                     token_hash,
                 });
-                true
+                Ok(())
             }
         }
     }
 
     /// Take one slot under the global cap and, when the token is known, its
     /// per-token cap. Undoes the global take when the per-token cap is full.
-    fn reserve(&self, token_hash: Option<u64>) -> bool {
+    fn reserve(&self, token_hash: Option<u64>) -> Result<(), Cap> {
         if self.len.fetch_add(1, Ordering::AcqRel) >= self.limits.max_entries {
             self.len.fetch_sub(1, Ordering::AcqRel);
-            return false;
+            return Err(Cap::Global);
         }
         let Some(token_hash) = token_hash else {
-            return true;
+            return Ok(());
         };
         let mut count = self.per_token.entry(token_hash).or_insert(0);
         if *count >= self.limits.max_entries_per_token {
             drop(count);
             self.len.fetch_sub(1, Ordering::AcqRel);
-            return false;
+            return Err(Cap::Token);
         }
         *count += 1;
-        true
+        Ok(())
     }
 
     /// Drop entries older than the window and release their slots.
     fn prune(&self, now: i64) {
-        self.cache.retain(|_, entry| {
-            if now - entry.last_seen < self.window_secs {
+        self.cache.retain(|key, entry| {
+            if now - entry.last_seen < self.window_for(*key) {
                 return true;
             }
             self.len.fetch_sub(1, Ordering::AcqRel);
@@ -385,12 +415,12 @@ impl SeriesLabelGate {
             let dashmap::Entry::Vacant(slot) = self.cache.entry(key) else {
                 continue;
             };
-            if !self.reserve(None) {
+            if self.reserve(None).is_err() {
                 stats.cache_full += 1;
                 continue;
             }
             slot.insert(Entry {
-                last_seen: now - seed_jitter(key, self.window_secs),
+                last_seen: now,
                 token_hash: None,
             });
             stats.merged += 1;
@@ -424,6 +454,11 @@ impl SeriesLabelGate {
                     Err(e) => {
                         // `since` stays put, so the next tick re-reads the gap.
                         debug!("Series label pull from Redis failed: {e}");
+                        if let PullError::Redis(e) = &e {
+                            if e.is_unrecoverable_error() {
+                                client.heal().await;
+                            }
+                        }
                     }
                 }
             }
@@ -489,16 +524,30 @@ pub fn spawn_redis_writer(
             let commands = zadd_commands(&batch, ttl_secs);
             let pushed = batch.len() as u64;
             batch.clear();
-            match tokio::time::timeout(timeout, client.execute_pipeline(commands)).await {
+            let started = tokio::time::Instant::now();
+            let result = tokio::time::timeout(timeout, client.execute_pipeline(commands)).await;
+            let outcome = match &result {
+                Ok(Ok(_)) => "ok",
+                Ok(Err(_)) => "error",
+                Err(_) => "timeout",
+            };
+            histogram!("capture_metrics_series_redis_push_duration_seconds", "outcome" => outcome)
+                .record(started.elapsed().as_secs_f64());
+            match result {
                 Ok(Ok(_)) => {
                     counter!("capture_metrics_series_redis_pushed").increment(pushed);
                 }
                 Ok(Err(e)) => {
-                    counter!("capture_metrics_series_redis_push_failed").increment(pushed);
+                    counter!("capture_metrics_series_redis_push_failed", "outcome" => outcome)
+                        .increment(pushed);
                     debug!("Series label push to Redis failed: {e}");
+                    if e.is_unrecoverable_error() {
+                        client.heal().await;
+                    }
                 }
                 Err(_) => {
-                    counter!("capture_metrics_series_redis_push_failed").increment(pushed);
+                    counter!("capture_metrics_series_redis_push_failed", "outcome" => outcome)
+                        .increment(pushed);
                     debug!("Series label push to Redis timed out");
                 }
             }
@@ -521,16 +570,12 @@ fn record_pull(kind: PullKind, outcome: &'static str, stats: &PullStats, elapsed
     counter!("capture_metrics_series_redis_pull_bytes", "kind" => kind).increment(stats.bytes);
     counter!("capture_metrics_series_redis_pulled", "kind" => kind).increment(stats.merged as u64);
     if stats.cache_full > 0 {
-        counter!("capture_metrics_series_cache_full", "source" => "pull")
+        counter!("capture_metrics_series_cache_full", "source" => "pull", "cap" => Cap::Global.as_str())
             .increment(stats.cache_full);
     }
 }
 
-/// A pulled series gets a timestamp that is a little in the past, so that
-/// series seeded together do not all expire in the same second. Without this,
-/// every pod relabels every seeded series at the same moment one window after
-/// startup. The offset is derived from the key so all pods pick the same one.
-fn seed_jitter(key: u64, window_secs: i64) -> i64 {
+fn expiry_jitter(key: u64, window_secs: i64) -> i64 {
     let spread = (window_secs / 4).max(1);
     (key % spread as u64) as i64
 }
@@ -711,13 +756,46 @@ mod tests {
         assert_labelled(&rows[0]);
         assert_stripped(&rows[1]);
 
-        now.fetch_add(WINDOW.as_secs() as i64 - 1, Ordering::SeqCst);
+        let window = gate.window_for(gate_key("token-a", 7));
+        now.fetch_add(window - 1, Ordering::SeqCst);
         let mut rows = vec![row(7)];
         gate.apply("token-a", &mut rows);
         assert_stripped(&rows[0]);
 
         now.fetch_add(1, Ordering::SeqCst);
         let mut rows = vec![row(7)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+    }
+
+    #[test]
+    fn series_first_seen_together_expire_at_different_times() {
+        let (gate, now, _) = gate(true, false);
+
+        let (early, late) = (1..)
+            .flat_map(|a| (a + 1..a + 200).map(move |b| (a, b)))
+            .find(|(a, b)| {
+                gate.window_for(gate_key("token-a", *a)) < gate.window_for(gate_key("token-a", *b))
+            })
+            .expect("two fingerprints with different windows");
+        let early_window = gate.window_for(gate_key("token-a", early));
+        let late_window = gate.window_for(gate_key("token-a", late));
+        assert!(early_window <= WINDOW.as_secs() as i64);
+        assert!(late_window <= WINDOW.as_secs() as i64);
+
+        let mut rows = vec![row(early), row(late)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+        assert_labelled(&rows[1]);
+
+        now.fetch_add(early_window, Ordering::SeqCst);
+        let mut rows = vec![row(early), row(late)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+        assert_stripped(&rows[1]);
+
+        now.fetch_add(late_window - early_window, Ordering::SeqCst);
+        let mut rows = vec![row(late)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
     }
@@ -938,20 +1016,18 @@ mod tests {
             .unwrap();
         assert_eq!(merged, 1);
 
-        // Seeded within the last quarter window, so it is seen but does not
-        // expire in lockstep with the other seeded series.
-        let seeded_at = gate.seen_at(remote_key).unwrap();
-        let pulled_at = START + 1200;
-        assert!(seeded_at <= pulled_at && seeded_at > pulled_at - WINDOW.as_secs() as i64 / 4);
+        assert_eq!(gate.seen_at(remote_key), Some(START + 1200));
+        assert_eq!(gate.seen_at(local_key), Some(START));
 
         let mut rows = vec![row(8)];
         gate.apply("token-a", &mut rows);
         assert_stripped(&rows[0]);
 
         now.fetch_add(600, Ordering::SeqCst);
-        let mut rows = vec![row(7)];
+        let mut rows = vec![row(7), row(8)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
+        assert_stripped(&rows[1]);
     }
 
     #[tokio::test]
@@ -995,6 +1071,30 @@ mod tests {
         let expires: Vec<_> = calls.iter().filter(|c| c.op == "pipeline_expire").collect();
         assert_eq!(expires.len(), 1);
         assert_eq!(expires[0].key, bucket_key(START));
+    }
+
+    #[tokio::test]
+    async fn writer_heals_connection_after_unrecoverable_error() {
+        let (tx, rx) = mpsc::channel(WRITER_CHANNEL_CAPACITY);
+        let dropped = CustomRedisError::from(redis::RedisError::from(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "test",
+        )));
+        assert!(dropped.is_unrecoverable_error());
+        let client = MockRedisClient::new().pipeline_error(dropped);
+        let shared: Arc<dyn Client> = Arc::new(client.clone());
+        spawn_redis_writer(shared, rx, Duration::from_millis(250), WINDOW);
+
+        tx.send((42, START)).await.unwrap();
+
+        let deadline = tokio::time::Instant::now() + WRITER_FLUSH_INTERVAL * 5;
+        while !client.get_calls().iter().any(|c| c.op == "heal")
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        assert!(client.get_calls().iter().any(|c| c.op == "heal"));
     }
 
     #[test]
