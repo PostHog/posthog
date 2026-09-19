@@ -73,6 +73,9 @@ The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
 A 2D density grid: `xLabels` by `yLabels` (row 0 at the bottom), `cells[row][col]` counts mapped to color intensity on one accent.
 Log ramp by default; `colorScale: 'linear'` to opt out.
 A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex, yIndex, value }`, and `onBrush` reports row and column index ranges.
+`config.cellLabel` prints a number in each cell, for a grid read as values rather than only as density (a retention table).
+It runs for every cell, empty ones included; return null to leave one blank.
+Each label takes light or dark text from the cell fill behind it, and is dropped when the cell is too small for the text, so a dense grid falls back to a plain density map.
 
 ## Sparkline
 
