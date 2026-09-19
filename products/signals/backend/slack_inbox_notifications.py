@@ -226,7 +226,7 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
             user = entry.get("user") if isinstance(entry, dict) else None
             if isinstance(user, dict) and user.get("id"):
                 resolved_user_ids.add(int(user["id"]))
-    return resolved_user_ids
+    return set(report.team.all_users_with_access().filter(id__in=resolved_user_ids).values_list("id", flat=True))
 
 
 def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, SignalUserAutonomyConfig]:
