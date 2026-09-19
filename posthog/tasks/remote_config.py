@@ -1,6 +1,7 @@
 import time
 
 from django.conf import settings
+from django.db import IntegrityError
 
 import structlog
 from celery import shared_task
@@ -33,7 +34,13 @@ def update_team_remote_config(team_id: int, bypass_recordings_quota_cache: bool 
     except RemoteConfig.DoesNotExist:
         remote_config = RemoteConfig(team=team)
 
-    remote_config.sync(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
+    try:
+        remote_config.sync(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
+    except IntegrityError:
+        # Lost the create race to a concurrent caller for a new team; the row exists
+        # now, so sync the winner's row instead of failing the task.
+        remote_config = RemoteConfig.objects.get(team=team)
+        remote_config.sync(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
