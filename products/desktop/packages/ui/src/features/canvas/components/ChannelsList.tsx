@@ -12,8 +12,10 @@ import {
   TrashIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import type { ChannelPresence } from "@posthog/core/canvas/presence";
+import { readApiErrorBody } from "@posthog/core/integrations/apiErrorBody";
 import {
   AlertDialogClose,
   AlertDialogContent,
@@ -72,6 +74,7 @@ import { useBlockedSessionCount } from "@posthog/ui/features/canvas/hooks/useBlo
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
   type Channel,
+  isGeneralSpace,
   useChannelMutations,
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
@@ -109,6 +112,7 @@ import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/si
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { formatHotkey } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { summarizeError } from "@posthog/ui/features/notifications/errorDetails";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import {
   TaskBadgeStack,
@@ -766,6 +770,7 @@ function useChannelActions(channel: Channel): {
   setRenameOpen: (open: boolean) => void;
   confirmDeleteOpen: boolean;
   setConfirmDeleteOpen: (open: boolean) => void;
+  /** Deletes the space. Resolves with whether the dialog should close. */
   confirmDelete: () => Promise<boolean>;
   isDeleting: boolean;
 } {
@@ -780,17 +785,27 @@ function useChannelActions(channel: Channel): {
   const insideChannel = useRouterState({
     select: (s) => s.location.pathname.startsWith(`/spaces/${channel.id}`),
   });
-  const {
-    deleteChannel,
-    isDeleting,
-    updateAutoArchive,
-    isUpdatingAutoArchive,
-  } = useChannelMutations();
+  const { deleteChannel, updateAutoArchive, isUpdatingAutoArchive } =
+    useChannelMutations();
+  // The cleanup round trips run before the delete mutation reports itself
+  // pending, so the mutation's own flag leaves the button live for two
+  // requests' worth of time. The ref refuses a second press inside the same
+  // tick, before any re-render; the state keeps the button loading for all of
+  // `confirmDelete`.
+  const deletingRef = useRef(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { isStarred, toggleStar } = useChannelStarToggle(channel);
+  // A boolean rather than the channel, so the action list below survives the
+  // new channel object every list poll hands this row.
+  const isGeneral = isGeneralSpace(channel);
 
-  // Runs the actual delete once confirmed. Returns whether it succeeded so the
-  // dialog can stay open (and show the toast) on failure.
+  // The dialog stays open only where pressing Delete again could work. A
+  // refusal the server means, such as no permission or a space that still
+  // holds tasks, closes behind its toast instead of inviting endless retries.
   const confirmDelete = async (): Promise<boolean> => {
+    if (deletingRef.current) return false;
+    deletingRef.current = true;
+    setIsDeleting(true);
     try {
       // Unfile the channel's dashboards + filed tasks first. The folder delete
       // would also cascade, but doing it explicitly via the typed endpoints
@@ -835,10 +850,22 @@ function useChannelActions(channel: Channel): {
         channel_id: channel.id,
         success: false,
       });
+      // The API says why in `detail` ("The general space can't be deleted", or
+      // which contents block it). The error itself is only an HTTP line, so it
+      // goes to "View larger" rather than to the reader.
+      const { detail } = readApiErrorBody(error);
       toast.error(`Couldn't delete ${noun}`, {
-        description: error instanceof Error ? error.message : String(error),
+        id: `delete-channel:${channel.id}`,
+        description: detail ?? summarizeError(error),
+        error,
       });
-      return false;
+      const status = requestErrorStatus(error);
+      const serverRefused =
+        status !== undefined && status >= 400 && status < 500;
+      return serverRefused;
+    } finally {
+      deletingRef.current = false;
+      setIsDeleting(false);
     }
   };
 
@@ -917,11 +944,12 @@ function useChannelActions(channel: Channel): {
             },
           ]
         : [];
+    // The backend answers 403 to renaming or deleting personal and #general,
+    // so offering either action on them is a dead end.
     const editableSpaceActions: ChannelActionItem[] =
-      channel.channelType === "personal"
+      channel.channelType === "personal" || isGeneral
         ? []
         : [
-            ...membersActions,
             {
               key: "rename",
               label: `Rename ${noun}…`,
@@ -954,12 +982,14 @@ function useChannelActions(channel: Channel): {
         separatorBefore: true,
         onSelect: () => setAutoArchiveOpen(true),
       },
+      ...membersActions,
       ...editableSpaceActions,
     ];
   }, [
     channel.autoArchiveAfterDays,
     channel.channelType,
     channel.id,
+    isGeneral,
     isStarred,
     navigate,
     noun,
@@ -1411,8 +1441,8 @@ const ChannelSection = memo(
                   variant="primary"
                   loading={isDeleting}
                   onClick={() =>
-                    void confirmDelete().then((ok) => {
-                      if (ok) setConfirmDeleteOpen(false);
+                    void confirmDelete().then((close) => {
+                      if (close) setConfirmDeleteOpen(false);
                     })
                   }
                 >
