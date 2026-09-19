@@ -31,7 +31,14 @@ _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
-_RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
+# A backslash escape, a fenced block, or an inline code span in either delimiter form. All
+# are lifted out before the conversions that follow: an escaped character must not be read
+# as syntax, and code is literal, so neither the rewrites nor the unescaping may reach
+# inside it. Order carries two rules. The escape branch is first, so an escaped backtick
+# cannot open a span it never opened. The longer fences precede the shorter ones, so ``` is
+# never read as `` plus `, and the `` form the serializer uses for code holding a backtick
+# is never read as an empty span.
+_RE_MD_ESCAPED_CHAR_OR_CODE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])|```[\s\S]*?```|``[^\n]+?``|`[^`\n]*`")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 _RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
@@ -230,12 +237,17 @@ def content_to_slack_mrkdwn(
     text = _RE_MRKDWN_BLOCKQUOTE_UNESCAPE.sub(">", text)
 
     escaped_chars: list[str] = []
+    code_segments: list[str] = []
 
-    def capture_escaped_char(match: re.Match) -> str:
-        escaped_chars.append(match.group(1))
-        return f"\x00ESC{len(escaped_chars) - 1}\x00"
+    def capture_escaped_char_or_code(match: re.Match) -> str:
+        escaped_char = match.group(1)
+        if escaped_char:
+            escaped_chars.append(escaped_char)
+            return f"\x00ESC{len(escaped_chars) - 1}\x00"
+        code_segments.append(match.group(0))
+        return f"\x00CODE{len(code_segments) - 1}\x00"
 
-    text = _RE_MD_ESCAPED_CHAR.sub(capture_escaped_char, text)
+    text = _RE_MD_ESCAPED_CHAR_OR_CODE.sub(capture_escaped_char_or_code, text)
 
     text = _RE_MD_IMAGE.sub(r"<\2|\1>", text)
 
@@ -296,6 +308,11 @@ def content_to_slack_mrkdwn(
 
     for index, value in enumerate(escaped_chars):
         text = text.replace(f"\x00ESC{index}\x00", value)
+
+    # Code goes back verbatim. Its control characters were escaped before the mask, so it
+    # keeps the injection protection without having its backslashes read as escapes.
+    for index, value in enumerate(code_segments):
+        text = text.replace(f"\x00CODE{index}\x00", value)
 
     return text
 
