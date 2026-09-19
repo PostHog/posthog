@@ -101,12 +101,17 @@ const INTERVAL_OPTIONS = Array.from(getExperimentRefreshIntervalSeconds(), (valu
 export const ExperimentReloadAction = ({
     isRefreshing,
     lastRefresh,
+    dataThrough,
+    coversCurrentMetrics = false,
     onClick,
     progress,
     queuedHint,
 }: {
     isRefreshing: boolean
     lastRefresh: string | null
+    dataThrough?: string | null
+    /** Whether the run behind `dataThrough` resolved every metric the experiment carries now. */
+    coversCurrentMetrics?: boolean
     onClick: () => void
     progress?: { completed: number; total: number }
     queuedHint?: string
@@ -116,6 +121,23 @@ export const ExperimentReloadAction = ({
 
     // Completed experiments have final results: no staleness warning, no auto refresh
     const ended = hasEnded(experiment)
+
+    /**
+     * Stopping an experiment starts no recalculation, so the run on screen can still stop short of the end
+     * date. Every run of a stopped experiment pins its cutoff to that date, so only an exact match makes the
+     * results final. An earlier cutoff leaves data to compute. A later one covers a window wider than the
+     * experiment, which is what a backdated end date or a daily timeseries placeholder leaves behind.
+     */
+    const coversFullWindow =
+        !!dataThrough && !!experiment.end_date && dayjs(dataThrough).isSame(dayjs(experiment.end_date))
+    /**
+     * A run that never computed a metric leaves that metric loading forever, so its results are not final
+     * however far its window reaches. This is what a failed recalculation create leaves behind.
+     */
+    const finalResultsReason =
+        ended && coversFullWindow && coversCurrentMetrics
+            ? `This experiment stopped on ${dayjs(experiment.end_date).format('MMM D, YYYY')}. Results are final.`
+            : null
 
     // Check if data is stale on mount or when page becomes visible
     useStaleDataCheck({
@@ -160,7 +182,15 @@ export const ExperimentReloadAction = ({
                     size="xsmall"
                     icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
                     data-attr="refresh-experiment"
-                    disabledReason={isRefreshing ? (queuedHint ?? 'Loading...') : null}
+                    disabledReason={isRefreshing ? (queuedHint ?? 'Loading...') : finalResultsReason}
+                    tooltip={
+                        // Mid-run this cutoff belongs to the new run while some cells still show the previous one.
+                        dataThrough && !isRefreshing ? (
+                            <>
+                                Data through <TZLabel time={dataThrough} showPopover={false} />
+                            </>
+                        ) : null
+                    }
                     sideAction={
                         ended
                             ? undefined
