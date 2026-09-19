@@ -2472,6 +2472,12 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
+    # Last touch on the row. The `summary`, the emit and edit tallies, and `metadata` all land after
+    # the row is created, so a reader keyed on `created_at` alone never sees a settled run. Nullable
+    # with no backfill so the AddField stays non-blocking on the populated table: the rows the column
+    # never observed read NULL, and a reader that wants one timestamp per row takes
+    # `coalesce(updated_at, created_at)`.
+    updated_at = models.DateTimeField(auto_now=True, null=True)
 
     class Meta:
         verbose_name = "Signal scout run"
@@ -2496,6 +2502,13 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
             GinIndex(fields=["emitted_report_ids"], name="signal_scout_run_emitted_idx"),
             GinIndex(fields=["edited_report_ids"], name="signal_scout_run_edited_idx"),
         ]
+
+    def save(self, *args: Any, update_fields: Any = None, **kwargs: Any) -> None:
+        # `auto_now` only fires for the fields a narrowed write names, and every post-create writer
+        # on this row narrows. Widening here rather than at each call site keeps a new writer honest.
+        if update_fields is not None:
+            update_fields = [*update_fields, "updated_at"]
+        super().save(*args, update_fields=update_fields, **kwargs)
 
 
 class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
