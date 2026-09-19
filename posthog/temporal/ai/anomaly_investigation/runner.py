@@ -144,6 +144,8 @@ class _InvestigationRunner:
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=anomaly_context),
         ]
+        self.tool_calls_used = 0
+        self.report_args_history = []
         for _ in range(MAX_TOOL_CALLS + 1):
             self._tick_heartbeat()
 
