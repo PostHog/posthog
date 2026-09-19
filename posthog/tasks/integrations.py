@@ -27,7 +27,7 @@ def refresh_integrations() -> int:
     # re-exchanged on use by `MetaGraphIntegration.refresh_access_token` rather than by this sweep.
     oauth_integrations = defer_repository_cache_fields(
         Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
-        .exclude(kind__in=["meta-ads", "instagram", "resend"])
+        .exclude(kind__in=["meta-ads", "instagram", "facebook-pages", "resend"])
         .all()
     )
 

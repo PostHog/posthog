@@ -37,6 +37,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
             "https://x.test/?key=a&password=b&secret=c&sig=d&signature=e&token=f",
             "https://x.test/?key=REDACTED&password=REDACTED&secret=REDACTED&sig=REDACTED&signature=REDACTED&token=REDACTED",
         ),
+        # Meta Graph API proof-of-app-secret is redacted so it can't be replayed from logs
+        (
+            "https://graph.facebook.com/v23.0/123/posts?appsecret_proof=deadbeef&limit=100",
+            "https://graph.facebook.com/v23.0/123/posts?appsecret_proof=REDACTED&limit=100",
+        ),
         # Unrelated params are preserved verbatim
         (
             "https://api.example.com/?cursor=abc123&limit=50",

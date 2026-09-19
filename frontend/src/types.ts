@@ -5603,6 +5603,7 @@ export const INTEGRATION_KINDS = [
     'helpscout',
     'meta-ads',
     'instagram',
+    'facebook-pages',
     'clickup',
     'reddit-ads',
     'databricks',
