@@ -4,8 +4,11 @@ Each tool is a narrow, read-only wrapper around existing PostHog query machinery
 All tools are bound to a team and enforce team isolation via the Team instance
 they hold — they do NOT accept arbitrary team IDs from the LLM.
 
-Tools return compact strings suitable for inclusion in the LLM's context. They
-raise on error so the agent loop can catch and feed the error message back.
+Tools return compact strings suitable for inclusion in the LLM's context. A
+failed query comes back as an instruction to act on, because the agent otherwise
+reads any failure as proof that the data itself cannot be read. A rejected
+statement says to fix and retry. A timeout or a capacity error says the engine
+failed, so that the agent does not rewrite valid SQL.
 """
 
 from __future__ import annotations
@@ -16,14 +19,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import structlog
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.models import Team
 
 from products.alerts.backend.models.alert import AlertConfiguration
+
+logger = structlog.get_logger(__name__)
 
 MAX_HOGQL_ROWS = 50
 MAX_SERIES_POINTS = 120
@@ -43,6 +50,61 @@ _DATE_UNIT_TO_DELTA = {
     "w": lambda n: timedelta(weeks=n),
 }
 _DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# Said on a rejected query. The agent reads a raw engine error as "this data is not
+# available to me" and writes that into the report, which sends the reader to inspect the
+# pipeline behind a table that is serving rows.
+_QUERY_REJECTED_HELP = (
+    "The query was rejected before it ran. This says nothing about whether the table, view or "
+    "event stream exists — it is a defect in the query text. Rewrite the query and run it again. "
+    "Do not report a data source as unreadable, missing or unreachable because a query failed."
+)
+
+# Said when the engine failed the query instead of rejecting it. The statement is valid, so a
+# rewrite spends one of ten tool calls and changes nothing.
+_QUERY_UNAVAILABLE_HELP = (
+    "This is a failure in the engine that ran the query, not a defect in the query text. The "
+    "same query can succeed on a later attempt. Do not rewrite it, and do not report a data "
+    "source as unreadable, missing or unreachable because a query failed."
+)
+
+# Said when the query ran and hit a limit. The fix is a smaller question, not different SQL.
+_QUERY_TOO_EXPENSIVE_HELP = (
+    "The query reached the engine and hit a resource limit, so the query text is valid. Ask for "
+    "less instead of rewriting it: a shorter window, fewer groups, or a lower limit. Do not "
+    "report a data source as unreadable, missing or unreachable because a query failed."
+)
+
+# Errors that a different alias name fixes. Both engines word it differently, and ClickHouse's
+# cyclic-alias error names no identifier at all, so the offending alias is found in the SQL.
+_ALIAS_CONFLICT_MARKERS = (
+    "cyclic alias",
+    "redefine an alias",
+    "duplicate column alias",
+    "inside another aggregate function",
+)
+
+# Only aggregates are renamed. `toStartOfHour(h) AS h` is accepted, so rewriting it would
+# change a working expression while chasing an unrelated error.
+_AGGREGATE_FUNCTIONS = frozenset(
+    {
+        "any",
+        "anylast",
+        "avg",
+        "count",
+        "max",
+        "median",
+        "min",
+        "sum",
+        "uniq",
+        "uniqexact",
+    }
+)
+
+_AGGREGATE_ALIAS = re.compile(
+    r"\b(?P<fn>\w+)\s*\(\s*(?:\w+\.)?(?P<column>\w+)\s*\)\s+AS\s+(?P<alias>\w+)\b",
+    re.IGNORECASE,
+)
 
 
 class RunHogQLQueryArgs(BaseModel):
@@ -82,6 +144,34 @@ class SimulateDetectorArgs(BaseModel):
             "number of samples — the helper extends this window automatically if needed."
         ),
     )
+
+
+def _is_alias_conflict(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _ALIAS_CONFLICT_MARKERS)
+
+
+def rename_shadowing_aliases(sql: str) -> tuple[str, dict[str, str]]:
+    """Rename every aggregate that is aliased to the column it aggregates.
+
+    ``sum(runs) AS runs`` makes the alias and its own operand the same name, which the engine
+    rejects. The agent writes this shape repeatedly, then reads the rejection as the table being
+    unreadable and abandons the probe. Renaming the alias keeps the query's meaning and lets the
+    probe run. Returns the rewritten SQL and the old-to-new alias names.
+    """
+    renames: dict[str, str] = {}
+
+    def rename(match: re.Match[str]) -> str:
+        original = match.group(0)
+        function, column, alias = match.group("fn"), match.group("column"), match.group("alias")
+        if function.lower() not in _AGGREGATE_FUNCTIONS or alias.lower() != column.lower():
+            return original
+        renamed = f"{alias}_{function.lower()}"
+        renames[alias] = renamed
+        # Only the alias token moves. The aggregate expression is left exactly as written.
+        return original[: match.start("alias") - match.start()] + renamed
+
+    return _AGGREGATE_ALIAS.sub(rename, sql), renames
 
 
 def _compact(seq: list[Any]) -> list[Any]:
@@ -128,6 +218,22 @@ def _run_detector_simulation(
         return str(err)
 
 
+def _describe_query_failure(err: Exception, message: str) -> str:
+    """Name what failed, so the agent only rewrites SQL when the SQL is the problem.
+
+    The tool returns this text instead of raising, so nothing else records the failure. Log it
+    with its category here, or a query that fails during a cluster incident leaves no trace.
+    """
+    category = classify_query_error(err)
+    logger.warning("anomaly_investigation.query_failed", category=str(category), error=message)
+
+    if category == QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+        return f"Query hit a resource limit: {message}\n{_QUERY_TOO_EXPENSIVE_HELP}"
+    if category in (QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED):
+        return f"Query did not complete: {message}\n{_QUERY_UNAVAILABLE_HELP}"
+    return f"Query rejected: {message}\n{_QUERY_REJECTED_HELP}"
+
+
 @dataclass
 class InvestigationToolkit:
     """Bundles the tool implementations bound to a team and alert. Returned strings are
@@ -140,19 +246,45 @@ class InvestigationToolkit:
         sql = args.query.strip()
         if not re.match(r"^\(?\s*(select|with)\b", sql, re.IGNORECASE):
             raise ValueError("Only SELECT statements are allowed.")
+        try:
+            return json.dumps(await self._execute(sql), default=str)
+        except Exception as err:
+            failure = err
+        message = str(failure)
+
+        retried, renames = rename_shadowing_aliases(sql)
+        if not renames or not _is_alias_conflict(message):
+            return _describe_query_failure(failure, message)
+
+        try:
+            payload = await self._execute(retried)
+        except Exception as retry_err:
+            return (
+                f"{_describe_query_failure(failure, message)}\n"
+                "An aggregate is aliased to the column it aggregates. Renaming it "
+                f"({_format_renames(renames)}) still failed: {retry_err}"
+            )
+
+        payload["renamed_aliases"] = renames
+        payload["note"] = (
+            "Your query aliased an aggregate to the column it aggregates, which the engine "
+            f"rejects. It was re-run with {_format_renames(renames)}, so read the results under "
+            "the new column names. The data was always readable."
+        )
+        return json.dumps(payload, default=str)
+
+    async def _execute(self, sql: str) -> dict[str, Any]:
         response = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
             query=sql,
             team=self.team,
         )
         rows = response.results or []
-        truncated = rows[:MAX_HOGQL_ROWS]
-        payload: dict[str, Any] = {
+        return {
             "columns": response.columns or [],
-            "rows": [list(row) for row in truncated],
+            "rows": [list(row) for row in rows[:MAX_HOGQL_ROWS]],
             "row_count": len(rows),
             "truncated": len(rows) > MAX_HOGQL_ROWS,
         }
-        return json.dumps(payload, default=str)
 
     async def top_breakdowns(self, args: TopBreakdownArgs) -> str:
         # Use bracket-notation property access so keys like '$browser' and
@@ -234,6 +366,10 @@ class InvestigationToolkit:
             "total_points": sim.get("total_points") or len(values),
         }
         return json.dumps(payload, default=str)
+
+
+def _format_renames(renames: dict[str, str]) -> str:
+    return ", ".join(f"{old} renamed to {new}" for old, new in renames.items())
 
 
 def _escape_literal(value: str) -> str:
