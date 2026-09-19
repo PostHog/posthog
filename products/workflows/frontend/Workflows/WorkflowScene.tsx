@@ -10,6 +10,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,7 +27,6 @@ import { Workflow } from './Workflow'
 import {
     EMAIL_EDITOR_AGENT_HEADLINES,
     NEW_WORKFLOW_AGENT_HEADLINES,
-    NEW_WORKFLOW_COMPOSER_OVERRIDE,
     WORKFLOW_AGENT_HEADLINES,
     buildNewWorkflowComposerContext,
     buildWorkflowAgentContext,
@@ -123,7 +123,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             : editingEmail
               ? EMAIL_EDITOR_AGENT_HEADLINES
               : WORKFLOW_AGENT_HEADLINES,
-        composer: showAiComposer ? NEW_WORKFLOW_COMPOSER_OVERRIDE : undefined,
+        composer: showAiComposer ? AI_FIRST_COMPOSER_OVERRIDE : undefined,
         active: !!originalWorkflow || workflowSceneProps.id === 'new',
         // The composer is the page while drafting; the panel opens itself once the draft exists.
         autoOpen: !showAiComposer,
