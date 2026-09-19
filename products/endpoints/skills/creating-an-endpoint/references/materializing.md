@@ -46,7 +46,8 @@ rejection reasons:
 
 Always call `endpoints-materialization-preview` before enabling — it returns the exact
 rejection reason if any, plus the transformed query so the user can sanity-check what will be
-materialised.
+materialised. The preview addresses an existing endpoint by name, so on a new endpoint you must
+create it unmaterialised first, then preview, then enable with `endpoint-update`.
 
 ## Variables become WHERE filters
 
