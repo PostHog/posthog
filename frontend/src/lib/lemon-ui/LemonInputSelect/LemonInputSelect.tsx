@@ -8,7 +8,7 @@ import Fuse from 'fuse.js'
 import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { List } from 'react-window'
 
-import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -175,6 +175,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     sortable?: boolean
     /** Render single-mode values as snack pills (matching multi-mode appearance) */
     singleValueAsSnack?: boolean
+    /** Show a dropdown chevron, so the field reads as a select rather than a text input */
+    showChevron?: boolean
 }
 
 export function LemonInputSelect<T = string>({
@@ -214,6 +216,7 @@ export function LemonInputSelect<T = string>({
     sortable = false,
     status = 'default',
     singleValueAsSnack = false,
+    showChevron = false,
 }: LemonInputSelectProps<T>): JSX.Element {
     // A disabledReason disables the whole control, not just the inner input - value
     // snacks, clear buttons, and drag reordering must all be inert too
@@ -1060,6 +1063,7 @@ export function LemonInputSelect<T = string>({
                     <>
                         {countPlaceholder}
                         {valuesAndClearButtonSuffix}
+                        {showChevron && <IconChevronDown className="ml-auto shrink-0" />}
                     </>
                 }
                 onFocus={_onFocus}
