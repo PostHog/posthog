@@ -731,9 +731,54 @@ body[theme='dark'].has-markdown-v2-notebook .main-content-container > main {
     }
 }
 
+// The person and group profile tabs show a read-only canvas next to plain cards. The cells drop
+// their notebook chrome - the status rail and the kind pill - to match those cards.
 .NotebookProfileCanvas {
     .Notebook_content {
         padding: 0;
+    }
+
+    .MarkdownNotebook__component-shell {
+        margin-left: 0;
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    .MarkdownNotebook__component-toolbar {
+        font-size: 0.875rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    // The title leads the header, so what is left of the toolbar joins the controls on the right.
+    .MarkdownNotebook__component-toolbar-title-group {
+        order: -1;
+    }
+
+    // A cell that carries its own title does not need the kind pill as well.
+    .MarkdownNotebook__component-toolbar:has(> .MarkdownNotebook__component-toolbar-title-group)
+        .MarkdownNotebook__component-title {
+        display: none;
+    }
+
+    // A cell without one keeps the pill, because the kind is then the only name the cell has. The
+    // pill reads as the card title and takes the width the title group would have taken.
+    .MarkdownNotebook__component-toolbar:not(:has(> .MarkdownNotebook__component-toolbar-title-group)) {
+        .MarkdownNotebook__component-toolbar-left {
+            flex: 1 1 auto;
+        }
+
+        .MarkdownNotebook__component-title {
+            flex: 1 1 auto;
+            padding: 0;
+            font-size: inherit;
+            font-weight: 500;
+            color: var(--color-text-primary);
+            background: none;
+        }
+
+        .MarkdownNotebook__component-title-icon {
+            display: none;
+        }
     }
 }
 
