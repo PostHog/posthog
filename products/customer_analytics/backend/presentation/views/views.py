@@ -103,6 +103,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     FeatureRequestEvidenceCreateSerializer,
     FeatureRequestEvidenceDeleteSerializer,
     FeatureRequestEvidenceUpdateSerializer,
+    FeatureRequestGitHubLinkSerializerInput,
     FeatureRequestHistorySerializer,
     FeatureRequestListQuerySerializer,
     FeatureRequestProductAreaListQuerySerializer,
@@ -619,6 +620,82 @@ class FeatureRequestViewSet(
     @extend_schema(request=FeatureRequestUpdateSerializer, responses={200: FeatureRequestSerializer})
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return self.update(request, *args, **kwargs)
+
+    @extend_schema(request=FeatureRequestGitHubLinkSerializerInput, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def link_github(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestGitHubLinkSerializerInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.link_feature_request_github(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.LinkFeatureRequestGitHubInput(**serializer.validated_data),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.GitHubLinkUnavailableError as error:
+            raise ValidationError({"issue_url": str(error)})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    def _set_github_sync(self, request: Request, *, enabled: bool) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.set_feature_request_github_sync(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                enabled=enabled,
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.GitHubLinkUnavailableError as error:
+            raise ValidationError({"github_link": str(error)})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def pause_github(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_github_sync(request, enabled=False)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def resume_github(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_github_sync(request, enabled=True)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def unlink_github(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.unlink_feature_request_github(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])

@@ -199,6 +199,9 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
     advances with time, an allowlisted node set, event or action sources only, and an estimated
     point count a reader can afford. A check rides the same rules as a metric because both end up
     in the same query runner.
+
+    The Metric display's change pill is switched off rather than refused, because the stored display
+    is not authoritative and no author intent is lost.
     """
 
     validate_report_query(value, allowed_kinds=_LIVE_METRIC_QUERY_KINDS)
@@ -257,10 +260,11 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
             and trends_filter.get("metricShowChange", True) is not False
             and trends_filter.get("metricSummary", "total") != "latest"
         ):
-            raise ValueError(
-                "a live metric query using the Metric display must disable metricShowChange or use the latest "
-                "summary so the Trends runner does not enable compare mode"
-            )
+            # The Metric display turns compare mode on implicitly, which would multiply the output
+            # series past the one this contract allows.
+            trends_filter = {**trends_filter, "metricShowChange": False}
+            source = {**source, "trendsFilter": trends_filter}
+            value = {**value, "source": source}
     date_range = source.get("dateRange")
     if not isinstance(date_range, dict):
         raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")

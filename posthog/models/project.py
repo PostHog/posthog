@@ -110,6 +110,10 @@ class Project(UpdatedMetaFields):
     def is_deletion_pending(self) -> bool:
         return bool(self.is_pending_deletion)
 
+    def has_ingested_data(self) -> bool:
+        """True when any environment of this project has ever ingested an event."""
+        return self.teams.filter(ingested_event=True).exists()
+
     def can_cancel_deletion(self, *, at: datetime | None = None) -> bool:
         return bool(
             self.is_deletion_pending()

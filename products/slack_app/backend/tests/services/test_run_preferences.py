@@ -219,3 +219,30 @@ class TestAvailableModelChoices:
         models = {c.model for c in choices}
         assert {"claude-sonnet-5", "gpt-5.6-sol", "zai-org/glm-5.3"} <= models
         assert all(c.label and c.runtime_adapter for c in choices)
+
+
+class TestCentralRunDefault:
+    def _resolved(self, **kwargs):
+        from products.tasks.backend.facade.ai_run_defaults import ResolvedAIRunConfig
+
+        return ResolvedAIRunConfig(**kwargs)
+
+    def test_an_acp_default_is_carried_through(self):
+        resolved = self._resolved(runtime="acp", runtime_adapter="claude", model="claude-fable-5", source="team")
+        with patch(
+            "products.tasks.backend.facade.ai_run_defaults.resolve_ai_run_defaults",
+            return_value=resolved,
+        ):
+            assert run_preferences._central_run_default(team_id=1, user_id=7) is resolved
+
+    @pytest.mark.parametrize(
+        "runtime, model",
+        [("pi", "gpt-5.6-terra"), ("acp", None)],
+        ids=["a_pi_default_slack_cannot_run", "a_default_with_no_model"],
+    )
+    def test_a_default_slack_cannot_use_falls_back_to_its_own_floor(self, runtime, model):
+        with patch(
+            "products.tasks.backend.facade.ai_run_defaults.resolve_ai_run_defaults",
+            return_value=self._resolved(runtime=runtime, runtime_adapter=None, model=model, source="user"),
+        ):
+            assert run_preferences._central_run_default(team_id=1, user_id=7) is None

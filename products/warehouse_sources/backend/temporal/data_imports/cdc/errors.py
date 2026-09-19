@@ -27,6 +27,7 @@ class CDCErrorCategory(enum.StrEnum):
     SSL_REQUIRED = "ssl_required"
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
+    QUOTA_EXCEEDED = "quota_exceeded"
     SSH_TUNNEL_FAILED = "ssh_tunnel_failed"
     SLOT_MISSING = "slot_missing"
     SLOT_NOT_CONFIGURED = "slot_not_configured"
@@ -117,6 +118,12 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "with PostHog's IP addresses allowed through. If all of that looks right, contact support: "
         "some hosts resolve to an address PostHog can't reach, which is ours to fix. Re-enable "
         "change data capture once it's reachable.",
+        False,
+    ),
+    CDCErrorCategory.QUOTA_EXCEEDED: (
+        "Your database provider blocked the connection because your account or project exceeded a "
+        "usage quota. Upgrade your provider's plan or wait for the quota to reset, then re-enable "
+        "change data capture.",
         False,
     ),
     CDCErrorCategory.SSH_TUNNEL_FAILED: (

@@ -9,7 +9,13 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { applyCspToHtml } from "@posthog/core/mcp-apps/csp";
 import { isSafeExternalUrl } from "@posthog/shared";
 import * as WebBrowser from "expo-web-browser";
-import { useCallback, useEffect, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Platform } from "react-native";
 import type { EdgeInsets } from "react-native-safe-area-context";
 import type WebView from "react-native-webview";
@@ -77,38 +83,25 @@ export function useAppBridge(args: Args): {
   const transportRef = useRef<WebViewTransport | null>(null);
   const bridgeRef = useRef<AppBridge | null>(null);
   const latest = useRef(args);
-  latest.current = args;
+  useLayoutEffect(() => {
+    latest.current = args;
+  });
+  const [proxyGeneration, setProxyGeneration] = useState(0);
 
   const { webViewRef, resource } = args;
   useEffect(() => {
-    if (!resource) return;
+    if (!resource || proxyGeneration === 0) return;
     let gone = false;
 
-    const setup = async () => {
-      const transport = new WebViewTransport(webViewRef);
-      const ready = new Promise<void>((resolve) => {
-        const inner = transport.onmessage;
-        transport.onmessage = (msg) => {
-          if (
-            (msg as { method?: string }).method ===
-            "ui/notifications/sandbox-proxy-ready"
-          ) {
-            transport.onmessage = inner;
-            resolve();
-            return;
-          }
-          inner?.(msg);
-        };
-      });
-      await transport.start();
-      transportRef.current = transport;
-      await ready;
-      if (gone) return;
-      latest.current.onPhase("proxy-ready");
+    const transport = new WebViewTransport(webViewRef);
+    const bridge = new AppBridge(null, HOST_INFO, CAPABILITIES, {
+      hostContext: hostContext(latest.current),
+    });
+    transportRef.current = transport;
+    bridgeRef.current = bridge;
 
-      const bridge = new AppBridge(null, HOST_INFO, CAPABILITIES, {
-        hostContext: hostContext(latest.current),
-      });
+    const setup = async () => {
+      latest.current.onPhase("proxy-ready");
       bridge.oncalltool = (params) =>
         callMcpTool(params.name, params.arguments);
       bridge.onreadresource = (params) => readMcpResource(params.uri);
@@ -142,7 +135,7 @@ export function useAppBridge(args: Args): {
         }
       };
       await bridge.connect(transport);
-      bridgeRef.current = bridge;
+      if (gone) return;
       await bridge.sendSandboxResourceReady({
         html: applyCspToHtml(resource.html, resource.csp),
         csp: resource.csp,
@@ -156,12 +149,12 @@ export function useAppBridge(args: Args): {
 
     return () => {
       gone = true;
-      bridgeRef.current?.close().catch(() => {});
-      transportRef.current?.close().catch(() => {});
+      bridge.close().catch(() => {});
+      transport.close().catch(() => {});
       bridgeRef.current = null;
       transportRef.current = null;
     };
-  }, [resource, webViewRef]);
+  }, [resource, webViewRef, proxyGeneration]);
 
   // Theme, size and display mode changes flow to a live app.
   useEffect(() => {
@@ -177,6 +170,14 @@ export function useAppBridge(args: Args): {
   }, [args.dark, args.displayMode, args.width, args.insets]);
 
   const onWebViewMessage = useCallback((payload: string) => {
+    try {
+      if (
+        JSON.parse(payload)?.method === "ui/notifications/sandbox-proxy-ready"
+      ) {
+        setProxyGeneration((generation) => generation + 1);
+        return;
+      }
+    } catch {}
     transportRef.current?.acceptIncoming(payload);
   }, []);
 

@@ -1,5 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
+import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 
 const KEY = "mobilehog_repository";
 
@@ -13,15 +14,18 @@ interface RepoState {
 export const useRepo = create<RepoState>((set) => ({
   repository: undefined,
   hydrate: async () => {
+    if (!useAuth.getState().session) return;
+    const identity = sessionIdentity();
     try {
-      const raw = await SecureStore.getItemAsync(KEY);
+      const raw = await SecureStore.getItemAsync(accountStorageKey(KEY));
+      if (sessionIdentity() !== identity) return;
       set({ repository: raw === null ? undefined : raw === "" ? null : raw });
     } catch {
-      set({ repository: undefined });
+      if (sessionIdentity() === identity) set({ repository: undefined });
     }
   },
   setRepository: async (repository) => {
     set({ repository });
-    await SecureStore.setItemAsync(KEY, repository ?? "");
+    await SecureStore.setItemAsync(accountStorageKey(KEY), repository ?? "");
   },
 }));

@@ -2250,6 +2250,20 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    @parameterized.expand(
+        [
+            ("select_query", "SELECT 1 FROM events CROSS JOIN (SELECT 1)"),
+            ("select_set_query", "SELECT 1 FROM events CROSS JOIN (SELECT 1 UNION ALL SELECT 2)"),
+        ]
+    )
+    def test_select_cross_join_subquery_uses_generated_alias(self, _name: str, query: str) -> None:
+        self.assertIn("AS __join_1", self._select(query))
+
+    def test_select_cross_join_subquery_avoids_later_alias(self) -> None:
+        printed = self._select("SELECT 1 FROM events CROSS JOIN (SELECT 1) CROSS JOIN events AS __join_1")
+
+        self.assertIn("AS __join_2", printed)
+
     def test_left_join_team_id_in_on_clause(self):
         # LEFT JOINs should have team_id in ON clause, not WHERE, to preserve LEFT JOIN semantics
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -2533,6 +2547,66 @@ class TestPrinter(BaseTest):
                 f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) ASC LIMIT {MAX_SELECT_RETURNED_ROWS}"
             ),
         )
+
+    @parameterized.expand(
+        [
+            (
+                "utc",
+                "UTC",
+                True,
+                "SELECT event FROM events ORDER BY timestamp DESC LIMIT 10",
+                "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10",
+            ),
+            (
+                "non_utc",
+                "US/Pacific",
+                True,
+                "SELECT event FROM events ORDER BY timestamp DESC LIMIT 10",
+                "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10",
+            ),
+            (
+                "table_alias",
+                "UTC",
+                True,
+                "SELECT e.event FROM events AS e ORDER BY e.timestamp ASC LIMIT 10",
+                "ORDER BY toDate(e.timestamp) ASC, toTimeZone(e.timestamp, %(hogql_val_0)s) ASC LIMIT 10",
+            ),
+            (
+                "subquery_with_its_own_limit",
+                "UTC",
+                True,
+                "SELECT event FROM (SELECT event FROM events ORDER BY timestamp DESC LIMIT 10)",
+                "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10)",
+            ),
+            (
+                "cte_with_its_own_limit",
+                "UTC",
+                True,
+                "WITH recent AS (SELECT event FROM events ORDER BY timestamp DESC LIMIT 10) SELECT event FROM recent",
+                "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10)",
+            ),
+            (
+                "off_by_default",
+                "UTC",
+                False,
+                "SELECT event FROM events ORDER BY timestamp DESC LIMIT 10",
+                "ORDER BY toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10",
+            ),
+        ]
+    )
+    def test_order_by_events_timestamp_reads_in_sort_key_order(
+        self, _name: str, timezone: str, opted_in: bool, query: str, expected_order_by: str
+    ):
+        self.team.timezone = timezone
+        self.team.save()
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        if opted_in:
+            context.order_events_reads_by_sort_key = True
+
+        printed = self._select(query, context)
+
+        self.assertIn(expected_order_by, printed)
+        self.assertEqual(context.values["hogql_val_0"], timezone)
 
     @parameterized.expand(
         [

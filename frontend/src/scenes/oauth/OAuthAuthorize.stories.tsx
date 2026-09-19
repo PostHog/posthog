@@ -195,6 +195,37 @@ export const ManyOptionalScopes: Story = {
     },
 }
 
+// Sets the server flag that says one of the user's organizations has access-control rules.
+// The story below shows the notice this flag adds under the permission list. The decorator
+// restores the original flag on unmount so it cannot leak into other stories.
+const withAccessControls: Decorator = function AccessControlsDecorator(Story): JSX.Element {
+    const appContext = (window as any).POSTHOG_APP_CONTEXT
+    const original = useRef<{ value: unknown } | null>(null)
+    if (!original.current) {
+        original.current = { value: appContext.oauth_consent_access_controls_apply }
+        appContext.oauth_consent_access_controls_apply = true
+    }
+    useEffect(
+        () => () => {
+            appContext.oauth_consent_access_controls_apply = original.current?.value
+        },
+        [appContext]
+    )
+    return <Story />
+}
+
+export const AccessControlsApply: Story = {
+    decorators: [withAccessControls, withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() =>
+            pushAuthorize(
+                'openid profile email project:read feature_flag:read feature_flag:write insight:write query:read'
+            )
+        )
+        return <App />
+    },
+}
+
 const everyScopeRequest = ['openid', 'profile', 'email', ...API_SCOPES.map(({ key }) => `${key}:write`)].join(' ')
 
 // The worst case for the layout: a client that asks for every scope PostHog has, which is one

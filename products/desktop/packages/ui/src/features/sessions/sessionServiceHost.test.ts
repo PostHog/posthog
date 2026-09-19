@@ -2149,7 +2149,11 @@ describe("SessionService", () => {
       expect(mockConvertStoredEntriesToEvents).toHaveBeenCalledWith(
         windowEntries,
         undefined,
-        { taskRunId: "run-123", startEntryIndex: 4998 },
+        {
+          taskRunId: "run-123",
+          startEntryIndex: 4998,
+          firstPositionedEntryIndex: 0,
+        },
       );
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",

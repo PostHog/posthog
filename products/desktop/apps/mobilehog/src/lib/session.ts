@@ -46,6 +46,7 @@ export interface TaskSession {
 
 interface SessionState {
   sessions: Record<string, TaskSession>;
+  reset: () => void;
   // A chat that exists on screen before its task does. `adopt` moves it under
   // the real task id once the run is created; `fail` leaves the prompt with an error.
   startPending: (tempId: string, prompt: string, localId: string) => void;
@@ -99,6 +100,7 @@ function emptySession(taskId: string, runId: string): TaskSession {
 }
 
 export const useSessions = create<SessionState>((set, get) => {
+  let generation = 0;
   const patch = (
     taskId: string,
     fn: (s: TaskSession) => Partial<TaskSession>,
@@ -229,14 +231,18 @@ export const useSessions = create<SessionState>((set, get) => {
   };
 
   const watch = (taskId: string, runId: string): void => {
+    const currentGeneration = generation;
     handles.get(taskId)?.stop();
     handles.set(
       taskId,
-      watchRun(taskId, runId, (update) => applyUpdate(taskId, update)),
+      watchRun(taskId, runId, (update) => {
+        if (generation === currentGeneration) applyUpdate(taskId, update);
+      }),
     );
   };
 
   const resumeRun = async (taskId: string, prompt: string): Promise<void> => {
+    const currentGeneration = generation;
     const session = get().sessions[taskId];
     if (!session) return;
     log.info("Sandbox gone, resuming run", {
@@ -248,6 +254,7 @@ export const useSessions = create<SessionState>((set, get) => {
       pendingUserMessage: prompt,
       ...currentRunConfig(),
     });
+    if (generation !== currentGeneration) return;
     const runId = task.latest_run?.id;
     if (!runId) throw new Error("Resume did not return a run");
     set((state) => ({
@@ -267,6 +274,13 @@ export const useSessions = create<SessionState>((set, get) => {
 
   return {
     sessions: {},
+
+    reset: () => {
+      generation += 1;
+      for (const handle of handles.values()) handle.stop();
+      handles.clear();
+      set({ sessions: {} });
+    },
 
     startPending: (tempId, prompt, localId) => {
       set((state) => ({
@@ -330,6 +344,7 @@ export const useSessions = create<SessionState>((set, get) => {
     },
 
     sendPrompt: async (taskId, text, localId = `local-${Date.now()}`) => {
+      const currentGeneration = generation;
       const session = get().sessions[taskId];
       if (!session) return null;
       const echoes = new Set(session.localEchoes);
@@ -356,11 +371,13 @@ export const useSessions = create<SessionState>((set, get) => {
           { content: text },
         );
       } catch (error) {
+        if (generation !== currentGeneration) return null;
         if (error instanceof CloudCommandError && runIsGone(error)) {
           patch(taskId, () => ({ resuming: true }));
           try {
             await resumeRun(taskId, text);
           } catch (resumeError) {
+            if (generation !== currentGeneration) return null;
             patch(taskId, () => ({
               resuming: false,
               turnActive: false,
@@ -382,12 +399,15 @@ export const useSessions = create<SessionState>((set, get) => {
     },
 
     cancelTurn: async (taskId) => {
+      const currentGeneration = generation;
       const session = get().sessions[taskId];
       if (!session) return;
       try {
         await getClient().sendCloudRunCommand(taskId, session.runId, "cancel");
+        if (generation !== currentGeneration) return;
         patch(taskId, () => ({ turnActive: false }));
       } catch (error) {
+        if (generation !== currentGeneration) return;
         patch(taskId, () => ({
           error: error instanceof Error ? error.message : String(error),
         }));
@@ -395,13 +415,16 @@ export const useSessions = create<SessionState>((set, get) => {
     },
 
     stopRun: async (taskId) => {
+      const currentGeneration = generation;
       const session = get().sessions[taskId];
       if (!session) return;
       await getClient().cancelTaskRun(taskId, session.runId);
+      if (generation !== currentGeneration) return;
       patch(taskId, () => ({ turnActive: false, runStatus: "cancelled" }));
     },
 
     respondToPermission: async (taskId, toolCallId, optionId) => {
+      const currentGeneration = generation;
       const session = get().sessions[taskId];
       const request = session?.permissions[toolCallId];
       if (!session || !request) return;
@@ -423,12 +446,14 @@ export const useSessions = create<SessionState>((set, get) => {
             optionId,
           },
         );
+        if (generation !== currentGeneration) return;
         patch(taskId, (s) => {
           const permissions = { ...s.permissions };
           delete permissions[toolCallId];
           return { permissions };
         });
       } catch (error) {
+        if (generation !== currentGeneration) return;
         patch(taskId, (s) => ({
           permissions: { ...s.permissions, [toolCallId]: request },
           error: error instanceof Error ? error.message : String(error),

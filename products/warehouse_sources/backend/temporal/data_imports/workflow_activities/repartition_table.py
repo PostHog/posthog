@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_maintenance_error,
+    is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
@@ -165,6 +166,12 @@ def _is_transient_infra_error(error: Exception) -> bool:
     # delta.table._is_retryable_purge_error — not a customer credential problem. Retrying on the next
     # sync self-heals it; burning an attempt and reporting it instead abandons the table after the cap.
     if isinstance(error, PermissionError):
+        return True
+    # Same object-store blips (`Generic S3 error`, SlowDown, S3's internal-error response) that
+    # `is_transient_maintenance_error` already recognizes for the maintenance path — the rewrite hits
+    # the same data-warehouse bucket the same way, so an OSError/DeltaError matching one of those
+    # needles here is exactly as transient.
+    if is_transient_object_store_error(error):
         return True
     message = str(error).lower()
     return any(snippet in message for snippet in _TRANSIENT_ERROR_SNIPPETS)
@@ -296,6 +303,16 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             schema_id=inputs.schema_id,
         )
         return
+    except Exception as e:
+        # retry_on_db_connection_drop already retried once; a second failure here (e.g. the worker
+        # briefly exhausting its file descriptors under load) is the same transient-infra shape the
+        # rewrite itself stands down on below, just hit before a run has even started. No claim has
+        # been staked and no attempt charged yet, so standing down costs nothing: the table is simply
+        # picked up again on the next sync.
+        if not _is_transient_infra_error(e):
+            raise
+        logger.warning("repartition: database unavailable while fetching schema, standing down", exc_info=True)
+        return
 
     # A table with a pending corruption revive must heal first — the extract activity resets it and
     # rebuilds from source. Repartitioning it here would interleave with that heal and re-hollow the
@@ -366,6 +383,14 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             f"repartition: job not found, skipping activity job_id={inputs.job_id}",
             job_id=inputs.job_id,
         )
+        return
+    except Exception as e:
+        # See the matching comment on the schema fetch above: a second connection failure after
+        # retry_on_db_connection_drop's own retry is transient infra, not a repartition bug, and
+        # nothing has been claimed or charged yet.
+        if not _is_transient_infra_error(e):
+            raise
+        logger.warning("repartition: database unavailable while fetching job, standing down", exc_info=True)
         return
 
     # Attach the same source/schema identity the import activity does, so an exception captured

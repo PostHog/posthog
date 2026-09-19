@@ -75,6 +75,7 @@ import type {
     FeatureRequestEvidenceCreateApi,
     FeatureRequestEvidenceDeleteApi,
     FeatureRequestEvidenceUpdateApi,
+    FeatureRequestGitHubLinkSerializerInputApi,
     FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestProductAreasListParams,
@@ -2252,6 +2253,42 @@ export const featureRequestsHistoryList = async (
     })
 }
 
+export const getFeatureRequestsLinkGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/link_github/`
+}
+
+export const featureRequestsLinkGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestGitHubLinkSerializerInputApi: FeatureRequestGitHubLinkSerializerInputApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsLinkGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestGitHubLinkSerializerInputApi),
+    })
+}
+
+export const getFeatureRequestsPauseGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/pause_github/`
+}
+
+export const featureRequestsPauseGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsPauseGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
 export const getFeatureRequestsRemoveEvidenceCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/feature_requests/${id}/remove_evidence/`
 }
@@ -2288,6 +2325,24 @@ export const featureRequestsRestoreCreate = async (
     })
 }
 
+export const getFeatureRequestsResumeGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/resume_github/`
+}
+
+export const featureRequestsResumeGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsResumeGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
 export const getFeatureRequestsStatusHistoryListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/feature_requests/${id}/status_history/`
 }
@@ -2300,6 +2355,24 @@ export const featureRequestsStatusHistoryList = async (
     return apiMutator<FeatureRequestStatusHistoryApi[]>(getFeatureRequestsStatusHistoryListUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFeatureRequestsUnlinkGithubCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/unlink_github/`
+}
+
+export const featureRequestsUnlinkGithubCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsUnlinkGithubCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
     })
 }
 

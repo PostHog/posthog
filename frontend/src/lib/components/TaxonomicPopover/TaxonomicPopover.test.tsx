@@ -74,6 +74,15 @@ describe('TaxonomicPopover', () => {
         expect(item.name).toBe('event1')
     })
 
+    it('calls onOpen when opening the dropdown', async () => {
+        const onOpen = jest.fn()
+        renderPopover({ placeholder: 'Select an event', onOpen })
+
+        await userEvent.click(screen.getByText('Select an event'))
+
+        expect(onOpen).toHaveBeenCalledTimes(1)
+    })
+
     it('clear button calls onChange with empty value', async () => {
         const { onChange } = renderPopover({ value: 'pageview', allowClear: true })
         await userEvent.click(screen.getByLabelText('Clear selection'))

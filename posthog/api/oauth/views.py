@@ -101,6 +101,8 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, get_instance_region, render_template
 from posthog.views import login_required
 
+from products.access_control.backend.facade.api import user_organizations_use_access_controls
+
 logger = structlog.get_logger(__name__)
 
 
@@ -1582,6 +1584,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
             }
         }
+
+        # Scopes cap what the token may do; access rules cap what the user may do. The grant can
+        # reach any organization the user belongs to, so when any of them has rules the consent
+        # screen says so, because a granted scope can still meet a 403.
+        template_context["oauth_consent_access_controls_apply"] = user_organizations_use_access_controls(
+            user_id=request.user.id
+        )
 
         requested_scope = (request.query_params.get("scope") or "").strip()
         if not requested_scope:

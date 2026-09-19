@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ContentBlock, RequestError } from "@agentclientprotocol/sdk";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "@posthog/harness/extensions/benjamin";
 import { type Adapter, IDLE_RESUME_STOP_REASON } from "@posthog/shared";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
@@ -28,7 +29,6 @@ import {
 } from "vitest";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration";
-import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { ResumeState } from "../resume";
@@ -6776,6 +6776,7 @@ describe("AgentServer HTTP Mode", () => {
         "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
       );
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("gh issue list --search");
       expect(prompt).toContain("Closes #<n>");
     });
@@ -6803,6 +6804,7 @@ describe("AgentServer HTTP Mode", () => {
           "open a draft pull request",
           "unless the user explicitly asks",
           ".github/pull_request_template.md",
+          ".github/PULL_REQUEST_TEMPLATE/*.md",
           "gh issue list --search",
           "Closes #<n>",
           "Generated-By: PostHog Desktop",
@@ -6884,6 +6886,7 @@ describe("AgentServer HTTP Mode", () => {
       );
       // PR template detection (repo first, org `.github` fallback)
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("org's `.github` repo");
       // Related-issue linking
       expect(prompt).toContain("gh issue list --state open --search");

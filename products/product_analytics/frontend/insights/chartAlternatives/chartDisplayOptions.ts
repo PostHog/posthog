@@ -1,4 +1,4 @@
-import type { BreakdownFilter } from '~/queries/schema/schema-general'
+import type { BreakdownFilter, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 export type ChartDisplayIcon =
@@ -45,6 +45,22 @@ function isCountryProperty(value: unknown): boolean {
     return typeof value === 'string' && COUNTRY_PROPERTIES.has(value)
 }
 
+// Trends writes breakdowns as a list; older queries carry a single breakdown. Both count.
+export function breakdownProperties(breakdownFilter?: BreakdownFilter | null): (string | number)[] {
+    if (breakdownFilter?.breakdowns?.length) {
+        return breakdownFilter.breakdowns.map((entry) => entry.property)
+    }
+    const single = breakdownFilter?.breakdown
+    if (single == null) {
+        return []
+    }
+    return Array.isArray(single) ? single : [single]
+}
+
+export function hasTrendsFormula(trendsFilter?: TrendsFilter | null): boolean {
+    return !!trendsFilter?.formula || !!trendsFilter?.formulas?.length || !!trendsFilter?.formulaNodes?.length
+}
+
 export function getChartDisplayOptions({
     boxPlotMissingProperty,
     hasMetricInsight,
@@ -54,9 +70,9 @@ export function getChartDisplayOptions({
     breakdown,
     breakdowns,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
-    const singleBreakdownProperty = breakdowns?.length === 1 ? breakdowns[0].property : breakdown
-    const hasSupportedCountryBreakdown =
-        (breakdowns?.length ?? 0) <= 1 && (!singleBreakdownProperty || isCountryProperty(singleBreakdownProperty))
+    const breakdownProps = breakdownProperties({ breakdown, breakdowns })
+    const worldMapBreakdownDisabled =
+        breakdownProps.length > 1 || breakdownProps.some((property) => !isCountryProperty(property))
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !hasSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
@@ -184,9 +200,9 @@ export function getChartDisplayOptions({
                         trendsOnlyDisabledReason ||
                         (hasTrendsFormula
                             ? "This type isn't available, because it doesn't support formulas."
-                            : hasSupportedCountryBreakdown
-                              ? undefined
-                              : "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."),
+                            : worldMapBreakdownDisabled
+                              ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                              : undefined),
                 },
                 {
                     display: ChartDisplayType.CalendarHeatmap,
