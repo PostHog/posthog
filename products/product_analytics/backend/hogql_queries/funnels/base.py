@@ -93,7 +93,7 @@ class FunnelBase(ABC):
 
         The stored timestamp is the capture instant plus that request's delivery latency, so two
         requests from one device order by how long each took to arrive rather than by when the
-        events happened. A client-minted UUIDv7 carries the device's own capture instant, which
+        events happened. `$client_capture_time` is the device's own clock reading at capture, which
         has the device's clock error in it instead; that error is constant within a device, so it
         cannot reorder that device's own events.
 

@@ -5664,10 +5664,10 @@ class HogQLQueryModifiers(BaseModel):
     funnelUseClientCaptureOrder: bool | None = Field(
         default=None,
         description=(
-            "Order funnel steps by the capture instant carried in a client-minted"
-            " UUIDv7 rather than by the stored timestamp, which includes the request's"
-            " delivery latency. Falls back per row to the stored timestamp when the"
-            " event carries no usable UUIDv7."
+            "Order funnel steps by `$client_capture_time`, the device's own clock"
+            " reading at capture, rather than by the stored timestamp, which includes"
+            " the request's delivery latency. Falls back per row to the stored"
+            " timestamp when the event has no capture instant or no device."
         ),
     )
     inCohortVia: InCohortVia | None = None
