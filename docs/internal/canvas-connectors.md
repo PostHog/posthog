@@ -24,6 +24,7 @@ Generate a new key for each additional task linked to the same canvas card.
 The returned run status is a snapshot, not live progress.
 Canvases without task syncing should show the thread link without storing or displaying that status.
 Keep manual board columns separate from thread state.
+On drag-only boards, the card's column shows its status; omit a separate column dropdown.
 
 `ph.openExternal(url)` accepts HTTPS GitHub PR links as well as PostHog HTTPS URLs. GitHub links
 must use `github.com`, with no credentials, custom port, or query string. PR overview, files,
