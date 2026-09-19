@@ -637,8 +637,15 @@ def _anthropic_message_body(text: str) -> dict:
     }
 
 
-def _anthropic_error(status: int) -> httpx.Response:
-    return httpx.Response(status, json={"type": "error", "error": {"type": "api_error", "message": "failed"}})
+def _anthropic_error(
+    status: int, error_type: str = "api_error", message: str = "failed", headers: dict[str, str] | None = None
+) -> httpx.Response:
+    return httpx.Response(
+        status, headers=headers, json={"type": "error", "error": {"type": error_type, "message": message}}
+    )
+
+
+_WORKSPACE_LIMIT = "You have reached your specified workspace API usage limits. You will regain access on 2026-10-01."
 
 
 @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "direct-api-key"})
@@ -801,6 +808,8 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             ("rate_limited", _anthropic_error(429)),
             ("server_error", _anthropic_error(503)),
             ("server_error", _anthropic_error(529)),
+            ("provider_billing", _anthropic_error(400, "invalid_request_error", _WORKSPACE_LIMIT)),
+            ("provider_billing", _anthropic_error(402, "billing_error", "Payment required")),
         ]
         for reason, outcome in cases:
             with self.subTest(reason=reason, outcome=outcome):
@@ -824,10 +833,19 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
                 mock_labels.assert_called_once_with(reason=reason)
 
     async def test_non_retryable_gateway_failures_raise_without_fallback(self):
-        for status in (400, 402, 403, 404):
-            with self.subTest(status=status):
+        cases: list[tuple[str, httpx.Response]] = [
+            ("bad request", _anthropic_error(400, "invalid_request_error", "prompt is too long")),
+            (
+                "gateway's own credit denial",
+                _anthropic_error(402, "billing_error", _WORKSPACE_LIMIT, {"X-PostHog-Denial": "insufficient_credits"}),
+            ),
+            ("forbidden", _anthropic_error(403)),
+            ("not found", _anthropic_error(404)),
+        ]
+        for name, outcome in cases:
+            with self.subTest(name):
                 self.requests.clear()
-                self.gateway_outcome = _anthropic_error(status)
+                self.gateway_outcome = outcome
                 model = self._model()
                 with (
                     patch("ee.hogai.llm.ensure_config", return_value=self._config()),

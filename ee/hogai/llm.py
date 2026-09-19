@@ -88,8 +88,23 @@ def is_ai_gateway_served(output: object) -> bool:
     )
 
 
+# Anthropic's wording for a billing or usage-limit block, the same list the gateway classifies on.
+_PROVIDER_BILLING_SIGNATURES = ("credit balance", "usage limit", "regain access", "plans & billing")
+
+
+def _is_provider_billing_block(error: anthropic.APIStatusError) -> bool:
+    """Anthropic blocking the gateway's workspace, passed through; the gateway's own 402s carry X-PostHog-Denial."""
+    if error.status_code not in (400, 402) or error.response.headers.get("X-PostHog-Denial"):
+        return False
+    detail = error.body.get("error") if isinstance(error.body, dict) else None
+    if not isinstance(detail, dict):
+        return False
+    message = str(detail.get("message") or "").lower()
+    return detail.get("type") == "billing_error" or any(sig in message for sig in _PROVIDER_BILLING_SIGNATURES)
+
+
 def _ai_gateway_fallback_reason(error: Exception) -> str | None:
-    """None re-raises: a direct retry cannot fix other errors, and 402/403 must keep the gateway's caps binding."""
+    """None re-raises: a direct retry cannot fix other errors, and the gateway's own 402/403 must stay binding."""
     if isinstance(error, anthropic.APITimeoutError):
         return "timeout"
     if isinstance(error, anthropic.APIConnectionError):
@@ -101,6 +116,8 @@ def _ai_gateway_fallback_reason(error: Exception) -> str | None:
             return "rate_limited"
         if error.status_code >= 500:
             return "server_error"
+        if _is_provider_billing_block(error):
+            return "provider_billing"
     return None
 
 
