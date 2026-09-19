@@ -256,6 +256,7 @@ rules:
                               |LogsExclusionRule
                               |LogsMetricRule
                               |LogsRetentionRule
+                              |LogsSource
                               |LogsView
                               |Loop
                               |LoopFire

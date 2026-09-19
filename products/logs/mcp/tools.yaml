@@ -540,6 +540,30 @@ tools:
             include:
                 - services
                 - sparkline
+    logs-sources-create:
+        operation: logs_sources_create
+        enabled: false
+    logs-sources-destroy:
+        operation: logs_sources_destroy
+        enabled: false
+    logs-sources-health-retrieve:
+        operation: logs_sources_health_retrieve
+        enabled: false
+    logs-sources-list:
+        operation: logs_sources_list
+        enabled: false
+    logs-sources-partial-update:
+        operation: logs_sources_partial_update
+        enabled: false
+    logs-sources-retrieve:
+        operation: logs_sources_retrieve
+        enabled: false
+    logs-sources-setup-retrieve:
+        operation: logs_sources_setup_retrieve
+        enabled: false
+    logs-sources-update:
+        operation: logs_sources_update
+        enabled: false
     logs-sparkline-query:
         operation: logs_sparkline_create
         enabled: true
