@@ -1,10 +1,9 @@
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
 
 import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
-import { AppMetricsOutput } from '~/common/outputs'
+import { AppMetricsOutput, DLQ_OUTPUT, DlqOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
@@ -15,86 +14,39 @@ import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { MetricsIngestionConsumerConfig } from './config'
 import { recordMetricsIngested } from './ingestion-otel-metrics'
-import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT, MetricsDlqOutput, MetricsOutput } from './outputs/outputs'
+import {
+    metricMessageDlqCounter,
+    metricMessageDroppedCounter,
+    metricsBytesAllowedCounter,
+    metricsBytesDroppedCounter,
+    metricsBytesReceivedCounter,
+    metricsRecordsAllowedCounter,
+    metricsRecordsDroppedCounter,
+    metricsRecordsReceivedCounter,
+} from './metrics'
+import { DEFAULT_USAGE_STATS, UsageStatsByTeam } from './metrics-usage'
+import { METRICS_OUTPUT, MetricsOutput } from './outputs/outputs'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
+import { createMetricsRateLimiterRedis } from './services/metrics-redis'
 import { MetricsIngestionMessage } from './types'
 
 export interface MetricsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
     /**
-     * Resolved outputs registry — must include `METRICS_OUTPUT`, `METRICS_DLQ_OUTPUT`,
+     * Resolved outputs registry — must include `METRICS_OUTPUT`, `DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
      * server via env vars — this consumer never touches a `KafkaProducerWrapper`
      * directly.
      */
-    outputs: IngestionOutputs<MetricsOutput | MetricsDlqOutput | AppMetricsOutput>
+    outputs: IngestionOutputs<MetricsOutput | DlqOutput | AppMetricsOutput>
 }
 
-export type UsageStats = {
-    bytesReceived: number
-    recordsReceived: number
-    bytesAllowed: number
-    recordsAllowed: number
-    bytesDropped: number
-    recordsDropped: number
-}
-
-const DEFAULT_USAGE_STATS: UsageStats = {
-    bytesReceived: 0,
-    recordsReceived: 0,
-    bytesAllowed: 0,
-    recordsAllowed: 0,
-    bytesDropped: 0,
-    recordsDropped: 0,
-}
-
-export type UsageStatsByTeam = Map<number, UsageStats>
-
-export const metricMessageDroppedCounter = new Counter({
-    name: 'metrics_ingestion_message_dropped_count',
-    help: 'The number of metrics ingestion messages dropped',
-    labelNames: ['reason', 'team_id'],
-})
-
-export const metricMessageDlqCounter = new Counter({
-    name: 'metrics_ingestion_message_dlq_count',
-    help: 'The number of metrics ingestion messages sent to DLQ',
-    labelNames: ['reason', 'team_id'],
-})
-
-export const metricsBytesReceivedCounter = new Counter({
-    name: 'metrics_ingestion_bytes_received_total',
-    help: 'Total uncompressed bytes received for metrics ingestion',
-})
-
-export const metricsBytesAllowedCounter = new Counter({
-    name: 'metrics_ingestion_bytes_allowed_total',
-    help: 'Total uncompressed bytes allowed through quota and rate limiting',
-})
-
-export const metricsBytesDroppedCounter = new Counter({
-    name: 'metrics_ingestion_bytes_dropped_total',
-    help: 'Total uncompressed bytes dropped due to quota or rate limiting',
-    labelNames: ['team_id'],
-})
-
-export const metricsRecordsReceivedCounter = new Counter({
-    name: 'metrics_ingestion_records_received_total',
-    help: 'Total metric records received',
-})
-
-export const metricsRecordsAllowedCounter = new Counter({
-    name: 'metrics_ingestion_records_allowed_total',
-    help: 'Total metric records allowed through quota and rate limiting',
-})
-
-export const metricsRecordsDroppedCounter = new Counter({
-    name: 'metrics_ingestion_records_dropped_total',
-    help: 'Total metric records dropped due to quota or rate limiting',
-    labelNames: ['team_id'],
-})
-
+/**
+ * Pre-framework metrics consumer, kept for rollback: the server runs it when
+ * `METRICS_INGESTION_USE_PIPELINE_FRAMEWORK` is false. See
+ * `metrics-pipeline-consumer.ts` for the current implementation.
+ */
 export class MetricsIngestionConsumer {
     protected name = 'MetricsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumerInterface
@@ -117,25 +69,8 @@ export class MetricsIngestionConsumer {
         this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs)
 
         this.kafkaConsumer = createKafkaConsumer({ groupId: this.groupId, topic: this.topic })
-        this.redis = createRedisV2PoolFromConfig({
-            connection:
-                (overrides.METRICS_REDIS_HOST ?? config.METRICS_REDIS_HOST)
-                    ? {
-                          url: overrides.METRICS_REDIS_HOST ?? config.METRICS_REDIS_HOST,
-                          options: {
-                              port: overrides.METRICS_REDIS_PORT ?? config.METRICS_REDIS_PORT,
-                              tls: (overrides.METRICS_REDIS_TLS ?? config.METRICS_REDIS_TLS) ? {} : undefined,
-                          },
-                          name: 'metrics-redis',
-                      }
-                    : { url: config.REDIS_URL, name: 'metrics-redis-fallback' },
-            poolMinSize: config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-        })
-        this.rateLimiter = new MetricsRateLimiterService(
-            { ...config, ...overrides } as MetricsIngestionConsumerConfig,
-            this.redis
-        )
+        this.redis = createMetricsRateLimiterRedis({ ...config, ...overrides })
+        this.rateLimiter = new MetricsRateLimiterService({ ...config, ...overrides }, this.redis)
     }
 
     public get service(): PluginServerService {
@@ -331,7 +266,7 @@ export class MetricsIngestionConsumer {
         metricMessageDlqCounter.inc({ reason: errorName, team_id: message.teamId.toString() })
 
         try {
-            await this.deps.outputs.queueMessages(METRICS_DLQ_OUTPUT, [
+            await this.deps.outputs.queueMessages(DLQ_OUTPUT, [
                 {
                     value: message.message.value,
                     key: null,
