@@ -22,6 +22,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
+    FunnelConversionWindowTimeUnit,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -49,6 +50,7 @@ import {
     toConcurrencyPayload,
     toExperimentWritePayload,
     withoutProjectedFlagConfig,
+    withoutUnitlessConversionWindow,
 } from './utils'
 
 describe('utils', () => {
@@ -1628,5 +1630,26 @@ describe('withoutProjectedFlagConfig', () => {
             variant_notes: { control: 'baseline copy' },
             custom_exposure_filter: { events: [] },
         })
+    })
+})
+
+describe('withoutUnitlessConversionWindow', () => {
+    const metric = {
+        uuid: 'metric-uuid',
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.MEAN,
+        source: { kind: NodeKind.EventsNode, event: '$pageview' },
+    } as unknown as ExperimentMetric
+
+    it('drops a window that has no unit, so a copy of a stored metric saves', () => {
+        const copied = withoutUnitlessConversionWindow({ ...metric, conversion_window: 7 })
+
+        expect(copied).not.toHaveProperty('conversion_window')
+    })
+
+    it('keeps a window that has a unit', () => {
+        const withUnit = { ...metric, conversion_window: 7, conversion_window_unit: FunnelConversionWindowTimeUnit.Day }
+
+        expect(withoutUnitlessConversionWindow(withUnit)).toEqual(withUnit)
     })
 })

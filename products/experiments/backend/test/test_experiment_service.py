@@ -1076,6 +1076,194 @@ class TestExperimentService(APIBaseTest):
         )
 
     # ------------------------------------------------------------------
+    # validate_conversion_window_units — only metrics the caller changes
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _metric_with_window(
+        uuid: str | None, conversion_window: int | None, conversion_window_unit: str | None
+    ) -> dict:
+        metric: dict[str, Any] = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        if uuid is not None:
+            metric["uuid"] = uuid
+        if conversion_window is not None:
+            metric["conversion_window"] = conversion_window
+        if conversion_window_unit is not None:
+            metric["conversion_window_unit"] = conversion_window_unit
+        return metric
+
+    _STORED_UNITLESS_UUID = "11111111-1111-4111-8111-111111111111"
+
+    @parameterized.expand(
+        [
+            ("window_with_unit", 7, "day"),
+            ("no_window_at_all", None, None),
+        ]
+    )
+    def test_validate_conversion_window_units_accepts_new_metric(
+        self, _: str, window: int | None, unit: str | None
+    ) -> None:
+        metric = self._metric_with_window("22222222-2222-4222-8222-222222222222", window, unit)
+        ExperimentService.validate_conversion_window_units([metric], [], section="metrics")
+
+    @parameterized.expand(
+        [
+            ("with_uuid", _STORED_UNITLESS_UUID),
+            # Metrics stored before uuids were assigned have none, and must stay editable too.
+            ("without_uuid", None),
+        ]
+    )
+    def test_validate_conversion_window_units_accepts_stored_metric_resent_unchanged(
+        self, _: str, uuid: str | None
+    ) -> None:
+        stored = self._metric_with_window(uuid, 7, None)
+        ExperimentService.validate_conversion_window_units([deepcopy(stored)], [stored], section="metrics")
+
+    @parameterized.expand(
+        [
+            ("new_metric", 7, []),
+            # Same uuid as the stored metric, but the window changed, so the caller touched it.
+            ("changed_window_on_stored_metric", 14, [{"uuid": _STORED_UNITLESS_UUID, "conversion_window": 7}]),
+        ]
+    )
+    def test_validate_conversion_window_units_rejects_window_without_unit(
+        self, _: str, window: int, stored_metrics: list
+    ) -> None:
+        metric = self._metric_with_window(self._STORED_UNITLESS_UUID, window, None)
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_conversion_window_units([metric], stored_metrics, section="metrics_secondary")
+        message = str(ctx.exception)
+        assert "conversion_window_unit" in message
+        assert "metrics_secondary" in message
+
+    def test_validate_conversion_window_units_rejects_a_second_copy_of_one_stored_metric(self) -> None:
+        # One stored metric excuses one incoming metric. The second copy is a new metric, and
+        # _assign_uuids_to_metrics would give it a fresh uuid and store the unit-less window.
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_conversion_window_units(
+                [deepcopy(stored), deepcopy(stored)], [stored], section="metrics"
+            )
+        assert "index 1" in str(ctx.exception)
+
+    def test_create_experiment_rejects_conversion_window_without_unit(self) -> None:
+        self._create_flag(key="window-unit-create")
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().create_experiment(
+                name="Window without unit",
+                feature_flag_key="window-unit-create",
+                metrics=[self._metric_with_window("33333333-3333-4333-8333-333333333333", 7, None)],
+                allow_unknown_events=True,
+            )
+        assert "conversion_window_unit" in str(ctx.exception)
+
+    def test_update_experiment_accepts_stored_unitless_window_resent_unchanged(self) -> None:
+        # Written through the model: the API now refuses this shape, but experiments already hold it.
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Stored unit-less window",
+            feature_flag=self._create_flag(key="window-unit-update"),
+            metrics=[stored],
+            primary_metrics_ordered_uuids=[self._STORED_UNITLESS_UUID],
+        )
+        added = self._metric_with_window("44444444-4444-4444-8444-444444444444", 3, "day")
+
+        updated = self._service().update_experiment(
+            experiment, {"metrics": [deepcopy(stored), added]}, allow_unknown_events=True
+        )
+
+        assert [metric["uuid"] for metric in updated.metrics or []] == [self._STORED_UNITLESS_UUID, added["uuid"]]
+
+    def test_update_experiment_rejects_changed_window_on_stored_unitless_metric(self) -> None:
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Stored unit-less window",
+            feature_flag=self._create_flag(key="window-unit-change"),
+            metrics=[stored],
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_experiment(
+                experiment,
+                {"metrics": [self._metric_with_window(self._STORED_UNITLESS_UUID, 14, None)]},
+                allow_unknown_events=True,
+            )
+        assert "conversion_window_unit" in str(ctx.exception)
+
+    def test_update_experiment_accepts_stored_unitless_metric_moved_between_sections(self) -> None:
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Stored unit-less secondary window",
+            feature_flag=self._create_flag(key="window-unit-move"),
+            metrics_secondary=[stored],
+            secondary_metrics_ordered_uuids=[self._STORED_UNITLESS_UUID],
+        )
+
+        updated = self._service().update_experiment(
+            experiment,
+            {"metrics": [deepcopy(stored)], "metrics_secondary": []},
+            allow_unknown_events=True,
+        )
+
+        assert [metric["uuid"] for metric in updated.metrics or []] == [self._STORED_UNITLESS_UUID]
+        assert updated.metrics_secondary == []
+
+    def test_update_experiment_rejects_the_same_stored_metric_copied_into_both_sections(self) -> None:
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Stored unit-less window",
+            feature_flag=self._create_flag(key="window-unit-both-sections"),
+            metrics=[stored],
+            primary_metrics_ordered_uuids=[self._STORED_UNITLESS_UUID],
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_experiment(
+                experiment,
+                {"metrics": [deepcopy(stored)], "metrics_secondary": [deepcopy(stored)]},
+                allow_unknown_events=True,
+            )
+        assert "conversion_window_unit" in str(ctx.exception)
+
+    def test_update_experiment_rejects_uuid_borrowed_from_a_section_it_does_not_rewrite(self) -> None:
+        # The secondary list keeps its stored value, so the primary metric is a copy, not the
+        # stored metric. _assign_uuids_to_metrics gives it a fresh uuid for the same reason.
+        stored = self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Stored unit-less secondary window",
+            feature_flag=self._create_flag(key="window-unit-borrow"),
+            metrics_secondary=[stored],
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_experiment(experiment, {"metrics": [deepcopy(stored)]}, allow_unknown_events=True)
+        assert "conversion_window_unit" in str(ctx.exception)
+
+    def test_duplicate_experiment_keeps_stored_unitless_window(self) -> None:
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Stored unit-less window",
+            feature_flag=self._create_flag(key="window-unit-duplicate"),
+            metrics=[self._metric_with_window(self._STORED_UNITLESS_UUID, 7, None)],
+        )
+
+        dup = self._service().duplicate_experiment(experiment)
+
+        duplicated_metric = (dup.metrics or [])[0]
+        assert duplicated_metric["conversion_window"] == 7
+        assert "conversion_window_unit" not in duplicated_metric
+
+    # ------------------------------------------------------------------
     # validate_experiment_metrics — threshold / math-type compatibility
     # ------------------------------------------------------------------
 
