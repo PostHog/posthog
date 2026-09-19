@@ -65,13 +65,14 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
 
     override render(): ReactNode {
         const { error, surface } = this.state
-        if (error && surface && isChunkLoadError(error) && this.props.fallback) {
+        const chunkLoadError = error && isChunkLoadError(error)
+        if (chunkLoadError && surface && this.props.fallback) {
             return this.props.fallback(error)
         }
-        if (error && (!isChunkLoadError(error) || surface)) {
+        if (error && (!chunkLoadError || surface)) {
             throw error
         }
-        if (error && isChunkLoadError(error)) {
+        if (chunkLoadError) {
             return null
         }
         return this.props.children
