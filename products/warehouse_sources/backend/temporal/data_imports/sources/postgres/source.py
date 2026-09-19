@@ -1014,6 +1014,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "memory pressure on your database (for example lower work_mem, reduce concurrent "
                 "connections, or increase the instance's memory), then re-enable the sync."
             ),
+            # PostgreSQL's allocator rejects a request it can't service, raised via a bare `elog`
+            # that carries no specific SQLSTATE and so surfaces as the internal-error class (XX000,
+            # psycopg's `InternalError_`): "invalid memory alloc request size <n>". Observed while
+            # streaming rows through a server-side cursor (see `get_rows`) with the requested size
+            # wrapped to just under UINT64_MAX — the signature of a corrupted length field in the
+            # row's own stored data (for example a damaged TOAST pointer), not anything in our query.
+            # The corruption lives in the source row, so retrying re-reads into the same wall every
+            # time. The volatile request size is excluded from the match.
+            "invalid memory alloc request size": (
+                "PostgreSQL refused to allocate memory while reading a row from one of your tables "
+                '("invalid memory alloc request size"). This usually means that row\'s stored data is '
+                "corrupted on the source database (for example a damaged TOAST value), rather than a "
+                "problem with the sync. Check this table for data corruption (for example with "
+                "pg_amcheck), then repair or remove the affected rows and re-enable the sync."
+            ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely

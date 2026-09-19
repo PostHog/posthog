@@ -866,6 +866,28 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)). The request size
+            # is volatile; the "invalid memory alloc request size" text is stable.
+            "invalid memory alloc request size 18446744073709551613",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InternalError_: invalid memory alloc request size 18446744073709551613",
+        ],
+    )
+    def test_invalid_memory_alloc_request_size_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid memory alloc request size error should be non-retryable: {error_msg}"
+
+    def test_invalid_memory_alloc_request_size_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "invalid memory alloc request size 18446744073709551613"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Invalid memory alloc request size error should surface an actionable message"
+        assert "corrupted" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong.',
             'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  The password that was provided for the role posthog_readonly is wrong.',
         ],
