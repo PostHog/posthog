@@ -235,6 +235,9 @@ Two things keep cache hit rates high:
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
 
+Hidden backing tables also contribute their parent scopes through `_TRANSITIVE_SYSTEM_TABLE_SCOPES`, even when they have no `access_scope` of their own.
+Their parent predicates enforce row permissions, including creator exemptions; see [HogQL system table cache permissions](../../docs/internal/hogql-system-table-cache.md) before adding a separate junction-table guard.
+
 ## One preloaded `UserAccessControl` everywhere
 
 `UserAccessControl` (`products/access_control/backend/facade/user_access_control.py`) bulk-fetches every access control row relevant to the user on the team in a single query (`_cached_access_controls`, covering team defaults, the user's membership, and the user's roles), then resolves all checks in memory (`access_level_for_resource`, `check_access_level_for_object`, `blocked_resource_ids_by_scope`, ...).
