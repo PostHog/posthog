@@ -193,6 +193,13 @@ describe('taxonomicPropertyFilterLogic', () => {
             )
         })
 
+        it('creates EventMetadata filter when the item carries no id', () => {
+            selectAndExpect(TaxonomicFilterGroupType.EventMetadata, 'distinct_id', PropertyFilterType.EventMetadata, {
+                type: PropertyFilterType.EventMetadata,
+                key: 'distinct_id',
+            })
+        })
+
         it('closes the dropdown after selecting an item', () => {
             const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventProperties)!
             logic.actions.openDropdown()

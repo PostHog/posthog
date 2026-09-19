@@ -510,7 +510,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled],
             ({ breakdown, breakdowns }, isMultipleBreakdownsEnabled: boolean): (string | number)[] | Breakdown[] => {
                 if (isMultipleBreakdownsEnabled && breakdowns) {
-                    return breakdowns
+                    return breakdowns.filter((b) => !!b?.property)
                 }
 
                 return (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
@@ -559,6 +559,10 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     }),
     listeners(({ props, values, actions }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
+            if (breakdown == null || breakdown === '') {
+                return
+            }
+
             const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             const breakdownType = isBreakdownType(propertyFilterType) ? propertyFilterType : undefined
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
@@ -593,7 +597,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 }
 
                 const newBreakdown: Breakdown = {
-                    property: breakdown as string,
+                    property: breakdown,
                     type: breakdownType,
                     group_type_index: taxonomicGroup.groupTypeIndex,
                     histogram_bin_count: isHistogramable ? 10 : undefined,

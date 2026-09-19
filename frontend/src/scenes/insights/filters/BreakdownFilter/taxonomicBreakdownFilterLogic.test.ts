@@ -191,18 +191,23 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
-        it('rejects a taxonomic group that maps to a non-breakdown type', async () => {
+        // Error tracking issues map to the `error_tracking_issue` property filter type, which is not a
+        // valid `BreakdownType`.
+        it.each([
+            [
+                'a taxonomic group that maps to a non-breakdown type',
+                'some-issue',
+                TaxonomicFilterGroupType.ErrorTrackingIssues,
+            ],
+            ['a null value', null, TaxonomicFilterGroupType.EventProperties],
+            ['an empty value', '', TaxonomicFilterGroupType.EventProperties],
+        ])('rejects %s', async (_name, value, groupType) => {
             logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
             logic.mount()
-            // Error tracking issues map to the `error_tracking_issue` property filter type, which is
-            // not a valid `BreakdownType`. It must not reach the query as a breakdown.
-            const group: TaxonomicFilterGroup = taxonomicGroupFor(
-                TaxonomicFilterGroupType.ErrorTrackingIssues,
-                undefined
-            )
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(groupType, undefined)
 
             await expectLogic(logic, () => {
-                logic.actions.addBreakdown('some-issue', group)
+                logic.actions.addBreakdown(value, group)
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).not.toHaveBeenCalled()
@@ -428,6 +433,24 @@ describe('taxonomicBreakdownFilterLogic', () => {
     })
 
     describe('multiple breakdowns', () => {
+        it('drops a saved breakdown without a property', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({
+                    breakdownFilter: {
+                        breakdowns: [
+                            { property: null as unknown as string, type: 'event' },
+                            { property: 'c', type: 'event' },
+                        ],
+                    },
+                })
+            )
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                breakdownArray: [{ property: 'c', type: 'event' }],
+            })
+        })
+
         it('adds a breakdown for events', async () => {
             logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
             logic.mount()
