@@ -30,6 +30,9 @@ The returned run status is a snapshot, not live progress.
 Canvases without task syncing should show the thread link without storing or displaying that status.
 Keep manual board columns separate from thread state.
 On drag-only boards, the card's column shows its status; omit a separate column dropdown.
+For large boards, keep column headers outside independently scrolling card lists.
+Fold card details to reduce height without hiding start buttons, thread counts, or save errors.
+Bound long descriptions and thread lists with their own scroll areas, and keep folding separate from saved task state.
 
 `ph.openExternal(url)` accepts HTTPS GitHub PR links as well as PostHog HTTPS URLs. GitHub links
 must use `github.com`, with no credentials, custom port, or query string. PR overview, files,
