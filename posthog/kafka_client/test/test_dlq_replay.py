@@ -224,6 +224,24 @@ class DrainDlqTest(TestCase):
 
         assert producer.conf.get("message.max.bytes") == expected
 
+    @parameterized.expand(
+        [
+            ("from_profile", {"compression_type": "gzip"}, "gzip"),
+            ("unset_when_profile_omits_it", {}, None),
+        ]
+    )
+    def test_producer_compression_type(
+        self,
+        _name: str,
+        producer_settings: dict[str, Any],
+        expected: Optional[str],
+    ) -> None:
+        producer = FakeProducer()
+
+        self._drain([[FakeMessage(b"one")]], producer, producer_settings=producer_settings)
+
+        assert producer.conf.get("compression.type") == expected
+
     def test_delivery_failure_is_reported_and_not_committed(self) -> None:
         producer = FakeProducer(delivery_error="Broker: Message too large")
 
