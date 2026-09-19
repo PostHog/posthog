@@ -112,6 +112,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
             }}
             slack={{
                 notificationType: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+                connectSurface: 'logs_alert_notification_destination',
                 integrationsLoading,
                 integrationsFailed,
                 onRetryIntegrations: loadIntegrations,

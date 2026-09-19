@@ -177,7 +177,7 @@ function DeliveryTargetsConfig({
             <div>
                 <label className="font-semibold text-sm">Slack channel</label>
                 {!slackIntegrations?.length ? (
-                    <SlackNotConfiguredBanner />
+                    <SlackNotConfiguredBanner surface="evaluation_report_config" />
                 ) : (
                     <div className="space-y-2">
                         <IntegrationChoice

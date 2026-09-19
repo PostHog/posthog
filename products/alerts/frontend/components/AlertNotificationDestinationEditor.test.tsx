@@ -51,6 +51,7 @@ describe('AlertNotificationDestinationEditor', () => {
             },
             slack: {
                 notificationType: 'slack',
+                connectSurface: 'insight_alert_notification_destination' as const,
                 integrationsLoading: false,
                 integrationsFailed: false,
                 onRetryIntegrations: jest.fn(),
@@ -99,6 +100,7 @@ describe('AlertNotificationDestinationEditor', () => {
                     notificationType={{ options: [], value: 'webhook', onChange: jest.fn() }}
                     slack={{
                         notificationType: 'slack',
+                        connectSurface: 'insight_alert_notification_destination',
                         integrationsLoading: false,
                         integrationsFailed: false,
                         onRetryIntegrations: jest.fn(),
@@ -139,6 +141,7 @@ describe('AlertNotificationDestinationEditor', () => {
                 notificationType={{ options: [], value: 'webhook', onChange: jest.fn() }}
                 slack={{
                     notificationType: 'slack',
+                    connectSurface: 'insight_alert_notification_destination',
                     integrationsLoading: false,
                     integrationsFailed: false,
                     onRetryIntegrations: jest.fn(),

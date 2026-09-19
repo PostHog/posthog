@@ -361,7 +361,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                         {notificationForm.destination === 'slack' ? (
                             <>
                                 {!hasSlackIntegration ? (
-                                    <SlackNotConfiguredBanner />
+                                    <SlackNotConfiguredBanner surface="survey_notification_modal" />
                                 ) : (
                                     <>
                                         <Field name="slackIntegrationId" label="Slack workspace">

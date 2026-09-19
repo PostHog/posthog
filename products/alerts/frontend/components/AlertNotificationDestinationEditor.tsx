@@ -15,6 +15,7 @@ import {
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 
 import { IntegrationType } from '~/types'
 
@@ -72,6 +73,11 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
     }
     slack: {
         notificationType: NotificationType
+        /**
+         * Which product renders this editor. Reported as the `surface` on the not-configured banner
+         * impression, so each product needs its own value to stay separable.
+         */
+        connectSurface: IntegrationConnectSurface
         integrationsLoading: boolean
         integrationsFailed: boolean
         onRetryIntegrations: () => void
@@ -292,7 +298,9 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 </div>
             )
         } else {
-            slackDestinationInput = <SlackNotConfiguredBanner type="warning" className="max-w-4xl" />
+            slackDestinationInput = (
+                <SlackNotConfiguredBanner surface={slack.connectSurface} type="warning" className="max-w-4xl" />
+            )
         }
     }
 
