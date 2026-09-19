@@ -1130,17 +1130,33 @@ describe('HogTransformer', () => {
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [typesafe.id, readsTheCategory.id])
         })
 
-        it('dispatches to the native transform and hands its output to the next transformation', async () => {
-            typesafeRequest.mockImplementationOnce(() => Promise.resolve(classifiedAs('cooking')))
+        it.each([false, true])(
+            'dispatches native transforms with a production block (production: %s)',
+            async (production) => {
+                if (!production) {
+                    typesafeRequest.mockImplementationOnce(() => Promise.resolve(classifiedAs('cooking')))
+                }
+                const originalEnv = process.env
+                if (production) {
+                    process.env = { ...originalEnv, NODE_ENV: 'production', DEBUG: '0' }
+                }
+                try {
+                    const result = await hogTransformer.transformEventAndProduceMessages(
+                        createPluginEvent({ event: 'demo article viewed', team_id: teamId })
+                    )
 
-            const result = await hogTransformer.transformEventAndProduceMessages(
-                createPluginEvent({ event: 'demo article viewed', team_id: teamId })
-            )
-
-            expect(typesafeRequest).toHaveBeenCalledTimes(1)
-            expect(result.event?.properties?.content_category).toBe('cooking')
-            expect(result.event?.properties?.category_seen_by_next).toBe('cooking')
-        })
+                    expect(typesafeRequest).toHaveBeenCalledTimes(production ? 0 : 1)
+                    expect(result.event?.properties?.content_category).toBe(production ? undefined : 'cooking')
+                    expect(result.event?.properties?.category_seen_by_next).toBe(production ? null : 'cooking')
+                    expect(result.invocationResults.map((invocation) => invocation.error)).toEqual([
+                        undefined,
+                        undefined,
+                    ])
+                } finally {
+                    process.env = originalEnv
+                }
+            }
+        )
     })
 
     describe('long event chain', () => {

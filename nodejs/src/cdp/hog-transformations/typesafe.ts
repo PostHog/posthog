@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { z } from 'zod'
 
 import { createCounterWithExemplars, createHistogramWithExemplars, swallowing } from '~/common/metrics/instruments'
+import { isCloud, isProdEnv } from '~/common/utils/env-utils'
 import { captureException } from '~/common/utils/posthog'
 import { fetch } from '~/common/utils/request'
 
@@ -60,6 +61,10 @@ export async function executeTypesafeTransformation(
     const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { execResult: event })
     const log = (level: 'info' | 'warn' | 'error', message: string): void => {
         result.logs.push({ level, message, timestamp: DateTime.now() })
+    }
+    if (isProdEnv() || isCloud()) {
+        log('warn', 'TypeSafe is available only in local development. Event unchanged.')
+        return result
     }
     // Monitoring persists logs and a pass/fail count, but not result.error, so a failure needs a
     // log for the user to see the reason.

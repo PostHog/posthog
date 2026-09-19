@@ -52,6 +52,8 @@ See also [sandboxes-setup-guide.md](sandboxes-setup-guide.md) for the PostHog De
 This prototype adds a TypeSafe template to Transformations.
 It uses Jev to classify an event and saves the category in an event property.
 Use it locally with invented events.
+The execution path blocks TypeSafe requests in production and PostHog Cloud, including requests from saved transformations and test invocations.
+The block uses the existing Node.js environment checks. An unset environment defaults to production unless `DEBUG` enables development mode; Cloud deployments remain blocked in either mode.
 The experimental banner includes a link to contact support if you find an issue.
 For TypeSafe, it also explains which event data leaves PostHog and that TypeSafe is not a listed PostHog subprocessor.
 It states that the customer's agreements with PostHog, including any DPA, BAA, or MSA, do not cover TypeSafe's processing.

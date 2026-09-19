@@ -233,6 +233,33 @@ describe('TypeSafe transformation', () => {
         }
     )
 
+    it.each(['production', 'unset', 'cloud'])('blocks requests outside local development (%s)', async (environment) => {
+        const originalEnv = process.env
+        process.env = { ...originalEnv, DEBUG: '0' }
+        if (environment === 'unset') {
+            delete process.env.NODE_ENV
+        } else if (environment === 'cloud') {
+            process.env.NODE_ENV = 'development'
+            process.env.DEBUG = '1'
+            process.env.CLOUD_DEPLOYMENT = 'US'
+        } else {
+            process.env.NODE_ENV = environment
+        }
+        try {
+            request.mockResolvedValue(mockResponse({ type: 'choice', choice: 'art', confidence: 0.95 }))
+            const invocation = createInvocation()
+            const result = await executeTypesafeTransformation(invocation)
+            expect(request).not.toHaveBeenCalled()
+            expect(result.execResult).toEqual(invocation.state.globals.event)
+            expect(result.logs).toEqual([
+                expect.objectContaining({ level: 'warn', message: expect.stringContaining('local development') }),
+            ])
+            await expectNoCallTelemetry()
+        } finally {
+            process.env = originalEnv
+        }
+    })
+
     it('uses the key configured on each transformation', async () => {
         request.mockResolvedValue(mockResponse({ type: 'choice', choice: 'art', confidence: 0.95 }))
         for (const apiKey of ['fake-key-one', 'fake-key-two']) {
