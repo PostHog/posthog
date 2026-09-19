@@ -46,6 +46,8 @@ export interface LineageNodeState {
     isRunning?: boolean
     /** Ringed when a search or type filter highlights this node */
     isHighlighted?: boolean
+    /** Faded when a search matched other nodes, so the matches read at low zoom */
+    isDimmed?: boolean
 }
 
 export interface LineageNodeCallbacks {
@@ -193,7 +195,8 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         <Tooltip title={node.name} delayMs={500}>
             <div
                 className={clsx(
-                    'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
+                    'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px] transition-opacity',
+                    state.isDimmed && 'opacity-25',
                     state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
                     !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
                     !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',

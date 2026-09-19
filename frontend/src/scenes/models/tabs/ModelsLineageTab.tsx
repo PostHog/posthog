@@ -23,6 +23,20 @@ const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
     label: NODE_TYPE_TAG_SETTINGS[type].label,
 }))
 
+/** What the filter row says, or null while nothing is filtered and nothing is searched. */
+function filterSummary(matchCount: number | null, visibleCount: number, totalCount: number): string | null {
+    if (matchCount === 0) {
+        return 'No models match your search'
+    }
+    if (matchCount !== null) {
+        return `Highlighting ${matchCount} of ${pluralize(totalCount, 'model')}`
+    }
+    if (visibleCount !== totalCount) {
+        return `Showing ${pluralize(visibleCount, 'model')} of ${totalCount}`
+    }
+    return null
+}
+
 export function ModelsLineageTab(): JSX.Element {
     const {
         nodes,
@@ -36,6 +50,8 @@ export function ModelsLineageTab(): JSX.Element {
         visibleNodes,
         visibleEdges,
         isFiltered,
+        searchMatchCount,
+        hasActiveFilters,
     } = useValues(modelsLineageLogic)
     const { setSearchTerm, setTypeFilter, toggleLegendCollapsed, resetFilters } = useActions(modelsLineageLogic)
     // A fresh Set on every render would restart the graph's fitView animation each keystroke,
@@ -73,10 +89,10 @@ export function ModelsLineageTab(): JSX.Element {
                         data-attr="models-lineage-type-filter"
                     />
                 </div>
-                {isFiltered && (
+                {hasActiveFilters && (
                     <>
                         <span className="text-xs text-secondary">
-                            Showing {pluralize(visibleNodes.length, 'model')} of {nodes.length}
+                            {filterSummary(searchMatchCount, visibleNodes.length, nodes.length)}
                         </span>
                         <LemonButton size="xsmall" onClick={resetFilters} data-attr="models-lineage-reset-filters">
                             Clear filters
@@ -100,6 +116,9 @@ export function ModelsLineageTab(): JSX.Element {
                     }
                     nodeState={(node) => ({
                         isHighlighted: highlightedNodeIds.has(node.id),
+                        // Nothing is dimmed by a search that matched nothing: fading the whole
+                        // graph would hide it without saying why. The summary says why instead.
+                        isDimmed: !!searchMatchCount && !highlightedNodeIds.has(node.id),
                         isRunning: node.last_run_status === 'Running',
                     })}
                     onNodeClick={(node) => router.actions.push(urls.nodeDetail(node.id))}
