@@ -19,7 +19,9 @@ import {
 } from '../types'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
-jest.setTimeout(1000)
+// Every test builds a Hub and inserts plugin fixtures in `beforeEach`, so the budget must cover
+// database work under a loaded CI worker. It stays below the 60s default to fail a hang fast.
+jest.setTimeout(10_000)
 
 const getLogMessages = (logs: MinimalLogEntry[]) => {
     return logs.map((l) => {
