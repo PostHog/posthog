@@ -49,6 +49,10 @@ variants:                 # optional, version-specific SQL (highest matching win
 `per_instance: true|false` overrides the default (cluster scope → every
 instance, database scope → writer only).
 
+Every query is sent with a `/* service='pgcollector', operation='<name>' */` tag
+comment in front, so the agent's own reads are attributable on the monitored cluster.
+New collectors get it without doing anything.
+
 Rules: cast anything that isn't bool/int/float/numeric/text/timestamptz/json
 (`::text`, `::bigint`, `::float8`). `cumulative` diffs every numeric non-key
 column per `key` and understands a `stats_reset` column.
