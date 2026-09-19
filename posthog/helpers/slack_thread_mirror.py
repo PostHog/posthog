@@ -10,11 +10,17 @@ from uuid import UUID
 
 import structlog
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+from slack_sdk.web import SlackResponse
 
 from posthog.comment.formatting import escape_slack_mrkdwn, rich_content_to_slack_payload
 from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
+from posthog.helpers.slack_scopes import CHAT_WRITE_CUSTOMIZE_SCOPE
 
 logger = structlog.get_logger(__name__)
+
+# chat.postMessage fields that need the optional chat:write.customize scope.
+_APPEARANCE_FIELDS = ("username", "icon_url")
 
 
 def slack_author_from_user(user: object | None) -> tuple[str, str]:
@@ -97,6 +103,7 @@ def post_comment_to_slack_thread(
     item_url: str | None = None,
     item_label: str | None = None,
     organization_id: str | UUID | None = None,
+    can_customize_appearance: bool = True,
 ) -> str | None:
     """Post a comment's content to a Slack channel, optionally threaded under ``thread_ts``.
 
@@ -106,6 +113,10 @@ def post_comment_to_slack_thread(
     posted message's ``ts`` so the caller can anchor a mirror on the first post, or ``None`` when
     there was nothing to post. Raises on a Slack API failure so callers can react (the API action
     surfaces an error; the Celery tasks retry) instead of silently dropping the message.
+
+    ``can_customize_appearance`` says whether the install granted ``chat:write.customize``. When it
+    is False the message posts under the app's own name and icon. Callers that cannot tell may
+    leave it True, because a refusal from Slack falls back to the same plain message.
     """
     slack_text, slack_blocks = rich_content_to_slack_payload(
         rich_content, content, include_images=False, organization_id=organization_id
@@ -113,18 +124,18 @@ def post_comment_to_slack_thread(
     if not slack_text.strip() and not slack_blocks:
         return None
 
-    # Show the author's Slack avatar when we can match them by email (needs chat:write.customize).
-    icon_url = resolve_slack_avatar_by_email(client, author_email) if author_email else None
-
     message_kwargs: dict = {
         "channel": channel,
         "text": slack_text,
-        "username": author_name or "PostHog",
     }
     if thread_ts:
         message_kwargs["thread_ts"] = thread_ts
-    if icon_url:
-        message_kwargs["icon_url"] = icon_url
+    if can_customize_appearance:
+        message_kwargs["username"] = author_name or "PostHog"
+        # Show the author's Slack avatar when we can match them by email.
+        icon_url = resolve_slack_avatar_by_email(client, author_email) if author_email else None
+        if icon_url:
+            message_kwargs["icon_url"] = icon_url
 
     if item_url:
         message_kwargs["blocks"] = _discussion_card_blocks(
@@ -138,8 +149,36 @@ def post_comment_to_slack_thread(
         message_kwargs["blocks"] = slack_blocks
 
     try:
-        response = client.chat_postMessage(**message_kwargs)
+        response = _post_message(client, message_kwargs)
     except Exception as e:
         logger.warning("slack_thread_mirror_post_failed", channel=channel, thread_ts=thread_ts, error=str(e))
         raise
     return response.get("ts")
+
+
+def _post_message(client: WebClient, message_kwargs: dict) -> SlackResponse:
+    """Post the message, then post it again without the appearance fields if Slack refuses them.
+
+    ``chat:write.customize`` is optional, so a workspace can install PostHog without it. Slack
+    then rejects the whole call instead of ignoring ``username`` and ``icon_url``, and the comment
+    is still worth delivering under the app's own name and icon.
+    """
+    try:
+        return client.chat_postMessage(**message_kwargs)
+    except SlackApiError as e:
+        plain_kwargs = {key: value for key, value in message_kwargs.items() if key not in _APPEARANCE_FIELDS}
+        if len(plain_kwargs) == len(message_kwargs) or not _refused_for_customize_scope(e):
+            raise
+        logger.info("slack_thread_mirror_appearance_scope_missing", channel=message_kwargs.get("channel"))
+        return client.chat_postMessage(**plain_kwargs)
+
+
+def _refused_for_customize_scope(error: SlackApiError) -> bool:
+    """Whether Slack refused the call because the install lacks chat:write.customize."""
+    response = error.response
+    if response is None or response.get("error") != "missing_scope":
+        return False
+    # Slack names the scopes it wanted in ``needed``. Another missing scope cannot be fixed by
+    # dropping the appearance fields, so retry only when this scope is named or none is.
+    needed = response.get("needed")
+    return needed is None or CHAT_WRITE_CUSTOMIZE_SCOPE in str(needed)
