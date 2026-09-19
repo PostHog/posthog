@@ -11,6 +11,6 @@ SELECT
   resource_attributes,
   attributes,
   timestamp,
-  original_expiry_timestamp
+  timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(30))) AS original_expiry_timestamp
 FROM posthog.metrics2_input
 WHERE has_labels

@@ -6,7 +6,7 @@ SELECT
   cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
   timestamp,
   observed_timestamp,
-  timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(90))))) AS original_expiry_timestamp,
+  timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32(90))) AS original_expiry_timestamp,
   ifNull(service_name, '') AS service_name,
   ifNull(metric_type, '') AS metric_type,
   ifNull(value, 0) AS value,
@@ -25,7 +25,8 @@ SELECT
   if(toBool(ifNull(has_labels, 1)), mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)), CAST(map(), 'Map(String, String)')) AS attributes,
   _partition,
   _topic,
-  _offset
+  _offset,
+  assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrZero(_headers.value[indexOf(_headers.name, 'retention-days')]))) AS retention_days_explicit
 FROM posthog.kafka_metrics_avro2
 WHERE kafka_metrics_avro2.series_fingerprint IS NOT NULL
 SETTINGS

@@ -495,6 +495,9 @@ SQL
     column "_offset" {
       type = "UInt64"
     }
+    column "retention_days_explicit" {
+      type = "Int32"
+    }
   }
   table "metrics2_input" {
     column "uuid" {
@@ -578,6 +581,10 @@ SQL
     column "_offset" {
       type = "UInt64"
     }
+    column "retention_days_explicit" {
+      type    = "Int32"
+      default = "0"
+    }
     engine "null" {}
   }
   table "metrics2" {
@@ -609,13 +616,15 @@ SQL
     }
     column "timestamp" {
       type  = "DateTime64(6)"
-      codec = "DoubleDelta"
+      codec = "DoubleDelta, Default"
     }
     column "observed_timestamp" {
-      type = "DateTime64(6)"
+      type  = "DateTime64(6)"
+      codec = "DoubleDelta, Default"
     }
     column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
+      type  = "DateTime64(6)"
+      codec = "DoubleDelta, Default"
     }
     column "created_at" {
       type         = "DateTime64(6)"
@@ -629,18 +638,19 @@ SQL
     }
     column "value" {
       type  = "Float64"
-      codec = "Gorilla(8)"
+      codec = "Gorilla(8), Default"
     }
     column "count" {
       type    = "UInt64"
       default = "1"
-      codec   = "T64"
+      codec   = "T64, Default"
     }
     column "histogram_bounds" {
       type = "Array(Float64)"
     }
     column "histogram_counts" {
-      type = "Array(UInt64)"
+      type  = "Array(UInt64)"
+      codec = "T64, Default"
     }
     column "trace_id" {
       type = "String"
@@ -675,7 +685,8 @@ SQL
       type = "String"
     }
     column "_offset" {
-      type = "UInt64"
+      type  = "UInt64"
+      codec = "Delta(8), Default"
     }
     index "idx_metric_type_set" {
       expr        = "metric_type"
