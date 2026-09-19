@@ -336,6 +336,7 @@ export class TaskCreationSaga extends Saga<
         is_initial: true,
         execution_type: "cloud",
         prompt_length_chars: warmPayload.transport.messageText?.length ?? 0,
+        attachment_count: warmPayload.transport.filePaths.length,
       });
     }
 
@@ -511,6 +512,7 @@ export class TaskCreationSaga extends Saga<
               is_initial: true,
               execution_type: "cloud",
               prompt_length_chars: transport.messageText?.length ?? 0,
+              attachment_count: transport.filePaths.length,
             });
           }
 

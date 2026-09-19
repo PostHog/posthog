@@ -1,5 +1,7 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import {
+  type AttachmentRef,
+  type CloudArtifactRef,
   getFileName,
   isClipboardAttachmentPath,
   isRasterImageFile,
@@ -31,17 +33,7 @@ export function makeAttachmentUri(filePath: string): string {
   return `${ATTACHMENT_URI_PREFIX}${id}?label=${label}`;
 }
 
-export interface AttachmentRef {
-  id: string;
-  label: string;
-  previewUrl?: string;
-  cloudArtifact?: CloudArtifactRef;
-}
-
-export interface CloudArtifactRef {
-  runId: string;
-  artifactId: string;
-}
+export type { AttachmentRef, CloudArtifactRef };
 
 function parseCloudArtifactRef(pathname: string): CloudArtifactRef | undefined {
   const segments = pathname.split("/").filter(Boolean);
@@ -88,6 +80,21 @@ function parseFileUri(
     return null;
   }
 
+  return fileUriAttachmentRef(uri, fallbackLabel);
+}
+
+/**
+ * The chip a `resource_link` for this path resolves to. An optimistic row uses
+ * it so its chips keep the same identity as the echoed prompt's.
+ */
+export function fileAttachmentRef(filePath: string): AttachmentRef {
+  return fileUriAttachmentRef(pathToFileUri(filePath));
+}
+
+function fileUriAttachmentRef(
+  uri: string,
+  fallbackLabel?: string,
+): AttachmentRef {
   try {
     const pathname = decodeURIComponent(new URL(uri).pathname);
     const label =

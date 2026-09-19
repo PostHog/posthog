@@ -21,7 +21,10 @@ import {
   isJsonRpcNotification,
   isJsonRpcRequest,
 } from "@posthog/shared";
-import { stripTrailingAttachmentSummary } from "../editor/cloud-prompt";
+import {
+  getAbsoluteAttachmentPaths,
+  stripTrailingAttachmentSummary,
+} from "../editor/cloud-prompt";
 import { skillTagsToSlashCommands } from "../message-editor/skillTags";
 import { isNotification, POSTHOG_NOTIFICATIONS } from "./acpNotifications";
 import { extractPromptDisplayContent } from "./promptContent";
@@ -440,6 +443,14 @@ export function extractUserPromptsFromEvents(events: AcpMessage[]): string[] {
 export function extractPromptText(prompt: string | ContentBlock[]): string {
   if (typeof prompt === "string") return skillTagsToSlashCommands(prompt);
   return skillTagsToSlashCommands(extractPromptDisplayContent(prompt).text);
+}
+
+/** Files the prompt carries, counted the same way for a raw string and for blocks. */
+export function promptAttachmentCount(prompt: string | ContentBlock[]): number {
+  if (typeof prompt === "string") {
+    return getAbsoluteAttachmentPaths(prompt).length;
+  }
+  return extractPromptDisplayContent(prompt).attachments.length;
 }
 
 /**

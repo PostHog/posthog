@@ -22,6 +22,7 @@ import {
   type AcpMessage,
   type Adapter,
   type AgentSession,
+  type AttachmentRef,
   type BedrockGatewayVariant,
   type CloudRegion,
   classifyGatewayLimitError,
@@ -115,6 +116,7 @@ import {
   planPermissionResponse,
   resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
+import { fileAttachmentRef } from "./promptContent";
 import {
   collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
@@ -129,6 +131,7 @@ import {
   isSteerPromptParams,
   isTurnCompleteEvent,
   normalizePromptToBlocks,
+  promptAttachmentCount,
   promptReferencesAbsoluteFolder,
   selectEchoedOptimisticItemIds,
   selectEchoedOptimisticItemIdsAfterRebuild,
@@ -406,12 +409,17 @@ export interface ISessionStore {
     taskId: string,
     content: string,
     rawPrompt?: string | ContentBlock[],
+    attachments?: AttachmentRef[],
   ): void;
   removeQueuedMessage(taskId: string, messageId: string): void;
   updateQueuedMessage(
     taskId: string,
     messageId: string,
-    patch: { content: string; rawPrompt?: string | ContentBlock[] },
+    patch: {
+      content: string;
+      rawPrompt?: string | ContentBlock[];
+      attachments?: AttachmentRef[];
+    },
   ): void;
   setEditingQueuedMessage(taskId: string, messageId: string): void;
   clearEditingQueuedMessage(taskId: string): void;
@@ -4262,6 +4270,7 @@ export class SessionService {
       is_initial: session.events.length === 0,
       execution_type: "local",
       prompt_length_chars: promptText.length,
+      attachment_count: promptAttachmentCount(prompt),
     });
 
     // Show the user's message in the chat immediately, before any respawn
@@ -4366,6 +4375,7 @@ export class SessionService {
       is_initial: false,
       execution_type: "local",
       prompt_length_chars: promptText.length,
+      attachment_count: promptAttachmentCount(prompt),
       is_steer: true,
     });
 
@@ -4482,6 +4492,7 @@ export class SessionService {
       is_initial: false,
       execution_type: "local",
       prompt_length_chars: promptText.length,
+      attachment_count: promptAttachmentCount(blocks),
     });
 
     try {
@@ -4787,6 +4798,7 @@ export class SessionService {
       this.d.store.updateQueuedMessage(taskId, messageId, {
         content: transport.promptText,
         rawPrompt: normalizedPrompt,
+        attachments: transport.filePaths.map(fileAttachmentRef),
       });
     } else {
       this.d.store.updateQueuedMessage(taskId, messageId, {
@@ -4929,6 +4941,7 @@ export class SessionService {
         session.taskId,
         transport.promptText,
         normalizedPrompt,
+        transport.filePaths.map(fileAttachmentRef),
       );
       this.d.log.info("Cloud message queued (sandbox not ready)", {
         taskId: session.taskId,
@@ -4953,6 +4966,7 @@ export class SessionService {
         session.taskId,
         transport.promptText,
         normalizedPrompt,
+        transport.filePaths.map(fileAttachmentRef),
       );
       this.d.log.info("Cloud message queued (agent not ready)", {
         taskId: session.taskId,
@@ -4983,6 +4997,7 @@ export class SessionService {
         session.taskId,
         transport.promptText,
         normalizedPrompt,
+        transport.filePaths.map(fileAttachmentRef),
       );
       this.d.log.info("Cloud message queued", {
         taskId: session.taskId,
@@ -4995,6 +5010,7 @@ export class SessionService {
       type: "user_message",
       content: transport.promptText,
       timestamp: Date.now(),
+      attachments: transport.filePaths.map(fileAttachmentRef),
       pinToTop: false,
     });
 
@@ -5096,6 +5112,7 @@ export class SessionService {
       is_initial: session.events.length === 0,
       execution_type: "cloud",
       prompt_length_chars: transport.promptText.length,
+      attachment_count: transport.filePaths.length,
       ...(options?.steer ? { is_steer: true } : {}),
     });
 
@@ -5354,6 +5371,7 @@ export class SessionService {
       type: "user_message",
       content: transport.promptText,
       timestamp: Date.now(),
+      attachments: transport.filePaths.map(fileAttachmentRef),
       pinToTop: false,
     });
 
@@ -5556,6 +5574,7 @@ export class SessionService {
       is_initial: false,
       execution_type: "cloud",
       prompt_length_chars: transport.promptText.length,
+      attachment_count: transport.filePaths.length,
     });
 
     return { stopReason: "queued" };
@@ -9092,7 +9111,12 @@ export class SessionService {
     reason: string,
   ): { stopReason: "queued" } {
     const transport = this.d.h.getCloudPromptTransport(prompt);
-    this.d.store.enqueueMessage(session.taskId, transport.promptText, prompt);
+    this.d.store.enqueueMessage(
+      session.taskId,
+      transport.promptText,
+      prompt,
+      transport.filePaths.map(fileAttachmentRef),
+    );
     this.d.log.info(reason, {
       taskId: session.taskId,
       queueLength: session.messageQueue.length + 1,

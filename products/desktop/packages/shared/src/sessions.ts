@@ -26,7 +26,20 @@ export interface QueuedMessage {
   id: string;
   content: string;
   rawPrompt?: string | ContentBlock[];
+  attachments?: AttachmentRef[];
   queuedAt: number;
+}
+
+export interface CloudArtifactRef {
+  runId: string;
+  artifactId: string;
+}
+
+export interface AttachmentRef {
+  id: string;
+  label: string;
+  previewUrl?: string;
+  cloudArtifact?: CloudArtifactRef;
 }
 
 export type OptimisticItem =
@@ -35,6 +48,7 @@ export type OptimisticItem =
       id: string;
       content: string;
       timestamp: number;
+      attachments?: AttachmentRef[];
       pinToTop?: boolean;
     }
   | {
