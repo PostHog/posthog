@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -98,6 +99,56 @@ describe('playerFrameCommentOverlayLogic', () => {
             milliseconds_into_recording: 0,
             time_in_recording: dayjs(recordingMetaJson.start_time).toISOString(),
         })
+    })
+
+    // Regression test: the comment bus only asks the discussion list to refresh. When notifying it
+    // threw, an emoji reaction that had already saved reported "Could not save your comment".
+    it('reports an emoji reaction as saved when the comment bus cannot be notified', async () => {
+        const createSpy = jest.spyOn(api.comments, 'create').mockResolvedValue({} as CommentType)
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('')
+        jest.spyOn(logic.actions, 'commentEdited').mockImplementation(() => {
+            throw new Error('not mounted')
+        })
+
+        await expectLogic(sessionRecordingPlayerLogic(playerLogicProps)).toDispatchActions([
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
+        ])
+
+        await expectLogic(logic, () => {
+            logic.actions.addEmojiComment('🦔')
+        }).toFinishListeners()
+
+        expect(createSpy).toHaveBeenCalledTimes(1)
+        expect(toastSpy).not.toHaveBeenCalled()
+        expect(logic.values.isLoading).toBe(false)
+    })
+
+    // Regression test: the same failure left the overlay open with the submitted content in it,
+    // because the notification ran before the form was reset.
+    it('closes the comment overlay when the comment bus cannot be notified', async () => {
+        jest.spyOn(api.comments, 'create').mockResolvedValue({} as CommentType)
+        jest.spyOn(logic.actions, 'commentEdited').mockImplementation(() => {
+            throw new Error('not mounted')
+        })
+
+        await expectLogic(sessionRecordingPlayerLogic(playerLogicProps)).toDispatchActions([
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
+        ])
+
+        logic.actions.setIsCommenting(true)
+        logic.actions.setRichContent({
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a comment' }] }],
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitRecordingComment()
+        })
+            .toDispatchActions(['submitRecordingCommentSuccess'])
+            .toNotHaveDispatchedActions(['submitRecordingCommentFailure'])
+
+        expect(sessionRecordingPlayerLogic(playerLogicProps).values.isCommenting).toBe(false)
+        expect(logic.values.recordingComment.richContent).toBeNull()
     })
 
     it('does not load all members again when the overlay closes', async () => {

@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
@@ -150,6 +151,16 @@ export type playerCommentOverlayLogicType = MakeLogicType<
     PlayerCommentOverlayLogicProps,
     playerCommentOverlayLogicMeta
 >
+
+// the bus only asks the discussion list to refresh, so a comment that saved must never
+// be reported as lost when the notification cannot reach it
+function notifyCommentEdited(notify: () => void): void {
+    try {
+        notify()
+    } catch (e) {
+        posthog.captureException(e, { action: 'player comment bus notify' })
+    }
+}
 
 export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     path(['scenes', 'session-recordings', 'player', 'PlayerFrameAnnotationOverlay']),
@@ -301,15 +312,15 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     },
                     slug: `/replay/${props.recordingId}#panel=discussion`,
                 })
-                actions.commentEdited(props.recordingId)
             } catch (e) {
                 lemonToast.error(`Could not save your comment: ${(e as Error).message}`)
+                return
             } finally {
-                if (loadingTimeout) {
-                    clearTimeout(loadingTimeout)
-                }
+                clearTimeout(loadingTimeout)
                 actions.setLoading(false)
             }
+
+            notifyCommentEdited(() => actions.commentEdited(props.recordingId))
         },
     })),
     forms(({ props, values, actions }) => ({
@@ -359,10 +370,10 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     await api.comments.create({ ...apiPayload, is_task: values.asTask })
                 }
 
-                actions.commentEdited(props.recordingId)
                 actions.resetRecordingComment()
                 actions.setAsTask(false)
                 actions.setIsCommenting(false)
+                notifyCommentEdited(() => actions.commentEdited(props.recordingId))
             },
         },
     })),
