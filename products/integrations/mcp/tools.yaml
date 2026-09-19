@@ -33,8 +33,21 @@ tools:
             idempotent: true
         title: Get integration
         description: >
-            Get a specific integration by ID. Returns full integration details including kind, display name, error
-            status, and creation metadata. Does not expose sensitive credentials or raw configuration.
+            Get a specific integration by its numeric `id`. Returns full integration details including kind, display
+            name, error status, and creation metadata. Does not expose sensitive credentials or raw configuration.
+            Integration ids come from integrations-list, so call that first when you do not already hold the id. An id
+            belongs to one project only. An id taken from another project, or from an older config, does not resolve
+            here. A 404 means this project has no integration with that id. Treat that as final: call integrations-list
+            to see which ids exist, and do not try nearby numbers.
+        param_overrides:
+            id:
+                description: >
+                    The integration's numeric id, as returned in the `id` field by integrations-list. Not the name, the
+                    kind, or an id from another project.
+                cast: string-int
+                aliases:
+                    - integrationId
+                    - integration_id
         response:
             include:
                 - id
