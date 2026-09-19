@@ -6,9 +6,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from posthog.hogql import errors as hogql_errors
-from posthog.hogql.parser import parse_program
-
 from posthog.cdp.validation import compile_hog
 
 from products.cdp.backend.prompts import (
@@ -45,6 +42,17 @@ class CreateHogFunctionFiltersArgs(BaseModel):
 
 class HogFunctionFiltersOutput(BaseModel):
     filters: dict
+
+
+def _compile_error_reason(error: Exception) -> str:
+    """Flatten the message `compile_hog` puts under the `hog` key of its validation error."""
+    detail = getattr(error, "detail", None)
+    if isinstance(detail, dict) and "hog" in detail:
+        hog_detail = detail["hog"]
+        if isinstance(hog_detail, list):
+            return " ".join(str(item) for item in hog_detail)
+        return str(hog_detail)
+    return str(error)
 
 
 class CreateHogTransformationFunctionTool(MaxTool):
@@ -132,18 +140,10 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         try:
             compile_hog(hog_code, "transformation")
-        except Exception:
-            # Try to get a more specific error by parsing directly
-            try:
-                parse_program(hog_code)
-            except hogql_errors.SyntaxError as parse_err:
-                raise PydanticOutputParserException(
-                    llm_output=hog_code,
-                    validation_message=f"The Hog code failed to compile: {parse_err}",
-                )
+        except Exception as compile_err:
             raise PydanticOutputParserException(
                 llm_output=hog_code,
-                validation_message="The Hog code failed to compile.",
+                validation_message=f"The Hog code failed to compile: {_compile_error_reason(compile_err)}",
             )
 
         return HogTransformationOutput(hog_code=hog_code)

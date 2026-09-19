@@ -13,30 +13,37 @@ class TestParseOutput:
             (
                 "slice_syntax",
                 "let x := content[1:2000]",
-                "The Hog code failed to compile",
+                "BytecodeCompiler has no method visit_array_slice",
             ),
             (
                 "double_ampersand",
                 "if (a && b) { print(a) }",
                 "unexpected character '&' (U+0026)",
             ),
+            (
+                "brace_escape_placeholder",
+                'let x := f\'{{"filterGroups":[{"a": {event.b}}]}}\'',
+                "Placeholders are not allowed in this context",
+            ),
+            (
+                "assignment_to_global",
+                "event := 1",
+                'Variable "event" not declared in this scope',
+            ),
+            (
+                "hyphenated_property",
+                "let x := event.some-prop",
+                "Hyphens are not supported in identifiers",
+            ),
         ]
     )
-    def test_parse_output_includes_specific_parse_error(self, _name, hog_code, expected_fragment):
+    def test_parse_output_reports_the_compiler_reason(self, _name, hog_code, expected_fragment):
         tool = CreateHogTransformationFunctionTool.__new__(CreateHogTransformationFunctionTool)
         with pytest.raises(PydanticOutputParserException) as exc_info:
             tool._parse_output(f"<hog_code>{hog_code}</hog_code>")
-        assert expected_fragment in str(exc_info.value)
-
-    def test_parse_output_generic_error_for_non_syntax_issues(self):
-        # Code that parses but fails at the HyphenatedPropertyDetector stage
-        hog_code = "let x := event.some-prop"
-        tool = CreateHogTransformationFunctionTool.__new__(CreateHogTransformationFunctionTool)
-        with pytest.raises(PydanticOutputParserException) as exc_info:
-            tool._parse_output(f"<hog_code>{hog_code}</hog_code>")
-        assert "The Hog code failed to compile" in str(exc_info.value)
-        # Should NOT contain a specific parse error since it's not a syntax error
-        assert "no viable alternative" not in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "The Hog code failed to compile" in message
+        assert expected_fragment in message
 
     def test_parse_output_valid_code(self):
         hog_code = "let x := 1\nreturn event"
