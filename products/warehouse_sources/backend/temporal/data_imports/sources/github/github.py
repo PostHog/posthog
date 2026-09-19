@@ -1340,6 +1340,7 @@ def _fetch_merge_commit_shas(
         "POST",
         GITHUB_GRAPHQL_URL,
         source="warehouse",
+        endpoint="/graphql",
         headers=_get_headers(access_token),
         installation_id=installation_id,
         priority=Priority.BATCH,
