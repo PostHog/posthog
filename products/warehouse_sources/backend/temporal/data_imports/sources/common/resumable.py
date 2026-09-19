@@ -1,4 +1,5 @@
 import json
+import functools
 import dataclasses
 import collections.abc
 from contextlib import contextmanager
@@ -21,12 +22,22 @@ class ResumableSourceManager(Generic[ResumableData]):
     _data_class: type[ResumableData]
     _logger: FilteringBoundLogger
     _namespace: str | None
+    _staged: dict[str, str]
 
-    def __init__(self, inputs: SourceInputs, data_class: type[ResumableData], namespace: str | None = None):
+    def __init__(
+        self,
+        inputs: SourceInputs,
+        data_class: type[ResumableData],
+        namespace: str | None = None,
+        staged: dict[str, str] | None = None,
+    ):
         self._inputs = inputs
         self._data_class = data_class
         self._logger = inputs.logger
         self._namespace = namespace
+        # Cursors wait here until commit(). Siblings from with_namespace() share the dict, so the
+        # one commit the pipeline issues after a write covers every namespace a source touched.
+        self._staged = staged if staged is not None else {}
 
     def with_namespace(self, namespace: str) -> "ResumableSourceManager[ResumableData]":
         """Return a sibling manager whose Redis state is isolated under `namespace`.
@@ -36,7 +47,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         state in separate slots. Without it a retry that switches endpoints could load a
         cursor the other endpoint wrote and replay it against an API that can't parse it.
         """
-        return ResumableSourceManager(self._inputs, self._data_class, namespace=namespace)
+        return ResumableSourceManager(self._inputs, self._data_class, namespace=namespace, staged=self._staged)
 
     @contextmanager
     def _get_redis(self):
@@ -100,14 +111,27 @@ class ResumableSourceManager(Generic[ResumableData]):
             write()
 
     def save_state(self, data: ResumableData) -> None:
-        with self._get_redis() as redis_client:
-            json_data = self._dump_json(data)
-            self._logger.debug(f"Saving resumable source state. key={self._key}, data={json_data}")
+        """Stage `data` as the cursor to resume from once every row yielded so far is written.
 
-            self._write_with_stale_replica_retry(
-                redis_client,
-                lambda: redis_client.set(self._key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
-            )
+        Nothing reaches Redis until commit(), which the pipeline calls right after a write lands.
+        A source with no rows outstanding may call commit() itself.
+        """
+        json_data = self._dump_json(data)
+        self._logger.debug(f"Staging resumable source state. key={self._key}, data={json_data}")
+        self._staged[self._key] = json_data
+
+    def commit(self) -> None:
+        """Persist every staged cursor, across namespaces."""
+        if not self._staged:
+            return
+        with self._get_redis() as redis_client:
+            for key, json_data in list(self._staged.items()):
+                self._logger.debug(f"Saving resumable source state. key={key}, data={json_data}")
+                self._write_with_stale_replica_retry(
+                    redis_client,
+                    functools.partial(redis_client.set, key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
+                )
+                del self._staged[key]
 
     def clear_state(self) -> None:
         """Drop any saved resume state so a subsequent attempt starts from scratch.
@@ -115,6 +139,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         Called once a source has walked its data to completion: leaving the final checkpoint in
         place would let a later attempt resume mid-stream instead of restarting cleanly.
         """
+        self._staged.pop(self._key, None)
         with self._get_redis() as redis_client:
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
             self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
