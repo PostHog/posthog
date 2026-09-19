@@ -9,18 +9,7 @@ import { ChartDisplayType } from '~/types'
 
 import { ChartDisplayIcon } from './ChartDisplayIcon'
 import { ChartPreviewCanvas } from './ChartPreviewCanvas'
-import type { ChartPreviewFidelity } from './chartPreviewData'
 import type { ChartPreview } from './chartPreviewsLogic'
-
-const FIDELITY_LABELS: Record<Exclude<ChartPreviewFidelity, 'exact'>, string> = {
-    approximate: 'Approximate values',
-    sample: 'Sample data',
-}
-
-const FIDELITY_TOOLTIPS: Record<Exclude<ChartPreviewFidelity, 'exact'>, string> = {
-    approximate: 'Estimated from the loaded chart. Select this type to see the real values.',
-    sample: 'Shows how this chart type looks. Select it to run the query on your data.',
-}
 
 export function ChartPreviewTile({
     disabledReason,
@@ -90,10 +79,10 @@ export function ChartPreviewTile({
             {warning && !reason ? (
                 <span className="flex items-center border-t px-2 py-1 text-xs text-warning">{warning.title}</span>
             ) : null}
-            {fidelity && fidelity !== 'exact' && !reason ? (
-                <Tooltip title={FIDELITY_TOOLTIPS[fidelity]}>
+            {fidelity === 'sample' && !reason ? (
+                <Tooltip title="Shows how this chart type looks. Select it to run the query on your data.">
                     <span className="flex items-center gap-1 border-t px-2 py-1 text-xs text-secondary">
-                        {FIDELITY_LABELS[fidelity]}
+                        Sample data
                         <IconInfo className="ml-auto shrink-0 text-base" />
                     </span>
                 </Tooltip>
