@@ -43,6 +43,10 @@ class CatalogMissing(LanguageServiceError):
     pass
 
 
+class MalformedLanguageServiceResponse(LanguageServiceError):
+    pass
+
+
 @dataclass(frozen=True)
 class LanguageServiceResult:
     body: dict[str, Any]
@@ -230,7 +234,9 @@ class LanguageServiceClient:
         if not response.ok:
             raise LanguageServiceError(f"language service returned {response.status_code}: {response.text[:256]}")
         try:
-            body: dict[str, Any] = response.json()
+            body: object = response.json()
         except requests.JSONDecodeError as error:
-            raise LanguageServiceError("language service returned invalid JSON") from error
+            raise MalformedLanguageServiceResponse("language service returned invalid JSON") from error
+        if not isinstance(body, dict):
+            raise MalformedLanguageServiceResponse("language service returned a non-object JSON response")
         return LanguageServiceResult(body=body, duration_seconds=duration, response_size_bytes=len(response.content))
