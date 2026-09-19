@@ -11,6 +11,7 @@ import {
     dataQualityChecksHealthList,
     dataQualityChecksList,
     dataQualityChecksRunsList,
+    dataQualityChecksSchedulesList,
     dataQualityRunsCreate,
     dataQualityRunsRetrieve,
 } from 'products/data_quality/frontend/generated/api'
@@ -44,6 +45,7 @@ jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksHealthList: jest.fn(),
     dataQualityChecksList: jest.fn(),
     dataQualityChecksRunsList: jest.fn(),
+    dataQualityChecksSchedulesList: jest.fn(),
     dataQualityRunsCreate: jest.fn(),
     dataQualityRunsRetrieve: jest.fn(),
 }))
@@ -113,12 +115,40 @@ describe('dataQualityOverviewLogic', () => {
             ],
         })
         ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue(HEALTH)
+        ;(dataQualityChecksSchedulesList as jest.Mock).mockResolvedValue([])
     })
 
     afterEach(() => {
         jest.useRealTimers()
         resumeKeaLoadersErrors()
         logic?.unmount()
+    })
+
+    it('loads every schedule with the overview and keys it by subject', async () => {
+        ;(dataQualityChecksSchedulesList as jest.Mock).mockResolvedValue([
+            {
+                id: 'schedule-1',
+                subject_type: 'posthog_table',
+                subject_uuid: 'events-1',
+                enabled: true,
+                interval: '24hour',
+                next_run_at: null,
+                last_run_at: null,
+                last_suite_run: null,
+            },
+        ])
+        await mountLogic()
+
+        expect(dataQualityChecksSchedulesList).toHaveBeenCalledTimes(1)
+        expect(logic.values.scheduleBySubjectKey['posthog_table:events-1']).toMatchObject({ id: 'schedule-1' })
+    })
+
+    it('keeps the overview when the schedule listing fails', async () => {
+        ;(dataQualityChecksSchedulesList as jest.Mock).mockRejectedValue(new Error('down'))
+        await mountLogic()
+
+        expect(logic.values.subjectGroups.length).toBeGreaterThan(0)
+        expect(logic.values.scheduleBySubjectKey).toEqual({})
     })
 
     it('keys subjects by type and uuid together, since the two kinds can collide', async () => {

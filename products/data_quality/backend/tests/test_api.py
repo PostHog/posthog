@@ -171,6 +171,34 @@ class TestMetricCheckAPI(APIBaseTest):
         assert self.client.delete(f"{self.url}/{check['id']}/").status_code == 204
         assert self.client.get(f"{self.url}/schedule/?{self.subject_query}").status_code == 200
 
+    def test_the_schedule_listing_covers_every_scheduled_subject_in_one_round_trip(self) -> None:
+        events = by_name("events")
+        assert events is not None
+        self._create()
+        with self.captureOnCommitCallbacks(execute=True):
+            events_check = self.client.post(
+                f"{self.url}/",
+                {
+                    "subject_type": SubjectType.POSTHOG_TABLE,
+                    "subject_uuid": str(events.id),
+                    "check_type": CheckType.NOT_NULL,
+                    "column_name": "distinct_id",
+                    "config": {},
+                },
+            )
+        assert events_check.status_code == status.HTTP_201_CREATED, events_check.json()
+        self.connect.reset_mock()
+
+        response = self.client.get(f"{self.url}/schedules/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert sorted((row["subject_type"], row["subject_uuid"]) for row in response.json()) == [
+            ("metric", str(self.metric.id)),
+            ("posthog_table", str(events.id)),
+        ]
+        assert {row["interval"] for row in response.json()} == {"24hour"}
+        assert self.connect.await_count == 1
+
     def test_schedule_patch_reuses_one_connection_and_records_snapshots(self) -> None:
         self._create()
         self.connect.reset_mock()

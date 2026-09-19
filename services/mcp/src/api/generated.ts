@@ -24430,6 +24430,8 @@ export namespace Schemas {
       name: string;
       /** Label shown in the data catalog. Blank for tables and views. */
       display_name: string;
+      /** Column a lookback window bounds, or blank for a subject that has none. */
+      time_column: string;
       /** Column name to ClickHouse type. Empty for a metric, and for a view that has not run yet. */
       columns: DataQualitySubjectColumns;
       /** Whether the caller may author a check on this subject. A subject that is only readable can still be the target of a relationships check. */
@@ -24450,6 +24452,48 @@ export namespace Schemas {
       checks_total: number;
       /** How many of those checks last reported a failure. */
       checks_failing: number;
+    }
+
+    /**
+     * One subject's schedule, in the project-wide listing.
+     */
+    export interface DataQualitySubjectSchedule {
+      /** Schedule identifier. */
+      readonly id: string;
+      /** How often the checks run.
+       *
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day */
+      readonly interval: DataQualityScheduleIntervalEnum;
+      /** Whether the schedule runs automatically. */
+      readonly enabled: boolean;
+      /**
+         * Next scheduled execution time, if enabled.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
+         * Most recent visible scheduled suite execution time.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /**
+         * Most recent visible scheduled suite.
+         * @nullable
+         */
+      readonly last_suite_run: string | null;
+      /** 'metric' or 'posthog_table'.
+       *
+       * * `table` - table
+       * * `view` - view
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
+      readonly subject_type: SubjectTypeEnum;
+      /** Id of the metric or PostHog table. */
+      readonly subject_uuid: string;
     }
 
     export interface DataQualitySuiteRun {
