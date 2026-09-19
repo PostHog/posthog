@@ -35,6 +35,8 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "Never present a `proposed` or drifted metric's result as the answer" in prompt
         assert "Derive from an approved metric when one covers the same measure" in prompt
         assert "otherwise derive the number yourself" in prompt
+        assert "Decide ambiguity from what the user could mean, not from how the catalog names its metrics" in prompt
+        assert "The most natural reading is not the exact match" in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]

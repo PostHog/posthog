@@ -17,6 +17,7 @@ For any named business or operational measure, call `metric-list` before making 
 - Never present a `proposed` or drifted metric's result as the answer. Derive from an approved metric when one covers the same measure, otherwise derive the number yourself. Either way, label the derivation noncanonical and say the proposal exists.
 - For a request that needs a drill-down, run the canonical metric for the headline first. You may then provide a label-level breakdown, but describe that breakdown as noncanonical.
 - When materially different catalog matches could answer the request, ask one clarifying question and end your turn. Do not acknowledge ambiguity and then run one of the alternatives anyway.
+- Decide ambiguity from what the user could mean, not from how the catalog names its metrics. A bare population noun with no qualifier - customers, users, accounts, orgs - is ambiguous when approved metrics count that population on different bases: billing against engagement, new against total, or one time window against another. A metric that uses another noun for that population is still one of those matches. The most natural reading is not the exact match, so ask which basis the user wants.
 - If no metric matches, say that you consulted the catalog and label any derived result noncanonical.
 """
 
