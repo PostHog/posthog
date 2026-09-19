@@ -49,11 +49,12 @@ import { insightsModel } from '~/models/insightsModel'
 import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { Node, ProductKey } from '~/queries/schema/schema-general'
+import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    ChartDisplayType,
     DashboardPlacement,
     DashboardTile,
     ExporterFormat,
@@ -373,7 +374,10 @@ export function InsightMeta({
     const captureTarget = insightCardCaptureTarget(insight, tile, dashboardId)
     // Only a chart tile is drawn here. A table tile can hold hundreds of rows, which the browser
     // capture walks node by node, so those keep the server-side render.
-    const canCaptureImage = isInsightVizNode(insight.query)
+    const canCaptureImage =
+        isInsightVizNode(insight.query) &&
+        !(insight.query.source.kind === NodeKind.TrendsQuery &&
+            insight.query.source.trendsFilter?.display === ChartDisplayType.ActionsTable)
 
     // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
     // dashboards, matching the "⋯" menu (which is already gated there).

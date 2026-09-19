@@ -22,7 +22,7 @@ export interface ExportAccessReasons {
 export function getExportAccessReasons(items: ExportAccessItem[]): ExportAccessReasons {
     const reason = getAccessControlDisabledReason(AccessControlResourceType.Export, AccessControlLevel.Editor)
     return {
-        menu: items.some((item) => item.onClick) ? null : reason,
-        forItem: (item) => (item.onClick ? null : reason),
+        menu: items.some(({ onClick }) => onClick) ? null : reason,
+        forItem: ({ onClick }) => (onClick ? null : reason),
     }
 }
