@@ -2396,7 +2396,7 @@ class TestQueryStatsRecording(BaseTest):
             record(rows_read=42, duration_ms=1.0)
             return ([[0]], [("count()", "UInt64")])
 
-        with query_stats_scope() as stats:
+        with query_stats_scope(retain_ast=True) as stats:
             with mock.patch("posthog.hogql.query.sync_execute", side_effect=ok):
                 execute_hogql_query("select count() from events", team=self.team, query_type="test")
         assert len(stats.executions) == 1
@@ -2409,7 +2409,7 @@ class TestQueryStatsRecording(BaseTest):
             record(rows_read=90, duration_ms=1.0)
             raise ClickHouseQueryMemoryLimitExceeded()
 
-        with query_stats_scope() as killed_stats:
+        with query_stats_scope(retain_ast=True) as killed_stats:
             with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
                 with mock.patch("posthog.hogql.query.sync_execute", side_effect=killed):
                     execute_hogql_query("select count() from events", team=self.team, query_type="test")
