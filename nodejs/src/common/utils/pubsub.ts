@@ -31,19 +31,15 @@ export class PubSub {
     }
 
     public async stop(): Promise<void> {
-        if (!this.redisSubscriber) {
-            logger.error('🛑', 'Unstarted PubSub cannot be stopped!')
-            return
-        }
-
-        await this.promises.waitForAll()
-        await this.redisSubscriber.unsubscribe()
-
         if (this.redisSubscriber) {
+            await this.promises.waitForAll()
+            await this.redisSubscriber.unsubscribe()
             this.redisSubscriber.removeAllListeners('message')
             await this.redisPool.release(this.redisSubscriber)
+            this.redisSubscriber = undefined
+        } else {
+            logger.warn('🛑', 'Unstarted PubSub cannot be stopped!')
         }
-        this.redisSubscriber = undefined
 
         if (this.redisPublisher) {
             await this.redisPool.release(this.redisPublisher)
