@@ -20,6 +20,8 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 
+from posthog.ingress.verify.errors import VerifierUnavailable
+
 from products.workflows.backend.services.sns_verification import is_valid_sns_url, verify_sns_message
 from products.workflows.backend.tasks.ses_tenant_state import sync_ses_tenant_state_task
 
@@ -70,7 +72,14 @@ def ses_tenant_events_webhook(request: HttpRequest) -> HttpResponse:
     if message.get("TopicArn") not in allowed_topics:
         logger.warning("ses_tenant_events_webhook_unknown_topic", topic=message.get("TopicArn"))
         return HttpResponse("Unknown topic", status=403)
-    if not verify_sns_message(message):
+    try:
+        verified = verify_sns_message(message)
+    except VerifierUnavailable:
+        # 503 asks SNS to deliver again, which its retry policy does for a server error. 403 would
+        # read as a verdict on a message whose signature was never checked.
+        logger.warning("ses_tenant_events_webhook_verification_unavailable", message_id=message.get("MessageId"))
+        return HttpResponse("Verification unavailable", status=503)
+    if not verified:
         logger.warning("ses_tenant_events_webhook_invalid_signature", message_id=message.get("MessageId"))
         return HttpResponse("Invalid signature", status=403)
 
