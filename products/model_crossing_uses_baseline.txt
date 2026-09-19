@@ -56,7 +56,6 @@ billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.visi
 canvas.Canvas products.canvas.backend.facade.api.seed_home_canvas facade-accepts(canvas) 1
 canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
 cohorts.Cohort experiments.Experiment.exposure_cohort reverse-accessor(experiment_set) 1
-context_layer.ContextLayerConfig products.context_layer.backend.facade.api.enable_context_layer facade-returns 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.get_config facade-returns 1
 conversations.Ticket posthog.TaggedItem.ticket reverse-accessor(tagged_items) 1
 customer_analytics.Account notebooks.ResourceNotebook.account reverse-accessor(notebooks) 1
