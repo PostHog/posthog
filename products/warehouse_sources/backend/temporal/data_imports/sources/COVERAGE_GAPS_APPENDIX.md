@@ -1746,13 +1746,13 @@ Today (7): `branches`, `commits`, `components`, `coverage_trend`, `flags`, `pull
 
 Diffed against: <https://api.codecov.io/api/v2/schema>
 
-- [ ] `/{service}/{owner}/repos/{repo}/totals/` — Current coverage totals per repo (lines, hits, misses, partials) - the headline number, only available as a trend today (high)
-- [ ] `/{service}/{owner}/repos/{repo}/test-results/ (and /test-results/{id}/)` — Test Analytics: per-test failure rate, flake rate and runtime - Codecov's flagship non-coverage product, entirely unsynced (high)
-- [ ] `/{service}/{owner}/repos/{repo}/report/ and /report/tree` — The coverage report broken down by file and directory, which turns repo-level coverage into something actionable (high)
+- [x] `/{service}/{owner}/repos/{repo}/totals/` — Current coverage totals per repo (lines, hits, misses, partials) - the headline number, only available as a trend today (high)
+- [x] `/{service}/{owner}/repos/{repo}/test-results/ (and /test-results/{id}/)` — Test Analytics: per-test failure rate, flake rate and runtime - Codecov's flagship non-coverage product, entirely unsynced (high)
+- [x] `/{service}/{owner}/repos/{repo}/report/ and /report/tree` — The coverage report broken down by file and directory, which turns repo-level coverage into something actionable (high)
 - [ ] `/{service}/{owner}/repos/{repo}/flags/{flag_name}/coverage/` — Coverage trend per flag - the breakdown dimension for the flags table already synced (medium)
 - [ ] `/{service}/{owner}/repos/{repo}/file_report/{path}/` — Line-level coverage for a specific file, needed to find persistently uncovered hot spots (medium)
 - [ ] `/{service}/{owner}/repos/{repo}/commits/{commitid}/uploads/` — Which CI jobs uploaded coverage for each commit - the way to detect missing or failed uploads skewing coverage (medium)
-- [ ] `/{service}/{owner}/users/` — Org member lookup resolving the author IDs on commits and pulls already synced (medium)
+- [x] `/{service}/{owner}/users/` — Org member lookup resolving the author IDs on commits and pulls already synced (medium)
 - [ ] `/{service}/{owner}/repos/{repo}/compare/impacted_files (also /compare/flags, /compare/components)` — Coverage delta of a pull request by file, flag and component - the review-time metric teams actually track (medium)
 - [ ] `/{service}/{owner}/repos/{repo}/test-analytics/` — Aggregated test-suite health summary that pairs with the raw test results (medium)
 - [ ] `/{service}/{owner}/` — Owner/org record giving repos an organization-level parent to roll up to (low)
@@ -1761,13 +1761,14 @@ Note: Codecov (now part of Sentry) serves a live drf-spectacular schema at https
 
 ## Codefresh — gaps
 
-Today (6): `builds`, `images`, `pipelines`, `projects`, `step_types`, `triggers`
+Today (9): `builds`, `environments`, `images`, `pipelines`, `projects`, `step_types`, `teams`, `triggers`, `users`
 
 Diffed against: <https://g.codefresh.io/api/openapi.json>
 
 - [ ] `/builds/tree/{buildId}` — Per-build step tree with status and duration per step - without it a build is a single opaque row and slow-step analysis is impossible (high)
-- [ ] `/accounts/{accountId}/users and /team` — User and team lookup that resolves the initiator/committer IDs stamped on every build (high)
-- [ ] `/environments-v2 and /environments-v2/activity/{id}` — Deployment environments and their activity history - turns CI build data into deployment/DORA analysis (high)
+- [x] `/accounts/{accountId}/users and /team` — User and team lookup that resolves the initiator/committer IDs stamped on every build (high) — added as `users` + `teams`
+- [x] `/environments-v2` — Deployment environments, which turn CI build data into deployment/DORA analysis (high) — added as `environments`
+- [ ] `/environments-v2/activity/{id}` — Activity history behind the environment dashboard (high)
 - [ ] `/gitops/application` — Argo CD application inventory with sync and health state, the GitOps half of the product (medium)
 - [ ] `/annotations (and /annotations/keys, /annotations/values/{key})` — Key/value metrics teams attach to builds and images (coverage, test counts) - the custom measures behind build reporting (medium)
 - [ ] `/audit` — Account audit log of who changed pipelines and settings, for correlating pipeline changes with build outcomes (medium)
@@ -1777,6 +1778,8 @@ Diffed against: <https://g.codefresh.io/api/openapi.json>
 - [ ] `/kubernetes/releases (and /k8s/releases/withoutSecrets)` — Helm releases deployed per cluster, linking pipelines to what is actually running (low)
 - [ ] `/clusters` — Cluster inventory that gives releases and environments a deployment-target dimension (low)
 - [ ] `/repos` — Connected git repositories, the source dimension for pipelines and builds (low)
+
+Note: `/builds/tree/{buildId}`, `/environments-v2/activity/{id}` and `/analytics/reports/{reportName}` are left unticked on purpose. The build tree is the parent/sibling/child build hierarchy behind Codefresh's Build Tree view, not a step tree: a build's step names already sit on the build row, and step detail lives on `/progress/{id}`. Its body is undocumented, and it is a per-build detail endpoint, so syncing it means one request per build over a table that is full refresh only. `/environments-v2/activity/{id}` takes an activity id, and no endpoint enumerates activity ids, so there is no parent to fan out from. `/analytics/reports/{reportName}` needs a report name from an undocumented catalog and returns a body that changes per report, per granularity and per date range, so it has no stable row grain; it is a rollup of build data the warehouse can already aggregate from `builds`.
 
 Note: Codefresh serves its OpenAPI 3 spec unauthenticated at https://g.codefresh.io/api/openapi.json (312 paths, 180 with GET). The synced `builds` table maps to GET /workflow. Much of the remaining surface is config/admin (contexts, registries, runtime-environments, ABAC, auth keys) and correctly excluded; the real gaps are step-level build data, identity lookups, and the GitOps/deployment side.
 
@@ -1856,15 +1859,15 @@ Note: docs.coinapi.io is behind a Cloudflare interstitial and returns 403 to cur
 
 ## CoinGecko — gaps
 
-Today (8): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_markets`, `exchanges`, `exchanges_list`, `insights`
+Today (12): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_market_chart`, `coins_markets`, `coins_ohlc`, `coins_tickers`, `exchanges`, `exchanges_list`, `global_market_data`, `insights`
 
 Diffed against: <https://docs.coingecko.com/llms.txt>
 
-- [ ] `/coins/{id}/market_chart/range` — historical price, market cap and volume timeseries - the headline series; today only a current-price snapshot is synced (high)
-- [ ] `/coins/{id}/ohlc/range` — OHLC candles per coin over an arbitrary range, needed for any price analysis (high)
-- [ ] `/global` — total crypto market cap, active coins and BTC dominance - CoinGecko's flagship market-wide metric (high)
+- [x] `/coins/{id}/market_chart/range` — historical price, market cap and volume timeseries - the headline series; today only a current-price snapshot is synced (high)
+- [x] `/coins/{id}/ohlc/range` — OHLC candles per coin over an arbitrary range, needed for any price analysis (high)
+- [x] `/global` — total crypto market cap, active coins and BTC dominance - CoinGecko's flagship market-wide metric (high)
 - [ ] `/global/market_cap_chart` — historical global market cap and volume, the time series behind the above (high)
-- [ ] `/coins/{id}/tickers` — market pairs per coin on CEX and DEX - the join that resolves coins_list against exchanges_list, which we sync but cannot currently link (high)
+- [x] `/coins/{id}/tickers` — market pairs per coin on CEX and DEX - the join that resolves coins_list against exchanges_list, which we sync but cannot currently link (high)
 - [ ] `/exchanges/{id}/tickers` — trading pairs per exchange; the other half of the coin-to-exchange lookup (medium)
 - [ ] `/exchanges/{id}/volume_chart/range` — historical exchange volume for ranking exchanges over time (medium)
 - [ ] `/simple/supported_vs_currencies` — lookup of valid vs_currency codes that coins_markets is parameterised by (currently hardcoded to usd) (medium)
@@ -1872,20 +1875,20 @@ Diffed against: <https://docs.coingecko.com/llms.txt>
 - [ ] `/exchange_rates` — BTC-to-currency rates, the standard normaliser for cross-currency reporting (medium)
 - [ ] `/derivatives/exchanges and /derivatives/tickers` — derivatives venues and open interest, entirely absent from current coverage (medium)
 - [ ] `/nfts/markets` — NFT collections with floor price, market cap and volume - a whole product surface with no table today (medium)
-- [ ] `/coins/{id}/supply_breakdown` — per-coin circulating/non-circulating supply split with non-circulating wallet detail (Pro, Analyst plan and above); needs per-coin fan-out over the full coin universe, which this top-level-only source has no plumbing for (medium)
+- [ ] `/coins/{id}/supply_breakdown` — per-coin circulating/non-circulating supply split with non-circulating wallet detail (Pro, Analyst plan and above); fans out per coin over the configured coin list, like the chart tables (medium)
 
 Note: docs.coingecko.com/reference/\* pages are client-rendered and unparseable by curl, but llms.txt enumerates every reference page (Demo and Pro) with descriptions, and any single page can be fetched by appending .md. The onchain/GeckoTerminal family (networks, dexes, pools, token holders, pool trades) is a further ~35 endpoints with zero coverage; treated as a separate product rather than listed individually here.
 
 ## CoinMarketCap — gaps
 
-Today (5): `categories`, `cryptocurrency_map`, `exchange_map`, `fiat_map`, `listings_latest`
+Today (9): `categories`, `cryptocurrency_info`, `cryptocurrency_map`, `exchange_map`, `fiat_map`, `global_metrics_quotes_historical`, `listings_latest`, `ohlcv_historical`, `quotes_historical`
 
 Diffed against: <https://pro.coinmarketcap.com/api/documentation/pro-api-reference/cryptocurrency.md>
 
-- [ ] `GET /v3/cryptocurrency/quotes/historical` — historical price, market cap and volume per coin - the core fact table; today only listings/latest snapshots exist (high)
-- [ ] `GET /v2/cryptocurrency/ohlcv/historical` — daily OHLCV candles, required for any price or return analysis (high)
-- [ ] `GET /v1/global-metrics/quotes/historical` — total market cap, BTC dominance and altcoin market cap over time - CMC's headline market metric (high)
-- [ ] `GET /v2/cryptocurrency/info` — coin metadata (tags, platform, category, urls) that resolves the ids in the cryptocurrency_map we already sync (high)
+- [x] `GET /v3/cryptocurrency/quotes/historical` — historical price, market cap and volume per coin - the core fact table; today only listings/latest snapshots exist (high)
+- [x] `GET /v2/cryptocurrency/ohlcv/historical` — daily OHLCV candles, required for any price or return analysis (high)
+- [x] `GET /v1/global-metrics/quotes/historical` — total market cap, BTC dominance and altcoin market cap over time - CMC's headline market metric (high)
+- [x] `GET /v2/cryptocurrency/info` — coin metadata (tags, platform, category, urls) that resolves the ids in the cryptocurrency_map we already sync (high)
 - [ ] `GET /v1/exchange/listings/latest` — ranked exchanges with volume and liquidity; exchange_map alone carries no metrics (high)
 - [ ] `GET /v1/exchange/info` — exchange metadata lookup resolving the ids in the synced exchange_map (medium)
 - [ ] `GET /v1/cryptocurrency/listings/historical` — historical ranked snapshots, letting you reconstruct rank changes without polling listings/latest (medium)
@@ -1895,7 +1898,7 @@ Diffed against: <https://pro.coinmarketcap.com/api/documentation/pro-api-referen
 - [ ] `GET /v1/cryptocurrency/category` — coin membership per category - the categories table we sync lists categories but not their constituents (medium)
 - [ ] `GET /v3/fear-and-greed/historical` — CMC's proprietary sentiment index over time, a commonly requested signal (medium)
 
-Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but every page is served as markdown by appending .md, and pro.coinmarketcap.com/llms.txt indexes the whole reference by family (Cryptocurrency 19, Exchange 7, Global Metrics 6, DEX/Token 16, Holder 5, Derivatives 3, RWA 7, CMC Index 4...). PostHog's five tables are all lookup/snapshot endpoints; every historical family is absent. The DEX (Token/Pool/Holder/OHLCV) and Real World Assets families are also entirely uncovered but are treated as separate products rather than enumerated here.
+Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but every page is served as markdown by appending .md, and pro.coinmarketcap.com/llms.txt indexes the whole reference by family (Cryptocurrency 19, Exchange 7, Global Metrics 6, DEX/Token 16, Holder 5, Derivatives 3, RWA 7, CMC Index 4...). The cryptocurrency and global-metrics historical families are now covered; the exchange historical family is not. The DEX (Token/Pool/Holder/OHLCV) and Real World Assets families are also entirely uncovered but are treated as separate products rather than enumerated here.
 
 ## Commercetools — gaps
 
