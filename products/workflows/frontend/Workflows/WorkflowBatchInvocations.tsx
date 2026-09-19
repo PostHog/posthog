@@ -24,13 +24,14 @@ import { BatchRunLog } from './BatchRunLog'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
 import {
+    type ScheduleState,
     buildSummary,
     computePreviewOccurrences,
     fakeUtcToReal,
     isOneTimeSchedule,
     parseRRuleToState,
 } from './hogflows/steps/components/rrule-helpers'
-import { HogFlowBatchJob } from './hogflows/types'
+import { HogFlowBatchJob, HogFlowSchedule } from './hogflows/types'
 import { renderWorkflowLogMessage } from './logs/log-utils'
 import { workflowLogic } from './workflowLogic'
 
@@ -144,11 +145,22 @@ function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlow
     )
 }
 
+/** A one-time rrule carries no repetition to describe, so name its single date instead. */
+function scheduleSummary(schedule: HogFlowSchedule, state: ScheduleState): string {
+    if (!isOneTimeSchedule(schedule.rrule)) {
+        return buildSummary(state, schedule.starts_at)
+    }
+    const startsAt = schedule.timezone ? dayjs(schedule.starts_at).tz(schedule.timezone) : dayjs(schedule.starts_at)
+    return `Runs once, on ${startsAt.format('MMMM D, YYYY')}.`
+}
+
 function UpcomingOccurrences(): JSX.Element | null {
     const { currentSchedule } = useValues(workflowLogic)
 
+    const isOneTime = !!currentSchedule?.rrule && isOneTimeSchedule(currentSchedule.rrule)
+
     const scheduleState = useMemo(() => {
-        if (!currentSchedule?.rrule || isOneTimeSchedule(currentSchedule.rrule)) {
+        if (!currentSchedule?.rrule) {
             return null
         }
         return parseRRuleToState(currentSchedule.rrule)
@@ -161,7 +173,7 @@ function UpcomingOccurrences(): JSX.Element | null {
         return computePreviewOccurrences(scheduleState, currentSchedule.starts_at, currentSchedule.timezone)
     }, [scheduleState, currentSchedule])
 
-    const summary = scheduleState ? buildSummary(scheduleState, currentSchedule?.starts_at ?? null) : null
+    const summary = scheduleState && currentSchedule ? scheduleSummary(currentSchedule, scheduleState) : null
     const timezone = currentSchedule?.timezone
     const hasFutureOccurrences = occurrences.some((d) => fakeUtcToReal(d, timezone).isAfter(dayjs()))
 
@@ -180,7 +192,9 @@ function UpcomingOccurrences(): JSX.Element | null {
                     </div>
                 )}
                 <div className="text-xs text-muted mb-2">
-                    <span className="font-semibold uppercase tracking-wide">Next occurrences</span>
+                    <span className="font-semibold uppercase tracking-wide">
+                        {isOneTime ? 'Next occurrence' : 'Next occurrences'}
+                    </span>
                     {timezone ? ` in ${timezone}` : ''}
                 </div>
                 <div className="space-y-1.5">
@@ -205,7 +219,7 @@ function UpcomingOccurrences(): JSX.Element | null {
 export function WorkflowBatchInvocations({ id }: { id: string }): JSX.Element {
     const { jobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic({ id }))
     const { currentSchedule } = useValues(workflowLogic)
-    const hasSchedule = !!currentSchedule?.rrule && !isOneTimeSchedule(currentSchedule.rrule)
+    const hasSchedule = !!currentSchedule?.rrule
 
     if (batchWorkflowJobsLoading) {
         return (
