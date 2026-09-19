@@ -80,4 +80,6 @@ export interface ExportedData extends SharingConfigurationSettings {
     cohorts?: Pick<CohortType, 'id' | 'name'>[]
     /** AI user interview payload — present only for `type === ExportType.Interview`. */
     interview?: InterviewExportPayload
+    /** Class the server asks the page to put on `<html>`, e.g. `export-type-embed`. */
+    rootClassName?: string
 }
