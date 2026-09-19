@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 from structlog.typing import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 
 from products.customer_analytics.backend.logic.account_property_runs import (
@@ -25,6 +26,7 @@ from products.customer_analytics.backend.logic.account_property_runs import (
     finish_account_property_sync_runs,
 )
 from products.customer_analytics.backend.logic.custom_property_values import (
+    CustomPropertyValueConflict,
     InvalidCustomPropertyValue,
     set_synced_custom_property_value,
 )
@@ -46,6 +48,7 @@ from products.warehouse_sources.backend.facade.temporal import (
 logger = structlog.get_logger(__name__)
 
 _ACCOUNT_LOOKUP_CHUNK_SIZE = 1_000
+_WRITE_CONFLICT_RETRIES = 3
 _PARQUET_BATCH_SIZE = 50_000
 _SEGMENTS_REQUIRED_FOR_CLEANUP = frozenset({"tracked", "ignored"})
 _RUN_FAILED_ERROR = "Couldn't update accounts. Run the source view again. If it keeps failing, contact support."
@@ -72,6 +75,7 @@ class AppliedSourceValues:
     written: int
     hashes: dict[str, str]
     failed: bool
+    conflicted: int = 0
 
 
 @frozen(frozen=False)
@@ -245,6 +249,34 @@ def _matching_account_ids(
     return matching
 
 
+def _write_source_value(
+    *,
+    team_id: int,
+    source: CustomPropertySource,
+    account_id: UUID,
+    value: Any,
+) -> bool:
+    """Write one account's value, retrying the transient active-value race.
+
+    Another writer — the UI, a workflow, the other segment — can win that race, and the retry
+    soft-deletes the winner's row first, so it succeeds. Re-raises the conflict once the retries
+    are spent, leaving the caller to decide what to do about that one account.
+    """
+    attempts = 0
+    while True:
+        try:
+            return set_synced_custom_property_value(
+                team_id=team_id,
+                account_id=account_id,
+                definition=source.definition,
+                value=value,
+            )
+        except CustomPropertyValueConflict:
+            attempts += 1
+            if attempts == _WRITE_CONFLICT_RETRIES:
+                raise
+
+
 def _apply_source_values(
     team_id: int,
     source: CustomPropertySource,
@@ -253,17 +285,25 @@ def _apply_source_values(
     segment: AccountPropertySyncSegment,
 ) -> AppliedSourceValues:
     written = 0
+    conflicted = 0
     applied_hashes: dict[str, str] = {}
     source_failed = False
+    last_conflict: CustomPropertyValueConflict | None = None
     for external_id, account_id in account_ids.items():
         value = changed[external_id]
         try:
-            did_write = set_synced_custom_property_value(
+            did_write = _write_source_value(
                 team_id=team_id,
+                source=source,
                 account_id=account_id,
-                definition=source.definition,
                 value=value,
             )
+        except CustomPropertyValueConflict as error:
+            # Skipping leaves this account's hash unrecorded, so the next run writes it again. The
+            # alternative — letting the conflict out — fails the whole segment over one raced row.
+            conflicted += 1
+            last_conflict = error
+            continue
         except InvalidCustomPropertyValue as error:
             source_failed = True
             logger.warning(
@@ -277,7 +317,18 @@ def _apply_source_values(
         if did_write:
             written += 1
         applied_hashes[external_id] = _value_hash(value)
-    return AppliedSourceValues(written=written, hashes=applied_hashes, failed=source_failed)
+    if last_conflict is not None:
+        # Once per source per batch, not per account: a contended sync would otherwise bury every
+        # other exception under thousands of identical reports.
+        logger.warning(
+            "account-property sync skipped accounts after repeated write conflicts",
+            team_id=team_id,
+            source_id=str(source.id),
+            segment=segment.value,
+            conflicted=conflicted,
+        )
+        capture_exception(last_conflict)
+    return AppliedSourceValues(written=written, hashes=applied_hashes, failed=source_failed, conflicted=conflicted)
 
 
 def _enabled_sources(team_id: int, binding: WarehouseBinding) -> list[CustomPropertySource]:
@@ -452,6 +503,7 @@ async def run_account_property_segment_sync(
                         **phase_details,
                         "matched_accounts": len(account_ids),
                         "written_values": applied.written,
+                        "conflicted_values": applied.conflicted,
                         "source_failed": applied.failed,
                     },
                 )
