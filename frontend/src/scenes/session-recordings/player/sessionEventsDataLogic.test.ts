@@ -89,8 +89,18 @@ describe('sessionEventsDataLogic', () => {
         } as any)
 
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.eventsOutsideWindow).toEqual(expected)
+        expect(logic.values.eventsMissingFromWindow).toEqual(expected)
 
         metaLogic.unmount()
+    })
+
+    // The probe result outlived the empty list it explained, so a reload that did find events left
+    // the inspector claiming they were all dated outside the recording.
+    it('retires the outside-window count once a load finds events', async () => {
+        logic.actions.probeForEventsOutsideWindowSuccess({ count: 3, earliest: EARLIEST })
+        expect(logic.values.eventsMissingFromWindow).toEqual({ count: 3, earliest: EARLIEST })
+
+        logic.actions.loadEventsSuccess([makeEvent('event-1')])
+        expect(logic.values.eventsMissingFromWindow).toBeNull()
     })
 })
