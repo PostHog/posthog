@@ -49,7 +49,7 @@ DEFAULT_PROBE_PATH = "/courses"
 LEGACY_FAN_OUT_ENDPOINT = "course_trackings"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CoassembleResumeConfig:
     # Next page to fetch (0-indexed page-number pagination). Deterministic, so a crashed sync
     # resumes from the page after the last one yielded; merge dedupes the re-pulled page on the

@@ -25,7 +25,7 @@ class CoassembleFanOut:
     stamp_column: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class CoassembleEndpointConfig:
     name: str
     # Request path; for a fan-out child, a template over the fan-out's `param`.
