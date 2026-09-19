@@ -51,6 +51,18 @@ message rather than silently creating a task with the space's default repository
 Prefilled forms use a separate `compose-task` navigation intent so older hosts reject the request
 instead of dropping its fields and opening a task with the wrong repository.
 
+### Task summaries
+
+Test experimental summary features in a separate canvas with its own user-scoped state.
+Copy card data through the state API, not through published source, and do not copy pending Cloud start requests.
+`ph.agent.request` asks the authoring agent to edit a canvas; it does not return an LLM completion.
+For an on-demand summary, use an explicit `tasks.create_and_run` action and show that it uses paid compute.
+Persist the request ID before starting, reuse it on retries, and give the task a request-specific user-state key for its result.
+Ask the task to read the requested cards and available thread output, report missing evidence, and write only its result key.
+Validate the result ID and card coverage, render generated text without HTML, and keep the last good result when a refresh fails.
+Bound result polling, resume reads after reload without starting another task, and ignore results from older requests.
+Keep manual board columns unchanged and mark the summary as stale when the input cards change.
+
 ## Declare tools
 
 Declare each provider and tool in the source project's capabilities:
