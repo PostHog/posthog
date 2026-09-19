@@ -2,6 +2,7 @@ from typing import cast
 from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
+from django.db.models import QuerySet
 from django.http import Http404
 
 from rest_framework import exceptions, mixins, serializers, status, viewsets
@@ -95,8 +96,11 @@ class HookViewSet(
     # it is able to support more than Zapier
     hide_api_docs = True
     queryset = Hook.objects.all()
-    ordering = "-created_at"
     serializer_class = HookSerializer
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        # `-id` is a unique tie-breaker, so page boundaries stay stable when two hooks share a timestamp
+        return queryset.order_by("-created", "-id")
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
