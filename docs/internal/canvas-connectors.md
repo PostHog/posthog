@@ -24,6 +24,8 @@ The selected model determines the runtime adapter; reasoning effort requires an 
 Omit both fields to retain the viewer's defaults. These fields do not change saved run preferences.
 Retries with the same `idempotency_key` return the existing task, even if the requested settings change.
 Generate a new key for each additional task linked to the same canvas card.
+Editable thread labels belong to each saved card link. Keep them in canvas state, separate from task titles and run prompts.
+Use the task ID for navigation, not the editable label, and retain labels when loading or moving a card.
 The returned run status is a snapshot, not live progress.
 Canvases without task syncing should show the thread link without storing or displaying that status.
 Keep manual board columns separate from thread state.
