@@ -5,6 +5,7 @@ import { PromptHistoryDialog } from "@posthog/ui/features/message-editor/compone
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import type { MentionChip } from "@posthog/ui/features/message-editor/content";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
+import { BillingChip } from "@posthog/ui/features/sessions/components/BillingChip";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
@@ -187,6 +188,11 @@ function PromptInputHarness({
               })
             }
           />
+        ) : null
+      }
+      billingChip={
+        showSelectors ? (
+          <BillingChip adapter="claude" workspaceMode="local" />
         ) : null
       }
       historyButton={

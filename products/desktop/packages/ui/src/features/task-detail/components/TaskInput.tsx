@@ -112,6 +112,7 @@ import { resolveAndAttachDroppedFiles } from "../../message-editor/utils/persist
 import { usePanelLayoutStore } from "../../panels/panelLayoutStore";
 import { PiModelSelector } from "../../pi-sessions/PiSessionControls";
 import { usePiModelCatalog } from "../../pi-sessions/usePiModelCatalog";
+import { BillingChip } from "../../sessions/components/BillingChip";
 import { DropZoneOverlay } from "../../sessions/components/DropZoneOverlay";
 import type { AgentHarness } from "../../sessions/components/HarnessSubmenu";
 import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevelSelector";
@@ -1709,6 +1710,15 @@ export function TaskInput({
                       hasPendingDraft={hasPendingDraft}
                       disabled={isCreatingTask}
                     />
+                  }
+                  billingChip={
+                    autoresearchDraft || runtime === "pi" ? null : (
+                      <BillingChip
+                        adapter={adapter ?? "claude"}
+                        workspaceMode={workspaceMode}
+                        disabled={isCreatingTask}
+                      />
+                    )
                   }
                   reasoningSelector={
                     autoresearchDraft || runtime === "pi" ? null : (

@@ -1,7 +1,7 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { SUBSCRIPTION_LOGIN_ACTION } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
+import { SUBSCRIPTION_LOGIN_ACTION } from "@posthog/ui/features/sessions/components/subscriptionBilling";
 import {
   applyModelAccess,
   useAdapterSubscription,

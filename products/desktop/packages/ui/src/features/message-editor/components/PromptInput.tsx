@@ -74,6 +74,11 @@ interface PromptInputProps {
   // toolbar slots
   modelSelector?: React.ReactElement | null | false;
   reasoningSelector?: React.ReactElement | null | false;
+  /**
+   * Who pays for the run. Sits beside the mode chip rather than inside the
+   * model menu, so a closed composer still names the billing the run uses.
+   */
+  billingChip?: React.ReactElement | null | false;
   messagingModeToggle?: React.ReactNode;
   historyButton?: React.ReactNode;
   /**
@@ -155,6 +160,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       enableCommands = true,
       modelSelector,
       reasoningSelector,
+      billingChip,
       messagingModeToggle,
       historyButton,
       submitAdornment,
@@ -517,6 +523,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
                 autoresearch={autoresearch}
               />
             )}
+            {billingChip}
             {isBashMode && (
               <Text className="font-mono text-(--blue-9) text-[13px]">
                 ! bash
