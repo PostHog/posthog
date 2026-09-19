@@ -605,9 +605,8 @@ function EmptyShelf({
  * a second boxed pitch under the first box reads as an ad.
  */
 export function ShelfVisionOffer({ crossSell }: { crossSell: ShelfVisionCrossSell }): JSX.Element | null {
-    // The tab's own banner carries the only close button this offer has, and the shelf takes that
-    // banner away. Reading its key keeps one dismissal turning off both, which is what the shared
-    // key is for.
+    // The tab's own banner carries the only close button this offer has. Reading its key keeps one
+    // dismissal turning off both.
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: SCANNER_CROSS_SELL_DISMISS_KEY }))
     if (isDismissed) {
         return null

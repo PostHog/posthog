@@ -289,7 +289,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         listUnavailableReason,
         listLoadError,
         scannerSetupUrl,
-        shelfVisionCrossSellShown,
     } = useValues(logic)
     const {
         setSelectedVariantKey,
@@ -371,6 +370,36 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
 
     return (
         <div data-attr="experiment-recordings-tab">
+            {scannerCrossSellEnabled &&
+                (linkedScannersLoading ? (
+                    <LinkedScannersSkeletonCard />
+                ) : linkedScanners.length > 0 ? (
+                    <LinkedScannersCard
+                        scanners={linkedScanners}
+                        addAnotherUrl={scannerSetupUrl}
+                        onAddAnother={scannerCrossSellClicked}
+                    />
+                ) : /* Held back under a failed list: the caption below says no recordings could be
+                     loaded and offers the retry that fixes it, and this banner outweighs that retry
+                     on the page while pitching a metered add-on that watches the recordings the
+                     reader cannot see. It is not held back for the shelf's own offer, because the
+                     shelf loads after this renders, and hiding the banner then would slide the
+                     "What to watch" toggle up under the cursor that just clicked it. */
+                listLoadError !== null ? null : (
+                    <LemonBanner
+                        type="ai"
+                        className="mb-2"
+                        dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
+                        action={{
+                            children: 'Set up scanner for this experiment',
+                            to: scannerSetupUrl,
+                            onClick: () => scannerCrossSellClicked(),
+                            'data-attr': 'experiment-recordings-scanner-cross-sell',
+                        }}
+                    >
+                        Replay vision is here. Scanners watch your recordings for you and surface what matters.
+                    </LemonBanner>
+                ))}
             <div className="mb-2 flex flex-wrap gap-2">
                 <LemonSegmentedButton
                     size="small"
@@ -525,41 +554,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     </span>
                 )}
             </div>
-            {/* Below the filter row on purpose, because the banner branch below can be taken away
-                while the reader is on the page: the shelf replaces this offer with its own tailored
-                one. Above the row, taking it away would slide the "What to watch" toggle up under
-                the cursor that just clicked it. Everything here stays under that toggle instead, so
-                only the space the shelf itself owns changes. */}
-            {scannerCrossSellEnabled &&
-                (linkedScannersLoading ? (
-                    <LinkedScannersSkeletonCard />
-                ) : linkedScanners.length > 0 ? (
-                    <LinkedScannersCard
-                        scanners={linkedScanners}
-                        addAnotherUrl={scannerSetupUrl}
-                        onAddAnother={scannerCrossSellClicked}
-                    />
-                ) : /* Held back while the shelf is showing its tailored version of the same offer:
-                     two pitches on one screen read as an ad. The shelf's own state decides, in
-                     `shelfVisionCrossSellShown`. Held back under a failed list for a different
-                     reason: the caption above it says no recordings could be loaded and offers the
-                     retry that fixes it, and this banner outweighs that retry on the page while
-                     pitching a metered add-on that watches the recordings the reader cannot see. */
-                shelfVisionCrossSellShown || listLoadError !== null ? null : (
-                    <LemonBanner
-                        type="ai"
-                        className="mb-2"
-                        dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
-                        action={{
-                            children: 'Set up scanner for this experiment',
-                            to: scannerSetupUrl,
-                            onClick: () => scannerCrossSellClicked(),
-                            'data-attr': 'experiment-recordings-scanner-cross-sell',
-                        }}
-                    >
-                        Replay vision is here. Scanners watch your recordings for you and surface what matters.
-                    </LemonBanner>
-                ))}
             <ExperimentBehaviorComparison experiment={experiment} onWatchRecording={watchRecording} />
             <div className="SessionRecordingPlaylistHeightWrapper">
                 {playlistHeldForChecks ? (

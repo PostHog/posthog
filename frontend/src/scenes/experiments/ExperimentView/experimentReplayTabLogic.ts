@@ -1361,9 +1361,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 ).url,
         ],
         /**
-         * Whether the shelf is showing its own Replay vision offer, which the tab reads to hold
-         * back the generic banner: the same offer twice on one screen reads as an ad rather than as
-         * help.
+         * Whether the shelf's empty state carries its own Replay vision offer.
          *
          * One empty reason only. `no_separation` means the comparison looked, had the size to find
          * an ordinary difference, and matched the event names, so what changed may be something

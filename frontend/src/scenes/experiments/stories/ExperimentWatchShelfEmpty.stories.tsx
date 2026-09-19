@@ -145,8 +145,7 @@ export const ExperimentWatchShelfTooEarlyTruncated: Story = shelfStory(
     [1900, 3, 0],
     { sessionsTruncated: true }
 )
-// The one empty state that carries the tailored scanner offer, and the one where the tab's generic
-// banner has to be gone: the same offer twice on one screen is what the suppression is for.
+// The one empty state that carries the tailored scanner offer.
 export const ExperimentWatchShelfNoSeparation: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.NoSeparation,
     [2400, 2400, 2400]
