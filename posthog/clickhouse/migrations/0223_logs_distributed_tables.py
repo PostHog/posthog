@@ -8,7 +8,7 @@ from posthog.clickhouse.logs import (
 from posthog.clickhouse.logs.logs_kafka_metrics import LOGS_KAFKA_METRICS_TABLE_SQL
 
 operations = [
-    # Create the base logs_kafka_metrics replicated table (previously only in bin/clickhouse-logs.sql)
+    # Create the base logs_kafka_metrics replicated table
     run_sql_with_exceptions(
         LOGS_KAFKA_METRICS_TABLE_SQL(),
         node_roles=[NodeRole.LOGS],

@@ -30,7 +30,7 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
         # trace_attributes has `TTL original_expiry_time_bucket`; a past value lets a background
         # merge empty the fixture mid-run.
         expiry_bucket = (dt.datetime.now(dt.UTC) + dt.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        # attribute_type values mirror the deployed MVs in bin/clickhouse-logs.sql.
+        # attribute_type values mirror the deployed trace_attributes MVs.
         rows = [
             # (key, value, count, type)
             ("http.target", TRACE_ID_VALUE, 10, "span_attribute"),
