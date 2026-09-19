@@ -1,5 +1,7 @@
 import { metrics } from '@opentelemetry/api'
+import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { createCounterWithExemplars, createHistogramWithExemplars, swallowing } from '~/common/metrics/instruments'
@@ -19,6 +21,17 @@ const configSchema = z.object({
         .refine((categories) => Object.keys(categories).length > 0),
     excluded_properties: z.array(z.string()),
     minimum_confidence: z.number().min(0).max(1),
+})
+
+type Answer = { choice: string; confidence: number }
+
+// The same input gets the same answer, so a per-process cache removes repeat provider calls for
+// the events a team sends most often. The bounds keep memory flat on a shared ingestion consumer.
+export const typesafeAnswerCache = new LRUCache<string, Answer>({ max: 10_000, ttl: 60 * 60 * 1000 })
+
+const recordCacheLookup = swallowing((outcome: 'hit' | 'miss'): void => {
+    const meter = metrics.getMeter('cdp')
+    createCounterWithExemplars(meter, 'cdp.typesafe.cache').add(1, { outcome })
 })
 
 const recordCall = swallowing((outcome: 'success' | 'failure', durationMs: number): void => {
@@ -103,6 +116,24 @@ export async function executeTypesafeTransformation(
             log('warn', 'TypeSafe input exceeds 16 KB. Event unchanged. Exclude more properties.')
             return result
         }
+        const applyAnswer = (answer: Answer): void => {
+            if (answer.confidence < config.minimum_confidence) {
+                log('warn', 'TypeSafe returned an uncertain answer. Event unchanged.')
+                return
+            }
+            result.execResult = { ...event, properties: { ...properties, [config.property]: answer.choice } }
+            log('info', 'TypeSafe added the category to the event.')
+        }
+        // The key covers the transformation and the whole request, so a change to the instructions,
+        // categories, or excluded properties misses the cache instead of reusing a stale answer.
+        const cacheKey = createHash('sha256').update(invocation.hogFunction.id).update(body).digest('hex')
+        const cachedAnswer = typesafeAnswerCache.get(cacheKey)
+        recordCacheLookup(cachedAnswer ? 'hit' : 'miss')
+        if (cachedAnswer) {
+            log('info', 'TypeSafe answer served from the cache. No request sent.')
+            applyAnswer(cachedAnswer)
+            return result
+        }
 
         // This local prototype waits here because the transformation must return the enriched event.
         requestStarted = performance.now()
@@ -110,7 +141,7 @@ export async function executeTypesafeTransformation(
             method: 'POST',
             headers: { Authorization: `Bearer ${config.api_key}`, 'Content-Type': 'application/json' },
             body,
-            timeoutMs: 3000,
+            timeoutMs: 1000,
         })
         httpStatus = response.status
         if (response.status < 200 || response.status >= 300) {
@@ -137,12 +168,9 @@ export async function executeTypesafeTransformation(
             fail('TypeSafe returned an invalid answer. Event unchanged.')
             return result
         }
-        if (answer.confidence < config.minimum_confidence) {
-            log('warn', 'TypeSafe returned an uncertain answer. Event unchanged.')
-            return result
-        }
-        result.execResult = { ...event, properties: { ...properties, [config.property]: answer.choice } }
-        log('info', 'TypeSafe added the category to the event.')
+        const validAnswer: Answer = { choice: answer.choice, confidence: answer.confidence }
+        typesafeAnswerCache.set(cacheKey, validAnswer)
+        applyAnswer(validAnswer)
     } catch {
         fail(
             failureKind === 'invalid_response'

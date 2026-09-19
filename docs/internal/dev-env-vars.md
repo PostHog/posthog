@@ -90,7 +90,11 @@ The request includes the event name and the remaining event properties.
 The denylist is not a complete sensitive-data filter.
 
 The native transform waits for the real TypeSafe API with `jev-1.13.0`.
-Requests time out after three seconds.
+Requests time out after one second.
+Each consumer process keeps valid answers in a memory cache of up to 10,000 entries for one hour.
+The cache key is the transformation and the full request, so a change to the instructions, categories, or excluded properties does not reuse an old answer.
+A cache hit sends no request and adds an info log to the event.
+The `cdp.typesafe.cache` counter records each lookup with `outcome` set to `hit` or `miss`.
 Uncertain answers, invalid answers, provider failures, and inputs above 16 KB leave the event unchanged.
 An existing output property is never overwritten.
 Transformation monitoring records request failures without the API key or provider response body.
