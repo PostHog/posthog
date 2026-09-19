@@ -36,7 +36,7 @@ test.describe('Password Reset', () => {
 
     test('Cannot reset with invalid token', async ({ page }) => {
         await page.goto('/reset/user_id/token')
-        await expect(page.getByText('The provided link is invalid or has expired.')).toBeVisible()
+        await expect(page.getByText('This reset link is not valid. Request a new one to set your password.')).toBeVisible()
     })
 
     test('Shows validation error if passwords do not match', async ({ page }) => {

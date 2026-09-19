@@ -16,7 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { passwordResetLogic } from './passwordResetLogic'
+import { PASSWORD_ALREADY_RESET_CODE, passwordResetLogic } from './passwordResetLogic'
 
 export const scene: SceneExport = {
     component: PasswordResetComplete,
@@ -26,6 +26,13 @@ export const scene: SceneExport = {
 export function PasswordResetComplete(): JSX.Element {
     const { validatedResetToken, validatedResetTokenLoading } = useValues(passwordResetLogic)
     const invalidLink = !validatedResetTokenLoading && !validatedResetToken?.success
+    const alreadyReset = validatedResetToken?.errorCode === PASSWORD_ALREADY_RESET_CODE
+
+    let title = 'Set a new password'
+    if (invalidLink) {
+        title = alreadyReset ? 'Password already changed' : 'Unable to reset'
+    }
+
     return (
         <BridgePage view="password-reset-complete">
             {invalidLink && (
@@ -33,7 +40,7 @@ export function PasswordResetComplete(): JSX.Element {
                     <IconErrorOutline className="text-secondary text-4xl" />
                 </div>
             )}
-            <h2>{invalidLink ? 'Unable to reset' : 'Set a new password'}</h2>
+            <h2>{title}</h2>
             {validatedResetTokenLoading ? (
                 <Spinner />
             ) : !validatedResetToken?.token ? (
@@ -109,20 +116,25 @@ function NewPasswordForm(): JSX.Element {
 
 function ResetInvalid(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { validatedResetToken } = useValues(passwordResetLogic)
+
+    const action =
+        validatedResetToken?.errorCode === PASSWORD_ALREADY_RESET_CODE
+            ? { label: 'Log in', to: urls.login(), dataAttr: 'log-in' }
+            : {
+                  label: 'Request new link',
+                  // Scene.PasswordReset is onlyUnauthenticated, so /reset would bounce a signed-in user.
+                  to: user ? urls.settings('user-profile', 'change-password') : urls.passwordReset(),
+                  dataAttr: 'back-to-login',
+              }
 
     return (
         <div className="text-center">
-            The provided link is <b>invalid or has expired</b>. Please request a new link.
+            {validatedResetToken?.errorDetail ||
+                'This reset link is not valid. Request a new one to set your password.'}
             <div className="mt-4">
-                <LemonButton
-                    fullWidth
-                    type="primary"
-                    center
-                    data-attr="back-to-login"
-                    // Scene.PasswordReset is onlyUnauthenticated, so /reset would bounce a signed-in user.
-                    to={user ? urls.settings('user-profile', 'change-password') : urls.passwordReset()}
-                >
-                    Request new link
+                <LemonButton fullWidth type="primary" center data-attr={action.dataAttr} to={action.to}>
+                    {action.label}
                 </LemonButton>
             </div>
         </div>

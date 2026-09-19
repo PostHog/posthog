@@ -9,6 +9,17 @@ import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+/** Matches the DRF error code the reset API returns once a link has been used. */
+export const PASSWORD_ALREADY_RESET_CODE = 'password_already_reset'
+
+/** The link itself is gone, so re-submitting the form can never succeed. */
+const SPENT_TOKEN_ERROR_CODES: string[] = [
+    PASSWORD_ALREADY_RESET_CODE,
+    'expired_token',
+    'invalid_token',
+    'superseded_token',
+]
+
 export interface ResponseType {
     success: boolean
     errorCode?: string
@@ -308,7 +319,17 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                     }
                     window.location.href = url.href // We need the refresh
                 } catch (e: any) {
-                    actions.setPasswordResetManualErrors({ password: e.detail })
+                    if (SPENT_TOKEN_ERROR_CODES.includes(e.code)) {
+                        // Report it the way the initial check does, so the page swaps the dead form
+                        // for the screen that names the cause and offers the matching next step.
+                        actions.validateResetTokenSuccess({
+                            success: false,
+                            errorCode: e.code,
+                            errorDetail: e.detail,
+                        })
+                    } else {
+                        actions.setPasswordResetManualErrors({ password: e.detail })
+                    }
                     throw e
                 }
             },
