@@ -173,7 +173,7 @@ const MentionsPopover = forwardRef<MentionsRef, MentionsPopoverProps>(function M
     )
 })
 
-const MentionsPluginKey = new PluginKey('mentions')
+export const MentionsPluginKey = new PluginKey('mentions')
 
 export const MentionsExtension = Extension.create({
     name: 'mentions',

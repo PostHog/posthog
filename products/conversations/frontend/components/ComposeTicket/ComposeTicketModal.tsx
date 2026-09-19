@@ -101,7 +101,7 @@ export function ComposeTicketModal(): JSX.Element | null {
                         onCreate={(editor) => {
                             editorRef.current = editor
                         }}
-                        onPressCmdEnter={handleSubmit}
+                        onSubmitShortcut={handleSubmit}
                         minRows={5}
                     />
                 </div>

@@ -6,7 +6,7 @@ import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
+import { EditorState, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import {
     EditorContent,
     Extension,
@@ -26,9 +26,12 @@ import { IconCode, IconCopy, IconImage, IconList, IconTerminal } from '@posthog/
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
-import { EmojiSuggestionExtension } from 'lib/components/RichContentEditor/EmojiSuggestionExtension'
+import {
+    EmojiSuggestionExtension,
+    EmojiSuggestionPluginKey,
+} from 'lib/components/RichContentEditor/EmojiSuggestionExtension'
 import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
-import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
+import { MentionsExtension, MentionsPluginKey } from 'lib/components/RichContentEditor/MentionsExtension'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { RichContentEditorType, RichContentNodeType, TTEditor } from 'lib/components/RichContentEditor/types'
 import { createEditor } from 'lib/components/RichContentEditor/utils'
@@ -117,6 +120,52 @@ const LinkShortcutExtension = Extension.create<LinkShortcutExtensionOptions>({
     },
 })
 
+type SubmitOnEnterExtensionOptions = {
+    /** The editor is built once, so the extension reads the live preference through this. */
+    isEnabled: () => boolean
+    onSubmit: () => void
+}
+
+/** True while a `@` or `:` type-ahead owns the keyboard. */
+function isSuggestionOpen(state: EditorState): boolean {
+    return [MentionsPluginKey, EmojiSuggestionPluginKey].some((key) => !!key.getState(state)?.active)
+}
+
+export const SubmitOnEnterExtension = Extension.create<SubmitOnEnterExtensionOptions>({
+    name: 'support-submit-on-enter',
+    // Above the core keymap, which would otherwise split the block before this is reached.
+    // The guards below hand Enter back wherever another handler has a better claim on it.
+    priority: 1000,
+
+    addOptions() {
+        return {
+            isEnabled: () => false,
+            onSubmit: () => {},
+        }
+    },
+
+    addKeyboardShortcuts() {
+        return {
+            Enter: () => {
+                if (!this.options.isEnabled() || this.editor.isEmpty) {
+                    return false
+                }
+                // Enter continues a list, breaks a line of code, and picks the highlighted
+                // type-ahead entry. Sending would take the keystroke away from all three.
+                if (
+                    this.editor.isActive('listItem') ||
+                    this.editor.isActive('codeBlock') ||
+                    isSuggestionOpen(this.editor.state)
+                ) {
+                    return false
+                }
+                this.options.onSubmit()
+                return true
+            },
+        }
+    },
+})
+
 // Ordered list icon (not in @posthog/icons)
 function IconOrderedList(): JSX.Element {
     return (
@@ -152,7 +201,10 @@ export type SupportEditorProps = {
     placeholder?: string
     onCreate?: (editor: RichContentEditorType) => void
     onUpdate?: (isEmpty: boolean) => void
-    onPressCmdEnter?: () => void
+    /** Called when a submit shortcut fires, with the shortcut that fired it */
+    onSubmitShortcut?: (shortcut: 'enter' | 'mod_enter') => void
+    /** When true, plain Enter submits as well; Shift+Enter still inserts a line break */
+    submitOnEnter?: boolean
     /** Called when upload state changes (true = uploading, false = idle) */
     onUploadingChange?: (uploading: boolean) => void
     disabled?: boolean
@@ -473,7 +525,8 @@ export function SupportEditor({
     placeholder,
     onCreate,
     onUpdate,
-    onPressCmdEnter,
+    onSubmitShortcut,
+    submitOnEnter = false,
     onUploadingChange,
     disabled = false,
     minRows,
@@ -501,11 +554,20 @@ export function SupportEditor({
         linkShortcutCallbackRef.current()
     }, [])
 
+    // Both submit shortcuts read this so they act on the current props, not on the render
+    // that happened to build the editor.
+    const submitStateRef = useRef({ enabled: submitOnEnter, onSubmit: onSubmitShortcut })
+    submitStateRef.current = { enabled: submitOnEnter, onSubmit: onSubmitShortcut }
+
     const editor = useRichContentEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter }),
+            CommandEnterExtension.configure({ onPressCmdEnter: () => submitStateRef.current.onSubmit?.('mod_enter') }),
+            SubmitOnEnterExtension.configure({
+                isEnabled: () => submitStateRef.current.enabled,
+                onSubmit: () => submitStateRef.current.onSubmit?.('enter'),
+            }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
         ],
         disabled,
