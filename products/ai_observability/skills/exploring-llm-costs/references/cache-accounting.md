@@ -9,33 +9,73 @@ changes accordingly:
 - **Inclusive** — `$ai_input_tokens` already includes cache tokens.
   OpenAI and most others currently report this way.
 
+Cache writes arrive in two shapes. Some SDKs report the total in
+`$ai_cache_creation_input_tokens`; others split it by TTL into
+`$ai_cache_creation_5m_input_tokens` and `$ai_cache_creation_1h_input_tokens`,
+and Bedrock traffic carries the split pair alone. The exclusive denominator
+takes whichever of the two is larger, so it never misses billed cache-write
+volume.
+
 Don't hardcode provider behavior — it varies by SDK and by SDK version,
 and providers can change their own reporting style over time. Instead,
-trust the per-event flag: ingestion auto-detects and writes the resolved
-value to `$ai_cache_reporting_exclusive` (boolean) on every
-`$ai_generation`. Callers can also override with
-`$ai_cache_reporting_exclusive: true|false` when manually capturing.
+trust the per-event flag: when ingestion prices the input tokens, it
+auto-detects the reporting style and writes the resolved value to
+`$ai_cache_reporting_exclusive` (boolean). A generation that never reaches
+that step can carry no flag at all — a caller-reported cost, an unmatched
+model, and a missing input token count each skip it. Callers can also
+override with `$ai_cache_reporting_exclusive: true|false` when manually
+capturing.
 
 ## Cache-hit rate, branching on the per-event flag
+
+The flag is per event, so each reporting style needs its own rate. Put the flag
+in the `GROUP BY`, as the query below does, or sum each branch conditionally. A
+model can mix exclusive, inclusive and unset events on the same day, and the
+flag is often unset. Never collapse the group with `any()` — that picks one
+event's flag and applies its formula to every event in the group, which can
+report a cache-hit rate above 1. Keep the unset events in their own row with no
+rate.
 
 ```sql
 posthog:execute-sql
 SELECT
     properties.$ai_model AS model,
-    if(properties.$ai_cache_reporting_exclusive = 'true',
-       sum(toInt(properties.$ai_cache_read_input_tokens))
-         / nullIf(sum(toInt(properties.$ai_input_tokens))
-                + sum(toInt(properties.$ai_cache_read_input_tokens))
-                + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
-       sum(toInt(properties.$ai_cache_read_input_tokens))
-         / nullIf(sum(toInt(properties.$ai_input_tokens)), 0)
-    ) AS cache_hit_rate
+    multiIf(
+        properties.$ai_cache_reporting_exclusive = 'true', 'exclusive',
+        properties.$ai_cache_reporting_exclusive = 'false', 'inclusive',
+        'unavailable'
+    ) AS cache_reporting,
+    round(
+        multiIf(
+            cache_reporting = 'exclusive',
+            sum(toInt(properties.$ai_cache_read_input_tokens))
+                / nullIf(sum(toInt(properties.$ai_input_tokens))
+                       + sum(toInt(properties.$ai_cache_read_input_tokens))
+                       + sum(greatest(
+                             ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0),
+                             ifNull(toInt(properties.$ai_cache_creation_5m_input_tokens), 0)
+                                 + ifNull(toInt(properties.$ai_cache_creation_1h_input_tokens), 0))), 0),
+            cache_reporting = 'inclusive',
+            sum(toInt(properties.$ai_cache_read_input_tokens))
+                / nullIf(sum(toInt(properties.$ai_input_tokens)), 0),
+            NULL
+        ), 3
+    ) AS cache_hit_rate,
+    sum(toInt(properties.$ai_input_tokens)) AS input_tokens,
+    sum(toInt(properties.$ai_cache_read_input_tokens)) AS cache_read_tokens
 FROM events
 WHERE event = '$ai_generation'
     AND timestamp >= now() - INTERVAL 30 DAY
-GROUP BY model, properties.$ai_cache_reporting_exclusive
+GROUP BY model, cache_reporting
 ```
 
-The same provider-aware `if(...)` formula is what powers `cache_hit_rate`
-in the [breakdown patterns](./breakdown-patterns.md) "input vs output vs
-cache economics" recipe.
+A `cache_reporting = 'unavailable'` row has no valid denominator, so
+`cache_hit_rate` is null there. Report it as unavailable and read the token
+columns instead of guessing a formula.
+
+[Regression debugging](./regression-debugging.md) step 4 groups the same way
+with `day` added, so its `cache_hit_rate` column reads like this one. The
+[breakdown patterns](./breakdown-patterns.md) "input vs output vs cache
+economics" recipe needs one row per model for its `total_cost` ranking, so it
+runs these two formulas as conditional sums and reports them side by side as
+`cache_hit_rate_exclusive` and `cache_hit_rate_inclusive`.
