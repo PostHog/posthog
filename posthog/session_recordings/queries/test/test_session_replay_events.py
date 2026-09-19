@@ -1,4 +1,7 @@
+from types import SimpleNamespace
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -451,6 +454,18 @@ class TestBatchExists(ClickhouseTestMixin, APIBaseTest):
         # Non-existence is never cached, so a recording arriving late is still discoverable.
         assert cache.get(f"session_recording_existence_team_{self.team.pk}_id_{found_id}") is True
         assert cache.get(f"session_recording_existence_team_{self.team.pk}_id_missing-session") is None
+
+    def test_caches_a_positive_whose_clickhouse_expiry_has_no_timezone(self) -> None:
+        session_start = now() - relativedelta(days=1)
+        naive_expiry = (now() + relativedelta(days=5)).replace(tzinfo=None)
+        row = ["naive-expiry-session", session_start, session_start, 30, naive_expiry]
+
+        with patch("posthog.hogql_queries.hogql_query_runner.HogQLQueryRunner") as runner:
+            runner.return_value.calculate.return_value = SimpleNamespace(results=[row])
+            results = SessionReplayEvents().batch_exists(["naive-expiry-session"], self.team)
+
+        assert results == {"naive-expiry-session": True}
+        assert cache.get(f"session_recording_existence_team_{self.team.pk}_id_naive-expiry-session") is True
 
 
 class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
