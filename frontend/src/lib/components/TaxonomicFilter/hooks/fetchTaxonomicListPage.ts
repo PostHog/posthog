@@ -9,6 +9,7 @@ import { combineUrl } from 'kea-router'
 
 import api from 'lib/api'
 import { ListStorage, TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isSearchQueryTooLong } from 'lib/components/TaxonomicFilter/utils/searchQueryLength'
 
 export interface FetchTaxonomicPageParams {
     group: TaxonomicFilterGroup
@@ -44,6 +45,10 @@ export async function fetchTaxonomicListPage({
 
     const minSearchQueryLength = group.minSearchQueryLength ?? 0
     if (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) {
+        return { ...EMPTY_LIST, searchQuery }
+    }
+
+    if (isSearchQueryTooLong(searchQuery, group.maxSearchQueryLength ?? 0)) {
         return { ...EMPTY_LIST, searchQuery }
     }
 
