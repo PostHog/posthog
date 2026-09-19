@@ -402,6 +402,22 @@ class TestSymbolSetCleanupWorkflow:
         assert all(activity_input.buckets_per_run == inputs.buckets_per_run for activity_input in activity_inputs)
 
     @pytest.mark.asyncio
+    async def test_workflow_starts_no_more_workers_than_the_swept_slice_holds(self) -> None:
+        inputs = SymbolSetCleanupInputs(total_per_run=100, parallelism=4, buckets_per_run=1)
+
+        result, activity_inputs = await _run_workflow_with_mock_activity(
+            inputs,
+            lambda activity_input: SymbolSetCleanupResult(
+                objects_processed=activity_input.total_per_run,
+                objects_deleted=activity_input.total_per_run,
+                objects_failed=0,
+            ),
+        )
+
+        assert [activity_input.total_per_run for activity_input in activity_inputs] == [100]
+        assert result == SymbolSetCleanupResult(objects_processed=100, objects_deleted=100, objects_failed=0)
+
+    @pytest.mark.asyncio
     async def test_workflow_runs_dry_run_once(self) -> None:
         inputs = SymbolSetCleanupInputs(
             days_old=10,
