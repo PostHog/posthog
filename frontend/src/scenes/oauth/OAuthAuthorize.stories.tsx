@@ -42,7 +42,12 @@ const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Sto
     )
 }
 
-const pushAuthorize = (scope?: string): void => {
+const pushAuthorize = (scope?: string, resolvedScopes?: string[]): void => {
+    const appContext = (window as any).POSTHOG_APP_CONTEXT
+    appContext.oauth_scope_resolution = {
+        scopes: resolvedScopes ?? (scope ? scope.split(' ') : []),
+        was_defaulted: !scope,
+    }
     const params = new URLSearchParams({
         client_id: 'test-client-id',
         redirect_uri: 'https://app.example.com/oauth/callback',
@@ -112,11 +117,33 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// Identity-only request (openid/email/profile): permissions render as a plain checkmark list
-// with no access selectors and no bulk actions.
+// A client that sends no `scope` at all: the server defaults the request to the app's ceiling,
+// so every row arrives selected at its highest level with the bulk actions available.
 export const DefaultScopes: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
     render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize())
+        useDelayedOnMountEffect(() =>
+            pushAuthorize(undefined, [
+                'openid',
+                'email',
+                'profile',
+                'feature_flag:write',
+                'insight:write',
+                'dashboard:write',
+                'query:read',
+            ])
+        )
+        return <App />
+    },
+}
+
+// Identity-only grant: the client asked for scopes outside the app's ceiling, so the server
+// resolved the request down to the OIDC scopes. Permissions render as a plain checkmark list
+// with no access selectors and no bulk actions.
+export const IdentityOnlyScopes: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize('openid email profile'))
         return <App />
     },
 }
