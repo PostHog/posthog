@@ -5,11 +5,13 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import posthoganalytics
+from celery.worker.control import Panel
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 import posthog.celery
 from posthog.celery import _initialize_worker_metrics, on_worker_process_shutdown
+from posthog.celery_control import EVENT_DISPATCHER_COMMANDS, EVENTS_DISABLED_REPLY
 from posthog.celery_task_names import (
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
     VERIFY_FLAGS_CACHE_TASK_NAME,
@@ -113,3 +115,20 @@ class TestCeleryMetrics(TestCase):
                 labels={"name": "NO_ZOOKEEPER", "replica": "ch1", "shard": "1"},
             ),
         )
+
+
+class TestEventDispatcherControlCommands(TestCase):
+    @parameterized.expand([(name,) for name in EVENT_DISPATCHER_COMMANDS])
+    def test_command_replies_when_the_worker_has_no_event_dispatcher(self, command: str) -> None:
+        # A worker run without task events, gossip and heartbeat keeps event_dispatcher at
+        # None, and Celery's own handlers dereference it on every broadcast.
+        state = MagicMock(**{"consumer.event_dispatcher": None})
+
+        assert Panel.data[command](state) == {"ok": EVENTS_DISABLED_REPLY}
+
+    def test_enable_events_still_adds_the_task_group(self) -> None:
+        dispatcher = MagicMock(groups={"worker"})
+        state = MagicMock(**{"consumer.event_dispatcher": dispatcher})
+
+        assert Panel.data["enable_events"](state) == {"ok": "task events enabled"}
+        assert "task" in dispatcher.groups
