@@ -88,19 +88,47 @@ class PosthogNodeAnalytics implements IAnalytics {
     error: unknown,
     additionalProperties?: Record<string, unknown>,
   ): void {
+    this.sendException(error, additionalProperties, this.sessionId);
+  }
+
+  /**
+   * Capture a fault that happened in an earlier run of the app.
+   *
+   * The session of the run that faulted is not knowable after that run ends,
+   * and the current session belongs to the launch that reports the fault. So
+   * the event carries no session id, because the current one would link the
+   * issue to a recording made after the fault.
+   */
+  captureDeferredException(
+    error: unknown,
+    additionalProperties?: Record<string, unknown>,
+  ): void {
+    this.sendException(error, additionalProperties, null);
+  }
+
+  private sendException(
+    error: unknown,
+    additionalProperties: Record<string, unknown> | undefined,
+    sessionId: string | null,
+  ): void {
     if (!this.client) {
       return;
     }
 
     const distinctId = this.currentUserId || "anonymous-app-event";
-    this.client.captureException(error, distinctId, {
+    const properties: Record<string, unknown> = {
       team: "posthog-code",
       ...additionalProperties,
-      ...(this.sessionId ? { $session_id: this.sessionId } : {}),
       app_version: getAppVersion(),
       os_platform: process.platform,
       os_arch: process.arch,
-    });
+    };
+    // This adapter owns the session id, so a caller cannot supply one.
+    delete properties.$session_id;
+    if (sessionId) {
+      properties.$session_id = sessionId;
+    }
+    this.client.captureException(error, distinctId, properties);
   }
 
   async flush(): Promise<void> {
