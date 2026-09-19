@@ -4,16 +4,22 @@ import {
   selectModelFromOptions,
 } from "./reportTaskCreation";
 
+const RESTRICTED_META = { "posthog.code/restrictedModel": true };
+
 function modelOption(
   currentValue: string,
   available: string[],
+  restricted: string[] = [],
 ): PreviewConfigOption {
   return {
     id: "model",
     category: "model",
     type: "select",
     currentValue,
-    options: available.map((value) => ({ value })),
+    options: available.map((value) => ({
+      value,
+      ...(restricted.includes(value) ? { _meta: RESTRICTED_META } : {}),
+    })),
   };
 }
 
@@ -82,6 +88,71 @@ describe("selectModelFromOptions", () => {
       ] satisfies PreviewConfigOption[],
       preferredModel: "claude-opus-4-8",
       expected: undefined,
+    },
+    {
+      // Restricted models stay in the option list so the picker can draw them
+      // locked. Headless flows draw no picker, so honouring a persisted
+      // restricted model here is what 403s the run before any work happens.
+      name: "rejects a preferred model the org's plan does not allow",
+      options: [
+        modelOption(
+          "claude-sonnet-4-8",
+          ["claude-opus-5", "claude-sonnet-4-8"],
+          ["claude-opus-5"],
+        ),
+      ],
+      preferredModel: "claude-opus-5",
+      expected: "claude-sonnet-4-8",
+    },
+    {
+      name: "rejects a restricted preferred model nested in a labelled group",
+      options: [
+        {
+          id: "model",
+          category: "model",
+          type: "select",
+          currentValue: "claude-sonnet-4-8",
+          options: [
+            { options: [{ value: "claude-sonnet-4-8" }] },
+            {
+              options: [{ value: "claude-opus-5", _meta: RESTRICTED_META }],
+            },
+          ],
+        } satisfies PreviewConfigOption,
+      ],
+      preferredModel: "claude-opus-5",
+      expected: "claude-sonnet-4-8",
+    },
+    {
+      // The server default is not trustworthy either — downgrade through
+      // pickAllowedModel rather than handing the gateway a restricted model.
+      name: "downgrades when the server default is restricted too",
+      options: [
+        modelOption(
+          "claude-opus-5",
+          ["claude-opus-5", "claude-opus-4-8", "claude-sonnet-4-8"],
+          ["claude-opus-5", "claude-opus-4-8"],
+        ),
+      ],
+      preferredModel: "claude-opus-5",
+      expected: "claude-sonnet-4-8",
+    },
+    {
+      // Nothing better to offer, so the gateway keeps the last word.
+      name: "keeps the server default when no model is allowed",
+      options: [
+        modelOption("claude-opus-5", ["claude-opus-5"], ["claude-opus-5"]),
+      ],
+      preferredModel: undefined,
+      expected: "claude-opus-5",
+    },
+    {
+      // A model outside the gateway catalog isn't in the options at all;
+      // pickAllowedModel leaves it alone rather than inventing a downgrade.
+      name: "keeps a server default that is not in the option list",
+      options: [modelOption("custom-model", ["claude-sonnet-4-8"])],
+      preferredModel: undefined,
+      expected: "custom-model",
     },
   ])("$name", ({ options, preferredModel, expected }) => {
     expect(selectModelFromOptions(options, preferredModel)).toBe(expected);
