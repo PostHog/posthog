@@ -159,6 +159,8 @@ export interface _TracingAggregationQueryBodyApi {
      * @minimum 0
      */
     offset?: number
+    /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
+    includeImpact?: boolean
 }
 
 export interface _TracingAggregationRequestApi {
@@ -187,6 +189,26 @@ export interface _AggregatedSpanRowApi {
     p999_duration_nano: number
     /** Spans with OTel status code Error (status_code = 2). */
     error_count: number
+    /**
+     * Estimated unique session IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    sessions: number | null
+    /**
+     * Estimated unique person distinct IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    users: number | null
+    /**
+     * How many of this group's spans carry a session ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    spans_with_session_id: number | null
+    /**
+     * How many of this group's spans carry a person distinct ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    spans_with_distinct_id: number | null
 }
 
 export interface _TracingAggregationResponseApi {
@@ -353,6 +375,35 @@ export interface _TracingDurationHistogramRequestApi {
 export interface _HasSpansResponseApi {
     /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
     hasSpans: boolean
+}
+
+export interface _TracingImpactRequestApi {
+    /** The impact query to execute. Takes the same filters as the count query. */
+    query: _TracingCountBodyApi
+}
+
+export interface _TracingImpactTopValueApi {
+    /** The session ID or person distinct ID. */
+    value: string
+    /** Approximate number of matching spans that carry this value (topK estimate). */
+    count: number
+}
+
+export interface _TracingImpactResponseApi {
+    /** Number of spans matching the filters. */
+    total: number
+    /** How many of the matching spans carry a session ID under the team's configured or conventional attribute keys. */
+    spansWithSessionId: number
+    /** Estimated number of unique session IDs across the matching spans (HyperLogLog, about 1-2% error). */
+    sessions: number
+    /** How many of the matching spans carry a person distinct ID under the team's configured or conventional attribute keys. */
+    spansWithDistinctId: number
+    /** Estimated number of unique distinct IDs across the matching spans (HyperLogLog, about 1-2% error). */
+    users: number
+    /** Top session IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+    topSessions: _TracingImpactTopValueApi[]
+    /** Top person distinct IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+    topUsers: _TracingImpactTopValueApi[]
 }
 
 export interface _TracingLatencyHeatmapRequestApi {
