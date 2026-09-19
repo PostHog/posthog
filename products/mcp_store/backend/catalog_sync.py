@@ -10,10 +10,11 @@ Semantics, chosen so the sync can run unattended at every app startup:
 - The sync normally preserves operational state: ``is_active`` after creation,
   ``oauth_credentials`` (operator-provisioned shared client creds), or ``oauth_metadata``
   once set. Rows absent from the catalog (admin-added or removed entries) are left alone.
-  Two fail-closed exceptions deactivate active rows: an ``auth_type`` flip, or a catalog
-  entry marked ``disabled``. Entries with a catalog-managed credential source also follow
-  that source: sync probes and activates them when configured, and deactivates them when
-  their required settings are absent.
+  Three fail-closed exceptions deactivate active rows: an ``auth_type`` flip, a catalog
+  entry marked ``disabled``, or a shared OAuth client changing to required DCR without a
+  successful probe. Entries with a catalog-managed credential source also follow that
+  source: sync probes and activates them when configured, and deactivates them when their
+  required settings are absent.
 - **Activation gate**: a newly created entry is probed live (``probe.probe_mcp_server``)
   and born active only when the probe passes for the auth model the catalog declares —
   DCR OAuth servers must complete a real client registration and serve an authorization
@@ -157,7 +158,25 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
         template.save(update_fields=[*update_fields, "updated_at"])
 
 
+def _transition_to_required_dcr(
+    template: MCPServerTemplate, entry: CatalogEntry, skip_probe: bool, counts: SyncCounts
+) -> list[str]:
+    changed: list[str] = []
+    if template.oauth_credentials:
+        template.oauth_credentials = {}
+        changed.append("oauth_credentials")
+    if skip_probe:
+        if template.is_active:
+            template.is_active = False
+            changed.append("is_active")
+        return changed
+    return [*changed, *_apply_probe(template, entry, _probe_entry(entry), counts)]
+
+
 def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) -> None:
+    had_shared_oauth_client = bool(
+        template.oauth_credentials_source or (template.oauth_credentials or {}).get("client_id")
+    )
     changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != _entry_field_value(entry, f)]
     for f in changed:
         setattr(template, f, _entry_field_value(entry, f))
@@ -177,6 +196,10 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_prob
             url=entry.url,
             auth_type=entry.auth_type,
         )
+    elif entry.dcr_required and had_shared_oauth_client:
+        changed += [
+            field for field in _transition_to_required_dcr(template, entry, skip_probe, counts) if field not in changed
+        ]
     elif entry.oauth_credentials_source:
         shared_client_id = _shared_client_id(entry)
         needs_probe = shared_client_id is not None and (
