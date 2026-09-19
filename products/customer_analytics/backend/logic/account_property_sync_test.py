@@ -19,6 +19,7 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     AccountPropertySyncPhase,
     AccountPropertySyncSegment,
     AppliedSourceValues,
+    _apply_source_values,
     _iter_parquet_row_batches,
     _mark_completed_and_maybe_cleanup,
     _matching_account_ids,
@@ -26,6 +27,7 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     _value_hash,
     run_account_property_segment_sync,
 )
+from products.customer_analytics.backend.logic.custom_property_values import CustomPropertyValueConflict
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
@@ -112,6 +114,45 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source=source, segment="tracked")
         assert (run.status, run.phase) == ("completed", "completed")
         assert (run.rows_read, run.changed, run.existing, run.produced) == (1, 1, 1, 1)
+
+    def test_write_conflict_that_clears_on_retry_is_applied(self) -> None:
+        source = self._create_source()
+        account_id = uuid4()
+        attempts = [CustomPropertyValueConflict("raced"), True]
+
+        with patch(
+            f"{_MODULE}.set_synced_custom_property_value",
+            side_effect=attempts,
+        ) as write:
+            applied = _apply_source_values(
+                self.team.id,
+                source,
+                {"acme": account_id},
+                {"acme": "enterprise"},
+                AccountPropertySyncSegment.TRACKED,
+            )
+
+        assert write.call_count == 2
+        assert (applied.written, applied.conflicted, applied.failed) == (1, 0, False)
+        assert "acme" in applied.hashes
+
+    def test_unresolved_write_conflict_skips_the_account_without_failing_the_source(self) -> None:
+        source = self._create_source()
+
+        with patch(
+            f"{_MODULE}.set_synced_custom_property_value",
+            side_effect=CustomPropertyValueConflict("raced"),
+        ):
+            applied = _apply_source_values(
+                self.team.id,
+                source,
+                {"acme": uuid4(), "initech": uuid4()},
+                {"acme": "enterprise", "initech": None},
+                AccountPropertySyncSegment.TRACKED,
+            )
+
+        assert (applied.written, applied.conflicted, applied.failed) == (0, 2, False)
+        assert applied.hashes == {}
 
     def test_final_attempt_persists_a_failed_run(self) -> None:
         source = self._create_source()
