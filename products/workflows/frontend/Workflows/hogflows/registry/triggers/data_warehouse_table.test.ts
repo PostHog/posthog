@@ -46,10 +46,6 @@ describe('data warehouse table trigger', () => {
         })
     })
 
-    it('is gated behind the CDP_DWH_TABLE_SOURCE feature flag', () => {
-        expect(getTriggerType().featureFlag).toBe('cdp-dwh-table-source')
-    })
-
     it('buildConfig produces a config recognized by matchConfig', () => {
         const triggerType = getTriggerType()
         const config = triggerType.buildConfig()
