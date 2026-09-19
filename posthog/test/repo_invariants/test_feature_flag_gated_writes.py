@@ -26,7 +26,6 @@ ALLOWED_REASONS: dict[str, str] = {
     "ee/clickhouse/views/experiment_holdouts.py": "holdout edit and delete",
     "products/feature_flags/backend/api/organization_feature_flag.py": "copy a flag to other projects",
     "products/feature_flags/backend/max_tools.py": "PostHog AI flag creation",
-    "products/feature_flags/backend/models/feature_flag.py": "scheduled change execution",
     "products/surveys/backend/api/survey.py": "targeting flag writes and the start/stop mirror of active",
     "posthog/api/file_system/registrations.py": "file-system trash and restore flip active",
     "products/early_access_features/backend/api.py": "never-fail cleanup when stored filters fail validation",
