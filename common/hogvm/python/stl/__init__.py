@@ -1122,7 +1122,9 @@ STL: dict[str, STLFunction] = {
         fn=lambda args, team, stdout, timeout: fromUnixTimestamp(args[0]), minArgs=1, maxArgs=1
     ),
     "toUnixTimestampMilli": STLFunction(
-        fn=lambda args, team, stdout, timeout: toUnixTimestampMilli(args[0]), minArgs=1, maxArgs=2
+        fn=lambda args, team, stdout, timeout: toUnixTimestampMilli(args[0], args[1] if len(args) > 1 else None),
+        minArgs=1,
+        maxArgs=2,
     ),
     "fromUnixTimestampMilli": STLFunction(
         fn=lambda args, team, stdout, timeout: fromUnixTimestampMilli(args[0]), minArgs=1, maxArgs=1
