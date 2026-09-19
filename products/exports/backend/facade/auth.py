@@ -1,4 +1,14 @@
+from posthog.models import Team, User
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.models.exported_asset import ExportedAsset
+
+
+def creator_can_query(*, user: User | None, team: Team) -> bool:
+    if user is None or not team.all_users_with_access().filter(id=user.id).exists():
+        return False
+    access_control = UserAccessControl(user=user, team=team)
+    return access_control.has_project_access and access_control.check_access_level_for_resource("query", "viewer")
 
 
 def get_export_renderer_asset_context(

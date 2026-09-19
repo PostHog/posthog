@@ -175,7 +175,7 @@ def slo_operation(
                         area=spec.area,
                         operation=spec.operation,
                         team_id=spec.team_id,
-                        outcome=outcome,
+                        outcome=handle.outcome_override or outcome,
                         resource_id=spec.resource_id,
                         duration_ms=(monotonic() - started_at) * 1000,
                     ),
