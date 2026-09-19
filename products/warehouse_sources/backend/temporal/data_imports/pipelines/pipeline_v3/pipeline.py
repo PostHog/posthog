@@ -619,8 +619,8 @@ class PipelineV3(Generic[ResumableData]):
             total_rows=row_count,
         )
 
-        schema_path = await self._send_final_batches(total_batches, row_count)
-
+        # Stage the watermark before the final-batch notification. The load consumer promotes the
+        # staged slot when that batch completes, and a slot staged after that is never promoted.
         await finalize_desc_sort_incremental_value(
             self._resource,
             self._schema,
@@ -629,6 +629,8 @@ class PipelineV3(Generic[ResumableData]):
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
+
+        schema_path = await self._send_final_batches(total_batches, row_count)
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 
