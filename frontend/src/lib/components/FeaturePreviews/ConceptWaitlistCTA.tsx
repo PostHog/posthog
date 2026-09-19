@@ -11,15 +11,10 @@ export interface ConceptWaitlistCTAProps {
     size?: 'small' | 'medium'
     /** Frozen once shipped: autocapture dashboards and Playwright select on it. */
     dataAttr?: string
-    /**
-     * Fires when the user signs up, for callers that record their own product intent. Skipped
-     * during an impersonated session, where the sign-up itself is refused. Not awaited: a
-     * later failure will not undo it.
-     */
+    /** Skipped for impersonated sessions, where the sign-up itself is refused. */
     onSignUp?: () => void
 }
 
-/** Waitlist sign-up for a concept ("Coming soon") early access feature. */
 export function ConceptWaitlistCTA({
     feature,
     size = 'small',
@@ -32,8 +27,6 @@ export function ConceptWaitlistCTA({
 
     const { flagKey, enabled } = feature
 
-    // When the gate is on and the feature has a linked waitlist survey, collect an email
-    // (recorded as a survey response) instead of the one-click, login-tied enrollment.
     const hasWaitlistSurvey = waitlistSurveysEnabled && !!feature.payload?.survey_id
 
     const notifySignUp = (): void => {

@@ -485,6 +485,26 @@ describe('FeaturePreviewSceneGate', () => {
             expect(screen.queryByRole('switch')).not.toBeInTheDocument()
         })
 
+        test('thanks someone who registered before waitlist surveys existed instead of asking again', () => {
+            setupMocks({ earlyAccessFeatures: [{ ...CONCEPT_FEATURE, enabled: true }], waitlistSurveysEnabled: true })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByText(/Thanks, we'll email you when it's ready/)).toBeInTheDocument()
+            expect(screen.queryByPlaceholderText('email@yourcompany.com')).not.toBeInTheDocument()
+        })
+
+        // Matches the feature previews page: with waitlist surveys off, the one-click flow applies,
+        // so a registered user sees its disabled "Registered" state rather than the survey's thanks line.
+        test('shows a disabled Registered button to a registered user while waitlist surveys are off', () => {
+            setupMocks({ earlyAccessFeatures: [{ ...CONCEPT_FEATURE, enabled: true }], waitlistSurveysEnabled: false })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByRole('button', { name: /Registered/ })).toHaveAttribute('aria-disabled', 'true')
+            expect(screen.queryByText(/Thanks, we'll email you when it's ready/)).not.toBeInTheDocument()
+        })
+
         test('submits the waitlist survey and registers product intent', async () => {
             setupMocks({ earlyAccessFeatures: [CONCEPT_FEATURE], waitlistSurveysEnabled: true })
 
