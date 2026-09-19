@@ -47,7 +47,7 @@ WHERE event = '$feature_flag_called'
   - key: `not-in-use:feature-flags` (the scratchpad is already team-scoped — no id in the key)
   - content: brief note ("no feature flags, no call traffic")
 - **Zero roster, calls exist** — every call is to a deleted or never-created key. The whole project is one ghost-flag case: run the ghost pattern only, then close out.
-- **Roster exists, zero calls** — the project likely evaluates flags server-side with local evaluation or has flag-called event capture disabled; **traffic analysis is blind here**. Note that once (`pattern:feature-flags:no-call-events`), run only the config-side pass ([Stale flags](#stale-flags--one-cleanup-report-each), including its fallback scan while the check is not yet writing issues, plus dependent-flag sanity), and close out.
+- **Roster exists, zero calls** — the project likely evaluates flags server-side with local evaluation or has flag-called event capture disabled; **traffic analysis is blind here**. Note that once (`pattern:feature-flags:no-call-events`), run only the config-side pass ([Stale flags](#stale-flags--one-cleanup-report-each), including its fallback scan, which stays gated on the unfiltered health-issue probe that section defines, plus dependent-flag sanity), and close out.
 
 ## How a run works
 
