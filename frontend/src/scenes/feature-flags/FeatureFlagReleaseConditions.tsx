@@ -58,6 +58,7 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { FlagDependencyEstimateCaveat } from './FlagDependencyEstimateCaveat'
 import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
 
@@ -516,6 +517,10 @@ export function FeatureFlagReleaseConditions({
                                                 <b>~{pluralize(receivingFlag, singularName, pluralName)}</b> -{' '}
                                                 <b>{rolloutPct}%</b>
                                             </span>
+                                            <FlagDependencyEstimateCaveat
+                                                properties={group.properties}
+                                                targetName={pluralName}
+                                            />
                                             <MatchingActorsLink
                                                 properties={group.properties}
                                                 resolvedGroupTypeIndex={resolvedGroupTypeIndex}
