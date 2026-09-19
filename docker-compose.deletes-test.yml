@@ -1,0 +1,41 @@
+name: posthog-deletes-test
+
+services:
+    data: &node
+        image: clickhouse/clickhouse-server:26.6.2.158
+        network_mode: host
+        environment:
+            CLICKHOUSE_SKIP_USER_SETUP: 1
+            DELETE_TEST_TCP_PORT: 19101
+            DELETE_TEST_HTTP_PORT: 18101
+            DELETE_TEST_INTERSERVER_PORT: 19201
+            DELETE_TEST_ROLE: data
+            DELETE_TEST_SHARD: 1
+        volumes:
+            - ./docker/clickhouse/config.d/deletes-test.xml:/etc/clickhouse-server/config.d/zz-deletes-test.xml:ro
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml:ro
+        healthcheck:
+            test: ['CMD-SHELL', 'clickhouse-client --port $$DELETE_TEST_TCP_PORT --query "SELECT 1"']
+            interval: 2s
+            timeout: 5s
+            retries: 30
+
+    events-1:
+        <<: *node
+        environment:
+            CLICKHOUSE_SKIP_USER_SETUP: 1
+            DELETE_TEST_TCP_PORT: 19102
+            DELETE_TEST_HTTP_PORT: 18102
+            DELETE_TEST_INTERSERVER_PORT: 19202
+            DELETE_TEST_ROLE: events
+            DELETE_TEST_SHARD: 1
+
+    events-2:
+        <<: *node
+        environment:
+            CLICKHOUSE_SKIP_USER_SETUP: 1
+            DELETE_TEST_TCP_PORT: 19103
+            DELETE_TEST_HTTP_PORT: 18103
+            DELETE_TEST_INTERSERVER_PORT: 19203
+            DELETE_TEST_ROLE: events
+            DELETE_TEST_SHARD: 2

@@ -1,0 +1,27 @@
+<clickhouse>
+    <listen_host replace="replace">127.0.0.1</listen_host>
+    <tcp_port from_env="DELETE_TEST_TCP_PORT" />
+    <http_port from_env="DELETE_TEST_HTTP_PORT" />
+    <interserver_http_port from_env="DELETE_TEST_INTERSERVER_PORT" />
+    <max_thread_pool_size>256</max_thread_pool_size>
+    <background_pool_size>16</background_pool_size>
+    <background_schedule_pool_size>4</background_schedule_pool_size>
+    <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
+    <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
+    <remote_servers replace="replace">
+        <delete_test_data>
+            <shard><replica><host>127.0.0.1</host><port>19101</port></replica></shard>
+        </delete_test_data>
+        <delete_test_events>
+            <shard><replica><host>127.0.0.1</host><port>19102</port></replica></shard>
+            <shard><replica><host>127.0.0.1</host><port>19103</port></replica></shard>
+        </delete_test_events>
+    </remote_servers>
+    <macros>
+        <hostClusterType>online</hostClusterType>
+        <hostClusterRole from_env="DELETE_TEST_ROLE" />
+        <shard from_env="DELETE_TEST_SHARD" />
+        <replica>1</replica>
+    </macros>
+    <zookeeper><node><host>127.0.0.1</host><port>2181</port></node></zookeeper>
+</clickhouse>
