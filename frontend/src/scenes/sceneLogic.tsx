@@ -22,6 +22,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { captureAppReload } from 'lib/utils/captureAppReload'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import {
@@ -313,8 +314,8 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
     }
-    reloadBrowserDueToImportError: () => {
-        value: true
+    reloadBrowserDueToImportError: (error: unknown) => {
+        error: unknown
     }
     resetUnavailableHomepage: (pathname: string) => {
         pathname: string
@@ -454,7 +455,7 @@ export const sceneLogic = kea<sceneLogicType>([
             sceneKey,
             params,
         }),
-        reloadBrowserDueToImportError: true,
+        reloadBrowserDueToImportError: (error: unknown) => ({ error }),
 
         setHomepage: (tab: SceneTab | null) => ({ tab }),
         resetUnavailableHomepage: (pathname: string) => ({ pathname }),
@@ -971,7 +972,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             actions.setScene(Scene.ErrorNetwork, undefined, emptySceneParams, clickedLink)
                         } else {
                             console.error('App assets regenerated. Reloading this page.')
-                            actions.reloadBrowserDueToImportError()
+                            actions.reloadBrowserDueToImportError(error)
                         }
                         return
                     }
@@ -1009,7 +1010,8 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             actions.setScene(sceneId, sceneKey, params, clickedLink || wasNotLoaded, exportedScene)
         },
-        reloadBrowserDueToImportError: () => {
+        reloadBrowserDueToImportError: ({ error }) => {
+            captureAppReload('scene_import_error', error)
             window.location.reload()
         },
     })),
