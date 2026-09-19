@@ -8,6 +8,7 @@ import {
 import {
   type CanvasActionDefinition,
   type CanvasActionResult,
+  type CanvasAvailability,
   type CanvasConnectorCallResult,
   type CanvasCreator,
   type CanvasDraft,
@@ -187,11 +188,24 @@ export class DashboardsService {
     return rows.map(toRecord);
   }
 
+  // Null for both "no such canvas here" (404) and "its space is not shared with
+  // you" (403): neither is an error the caller can retry, and `availability`
+  // names which one it was for the surface that has to explain it.
   async get(id: string): Promise<DashboardRecord | null> {
     const res = await this.api.fetch(`canvases/${encodeURIComponent(id)}/`);
-    if (res.status === 404) return null;
+    if (res.status === 404 || res.status === 403) return null;
     if (!res.ok) throw new Error(`Failed to load canvas (${res.status})`);
     return toRecord((await res.json()) as ApiCanvas);
+  }
+
+  // Why a canvas would not open. Read on the dead-end path only, so it costs a
+  // request nobody makes while canvases are opening normally.
+  async availability(id: string): Promise<CanvasAvailability> {
+    const res = await this.api.fetch(`canvases/${encodeURIComponent(id)}/`);
+    if (res.ok) return "ok";
+    if (res.status === 403) return "no_access";
+    if (res.status === 404) return "missing";
+    throw new Error(`Failed to load canvas (${res.status})`);
   }
 
   // Everything needed to open a canvas, in one round trip: the record, the
