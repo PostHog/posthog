@@ -39,7 +39,7 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             404: OpenApiResponse(description="Not found"),
         },
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         """
         Get possible values for a feature flag.
