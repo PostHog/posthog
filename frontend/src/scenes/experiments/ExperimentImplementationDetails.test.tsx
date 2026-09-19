@@ -21,7 +21,7 @@ describe('ExperimentImplementationDetails', () => {
 
         expect(screen.queryByText(/Reference docs/)).not.toBeInTheDocument()
 
-        fireEvent.click(screen.getByRole('button', { name: /more lines/ }))
+        fireEvent.click(screen.getByText(/more lines/))
 
         expect(screen.getByText(/Reference docs/)).toBeInTheDocument()
     })
