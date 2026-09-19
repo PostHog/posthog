@@ -104,6 +104,29 @@ impl FeatureFlag {
             .any(|group| group.rollout_percentage_unwrapped() < 100.0)
     }
 
+    /// Returns the variant this condition pins, if it names one of the flag's variants.
+    /// An override that names no real variant is ignored, so the variant comes from the hash.
+    pub fn pinned_variant<'c>(&self, condition: &'c FlagPropertyGroup) -> Option<&'c str> {
+        let variant = condition.variant.as_deref()?;
+        self.get_variants()
+            .iter()
+            .any(|v| v.key == variant)
+            .then_some(variant)
+    }
+
+    /// Returns true if the bucketing hash decides the outcome of this condition.
+    ///
+    /// A condition at 100% rollout gives every person that passes its property filters the
+    /// same result, so the rollout reads no identifier. The variant still can: percentages
+    /// that do not cover the range send some hashes to no variant at all, so any variant set
+    /// counts unless the condition pins one by name.
+    pub fn condition_needs_bucketing_hash(&self, condition: &FlagPropertyGroup) -> bool {
+        if condition.rollout_percentage_unwrapped() < 100.0 {
+            return true;
+        }
+        self.filters.multivariate.is_some() && self.pinned_variant(condition).is_none()
+    }
+
     /// Returns true if this flag requires a hash key override lookup for experience continuity.
     ///
     /// Experience continuity lookups are only meaningful when the hash affects the result:
