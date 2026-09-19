@@ -24,6 +24,31 @@ export const moveDistinctIdsCountHistogram = new Histogram({
     ],
 })
 
+export const moveDistinctIdsDurationHistogram = new Histogram({
+    name: 'move_distinct_ids_duration_seconds',
+    help: 'Wall time of the UPDATE that moves distinct IDs in a merge, by number of rows moved',
+    labelNames: ['rows'],
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60],
+})
+
+const MOVED_ROWS_BANDS: [number, string][] = [
+    [0, '0'],
+    [1, '1'],
+    [10, '2-10'],
+    [100, '11-100'],
+    [1000, '101-1000'],
+    [10000, '1001-10000'],
+]
+
+export function movedRowsBand(count: number): string {
+    for (const [upperBound, band] of MOVED_ROWS_BANDS) {
+        if (count <= upperBound) {
+            return band
+        }
+    }
+    return '10001+'
+}
+
 export const personPropertiesSizeHistogram = new Histogram({
     name: 'person_properties_size',
     help: 'histogram of compressed person JSONB bytes retrieved in Person DB calls',
