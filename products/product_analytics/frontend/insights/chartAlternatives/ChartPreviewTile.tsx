@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useInView } from 'react-intersection-observer'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -22,9 +23,10 @@ export function ChartPreviewTile({
     const { option, query, response, sample, uniqueKey } = preview
     const reason = disabledReason ?? option.disabledReason
     const disabled = !!reason
+    const { ref: previewRef, inView } = useInView({ triggerOnce: true })
 
     let body: JSX.Element
-    if (response) {
+    if (response && inView) {
         body = <ChartPreviewCanvas uniqueKey={uniqueKey} query={query} response={response} />
     } else {
         body = (
@@ -56,7 +58,11 @@ export function ChartPreviewTile({
                     <IconInfo className="ml-auto shrink-0 text-base text-secondary" />
                 </Tooltip>
             </span>
-            <span className="pointer-events-none relative flex h-32 flex-col overflow-hidden" aria-hidden>
+            <span
+                ref={previewRef}
+                className="pointer-events-none relative flex h-32 flex-col overflow-hidden"
+                aria-hidden
+            >
                 <span
                     className={clsx(
                         'flex h-full flex-col [&_.text-7xl]:text-lg [&_.text-7xl]:leading-tight',

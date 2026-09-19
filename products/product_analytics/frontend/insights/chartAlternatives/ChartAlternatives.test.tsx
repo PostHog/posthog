@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import { useInView } from 'react-intersection-observer'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,13 +12,20 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
-import type { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import type { AnyResponseType, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 
 import { ChartAlternatives } from './ChartAlternatives'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
+import type { ChartPreview } from './chartPreviewsLogic'
 import { chartPreviewsLogic } from './chartPreviewsLogic'
+import { ChartPreviewTile } from './ChartPreviewTile'
+
+jest.mock('react-intersection-observer', () => ({ useInView: jest.fn() }))
+jest.mock('./ChartPreviewCanvas', () => ({ ChartPreviewCanvas: () => <span data-attr="chart-preview-canvas" /> }))
+
+const mockUseInView = useInView as jest.Mock
 
 const insightProps = { dashboardItemId: 'chart-alternatives' as InsightShortId }
 
@@ -38,11 +46,28 @@ function makeTrendsQuery(overrides: Partial<TrendsQuery> = {}): TrendsQuery {
     }
 }
 
+function makeChartPreview(): ChartPreview {
+    return {
+        option: {
+            display: ChartDisplayType.ActionsLineGraph,
+            icon: 'line',
+            label: 'Line chart',
+            description: 'Trends over time plotted as a continuous line.',
+        },
+        suggested: false,
+        query: { kind: NodeKind.InsightVizNode, source: makeTrendsQuery() },
+        response: { result: [], results: [] } as AnyResponseType,
+        sample: false,
+        uniqueKey: 'chart-preview-line',
+    }
+}
+
 describe('ChartAlternatives', () => {
     let builtInsightDataLogic: ReturnType<typeof insightDataLogic.build>
     let builtInsightVizDataLogic: ReturnType<typeof insightVizDataLogic.build>
 
     beforeEach(() => {
+        mockUseInView.mockImplementation(() => ({ ref: jest.fn(), inView: true }))
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend': [],
@@ -128,6 +153,19 @@ describe('ChartAlternatives', () => {
         await waitFor(() =>
             expect(document.querySelector('.Popover [data-attr="chart-alternatives-gallery"]')).toBeInTheDocument()
         )
+    })
+
+    it('defers an off-screen preview canvas until it enters view', () => {
+        let inView = false
+        mockUseInView.mockImplementation(() => ({ ref: jest.fn(), inView }))
+        const { rerender } = render(<ChartPreviewTile preview={makeChartPreview()} onSelect={jest.fn()} />)
+
+        expect(document.querySelector('[data-attr="chart-preview-canvas"]')).not.toBeInTheDocument()
+
+        inView = true
+        rerender(<ChartPreviewTile preview={makeChartPreview()} onSelect={jest.fn()} />)
+
+        expect(document.querySelector('[data-attr="chart-preview-canvas"]')).toBeInTheDocument()
     })
 
     it('renders the chart switch control only while the flag is on', async () => {
