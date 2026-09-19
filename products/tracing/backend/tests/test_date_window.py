@@ -1,3 +1,5 @@
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from parameterized import parameterized
@@ -91,3 +93,34 @@ class TestNormalizeTracingDateRange:
     def test_invalid_bound_raises(self) -> None:
         with pytest.raises(serializers.ValidationError):
             normalize_tracing_date_range({"date_from": "-30 minutes"})
+
+    @parameterized.expand(
+        [
+            # The reported 500: only a date_to is sent, and it is older than the default date_from.
+            ({"date_to": "2020-01-01T00:00:00Z"},),
+            ({"date_from": "-1h", "date_to": "2020-01-01T00:00:00Z"},),
+            ({"date_from": "2026-06-26T10:00:00Z", "date_to": "2026-06-26T09:00:00Z"},),
+            ({"date_from": "-1h", "date_to": "-2h"},),
+        ]
+    )
+    def test_inverted_range_raises(self, raw: dict) -> None:
+        # An inverted window used to reach ClickHouse and fail the sparkline query with a 500.
+        with pytest.raises(serializers.ValidationError):
+            normalize_tracing_date_range(raw)
+
+    @parameterized.expand(
+        [
+            ({"date_from": "-2h", "date_to": "-1h"},),
+            ({"date_from": "2026-06-26T09:00:00Z", "date_to": "2026-06-26T10:00:00Z"},),
+            # Equal bounds are an empty window, not an inverted one.
+            ({"date_from": "2026-06-26T10:00:00Z", "date_to": "2026-06-26T10:00:00Z"},),
+        ]
+    )
+    def test_ordered_range_passes(self, raw: dict) -> None:
+        assert normalize_tracing_date_range(raw) == raw
+
+    def test_date_only_bound_is_read_in_the_team_timezone(self) -> None:
+        # Midnight in US/Pacific is 07:00 UTC, so this window is ordered for a Pacific team and
+        # would look inverted if the bounds were compared in UTC.
+        raw = {"date_from": "2026-06-26T03:00:00Z", "date_to": "2026-06-26"}
+        assert normalize_tracing_date_range(raw, timezone_info=ZoneInfo("US/Pacific")) == raw
