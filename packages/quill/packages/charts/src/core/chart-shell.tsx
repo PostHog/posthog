@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react'
 
+import { resolveCssColor } from './color-utils'
 import type { ChartTheme, ResolvedSeries, Series } from './types'
 
 // Literal class strings (no runtime concat) so Tailwind v4's `dist/*.js`
@@ -9,13 +10,17 @@ const STATIC_CANVAS_CLASS = 'absolute top-0 left-0'
 const OVERLAY_CANVAS_CLASS = 'absolute top-0 left-0 pointer-events-none'
 const OVERLAY_CLASS = 'absolute top-0 left-0 w-full h-full pointer-events-none'
 
-/** Applies the theme's color fallback to series missing an explicit `color`. */
+/** Applies the theme's color fallback to series missing an explicit `color`, and resolves a
+ *  `var(--x)` color the host passed. A canvas 2D context cannot parse `var()`: it drops the
+ *  assignment to `strokeStyle`/`fillStyle` and keeps the previous style, so a series color must be
+ *  concrete before it reaches the renderer. */
 export function useColoredSeries<Meta = unknown>(series: Series<Meta>[], theme: ChartTheme): ResolvedSeries<Meta>[] {
     return useMemo<ResolvedSeries<Meta>[]>(
         () =>
             series.map((s, i) => ({
                 ...s,
-                color: s.color || theme.colors[i % theme.colors.length],
+                color: resolveCssColor(s.color || theme.colors[i % theme.colors.length]),
+                bars: s.bars?.map((bar) => (bar.color ? { ...bar, color: resolveCssColor(bar.color) } : bar)),
             })),
         [series, theme.colors]
     )
