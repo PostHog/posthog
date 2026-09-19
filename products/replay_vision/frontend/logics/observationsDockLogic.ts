@@ -325,7 +325,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         // either applies. The grace period is only the wait for a missing row, so that row landing ends
         // it early; a summary that finishes fast must not keep the button pending beside its result.
         const settleSummarizeIfDone = (): void => {
-            if (cache.summarizeInFlight || cache.observeInFlight || !values.summarizing) {
+            if (cache.summarizeInFlight || cache.observeInFlight === 'summary' || !values.summarizing) {
                 return
             }
             const startedRowLanded =

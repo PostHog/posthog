@@ -331,6 +331,26 @@ describe('observationsDockLogic', () => {
         await expectLogic(logic).toMatchValues({ summarizePending: false })
     })
 
+    it('settles the button while an unrelated sidebar scan is still being started', async () => {
+        // `observeInFlight` names which run is open. Gating on it being set at all let a sidebar scan's
+        // open request hold "Summarizing…" after the summary itself had already settled.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess'])
+
+        // A monitor scan started from the sidebar, its request still open.
+        logic.actions.observe('m1')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        observationResults = [summaryObservation()]
+        logic.actions.loadObservations()
+
+        await expectLogic(logic).toDispatchActions(['summarizeSettled'])
+        await expectLogic(logic).toMatchValues({ summarizePending: false })
+    })
+
     it('keeps the button pending while the scanner it started has no row yet', async () => {
         // The grace window ends on the row this run created, not on any summary row. A recording that
         // already carries an older summary must not settle the button for a second summarizer whose
