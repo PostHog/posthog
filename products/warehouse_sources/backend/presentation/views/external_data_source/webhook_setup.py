@@ -131,6 +131,11 @@ class WebhookInfoResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Desired provider events not yet on the webhook (manual setup, or created before a new table).",
     )
+    missing_inputs = serializers.ListField(
+        required=False,
+        child=serializers.CharField(),
+        help_text="Required webhook field names with no value yet. Deliveries are dropped while any is missing.",
+    )
 
 
 class WebhookInfoBlockedResponseSerializer(serializers.Serializer):
@@ -408,6 +413,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                     "inputs": webhook_inputs,
                     "external_status": dataclasses.asdict(external_status) if external_status else None,
                     "missing_events": missing_events,
+                    "missing_inputs": source.missing_webhook_inputs(all_inputs),
                 }
             ).data,
         )

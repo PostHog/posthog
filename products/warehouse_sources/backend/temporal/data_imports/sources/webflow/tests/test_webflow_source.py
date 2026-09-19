@@ -159,6 +159,34 @@ class TestWebflowWebhookSupport:
 
     @parameterized.expand(
         [
+            (
+                "every_trigger_secret_captured",
+                {"signing_secrets": {"secret": True}, "signing_secrets_complete": {"value": True}},
+                [],
+            ),
+            # Webflow returns a secret only for the triggers it registered this time. The rest cannot
+            # be verified, so the manual secret is still required even though the list is non-empty.
+            (
+                "only_some_trigger_secrets_captured",
+                {
+                    "signing_secrets": {"secret": True},
+                    "signing_secrets_complete": {"value": False},
+                    "signing_secret": {"value": ""},
+                },
+                ["signing_secret"],
+            ),
+            ("registered_before_completeness_was_recorded", {"signing_secrets": {"secret": True}}, []),
+            ("manual_secret", {"signing_secret": {"secret": True}}, []),
+            ("nothing_set", {"signing_secret": {"value": ""}}, ["signing_secret"]),
+        ]
+    )
+    def test_missing_webhook_inputs_tracks_provider_secret_completeness(
+        self, _name: str, inputs: dict, expected: list[str]
+    ) -> None:
+        assert WebflowSource().missing_webhook_inputs(inputs) == expected
+
+    @parameterized.expand(
+        [
             ("create", "create_webflow_webhook", "create_webhook"),
             ("delete", "delete_webflow_webhook", "delete_webhook"),
             ("info", "get_webflow_webhook_info", "get_external_webhook_info"),
