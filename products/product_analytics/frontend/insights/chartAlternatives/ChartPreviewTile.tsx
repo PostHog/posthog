@@ -20,7 +20,7 @@ export function ChartPreviewTile({
     onSelect: () => void
     preview: ChartPreview
 }): JSX.Element {
-    const { fidelity, loading, option, query, response, uniqueKey, warning } = preview
+    const { loading, option, query, response, sample, uniqueKey, warning } = preview
     const reason = disabledReason ?? option.disabledReason
     const disabled = !!reason
 
@@ -79,7 +79,7 @@ export function ChartPreviewTile({
             {warning && !reason ? (
                 <span className="flex items-center border-t px-2 py-1 text-xs text-warning">{warning.title}</span>
             ) : null}
-            {fidelity === 'sample' && !reason ? (
+            {sample && !reason ? (
                 <Tooltip title="Shows how this chart type looks. Select it to run the query on your data.">
                     <span className="flex items-center gap-1 border-t px-2 py-1 text-xs text-secondary">
                         Sample data

@@ -28,10 +28,9 @@ import type {
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ChartAlternativesLogicProps } from './chartAlternativesLogic'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
-import { BREAKDOWN_FREE_DISPLAYS, getChartDisplayChangeWarning } from './chartDisplayOptions'
+import { applyChartDisplay, getChartDisplayChangeWarning } from './chartDisplayOptions'
 import type { ChartDisplayChangeWarning, ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview } from './chartPreviewData'
-import type { ChartPreviewFidelity } from './chartPreviewData'
 
 export interface ChartPreview {
     option: ChartDisplayOption
@@ -41,7 +40,7 @@ export interface ChartPreview {
     loading: boolean
     query: InsightVizNode
     response: AnyResponseType | null
-    fidelity: ChartPreviewFidelity | null
+    sample: boolean
     uniqueKey: string
 }
 
@@ -55,29 +54,10 @@ export interface TimeSeriesEntry {
     response: AnyResponseType
 }
 
-// Mirrors the query rewrite that selecting the display applies, so the preview shows what the user would get.
-export function previewTrendsSource(querySource: TrendsQuery, display: ChartDisplayType): TrendsQuery {
-    const source: TrendsQuery = { ...querySource, trendsFilter: { ...querySource.trendsFilter, display } }
-    if (BREAKDOWN_FREE_DISPLAYS.has(display)) {
-        source.breakdownFilter = undefined
-    }
-    if (display === ChartDisplayType.BoxPlot) {
-        source.trendsFilter = { ...source.trendsFilter, formula: undefined, formulas: undefined, formulaNodes: [] }
-    }
-    if (display === ChartDisplayType.WorldMap) {
-        const math = querySource.series?.[0]?.math ?? ''
-        source.breakdownFilter = {
-            breakdown: '$geoip_country_code',
-            breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math) ? 'person' : 'event',
-        }
-    }
-    return source
-}
-
 export function previewVizNode(querySource: TrendsQuery, display: ChartDisplayType): InsightVizNode {
     return {
         kind: NodeKind.InsightVizNode,
-        source: previewTrendsSource(querySource, display),
+        source: applyChartDisplay(querySource, display),
         embedded: true,
         hidePersonsModal: true,
         showHeader: false,
@@ -320,7 +300,7 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
         timeSeriesSource: [
             (s) => [s.trendsSource],
             (trendsSource: TrendsQuery | null): TrendsQuery | null =>
-                trendsSource ? previewTrendsSource(trendsSource, ChartDisplayType.ActionsLineGraph) : null,
+                trendsSource ? applyChartDisplay(trendsSource, ChartDisplayType.ActionsLineGraph) : null,
         ],
         timeSeriesKey: [
             (s) => [s.timeSeriesSource],
@@ -415,7 +395,7 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                         loading: !option.disabledReason && !derived && (insightDataLoading || cachedTimeSeriesLoading),
                         query: previewVizNode(trendsSource, option.display),
                         response: derived?.response ?? null,
-                        fidelity: derived?.fidelity ?? null,
+                        sample: derived?.sample ?? false,
                         uniqueKey: `chart-preview-${logicKey}-${option.display}`,
                     }
                 }

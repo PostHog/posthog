@@ -1,11 +1,9 @@
 import type { AnyResponseType, BoxPlotDatum, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, type TrendResult } from '~/types'
 
-export type ChartPreviewFidelity = 'exact' | 'approximate' | 'sample'
-
 export interface ChartPreviewData {
     response: AnyResponseType
-    fidelity: ChartPreviewFidelity
+    sample: boolean
 }
 
 // Maths whose range total is the sum of its interval buckets.
@@ -86,35 +84,29 @@ function seriesMath(result: TrendResult): string {
     return result.action?.math ?? 'total'
 }
 
-function approximateTotal(result: TrendResult): { value: number; exact: boolean } {
+// Estimates the range total from the interval buckets; only additive maths sum exactly.
+function approximateTotal(result: TrendResult): number {
     const data = result.data ?? []
     const math = seriesMath(result)
-    if (ADDITIVE_MATHS.has(math)) {
-        return { value: data.reduce((sum, value) => sum + value, 0), exact: true }
+    if (ADDITIVE_MATHS.has(math) || math === 'dau' || math === 'unique_session' || math === 'unique_group') {
+        return data.reduce((sum, value) => sum + value, 0)
     }
     const nonZero = data.filter((value) => value !== 0)
+    if (!nonZero.length) {
+        return 0
+    }
     if (math === 'min') {
-        return { value: nonZero.length ? Math.min(...nonZero) : 0, exact: false }
+        return Math.min(...nonZero)
     }
-    if (math === 'max') {
-        return { value: nonZero.length ? Math.max(...nonZero) : 0, exact: false }
-    }
-    if (math === 'dau' || math === 'unique_session' || math === 'unique_group') {
-        return { value: data.reduce((sum, value) => sum + value, 0), exact: false }
-    }
-    if (math === 'weekly_active' || math === 'monthly_active') {
-        return { value: nonZero.length ? Math.max(...nonZero) : 0, exact: false }
+    if (math === 'max' || math === 'weekly_active' || math === 'monthly_active') {
+        return Math.max(...nonZero)
     }
     // Averages, medians, percentiles, count per actor and HogQL maths: a mean of the populated buckets.
-    return {
-        value: nonZero.length ? nonZero.reduce((sum, value) => sum + value, 0) / nonZero.length : 0,
-        exact: false,
-    }
+    return nonZero.reduce((sum, value) => sum + value, 0) / nonZero.length
 }
 
-function toTotalValue(result: TrendResult): { result: TrendResult; exact: boolean } {
-    const { value, exact } = approximateTotal(result)
-    return { result: { ...result, data: [], count: 0, aggregated_value: value }, exact }
+function toTotalValue(result: TrendResult): TrendResult {
+    return { ...result, data: [], count: 0, aggregated_value: approximateTotal(result) }
 }
 
 function toSlope(result: TrendResult): TrendResult {
@@ -260,19 +252,17 @@ export function deriveChartPreview(
     const response = results === loadedResults ? loaded : withResults(loaded, results)
     const shape = shapeOf(results)
     const currentDisplay = source.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
-    const passthrough: ChartPreviewData = { response, fidelity: 'exact' }
+    const passthrough: ChartPreviewData = { response, sample: false }
 
     if (display === currentDisplay) {
         return passthrough
     }
 
     if (display === ChartDisplayType.CalendarHeatmap) {
-        return shape === 'heatmap'
-            ? passthrough
-            : { response: sampleCalendarHeatmap(response, results), fidelity: 'sample' }
+        return shape === 'heatmap' ? passthrough : { response: sampleCalendarHeatmap(response, results), sample: true }
     }
     if (display === ChartDisplayType.BoxPlot) {
-        return shape === 'boxPlot' ? passthrough : { response: sampleBoxPlot(response, results), fidelity: 'sample' }
+        return shape === 'boxPlot' ? passthrough : { response: sampleBoxPlot(response, results), sample: true }
     }
 
     // Raw buckets to derive from: the loaded result itself, or the remembered time series for this query.
@@ -289,33 +279,25 @@ export function deriveChartPreview(
 
     if (display === ChartDisplayType.WorldMap) {
         if (!hasCountryCodeBreakdown(source)) {
-            return { response: sampleWorldMap(response, results), fidelity: 'sample' }
+            return { response: sampleWorldMap(response, results), sample: true }
         }
         if (shape === 'totalValue') {
             return passthrough
         }
         if (!base) {
-            return { response: sampleWorldMap(response, results), fidelity: 'sample' }
+            return { response: sampleWorldMap(response, results), sample: true }
         }
-        const totals = base.results.map(toTotalValue)
-        return {
-            response: withResults(
-                base.response,
-                totals.map((t) => t.result)
-            ),
-            fidelity: totals.every((t) => t.exact) ? 'exact' : 'approximate',
-        }
+        return { response: withResults(base.response, base.results.map(toTotalValue)), sample: false }
     }
 
     if (display === ChartDisplayType.ActionsTable) {
         if (shape === 'timeSeries' || shape === 'totalValue') {
             return passthrough
         }
-        return base ? { response: base.response, fidelity: 'exact' } : null
+        return base ? { response: base.response, sample: false } : null
     }
 
     const collapse = SINGLE_SERIES_DISPLAYS.has(display) && hasBreakdown(source)
-    const sliced = currentDisplay === ChartDisplayType.SlopeGraph
 
     if (
         RAW_TIME_SERIES_DISPLAYS.has(display) ||
@@ -331,33 +313,20 @@ export function deriveChartPreview(
         } else if (display === ChartDisplayType.SlopeGraph) {
             rows = rows.map(toSlope)
         }
-        if (rows === base.results) {
-            return { response: base.response, fidelity: sliced ? 'approximate' : 'exact' }
-        }
-        return {
-            response: withResults(base.response, rows),
-            fidelity: collapse || sliced ? 'approximate' : 'exact',
-        }
+        return { response: rows === base.results ? base.response : withResults(base.response, rows), sample: false }
     }
 
     if (TOTAL_VALUE_DISPLAYS.has(display)) {
         if (shape === 'totalValue') {
             return collapse
-                ? { response: withResults(response, collapseBreakdowns(results)), fidelity: 'approximate' }
+                ? { response: withResults(response, collapseBreakdowns(results)), sample: false }
                 : passthrough
         }
         if (!base) {
             return null
         }
         const rows = collapse ? collapseBreakdowns(base.results) : base.results
-        const totals = rows.map(toTotalValue)
-        return {
-            response: withResults(
-                base.response,
-                totals.map((t) => t.result)
-            ),
-            fidelity: !collapse && !sliced && totals.every((t) => t.exact) ? 'exact' : 'approximate',
-        }
+        return { response: withResults(base.response, rows.map(toTotalValue)), sample: false }
     }
 
     return passthrough
