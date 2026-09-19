@@ -185,6 +185,54 @@ export const ingestionWarningsResponse = (baseTime: dayjs.Dayjs): { results: Rec
                 ],
                 count: 9,
             },
+            {
+                type: 'event_dropped_by_transformation',
+                lastSeen: baseTime.subtract(1, 'day').toISOString(),
+                sparkline: [[4, baseTime.subtract(1, 'day').format('YYYY-MM-DD')]],
+                warnings: [
+                    {
+                        type: 'event_dropped_by_transformation',
+                        timestamp: baseTime.subtract(1, 'day'),
+                        details: {
+                            eventUuid: '018827fc-951a-0000-2f64-7ae5477af4cd',
+                            event: '$pageview',
+                            distinctId: 'distinct-id-1',
+                            transformationId: '0189a0b1-0000-0000-0000-00000000beef',
+                            transformationName: 'Filter out bot traffic',
+                        },
+                    },
+                    {
+                        type: 'event_dropped_by_transformation',
+                        timestamp: baseTime.subtract(2, 'day'),
+                        details: {
+                            eventUuid: '018827fc-94f6-0000-0dde-8a8dc2ca4594',
+                            event: 'purchase',
+                            distinctId: 'distinct-id-2',
+                        },
+                    },
+                ],
+                count: 4,
+            },
+            {
+                type: 'event_dropped_too_old',
+                lastSeen: baseTime.subtract(1, 'day').toISOString(),
+                sparkline: [[2, baseTime.subtract(1, 'day').format('YYYY-MM-DD')]],
+                warnings: [
+                    {
+                        type: 'event_dropped_too_old',
+                        timestamp: baseTime.subtract(1, 'day'),
+                        details: {
+                            eventUuid: '018852d6-b14c-0000-9d40-4f6caebf93c0',
+                            event: 'app_opened',
+                            distinctId: 'distinct-id-3',
+                            eventTimestamp: '2023-02-01T10:00:00.000Z',
+                            ageInSeconds: 1123200,
+                            dropThresholdSeconds: 604800,
+                        },
+                    },
+                ],
+                count: 2,
+            },
         ],
     }
 }

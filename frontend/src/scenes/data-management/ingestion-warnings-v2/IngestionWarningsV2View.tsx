@@ -25,7 +25,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     WARNING_TYPE_RENDERER,
     WARNING_TYPE_TO_DESCRIPTION,
-    WARNING_TYPE_TO_DOCS_ANCHOR,
+    warningTypeToDocsUrl,
 } from '../ingestion-warnings/IngestionWarningsView'
 import {
     IngestionWarningV2Sample,
@@ -268,10 +268,7 @@ export function IngestionWarningsV2View(): JSX.Element {
                                 dataIndex: 'type',
                                 render: function Render(_, summary: IngestionWarningV2Summary) {
                                     const description = WARNING_TYPE_TO_DESCRIPTION[summary.type]
-                                    const docsAnchor = WARNING_TYPE_TO_DOCS_ANCHOR[summary.type]
-                                    const docsUrl = docsAnchor
-                                        ? `https://posthog.com/docs/data/ingestion-warnings#${docsAnchor}`
-                                        : 'https://posthog.com/docs/data/ingestion-warnings'
+                                    const docsUrl = warningTypeToDocsUrl(summary.type)
                                     return (
                                         <div className="flex flex-col gap-0.5 py-1">
                                             <span className="font-mono text-xs font-semibold">{summary.type}</span>
