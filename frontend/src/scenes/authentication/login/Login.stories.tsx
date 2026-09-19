@@ -20,7 +20,7 @@ type StoryArgs = {
     gitlab: boolean
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-    generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent' | 'social_login_unavailable'
     pendingOAuthConnection: boolean
 }
 
@@ -46,7 +46,7 @@ const meta: Meta<StoryArgs> = {
         generalError: {
             control: 'select',
             name: 'General error',
-            options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
+            options: ['none', 'invalid_credentials', 'code_based_verification_sent', 'social_login_unavailable'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
     },
@@ -146,3 +146,7 @@ PendingOAuthConnection.args = { pendingOAuthConnection: true }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }
+
+export const SocialLoginUnavailable: StoryFn<StoryArgs> = Template.bind({})
+SocialLoginUnavailable.storyName = 'Social login unavailable'
+SocialLoginUnavailable.args = { generalError: 'social_login_unavailable' }
