@@ -431,6 +431,20 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
         assert response.status_code == 400
 
+    def test_kind_is_writable_and_filterable(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["kind"] = "broadcast"
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        assert create_response.json()["kind"] == "broadcast"
+        HogFlow.objects.create(team=self.team, name="Ordinary", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?kind=broadcast")
+        assert response.status_code == 200, response.json()
+        assert [flow["kind"] for flow in response.json()["results"]] == ["broadcast"]
+
     def test_list_filter_by_origin_product(self):
         HogFlow.objects.create(team=self.team, name="Loop", created_by=self.user, origin_product="loops")
         HogFlow.objects.create(team=self.team, name="Hand built", created_by=self.user)

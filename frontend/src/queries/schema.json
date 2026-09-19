@@ -26795,6 +26795,7 @@
                 "tracing",
                 "metrics",
                 "workflows",
+                "broadcasts",
                 "notebook",
                 "action",
                 "activity",
