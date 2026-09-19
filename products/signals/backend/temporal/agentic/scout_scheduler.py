@@ -24,7 +24,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.quota import (
+    capture_signal_report_quota_paused,
+    notify_scout_quota_paused,
+    self_driving_quota_gate,
+)
 from products.signals.backend.scout_harness.limits import (
     TRIGGERED_BY_CHECK,
     TRIGGERED_BY_MANUAL,
@@ -157,6 +161,9 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
             skill_name=input.skill_name,
         )
         metrics.increment_scout_run("quota_limited")
+        # No run row exists for a skipped run, so this notification is the only user-visible
+        # trace that scheduled scouts stopped; idempotent per limiting episode.
+        await database_sync_to_async(notify_scout_quota_paused, thread_sensitive=False)(team)
         return RunSignalsScoutOutput(
             run_id=None,
             task_run_id=None,
