@@ -4,9 +4,12 @@ import json
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
+from datetime import timedelta
 from typing import Any, Optional, TypeVar, Union, cast
 from urllib.parse import urlparse
 from uuid import uuid4
+
+from django.utils import timezone
 
 from jsonref import replace_refs
 from langchain_core.messages import (
@@ -40,9 +43,16 @@ from posthog.schema import (
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team, User
+from posthog.models import EventDefinition, Team, User
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
+from posthog.taxonomy.taxonomy import (
+    CORE_FILTER_DEFINITIONS_BY_GROUP,
+    IGNORED_EVENT_NAMES,
+    STALE_EVENT_DAYS,
+    is_hidden_from_assistant,
+)
+
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types.base import (
@@ -81,6 +91,12 @@ NOT_SEEN_RECENTLY_MARKER = "(not seen in the last 30 days)"
 NOT_SEEN_RECENTLY_LEGEND = (
     f"Events marked {NOT_SEEN_RECENTLY_MARKER} are listed for reference only. This project has sent none of them "
     "recently, so never present them as data it is collecting."
+)
+
+EXCLUDED_BUT_CAPTURED_LEGEND = (
+    "The list above leaves out system events that are rarely the right choice for analysis. This project "
+    "captured these ones in the last {days} days, so they hold real data: read their properties and query "
+    "them like any other event."
 )
 
 
@@ -346,6 +362,21 @@ def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user
     return ET.tostring(root, encoding="unicode")
 
 
+def _recently_captured_excluded_events(team: Team) -> list[str]:
+    """Names of events the listing hides that this project captured in the staleness window.
+
+    The listing drops every event hidden from the assistant, and the tool tells the agent to verify an
+    event exists before it uses it. Together those make a live event read as one the project never
+    sends. `last_seen_at` is the freshness signal the event definitions API uses for the same question.
+    """
+    cutoff = timezone.now() - timedelta(days=STALE_EVENT_DAYS)
+    return sorted(
+        EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(effective_project_id=team.project_id, name__in=IGNORED_EVENT_NAMES, last_seen_at__gte=cutoff)
+        .values_list("name", flat=True)
+    )
+
+
 def format_events_yaml(
     events_in_context: list[MaxEventContext],
     team: Team,
@@ -371,6 +402,10 @@ def format_events_yaml(
 
     if any_not_seen_recently:
         formatted_events.append(f"\n# {NOT_SEEN_RECENTLY_LEGEND}")
+
+    if excluded_but_captured := _recently_captured_excluded_events(team):
+        names = ", ".join(f"`{name}`" for name in excluded_but_captured)
+        formatted_events.append(f"\n# {EXCLUDED_BUT_CAPTURED_LEGEND.format(days=STALE_EVENT_DAYS)}\n# {names}")
 
     if has_more:
         next_offset = (offset or 0) + (limit or 500)

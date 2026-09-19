@@ -4,13 +4,18 @@ import xml.etree.ElementTree as ET
 from posthog.test.base import BaseTest
 from unittest.mock import ANY, Mock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, TeamTaxonomyItem, TeamTaxonomyQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import EventDefinition
+from posthog.taxonomy.taxonomy import STALE_EVENT_DAYS
 
 from ee.hogai.utils.helpers import (
+    EXCLUDED_BUT_CAPTURED_LEGEND,
     MAX_EVENT_DESCRIPTION_LENGTH,
     NOT_SEEN_RECENTLY_LEGEND,
     NOT_SEEN_RECENTLY_MARKER,
@@ -500,3 +505,24 @@ class TestFormatEventsPrompt(BaseTest):
         self.assertEqual(NOT_SEEN_RECENTLY_MARKER in ai_trace_line, expected_marker)
         self.assertEqual(NOT_SEEN_RECENTLY_LEGEND in result, expected_marker)
         self.assertNotIn(NOT_SEEN_RECENTLY_MARKER, pageview_line)
+
+    @parameterized.expand(
+        [
+            ("captured today", datetime.timedelta(0), True),
+            ("captured beyond the window", datetime.timedelta(days=STALE_EVENT_DAYS + 1), False),
+            ("never captured", None, False),
+        ]
+    )
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_yaml_names_captured_events_the_listing_excludes(
+        self, _name, last_seen_ago, expected_mention, mock_runner_class
+    ):
+        self._setup_mock_runner(mock_runner_class, self._create_taxonomy_items([("$pageview", 100)]))
+        last_seen_at = None if last_seen_ago is None else timezone.now() - last_seen_ago
+        EventDefinition.objects.create(team=self.team, name="$autocapture", last_seen_at=last_seen_at)
+
+        result = format_events_yaml([], self.team, self.user)
+
+        self.assertNotIn("- `$autocapture`", result)
+        self.assertEqual("`$autocapture`" in result, expected_mention)
+        self.assertEqual(EXCLUDED_BUT_CAPTURED_LEGEND.format(days=STALE_EVENT_DAYS) in result, expected_mention)
