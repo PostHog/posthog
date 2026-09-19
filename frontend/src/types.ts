@@ -7487,6 +7487,8 @@ export type HogFunctionConfigurationContextId =
     | 'logs-alerting'
     | 'health-alerts'
     | 'batch-export-alerts'
+    | 'billing-alerts'
+    | 'replay-vision-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'

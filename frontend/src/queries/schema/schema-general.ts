@@ -5585,12 +5585,20 @@ export interface ExperimentApiMetric {
     uuid?: string
     /** Whether higher or lower values indicate success. */
     goal?: ExperimentMetricGoal
-    /** Conversion window duration. */
+    /** Only count metric events within this many units after the user's first exposure. Requires
+     *  conversion_window_unit: a window without a unit is ignored and the metric counts events until
+     *  the experiment ends. Omit both to count until the experiment ends. */
     conversion_window?: integer
+    /** Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when
+     *  conversion_window is set. */
+    conversion_window_unit?: FunnelConversionWindowTimeUnit
     /** For mean metrics: event source. */
     source?: ExperimentApiEventSource
     /** For funnel metrics: array of EventsNode/ActionsNode steps. */
     series?: ExperimentApiEventSource[]
+    /** For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use
+     *  'strict': experiment funnels give wrong counts with it. */
+    funnel_order_type?: StepOrderValue
     /** For ratio metrics: numerator source. */
     numerator?: ExperimentApiEventSource
     /** For ratio metrics: denominator source. */

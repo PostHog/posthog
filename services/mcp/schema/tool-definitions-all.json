@@ -9465,6 +9465,20 @@
             "readOnlyHint": false
         }
     },
+    "project-create": {
+        "description": "Create a project in the caller's active organization. A project is a separate data container with its own API token, so use it to keep unrelated data apart, for example staging and production. Creating a project adds to the organization's plan usage, so always confirm the name with the user before calling this. The new project does not become active: call `switch-project` with the returned ID to work in it. The response carries the project API token, which is safe to put in client-side code.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Create project",
+        "title": "Create project",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "project-get": {
         "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
         "category": "Core",
