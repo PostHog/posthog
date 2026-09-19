@@ -159,11 +159,7 @@ impl KafkaLogRow {
             _ => DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?),
         };
 
-        let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
-        let was_overridden = original_timestamp.is_some();
-        if let Some(original) = original_timestamp {
-            attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
-        }
+        let (timestamp, was_overridden) = apply_timestamp_override(raw_timestamp, &mut attributes);
 
         let observed_timestamp = Utc::now();
 
@@ -209,6 +205,25 @@ pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<Da
     }
 }
 
+/// `override_timestamp` plus the `$originalTimestamp` attribute the consumer reads back; every intake
+/// goes through here so the attribute name and format stay one contract.
+pub(crate) fn apply_timestamp_override(
+    raw: DateTime<Utc>,
+    attributes: &mut HashMap<String, String>,
+) -> (DateTime<Utc>, bool) {
+    let (timestamp, original) = override_timestamp(raw);
+    if let Some(original) = original {
+        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+    }
+    (timestamp, original.is_some())
+}
+
+pub(crate) fn datetime_from_millis(millis: Option<i64>) -> DateTime<Utc> {
+    millis
+        .and_then(DateTime::<Utc>::from_timestamp_millis)
+        .unwrap_or_else(Utc::now)
+}
+
 // extract a JSON value as a string. If it's a string, strip the surrounding "quotes"
 fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> String {
     if let Some(value) = attributes.get(key) {
@@ -242,7 +257,7 @@ pub fn extract_span_id(input: &[u8]) -> [u8; 8] {
     }
 }
 
-fn normalize_severity_text(severity_text: String) -> String {
+pub(crate) fn normalize_severity_text(severity_text: String) -> String {
     match severity_text.to_lowercase().as_str() {
         "critical" | "fatal" | "crit" | "alert" | "emerg" => "fatal".to_string(),
         "error" | "err" | "eror" => "error".to_string(),
@@ -255,7 +270,7 @@ fn normalize_severity_text(severity_text: String) -> String {
     }
 }
 
-fn convert_severity_text_to_number(severity_text: &str) -> i32 {
+pub(crate) fn convert_severity_text_to_number(severity_text: &str) -> i32 {
     match severity_text {
         "trace" => 1,
         "debug" => 5,
@@ -319,23 +334,31 @@ pub fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String
 // TODO - pull this from PG
 const SEVERITY_KEYS: [&str; 4] = ["level", "severity", "log.level", "config.log_level"];
 
-fn try_extract_severity(body: &str) -> Option<String> {
+pub(crate) fn try_extract_severity(body: &str) -> Option<String> {
+    if !body.trim_start().starts_with('{') {
+        return None;
+    }
     let Ok(val) = serde_json::from_str::<JsonValue>(body) else {
         return None;
     };
 
     for key in SEVERITY_KEYS {
-        if let Some(severity) = val.get(key) {
-            let Some(found) = severity.as_str() else {
-                continue;
-            };
-            let found = found.to_lowercase();
-            if convert_severity_text_to_number(&found) != 0 {
-                return Some(found);
+        if let Some(found) = val.get(key).and_then(|severity| severity.as_str()) {
+            if let Some(text) = severity_alias(found) {
+                return Some(text);
             }
         }
     }
     None
+}
+
+/// Canonical severity for a level word, or `None` when the word is not a known level. Unlike
+/// `normalize_severity_text`, an unknown word is not folded to `info`, so callers can keep looking.
+pub(crate) fn severity_alias(word: &str) -> Option<String> {
+    let lowered = word.trim().to_lowercase();
+    let text = normalize_severity_text(lowered.clone());
+    let is_info_alias = matches!(lowered.as_str(), "info" | "information" | "informational");
+    (text != "info" || is_info_alias).then_some(text)
 }
 
 pub fn any_value_to_json(value: AnyValue) -> JsonValue {
