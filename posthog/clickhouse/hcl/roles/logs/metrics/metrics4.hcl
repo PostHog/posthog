@@ -143,6 +143,9 @@ database "posthog" {
     column "histogram_bounds" {
       type = "SimpleAggregateFunction(anyLast, Array(Float64))"
     }
+    column "_topic" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
     column "timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))"
       codec = "DoubleDelta, Default"
@@ -171,6 +174,13 @@ database "posthog" {
     }
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray, Array(Int32))"
+    }
+    column "_partition_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(UInt32))"
+    }
+    column "_offset_arr" {
+      type  = "SimpleAggregateFunction(groupArrayArray, Array(UInt64))"
+      codec = "Delta(8), Default"
     }
     index "idx_metric_type_set" {
       expr        = "metric_type"
@@ -416,6 +426,9 @@ database "posthog" {
     column "histogram_bounds" {
       type = "Array(Float64)"
     }
+    column "_topic" {
+      type = "String"
+    }
     column "timestamp_arr" {
       type = "Array(DateTime64(6))"
     }
@@ -439,6 +452,12 @@ database "posthog" {
     }
     column "trace_flags_arr" {
       type = "Array(Int32)"
+    }
+    column "_partition_arr" {
+      type = "Array(UInt32)"
+    }
+    column "_offset_arr" {
+      type = "Array(UInt64)"
     }
   }
   materialized_view "metrics2_input_to_metrics4_series" {

@@ -52,16 +52,19 @@ METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("trace_id", "String"),
     ("span_id", "String"),
     ("trace_flags", "Int32"),
+    ("_partition", "UInt32"),
+    ("_offset", "UInt64"),
 )
 
-# Codecs apply to the element stream of an array. The timestamps of one row are in insert
-# order, so DoubleDelta fits; T64 and Gorilla do not depend on order.
+# Codecs apply to the element stream of an array. The timestamps and Kafka offsets of one
+# row are in insert order, so the delta codecs fit; T64 and Gorilla do not depend on order.
 _ARRAY_CODECS: dict[str, str] = {
     "timestamp": " CODEC(DoubleDelta, Default)",
     "observed_timestamp": " CODEC(DoubleDelta, Default)",
     "value": " CODEC(Gorilla, Default)",
     "count": " CODEC(T64, Default)",
     "histogram_counts": " CODEC(T64, Default)",
+    "_offset": " CODEC(Delta, Default)",
 }
 
 
@@ -96,6 +99,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     `has_labels` SimpleAggregateFunction(max, UInt8),
     `instrumentation_scope` SimpleAggregateFunction(any, String),
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
+    `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
 {arrays},
     INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
     INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
@@ -213,6 +217,7 @@ AS SELECT
     max(toUInt8(has_labels)) AS has_labels,
     any(instrumentation_scope) AS instrumentation_scope,
     anyLast(histogram_bounds) AS histogram_bounds,
+    any(_topic) AS _topic,
 {group_arrays}
 FROM {db}.{METRICS2_INPUT_TABLE_NAME}
 GROUP BY
