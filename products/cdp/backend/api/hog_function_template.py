@@ -8,6 +8,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, hidden_gated_template_ids
@@ -206,6 +207,8 @@ class PublicHogFunctionTemplateViewSet(
         ordered_template_ids = self._template_ids_by_popularity(queryset)
 
         page_template_ids = self.paginate_queryset(ordered_template_ids)
+        if page_template_ids is None:
+            return Response(self.get_serializer(queryset, many=True).data)
 
         templates = {template.template_id: template for template in queryset.filter(template_id__in=page_template_ids)}
         page = [templates[template_id] for template_id in page_template_ids if template_id in templates]

@@ -256,7 +256,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         # The catalog is sorted before it is paginated, so paging through it returns every template
         # once, in the same order.
-        paged_ids = []
+        paged_ids: list[str] = []
         for offset in range(0, len(results), 2):
             page = self.client.get(f"/api/public_hog_function_templates/?limit=2&offset={offset}")
             assert page.status_code == status.HTTP_200_OK, page.json()
