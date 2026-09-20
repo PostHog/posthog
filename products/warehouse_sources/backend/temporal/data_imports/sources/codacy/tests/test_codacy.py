@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -74,7 +75,7 @@ class TestPagination:
 
     def test_page_cap_truncates_fan_out_pagination(self, monkeypatch: Any) -> None:
         files_endpoint = CODACY_ENDPOINTS["files"]
-        monkeypatch.setattr(files_endpoint, "max_pages_per_parent", 2)
+        monkeypatch.setitem(CODACY_ENDPOINTS, "files", replace(files_endpoint, max_pages_per_parent=2))
 
         files_base = f"{BASE}/organizations/gh/acme/repositories/repo-a/files"
         # Every page advertises another cursor; without the cap this would page forever.
@@ -397,7 +398,11 @@ class TestCommitFanOut:
         # deltaIssues costs one request per commit, so an uncapped walk over a busy repository
         # would never finish inside Codacy's rate limit.
         endpoint = CODACY_ENDPOINTS["commit_delta_issues"]
-        monkeypatch.setattr(endpoint, "max_commits_per_repository", 2)
+        monkeypatch.setitem(
+            CODACY_ENDPOINTS,
+            "commit_delta_issues",
+            replace(endpoint, max_commits_per_repository=2),
+        )
 
         pages = self._commit_pages(["sha1", "sha2", "sha3"])
         for sha in ("sha1", "sha2", "sha3"):
