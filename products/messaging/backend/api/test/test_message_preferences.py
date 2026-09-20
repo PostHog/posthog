@@ -612,7 +612,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         MessageRecipientPreference.objects.filter(team=self.team).update(updated_at="2020-01-01T00:00:00Z")
         expected = [recipient.identifier for recipient in sorted(recipients, key=lambda row: row.id, reverse=True)]
 
-        seen = []
+        seen: list[str] = []
         for page in (1, 2, 3):
             response = self.client.get(
                 f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
