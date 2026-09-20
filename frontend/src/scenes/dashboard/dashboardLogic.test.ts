@@ -659,6 +659,56 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardSettingsChanges).toEqual([])
         })
 
+        it('saves a compare filter override through the draft/save round-trip', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setCompareFilter({ compare: true, compare_to: '-1m' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
+                expect.objectContaining({ compareFilter: { compare: true, compare_to: '-1m' } })
+            )
+            expect(logic.values.effectiveEditBarFilters.compareFilter).toEqual({ compare: true, compare_to: '-1m' })
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...logic.values.dashboard!,
+                persisted_filters: logic.values.effectiveEditBarFilters,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                filters: expect.objectContaining({ compareFilter: { compare: true, compare_to: '-1m' } }),
+                variables: {},
+            })
+            expect(logic.values.dashboard?.persisted_filters).toEqual(
+                expect.objectContaining({ compareFilter: { compare: true, compare_to: '-1m' } })
+            )
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+        })
+
+        it('clears the unsaved state when the compare filter returns to inherit', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setCompareFilter({ compare: false })
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+
+            await expectLogic(logic, () => {
+                logic.actions.setCompareFilter(null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.effectiveEditBarFilters.compareFilter).toBeNull()
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+            expect(logic.values.dashboardSettingsChanges).toEqual([])
+        })
+
         it('does not treat embedded context filters as unsaved dashboard filters', async () => {
             await expectLogic(logic).toFinishAllListeners()
             ;(api.update as jest.Mock).mockClear()

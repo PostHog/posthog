@@ -11,6 +11,7 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { DashboardCompareFilter } from 'scenes/dashboard/DashboardCompareFilter'
 import { DashboardEditBarAdvancedFilters } from 'scenes/dashboard/DashboardEditBarAdvancedFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -127,6 +128,11 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             {showDateFilter && (
                 <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
                     <DashboardIntervalFilter />
+                </div>
+            )}
+            {showDateFilter && (
+                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                    <DashboardCompareFilter />
                 </div>
             )}
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
