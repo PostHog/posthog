@@ -321,6 +321,22 @@ describe('accountRelatedUsersLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersResponse: emptyResponse })
         expect(captureException).not.toHaveBeenCalled()
+        expect(logic.values.membersLoadFailed).toBe(false)
+    })
+
+    it('reports a failed EU lookup instead of showing the account as having no users', async () => {
+        silenceKeaLoadersErrors()
+        jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(buildResponse([], 0))
+        jest.spyOn(api, 'query').mockRejectedValue(new ApiError('Server error', 500))
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersLoadFailed: true })
+        expect(logic.values.membersResponse).toBeNull()
+        expect(toast).toHaveBeenCalledTimes(1)
+        resumeKeaLoadersErrors()
     })
 
     it('retries a request the browser dropped and keeps the failure off the toast', async () => {

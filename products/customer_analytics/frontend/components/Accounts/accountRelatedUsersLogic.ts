@@ -131,10 +131,10 @@ const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMe
             region: Region.EU,
         }))
     } catch (error) {
-        if (!isExpectedMissingViewError(error) && !isDroppedRequest(error)) {
-            posthog.captureException(error as Error, {
-                scope: 'accountRelatedUsersLogic.fetchEuMembers',
-            })
+        // Only an absent view is an empty result. Every other failure belongs to the caller, which
+        // owns the failed state, the reporting, and the reload once the connection is back.
+        if (!isExpectedMissingViewError(error)) {
+            throw error
         }
         return null
     }
