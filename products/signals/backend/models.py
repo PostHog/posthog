@@ -1,13 +1,15 @@
 import uuid
 import logging
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -29,6 +31,7 @@ from products.signals.backend.artefact_schemas import (
     Dismissal,
     LogArtefactContent,
     RelatedTo,
+    ReportLink,
     SignalFinding,
     StatusArtefactContent,
     TaskRunArtefact,
@@ -36,7 +39,7 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
-from products.signals.backend.enums import SignalSourceProduct, signal_source_product_choices
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, signal_source_product_choices
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -1103,6 +1106,7 @@ class SignalReportArtefact(UUIDModel):
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
+        REPORT_LINK = "report_link"
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
@@ -1135,6 +1139,10 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.IMPLEMENTATION_DISPATCH,
         }
     )
+    # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
+    # chain is a handful of reports deep. The budget guards the cycle walk on the write path
+    # against a graph that grew past anything a reader could order.
+    MAX_REPORT_LINK_GRAPH_NODES = 500
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
             ArtefactType.CODE_REFERENCE,
@@ -1145,6 +1153,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
+            ArtefactType.REPORT_LINK,
             ArtefactType.IMPLEMENTATION_REPLACEMENT,
             ArtefactType.IMPLEMENTATION_HANDOVER,
             ArtefactType.WORK_CLAIM,
@@ -1395,6 +1404,91 @@ class SignalReportArtefact(UUIDModel):
         transaction.on_commit(_run)
 
     @classmethod
+    def _report_link_reaches(cls, *, team_id: int, kind: ReportLinkKind, start: str, goal: str) -> bool:
+        """Whether `goal` is reachable from `start` by following `report_link` rows of one kind.
+
+        Breadth-first, one query per level rather than one per report, because the depth of a real
+        chain is small and the fan-out is not. Exhausting the node budget answers True: the graph
+        is then too large to order, which is the same outcome for the caller as a cycle.
+        """
+        seen = {start}
+        frontier = [start]
+        while frontier:
+            stored = cls.objects.filter(
+                team_id=team_id, report_id__in=frontier, type=cls.ArtefactType.REPORT_LINK
+            ).values_list("content", flat=True)
+            next_frontier: list[str] = []
+            for raw in stored:
+                try:
+                    link = ReportLink.model_validate_json(raw)
+                except ValidationError:
+                    # A row that no longer parses names no edge. Reads of the artefact log are
+                    # tolerant of legacy content everywhere else too.
+                    continue
+                if link.kind != kind:
+                    continue
+                if link.report_id == goal:
+                    return True
+                if link.report_id in seen:
+                    continue
+                seen.add(link.report_id)
+                next_frontier.append(link.report_id)
+            if len(seen) > cls.MAX_REPORT_LINK_GRAPH_NODES:
+                return True
+            frontier = next_frontier
+        return False
+
+    @classmethod
+    def validate_report_link(cls, *, team_id: int, report_id: str, content: ReportLink) -> None:
+        """Check a `report_link` before it is written, raising `ArtefactContentValidationError`.
+
+        Three invariants, in ascending cost. A report cannot link to itself. A report can only
+        link to a live report in the same team, which keeps the link inside one tenant and stops
+        a typo'd id from parking a dangling edge in the log. A link must not close a cycle among
+        links of its own kind, so a reader can always order the graph (a dependency chain has a
+        first report). Kinds are checked independently: "A depends_on B" and "A duplicate_of B"
+        are separate claims, and only a loop within one kind is a contradiction.
+        """
+        # `content.report_id` is canonicalized by the schema, so the report it is compared against
+        # is canonicalized too. A caller that addressed the report with an uppercase or braced UUID
+        # would otherwise slip a self-link past this.
+        try:
+            source_id = str(uuid.UUID(str(report_id)))
+        except ValueError:
+            raise ArtefactContentValidationError(f"Report id {report_id!r} is not a UUID.")
+        if content.report_id == source_id:
+            raise ArtefactContentValidationError("A report cannot link to itself.")
+        target_is_live = (
+            SignalReport.objects.filter(team_id=team_id, id=content.report_id)
+            .exclude(status=SignalReport.Status.DELETED)
+            .exists()
+        )
+        if not target_is_live:
+            raise ArtefactContentValidationError(f"Report {content.report_id} was not found in this project.")
+        if cls._report_link_reaches(team_id=team_id, kind=content.kind, start=content.report_id, goal=source_id):
+            raise ArtefactContentValidationError(
+                f"A '{content.kind.value}' link to report {content.report_id} would close a cycle."
+            )
+
+    @classmethod
+    @contextmanager
+    def validated_report_link_write(cls, *, team_id: int, report_id: str, content: ReportLink) -> Iterator[None]:
+        """Hold the team's link lock across the check and the write the caller performs in the body.
+
+        The cycle check reads the links of reports the write does not touch, so a row lock cannot
+        cover it: two concurrent calls writing A -> B and B -> A land on different reports, both
+        pass an unlocked check, and leave a cycle behind. Links are rare and the critical section
+        is small, so serializing a team's link writes costs nothing that matters. The lock is
+        transaction-scoped, so a caller that already opened a transaction (the scout edit path)
+        holds it until its own commit.
+        """
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"signals-report-link:{team_id}"])
+            cls.validate_report_link(team_id=team_id, report_id=report_id, content=content)
+            yield
+
+    @classmethod
     def add_log(
         cls,
         *,
@@ -1411,9 +1505,22 @@ class SignalReportArtefact(UUIDModel):
         `related_to` links are symmetric: writing A→B here also records B→A on the other report, so
         the link is maintained on the common write path and stays discoverable from either side. The
         reverse row goes through `_create` (not `add_log`) so it doesn't recurse.
+
+        `report_link` is the typed, directed counterpart and gets no mirror row, because the
+        direction is what it records. Its invariants are checked here, on the common write path,
+        so every surface (the REST API, the MCP tools, a scout edit, the pipeline) gets them.
         """
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
+        if isinstance(content, ReportLink):
+            with cls.validated_report_link_write(team_id=team_id, report_id=str(report_id), content=content):
+                return cls._create(
+                    team_id=team_id,
+                    report_id=report_id,
+                    content=content,
+                    attribution=attribution,
+                    claim_id=claim_id,
+                )
         artefact = cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
         )
@@ -1498,12 +1605,22 @@ class SignalReportArtefact(UUIDModel):
                 raise ArtefactContentValidationError(
                     "task_run content.product and content.type record what ran and cannot be changed by editing"
                 )
-        self.content = parsed.model_dump_json()
-        update_fields = ["content", "updated_at"]
-        if isinstance(parsed, ChannelAssignment):
-            self.channel_id = parsed.channel_id
-            update_fields.append("channel_id")
-        self.save(update_fields=update_fields)
+        with ExitStack() as guard:
+            if isinstance(parsed, ReportLink):
+                # An edit is a second way to write a link, so it answers to the same invariants
+                # under the same lock. Without this a PATCH could point an existing row at the
+                # report it sits on, at another team's report, or around a cycle.
+                guard.enter_context(
+                    SignalReportArtefact.validated_report_link_write(
+                        team_id=self.team_id, report_id=str(self.report_id), content=parsed
+                    )
+                )
+            self.content = parsed.model_dump_json()
+            update_fields = ["content", "updated_at"]
+            if isinstance(parsed, ChannelAssignment):
+                self.channel_id = parsed.channel_id
+                update_fields.append("channel_id")
+            self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
 

@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this signal report.",
+            "type": "string"
+        },
+        "kind": {
+            "description": "How the report in the URL relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.\n\n* `depends_on` - Depends on\n* `part_of` - Part of\n* `follow_up_of` - Follow-up of\n* `duplicate_of` - Duplicate of\n* `recurrence_of` - Recurrence of",
+            "enum": ["depends_on", "part_of", "follow_up_of", "duplicate_of", "recurrence_of"],
+            "type": "string"
+        },
+        "reason": {
+            "description": "Optional one-line note on why the reports are linked this way.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "report_id": {
+            "description": "Id of the report to link to. Must be a report in this project, and not the report in the URL.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "kind", "report_id"],
+    "type": "object"
+}

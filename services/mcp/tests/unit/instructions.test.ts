@@ -167,6 +167,7 @@ describe('buildToolDomainsBlock', () => {
             'end',
             'freeze',
             'launch',
+            'link',
             'move',
             'patch',
             'pause',
@@ -182,6 +183,7 @@ describe('buildToolDomainsBlock', () => {
             'test',
             'unarchive',
             'unfreeze',
+            'unlink',
         ]
         const tools = trailingActions.map((action, index) => ({
             name: `resource${index}-${action}`,

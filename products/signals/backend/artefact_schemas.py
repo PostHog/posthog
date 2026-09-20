@@ -27,7 +27,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.enums import ReportLinkKind, ReportPriority
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -586,6 +586,43 @@ class RelatedTo(BaseModel):
         return v
 
 
+MAX_REPORT_LINK_REASON_LENGTH = 500
+# One write declares one report's place in a stack, so a handful of links is the whole shape. The cap
+# bounds the per-link cycle check each write does.
+MAX_REPORT_LINKS_PER_WRITE = 10
+
+
+class ReportLink(BaseModel):
+    """Content schema for a `report_link` artefact: a typed, directed link from this report to
+    another `SignalReport`. The row reads as a sentence starting at the report it is written on:
+    "this report `kind` the report named by `report_id`".
+
+    Unlike `related_to`, nothing is mirrored onto the target. The direction is the payload, so
+    writing the reverse row would assert the opposite relationship. A reader that wants both
+    sides queries the type from either end.
+
+    `SignalReportArtefact.add_log` rejects a link that names the report it is written on, a link
+    to a report outside the writing team, and a link that closes a cycle of the same kind, so an
+    ordering the pipeline reads (a stack of dependent pull requests) can never contradict itself.
+    """
+
+    kind: ReportLinkKind = Field(description="How this report relates to the report named by `report_id`.")
+    report_id: str = Field(description="UUID of the SignalReport this link points at, in the same project.")
+    reason: str | None = Field(
+        default=None,
+        max_length=MAX_REPORT_LINK_REASON_LENGTH,
+        description="Optional one-line note on why the reports are linked this way.",
+    )
+
+    @field_validator("report_id")
+    @classmethod
+    def report_id_must_be_a_uuid(cls, v: str) -> str:
+        try:
+            return str(UUID(v.strip()))
+        except ValueError:
+            raise ValueError("must be a UUID")
+
+
 class ImplementationTarget(BaseModel):
     task_id: UUID
     run_id: UUID
@@ -770,6 +807,7 @@ LogArtefactContent = (
     | SummaryChange
     | CodeReview
     | RelatedTo
+    | ReportLink
     | WorkClaim
     | WorkRelease
     | PullRequestLink
@@ -799,6 +837,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "summary_change": SummaryChange,
     "code_review": CodeReview,
     "related_to": RelatedTo,
+    "report_link": ReportLink,
     "work_claim": WorkClaim,
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,

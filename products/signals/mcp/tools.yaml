@@ -204,6 +204,43 @@ tools:
             id:
                 aliases:
                     - report_id
+    inbox-reports-link:
+        operation: signals_reports_link
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Link a report to another report
+        description: >
+            Record how one report relates to another, as a directed link that reads as a sentence starting at the report
+            in `id`: "this report `kind` that report". Use this when one finding turns into a stack of dependent
+            changes: file or claim the second report, then link it `depends_on` the first, so a reviewer opening either
+            report sees which pull request has to merge first instead of working it out from the diffs. The other kinds
+            are `part_of` (one piece of a larger report), `follow_up_of` (work the other report left behind),
+            `duplicate_of` (the same problem filed twice), and `recurrence_of` (a problem a resolved report already
+            covered). Only the report in `id` gets a row, so link from the side the sentence starts at. Both reports
+            must be in this project, a report cannot link to itself, and links of one kind must stay acyclic, so a link
+            that would close a dependency loop is rejected with 400. Reading a report's links is
+            `inbox-report-artefacts-list` filtered to type `report_link`; removing one is `inbox-reports-unlink`.
+    inbox-reports-unlink:
+        operation: signals_reports_unlink
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Remove a link between two reports
+        description: >
+            Remove every `kind` link from the report in `id` to `report_id`, undoing an `inbox-reports-link` call.
+            `reason` is ignored. Removing a link that was never there is a 200 with `removed: 0`, so you do not have to
+            check first.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true

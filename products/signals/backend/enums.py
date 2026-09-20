@@ -18,6 +18,33 @@ class ReportPriority(StrEnum):
     P4 = "P4"
 
 
+class ReportLinkKind(StrEnum):
+    # How one report relates to another, written as a directed `report_link` artefact on the
+    # report the sentence starts from: "this report DEPENDS_ON that one". A GitHub issue that
+    # specs a stack of dependent pull requests needs the direction recorded, which the older
+    # symmetric `related_to` artefact cannot express.
+    DEPENDS_ON = "depends_on"
+    PART_OF = "part_of"
+    FOLLOW_UP_OF = "follow_up_of"
+    DUPLICATE_OF = "duplicate_of"
+    RECURRENCE_OF = "recurrence_of"
+
+
+REPORT_LINK_KIND_LABELS: dict[ReportLinkKind, str] = {
+    ReportLinkKind.DEPENDS_ON: "Depends on",
+    ReportLinkKind.PART_OF: "Part of",
+    ReportLinkKind.FOLLOW_UP_OF: "Follow-up of",
+    ReportLinkKind.DUPLICATE_OF: "Duplicate of",
+    ReportLinkKind.RECURRENCE_OF: "Recurrence of",
+}
+
+
+def report_link_kind_choices() -> list[tuple[str, str]]:
+    # drf-spectacular matches an ENUM_NAME_OVERRIDES entry by a hash of the exact (value, label)
+    # pairs, so the serializer's ChoiceField and the override must both read this one callable.
+    return [(kind.value, label) for kind, label in REPORT_LINK_KIND_LABELS.items()]
+
+
 class SignalSourceProduct(StrEnum):
     SESSION_REPLAY = "session_replay"
     LLM_ANALYTICS = "llm_analytics"

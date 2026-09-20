@@ -21,7 +21,7 @@ from posthog.models.integration import Integration, is_supported_external_issue_
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType, report_link_kind_choices
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
+from .artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     MAX_SCOUT_REPORT_NOTES,
@@ -2059,6 +2059,57 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="Task the artefact is attributed to, when an agent produced it. Null for user writes.",
+    )
+
+
+class SignalReportLinkRequestSerializer(serializers.Serializer):
+    """Body for the report `link` and `unlink` actions.
+
+    The link reads as a sentence starting at the report in the URL: "this report `kind` the report
+    named by `report_id`". `reason` is stored on the link and ignored by `unlink`, which removes
+    every link of this kind to this report.
+    """
+
+    kind = serializers.ChoiceField(
+        choices=report_link_kind_choices(),
+        help_text=(
+            "How the report in the URL relates to `report_id`. `depends_on` for work that cannot "
+            "land until the other report's fix does, `part_of` for one piece of a larger report, "
+            "`follow_up_of` for work the other report left behind, `duplicate_of` for the same "
+            "problem filed twice, and `recurrence_of` for a problem a resolved report already "
+            "covered."
+        ),
+    )
+    report_id = serializers.UUIDField(
+        help_text="Id of the report to link to. Must be a report in this project, and not the report in the URL."
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_REPORT_LINK_REASON_LENGTH,
+        help_text="Optional one-line note on why the reports are linked this way.",
+    )
+
+
+class SignalReportLinkResponseSerializer(serializers.Serializer):
+    """Response for `link`: the stored link, so the caller can address or remove the row later."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Id of the link artefact that was written.")
+    report_id = serializers.UUIDField(read_only=True, help_text="Id of the report the link was written on.")
+    kind = serializers.CharField(read_only=True, help_text="The link kind that was stored.")
+    linked_report_id = serializers.UUIDField(read_only=True, help_text="Id of the report the link points at.")
+    reason = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The note stored with the link, if one was supplied."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the link was written.")
+
+
+class SignalReportUnlinkResponseSerializer(serializers.Serializer):
+    """Response for `unlink`: how many links the call removed."""
+
+    removed = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of links removed. Zero means there was no link of this kind to that report.",
     )
 
 
