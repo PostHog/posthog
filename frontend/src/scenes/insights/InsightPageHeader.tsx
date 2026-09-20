@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 
@@ -8,6 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightModalsLogic } from 'scenes/insights/insightModalsLogic'
@@ -34,6 +35,10 @@ import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/ins
 import { InsightSceneMenuBar } from './SidePanel/InsightSceneMenuBar'
 import { InsightSidePanelContent } from './SidePanel/InsightSidePanelContent'
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
+
+/** How long to wait for edit mode before re-issuing the navigation, and before giving up on it. */
+const EDIT_MODE_RETRY_MS = 1500
+const EDIT_MODE_GIVE_UP_MS = 5000
 
 function supportsMetadataGeneration(node: Record<string, any> | null): boolean {
     return isInsightQueryNode(node) || isActorsQuery(node) || isEventsQuery(node) || isGroupsQuery(node)
@@ -75,6 +80,51 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     )
     const { cancelChanges, generateInsightMetadata } = useActions(insightDataLogic(insightProps))
     const { push } = useActions(router)
+
+    const goToEditMode = (): void => {
+        if (isDataVisualizationNode(query) && insight.short_id) {
+            push(
+                urls.sqlEditor({
+                    insightShortId: insight.short_id,
+                    dashboard: dashboardId ?? undefined,
+                    // Carry unsaved view-mode filter edits into the editor so they can be saved
+                    filters: queryChanged ? query.source.filters : undefined,
+                })
+            )
+        } else if (insight.short_id) {
+            const editUrl = dashboardId
+                ? combineUrl(urls.insightEdit(insight.short_id), { dashboard: dashboardId }).url
+                : urls.insightEdit(insight.short_id)
+            push(editUrl)
+        } else {
+            setInsightMode(ItemMode.Edit, null)
+        }
+    }
+    const goToEditModeRef = useRef(goToEditMode)
+    goToEditModeRef.current = goToEditMode
+
+    // The editor only paints once the insight reloads, so the page can look untouched for seconds
+    // after the click. Mark the button busy meanwhile, re-issue a navigation that never took, and
+    // say so if edit mode still does not arrive, instead of leaving the click silently dropped.
+    const [openingEditMode, setOpeningEditMode] = useState(false)
+    useEffect(() => {
+        if (!openingEditMode) {
+            return
+        }
+        if (insightMode === ItemMode.Edit) {
+            setOpeningEditMode(false)
+            return
+        }
+        const retry = window.setTimeout(() => goToEditModeRef.current(), EDIT_MODE_RETRY_MS)
+        const giveUp = window.setTimeout(() => {
+            setOpeningEditMode(false)
+            lemonToast.warning('Opening edit mode is taking longer than usual. Try again.')
+        }, EDIT_MODE_GIVE_UP_MS)
+        return () => {
+            window.clearTimeout(retry)
+            window.clearTimeout(giveUp)
+        }
+    }, [openingEditMode, insightMode])
 
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
@@ -197,26 +247,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         type="primary"
                                         size="small"
                                         tooltipPlacement="bottom"
+                                        loading={openingEditMode}
                                         onClick={() => {
-                                            if (isDataVisualizationNode(query) && insight.short_id) {
-                                                router.actions.push(
-                                                    urls.sqlEditor({
-                                                        insightShortId: insight.short_id,
-                                                        dashboard: dashboardId ?? undefined,
-                                                        // Carry unsaved view-mode filter edits into the editor so they can be saved
-                                                        filters: queryChanged ? query.source.filters : undefined,
-                                                    })
-                                                )
-                                            } else if (insight.short_id) {
-                                                const editUrl = dashboardId
-                                                    ? combineUrl(urls.insightEdit(insight.short_id), {
-                                                          dashboard: dashboardId,
-                                                      }).url
-                                                    : urls.insightEdit(insight.short_id)
-                                                push(editUrl)
-                                            } else {
-                                                setInsightMode(ItemMode.Edit, null)
-                                            }
+                                            setOpeningEditMode(true)
+                                            goToEditMode()
                                         }}
                                         {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
                                         data-attr="insight-edit-button"
