@@ -6,6 +6,7 @@ import {
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import {
+  forwardRef,
   type ReactElement,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
@@ -59,39 +60,74 @@ export function SidebarSearchHeader({
         <h2 className="font-bold text-base">{title}</h2>
       </ChromeBar>
       <div className="shrink-0 px-2 pt-2">
-        <AutocompleteInput
+        <SidebarSearchInput
           ref={searchRef}
+          query={query}
           placeholder={placeholder}
-          aria-label={searchLabel}
-          showSearchIcon={false}
-          className="h-7 text-[13px] hover:bg-fill-hover"
-          onKeyDown={(event) => {
-            onKeyDown?.(event);
-            if (
-              event.defaultPrevented ||
-              event.key !== "Escape" ||
-              query === ""
-            ) {
-              return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            onClear();
-          }}
-        >
-          {query === "" ? (
-            <Kbd className="-mr-0.5 shrink-0">
-              {formatHotkey(SHORTCUTS.FOCUS_SIDEBAR_SEARCH)}
-            </Kbd>
-          ) : (
-            <AutocompleteClear
-              tabIndex={0}
-              aria-label="Clear search"
-              onClick={onClear}
-            />
-          )}
-        </AutocompleteInput>
+          searchLabel={searchLabel}
+          onClear={onClear}
+          onKeyDown={onKeyDown}
+        />
       </div>
     </>
   );
 }
+
+/**
+ * The list's search box. Split out of the header because a column can put it
+ * where the thing it searches is, rather than over the whole column.
+ *
+ * It is the list's Autocomplete input: it holds the focus the arrow keys walk
+ * from, so there is one per list and it must stay inside the Autocomplete.
+ */
+export const SidebarSearchInput = forwardRef<
+  HTMLInputElement,
+  {
+    query: string;
+    placeholder: string;
+    searchLabel: string;
+    onClear: () => void;
+    onKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+    className?: string;
+  }
+>(function SidebarSearchInput(
+  { query, placeholder, searchLabel, onClear, onKeyDown, className },
+  ref,
+) {
+  return (
+    <div className={className}>
+      <AutocompleteInput
+        ref={ref}
+        placeholder={placeholder}
+        aria-label={searchLabel}
+        showSearchIcon={false}
+        className="h-7 text-[13px] hover:bg-fill-hover"
+        onKeyDown={(event) => {
+          onKeyDown?.(event);
+          if (
+            event.defaultPrevented ||
+            event.key !== "Escape" ||
+            query === ""
+          ) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          onClear();
+        }}
+      >
+        {query === "" ? (
+          <Kbd className="-mr-0.5 shrink-0">
+            {formatHotkey(SHORTCUTS.FOCUS_SIDEBAR_SEARCH)}
+          </Kbd>
+        ) : (
+          <AutocompleteClear
+            tabIndex={0}
+            aria-label="Clear search"
+            onClick={onClear}
+          />
+        )}
+      </AutocompleteInput>
+    </div>
+  );
+});

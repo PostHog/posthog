@@ -9,6 +9,17 @@ import {
 } from "@phosphor-icons/react";
 import { taskFeedRunStatus } from "@posthog/core/canvas/channelFeed";
 import {
+  type ChannelItemFilters,
+  type ChannelItemGrouping,
+  type ChannelItemModel,
+  type ChannelItemOwner,
+  type ChannelItemSort,
+  DEFAULT_CHANNEL_ITEM_SORT,
+  filterChannelItems,
+  hasActiveChannelItemFilters,
+} from "@posthog/core/canvas/channelItems";
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
+import {
   RUN_STATUS_LABELS,
   runStatusVariant,
 } from "@posthog/core/canvas/runStatus";
@@ -21,6 +32,7 @@ import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import {
   AvatarGroup,
   Badge,
+  Button,
   Card,
   CardContent,
   cn,
@@ -46,10 +58,13 @@ import type {
 } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
+import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { TaskTabIcon } from "@posthog/ui/features/browser-tabs/TaskTabIcon";
 import { ActivityPresenceAvatar } from "@posthog/ui/features/canvas/components/ChannelItemPresence";
+import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
+  buildFeedSections,
   type FeedEntry,
   type FeedKindFilter,
   feedEntryMatchesKind,
@@ -92,6 +107,7 @@ import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
+import { navigateToChannelDashboard } from "@posthog/ui/router/navigationBridge";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { Text } from "@radix-ui/themes";
@@ -1228,6 +1244,132 @@ function FeedRow({
  * hooks as the card, minus the thread poll: the row has no comment count to
  * show.
  */
+/**
+ * A canvas in the log. It sits between the sessions of the day it was last
+ * touched rather than in a pile of its own, which is the point of one list.
+ */
+const CanvasFeedRow = memo(function CanvasFeedRow({
+  canvas,
+  channelId,
+  listRow,
+}: {
+  canvas: DashboardRecord;
+  channelId: string;
+  listRow: boolean;
+}) {
+  const open = () => navigateToChannelDashboard(channelId, canvas.id);
+  const author = canvasFeedAuthor(canvas);
+  if (!listRow) {
+    // The same card a session gets: title and age on one line, what it is
+    // under them, whose it is in the corner. A card of a different shape in
+    // the same column reads as a different kind of thing.
+    return (
+      <Card
+        size="sm"
+        role="button"
+        tabIndex={0}
+        className="mx-auto my-1.5 w-full max-w-[660px] cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
+        onClick={open}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            open();
+          }
+        }}
+      >
+        <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              <span className="flex size-3.5 shrink-0 translate-y-0.5 items-center justify-center">
+                {iconForTemplate(canvas.templateId, {
+                  size: 14,
+                  className: "text-violet-9",
+                })}
+              </span>
+              <span className="min-w-0 truncate font-semibold text-sm">
+                {canvas.name}
+              </span>
+              <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
+                · {formatRelativeTimeShort(canvas.updatedAt)}
+              </span>
+            </div>
+            <Badge>Canvas</Badge>
+          </div>
+          {canvas.description && (
+            <p className="mt-1 line-clamp-2 text-(--gray-11) text-[13px]">
+              {canvas.description}
+            </p>
+          )}
+          <div className="mt-3 flex items-center justify-end">
+            {author && <UserAvatar user={author} size="xs" />}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={open}
+      title={canvas.name}
+      className="group relative flex h-8 w-full max-w-[900px] items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-hover"
+    >
+      <span className="flex size-3.5 shrink-0 items-center justify-center">
+        {iconForTemplate(canvas.templateId, {
+          size: 13,
+          className: "text-violet-9",
+        })}
+      </span>
+      <span className="min-w-0 flex-1 truncate font-medium">{canvas.name}</span>
+      <ActivityPresenceAvatar
+        user={canvasFeedAuthor(canvas)}
+        label="on this canvas"
+        activityAt={canvas.updatedAt}
+      />
+      <span className="w-8 shrink-0 text-right text-muted-foreground text-xs tabular-nums">
+        {formatRelativeTimeShort(canvas.updatedAt)}
+      </span>
+    </button>
+  );
+});
+
+/** A canvas carries its author as a name and a uuid, enough to draw a face. */
+function canvasFeedAuthor(canvas: DashboardRecord): AvatarPerson | null {
+  if (canvas.createdByUser) return canvas.createdByUser;
+  if (!canvas.createdBy && !canvas.createdByUuid) return null;
+  const [first, ...rest] = (canvas.createdBy ?? "")
+    .split(/\s+/)
+    .filter(Boolean);
+  return {
+    uuid: canvas.createdByUuid,
+    first_name: first ?? null,
+    last_name: rest.join(" ") || null,
+  };
+}
+
+/**
+ * How many rows the log draws before it waits to be scrolled. A space's whole
+ * history is a few hundred rows of real components, and building all of them
+ * to show the first dozen is what made changing the view feel stuck.
+ */
+const FEED_PAGE = 30;
+
+/** Shared, so a log with no canvases hands the merge the same array each time. */
+const NO_CANVASES: readonly DashboardRecord[] = [];
+
+const NO_ITEMS: readonly ChannelItemModel[] = [];
+
+/** The key a feed entry has in the item list, or null if it has none. */
+function entryKey(entry: FeedEntry): string | null {
+  if (entry.kind === "task") return `task:${entry.task.id}`;
+  if (entry.kind === "canvas") return `canvas:${entry.canvas.id}`;
+  return null;
+}
+
+/** No signed-in user, so "Created by me" matches nothing rather than crashing. */
+const NOBODY = { uuid: null };
+
 const FeedLogRow = memo(function FeedLogRow({
   task,
   onOpenTask,
@@ -1521,7 +1663,9 @@ function DaySeparator({
 }) {
   if (compact) {
     return (
-      <div className="w-full max-w-[900px] px-2 pt-3 pb-0.5 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
+      // Sticky, so the day you are reading is still named once its heading
+      // has scrolled past.
+      <div className="sticky top-0 z-10 w-full max-w-[900px] bg-gray-1 px-2 pt-3 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
         {label}
       </div>
     );
@@ -1567,6 +1711,16 @@ export function ChannelFeedView({
   onOpenTask,
   onOpenThread,
   compact = false,
+  canvases,
+  spaceItems = NO_ITEMS,
+  me,
+  controls,
+  onClearFilters,
+  rebuilding = false,
+  rowStyle,
+  filters,
+  sort = DEFAULT_CHANNEL_ITEM_SORT,
+  grouping = "date",
 }: {
   channelId: string;
   tasks: Task[];
@@ -1600,6 +1754,32 @@ export function ChannelFeedView({
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
   /** One-line rows instead of cards: the Work layout's Activity tab. */
   compact?: boolean;
+  /** The space's canvases, interleaved into the log by date. */
+  canvases?: readonly DashboardRecord[];
+  /**
+   * The space's sessions and canvases as one list, in the vocabulary the
+   * filters are written in. Built by the caller, which has the host and the
+   * auth context; the log only narrows and orders it.
+   */
+  spaceItems?: readonly ChannelItemModel[];
+  /** Who "me" is, for the Created by filter. */
+  me?: ChannelItemOwner;
+  /** The log's own controls, drawn above the rows. */
+  controls?: ReactNode;
+  /** A new shape is being built; the rows on screen are the previous one. */
+  rebuilding?: boolean;
+  /** Widens the log back out from an empty result. */
+  onClearFilters?: () => void;
+  /**
+   * How a row is drawn. Separate from `compact`, which is the page's frame:
+   * switching between cards and lines is a choice about rows, and should not
+   * move the column, the composer or the pane's padding under the reader.
+   */
+  rowStyle?: "cards" | "list";
+  /** Narrows which sessions the log shows; undefined leaves it whole. */
+  filters?: ChannelItemFilters;
+  sort?: ChannelItemSort;
+  grouping?: ChannelItemGrouping;
 }) {
   // Archiving is local-only host state the server task list doesn't know about,
   // so a just-archived card would otherwise reappear on the next poll. Drop
@@ -1619,15 +1799,65 @@ export function ChannelFeedView({
   const activeKindFilter =
     kindFilter.channelId === channelId ? kindFilter.value : "all";
 
-  const entries = useMemo<FeedEntry[]>(
-    () =>
-      mergeFeedEntries(
-        visibleTasks,
-        systemMessages ?? [],
-        reports ?? [],
-      ).filter((entry) => feedEntryMatchesKind(entry, activeKindFilter)),
-    [visibleTasks, systemMessages, reports, activeKindFilter],
+  // The log's sessions, in the list vocabulary the filters are written in, so
+  // a status or a source narrows the same set of rows it does everywhere else.
+  const narrowed = filters ? hasActiveChannelItemFilters(filters) : false;
+  // `key` is "task:<id>" or "canvas:<id>", so one set answers for both kinds.
+  const allowedKeys = useMemo(() => {
+    if (!filters || !narrowed) return null;
+    const kept = filterChannelItems(spaceItems, {
+      query: "",
+      filters,
+      me: me ?? NOBODY,
+    });
+    return new Set(kept.map((item) => item.key));
+  }, [filters, narrowed, spaceItems, me]);
+  const itemByKey = useMemo(
+    () => new Map(spaceItems.map((item) => [item.key, item])),
+    [spaceItems],
   );
+
+  const entries = useMemo<FeedEntry[]>(() => {
+    const merged = mergeFeedEntries(
+      visibleTasks,
+      systemMessages ?? [],
+      reports ?? [],
+      canvases ?? NO_CANVASES,
+    ).filter((entry) => feedEntryMatchesKind(entry, activeKindFilter));
+    const kept = allowedKeys
+      ? // A narrowed log asks about sessions and canvases, so the rows that
+        // are neither step out rather than survive every filter by default.
+        merged.filter((entry) => {
+          const key = entryKey(entry);
+          return key !== null && allowedKeys.has(key);
+        })
+      : merged;
+    if (sort === "created") return kept;
+    const key = (entry: FeedEntry) =>
+      itemByKey.get(entryKey(entry) ?? "")?.ts ?? Date.parse(entry.createdAt);
+    const title = (entry: FeedEntry) =>
+      entry.kind === "task"
+        ? entry.task.title
+        : entry.kind === "canvas"
+          ? entry.canvas.name
+          : entry.kind === "report"
+            ? entry.report.title
+            : entry.message.text;
+    return [...kept].sort((a, b) =>
+      sort === "alpha"
+        ? (title(a) ?? "").localeCompare(title(b) ?? "")
+        : key(b) - key(a),
+    );
+  }, [
+    visibleTasks,
+    systemMessages,
+    reports,
+    canvases,
+    activeKindFilter,
+    allowedKeys,
+    sort,
+    itemByKey,
+  ]);
 
   // The channel's dominant repo: on a single-repo channel every card would
   // repeat the same chip, so the repo chip only renders on tasks that target a
@@ -1650,6 +1880,18 @@ export function ChannelFeedView({
   }, [visibleTasks]);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(FEED_PAGE);
+  const [moreRef, moreInView] = useInView<HTMLDivElement>({
+    rootMargin: "400px 0px",
+  });
+  useEffect(() => {
+    if (moreInView) setVisibleCount((count) => count + FEED_PAGE);
+  }, [moreInView]);
+  // A new question starts at the top: the count is about how far the reader
+  // has gone through one answer, not a running total across all of them.
+  useEffect(() => {
+    setVisibleCount(FEED_PAGE);
+  }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: channelId is a trigger — switching channels or finishing the initial load swaps/completes the rows without a remount, so re-land at the latest cards
   useLayoutEffect(() => {
     if (isLoading) return;
@@ -1671,6 +1913,7 @@ export function ChannelFeedView({
   // Compact is the Work layout's Activity tab: its content starts at the tab
   // strip's own inset rather than centring in the pane, so moving between tabs
   // never shifts the left edge.
+  const listRows = rowStyle ? rowStyle === "list" : compact;
   const columnClass = compact
     ? "w-full max-w-[900px]"
     : "mx-auto w-full max-w-[660px]";
@@ -1774,7 +2017,7 @@ export function ChannelFeedView({
               <div className="mx-auto w-full max-w-[660px]">{intro}</div>
             )}
             {composerBlock}
-            <FeedSkeleton compact={compact} />
+            <FeedSkeleton compact={listRows} />
           </div>
           {/* Mounted while loading too: a column that arrives after the rows
               moves the log sideways just as it becomes readable. */}
@@ -1788,6 +2031,22 @@ export function ChannelFeedView({
     );
   }
 
+  // A filter that matched nothing is not an empty space: the welcome would
+  // tell someone with a hundred sessions that they have none. It says what
+  // happened, and offers the way back.
+  const noResults = (
+    <div className="flex w-full max-w-[900px] flex-col items-start gap-2 pt-6">
+      <p className="text-[13px] text-muted-foreground">
+        No sessions or canvases match these filters.
+      </p>
+      {onClearFilters && (
+        <Button variant="outline" size="sm" onClick={onClearFilters}>
+          Clear filters
+        </Button>
+      )}
+    </div>
+  );
+
   if (entries.length === 0 && pending.length === 0 && !intro) {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1798,11 +2057,18 @@ export function ChannelFeedView({
           )}
         >
           {composerBlock}
-          {/* The filter stays visible while it's what emptied the list, so the
-              user can switch back out of an empty kind. A selected kind shows
-              its own note; the channel welcome is only for a truly empty feed. */}
+          {/* The controls stay visible while they are what emptied the list,
+              so the user can widen back out of it. */}
+          {controls}
           {kindFilterBlock}
-          {activeKindFilter === "all" ? emptyState : kindEmptyNote}
+          {/* A filter that matched nothing is not an empty space: the welcome
+              would tell someone with a hundred sessions that they have none.
+              It says so, and offers the way back. */}
+          {narrowed
+            ? noResults
+            : activeKindFilter === "all"
+              ? emptyState
+              : kindEmptyNote}
         </div>
       </div>
     );
@@ -1810,60 +2076,101 @@ export function ChannelFeedView({
 
   const now = new Date();
   const rows: ReactNode[] = [];
+  const shownEntries = entries.slice(0, visibleCount);
   // Pending kickoffs land at the top, newest first, under a "Today" separator.
   let lastDayLabel: string | null = null;
   if (pending.length > 0) {
     lastDayLabel = "Today";
     rows.push(
-      <DaySeparator key="separator-pending" label="Today" compact={compact} />,
+      <DaySeparator key="separator-pending" label="Today" compact={listRows} />,
     );
     for (let i = pending.length - 1; i >= 0; i--) {
       const p = pending[i];
       rows.push(<PendingFeedRow key={p.id} pending={p} />);
     }
   }
-  for (const entry of entries) {
-    const label = feedDayLabel(entry.createdAt, now);
-    if (label !== lastDayLabel) {
-      lastDayLabel = label;
+  // When a row moved, which is the day it files under. Under "recent
+  // activity" that is not the day it was opened: a week-old session sorted to
+  // the top would otherwise sit under a heading a week down the log.
+  const activityIso = (entry: FeedEntry): string => {
+    if (sort === "created") return entry.createdAt;
+    if (entry.kind === "canvas") {
+      return new Date(entry.canvas.updatedAt).toISOString();
+    }
+    const ts = itemByKey.get(entryKey(entry) ?? "")?.ts;
+    return ts ? new Date(ts).toISOString() : entry.createdAt;
+  };
+  const sectionLabel = (entry: FeedEntry): string | null => {
+    // Alphabetical is one run with nothing to divide it.
+    if (sort === "alpha") return null;
+    if (grouping === "repository") {
+      return entry.kind === "task"
+        ? (entry.task.repository ?? "No repository")
+        : "No repository";
+    }
+    return feedDayLabel(activityIso(entry), now);
+  };
+  // A day's key is its date, not its label: two Septembers a year apart both
+  // read "SEP 18", and keying on the label would fold them together.
+  const sectionKey = (entry: FeedEntry): string =>
+    grouping === "date"
+      ? `day:${activityIso(entry).slice(0, 10)}`
+      : (sectionLabel(entry) ?? "all");
+  const sections = buildFeedSections(shownEntries, {
+    labelOf: sectionLabel,
+    keyOf: sectionKey,
+  });
+  for (const section of sections) {
+    if (section.label !== null && section.label !== lastDayLabel) {
+      lastDayLabel = section.label;
       rows.push(
         <DaySeparator
-          key={`separator-${label}`}
-          label={label}
-          compact={compact}
+          key={`separator-${section.key}`}
+          label={section.label}
+          compact={listRows}
         />,
       );
     }
-    rows.push(
-      entry.kind === "task" ? (
-        compact ? (
-          <FeedLogRow
+    for (const entry of section.entries) {
+      rows.push(
+        entry.kind === "task" ? (
+          listRows ? (
+            <FeedLogRow
+              key={entry.id}
+              task={entry.task}
+              onOpenTask={onOpenTask}
+              onOpenThread={onOpenThread}
+            />
+          ) : (
+            <FeedRow
+              key={entry.id}
+              task={entry.task}
+              showRepo={
+                !!entry.task.repository &&
+                entry.task.repository !== dominantRepo
+              }
+              onOpenTask={onOpenTask}
+              onOpenThread={onOpenThread}
+            />
+          )
+        ) : entry.kind === "canvas" ? (
+          <CanvasFeedRow
             key={entry.id}
-            task={entry.task}
-            onOpenTask={onOpenTask}
-            onOpenThread={onOpenThread}
+            canvas={entry.canvas}
+            channelId={channelId}
+            listRow={listRows}
+          />
+        ) : entry.kind === "report" ? (
+          <ReportFeedRow
+            key={entry.id}
+            report={entry.report}
+            onOpenReport={onOpenReport ?? (() => {})}
           />
         ) : (
-          <FeedRow
-            key={entry.id}
-            task={entry.task}
-            showRepo={
-              !!entry.task.repository && entry.task.repository !== dominantRepo
-            }
-            onOpenTask={onOpenTask}
-            onOpenThread={onOpenThread}
-          />
-        )
-      ) : entry.kind === "report" ? (
-        <ReportFeedRow
-          key={entry.id}
-          report={entry.report}
-          onOpenReport={onOpenReport ?? (() => {})}
-        />
-      ) : (
-        <SystemFeedRow key={entry.id} message={entry.message} />
-      ),
-    );
+          <SystemFeedRow key={entry.id} message={entry.message} />
+        ),
+      );
+    }
   }
 
   return (
@@ -1879,8 +2186,24 @@ export function ChannelFeedView({
         >
           {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
           {composerBlock}
+          {controls}
           {kindFilterBlock}
-          {rows.length === 0 ? kindEmptyNote : rows}
+          {/* Dimmed, not replaced: the rows on screen are still the answer to
+              the last question, and swapping them for grey would lose it. */}
+          <div
+            className={cn(
+              "transition-opacity duration-150",
+              rebuilding && "pointer-events-none opacity-50",
+            )}
+          >
+            {rows.length === 0 ? (narrowed ? noResults : kindEmptyNote) : rows}
+            {/* The log grows as it is reached rather than all at once: a
+                space with hundreds of rows spent half a second building the
+                ones nobody had scrolled to yet. */}
+            {visibleCount < entries.length && (
+              <div ref={moreRef} className="h-8" aria-hidden />
+            )}
+          </div>
         </div>
         {aside && (
           <div className="w-[276px] shrink-0 border-border border-l">

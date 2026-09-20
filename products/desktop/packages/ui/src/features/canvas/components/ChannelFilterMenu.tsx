@@ -7,6 +7,7 @@ import {
   type ChannelItemSort,
   type CreatedByFilter,
   type EnvironmentFilter,
+  type KindFilter,
   type PinnedFilter,
 } from "@posthog/core/canvas/channelItems";
 import {
@@ -40,6 +41,12 @@ interface Option<T extends string> {
 // The two states a session can be in that are yours to clear, in the list's own
 // vocabulary: blue is blocked on you, the brand yellow is output you haven't
 // read. Everything settled is what's left, and has nothing to filter for.
+const KIND_OPTIONS: readonly Option<KindFilter>[] = [
+  { value: "any", label: "Sessions and canvases" },
+  { value: "task", label: "Sessions" },
+  { value: "canvas", label: "Canvases" },
+];
+
 const ATTENTION_OPTIONS: readonly Option<AttentionFilter>[] = [
   { value: "any", label: "Any status" },
   { value: "needs_input", label: "Needs input", tone: "blue" },
@@ -170,6 +177,7 @@ export function ChannelFilterMenu({
   onEditAppearance,
   sources,
   showCreatedBy,
+  showKindFilter = false,
   showRunFilters,
   active,
 }: {
@@ -198,13 +206,16 @@ export function ChannelFilterMenu({
    */
   groupings?: readonly ChannelItemGrouping[];
   /** Opens the list's appearance dialog, which the list itself renders. */
-  onEditAppearance: () => void;
+  /** Opens the sidebar row appearance editor. Omit where it changes nothing. */
+  onEditAppearance?: () => void;
   /** `origin_product` keys present in the list. */
   sources: readonly string[];
   /** False in #me, where every session is yours and the filter says nothing. */
   showCreatedBy: boolean;
   /** False on the canvases tab: a canvas has no run to ask these about. */
   showRunFilters: boolean;
+  /** True where one list holds sessions and canvases together. */
+  showKindFilter?: boolean;
   /** A filter is narrowing the list, so the button says so. */
   active: boolean;
 }) {
@@ -265,6 +276,16 @@ export function ChannelFilterMenu({
           onChange={onSortChange}
         />
         <DropdownMenuSeparator />
+        {/* Only where the list holds both: a canvas list narrowed to canvases
+            is a control that can only turn itself off. */}
+        {showKindFilter && (
+          <FilterSubmenu
+            label="Type"
+            options={KIND_OPTIONS}
+            value={filters.kind}
+            onChange={(value) => onFilterChange("kind", value)}
+          />
+        )}
         {showRunFilters && (
           <FilterSubmenu
             label="Status"
@@ -306,8 +327,9 @@ export function ChannelFilterMenu({
             />
           </>
         )}
-        {/* A canvas has no configurable second row, so the canvas tab has no appearance editor. */}
-        {showRunFilters && (
+        {/* The editor shapes the sidebar's rows, so only a list drawn that
+            way offers it; a canvas has no configurable second row either. */}
+        {showRunFilters && onEditAppearance && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem

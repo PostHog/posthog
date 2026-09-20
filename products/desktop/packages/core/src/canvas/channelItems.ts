@@ -236,9 +236,14 @@ export type EnvironmentFilter = "any" | ChannelItemEnvironment;
 export type SourceFilter = string;
 export type ChannelItemSort = "recent" | "created" | "alpha";
 
+/** A list that holds both kinds can be narrowed to one of them. */
+export type KindFilter = "any" | "task" | "canvas";
+
 export const ANY_SOURCE = "any";
 
 export interface ChannelItemFilters {
+  /** Which kind of thing the list shows: both, sessions only, canvases only. */
+  kind: KindFilter;
   createdBy: CreatedByFilter;
   attention: AttentionFilter;
   pinned: PinnedFilter;
@@ -247,6 +252,7 @@ export interface ChannelItemFilters {
 }
 
 export const DEFAULT_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
+  kind: "any",
   createdBy: "anyone",
   attention: "any",
   pinned: "any",
@@ -283,6 +289,7 @@ export function hasActiveChannelItemFilters(
   filters: ChannelItemFilters,
 ): boolean {
   return (
+    filters.kind !== "any" ||
     filters.createdBy !== "anyone" ||
     filters.attention !== "any" ||
     filters.pinned !== "any" ||
@@ -326,6 +333,7 @@ export function filterChannelItems(
     ) {
       return false;
     }
+    if (filters.kind !== "any" && item.kind !== filters.kind) return false;
     if (filters.createdBy !== "anyone") {
       // An item with no creator uuid (e.g. the backend returns `created_by:
       // null` once a creator is deleted) belongs to neither bucket: it isn't

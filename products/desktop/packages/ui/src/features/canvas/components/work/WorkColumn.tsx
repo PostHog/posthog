@@ -22,9 +22,6 @@ import {
   cn,
   MenuLabel,
   Skeleton,
-  Tabs,
-  TabsList,
-  TabsTrigger,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -38,7 +35,7 @@ import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
-import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
+import { SidebarSearchInput } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import { SpaceRowControls } from "@posthog/ui/features/canvas/components/SpaceRowControls";
 import type { TaskRowMenuProps } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { WorkItemRow } from "@posthog/ui/features/canvas/components/work/WorkItemRow";
@@ -53,9 +50,11 @@ import { useSpacePresence } from "@posthog/ui/features/canvas/hooks/useRecentSpa
 import { useRecentWorkItems } from "@posthog/ui/features/canvas/hooks/useRecentWorkItems";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useSidebarSearchStore } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
   navigateToChannel,
@@ -70,7 +69,10 @@ import {
   Fragment,
   type ReactNode,
   useCallback,
+  useDeferredValue,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -225,8 +227,19 @@ export function WorkColumn() {
   // whether it is showing everything or its first few (the count button).
   const [recentOpen, setRecentOpen] = useState(true);
   // Which half of Recent is on screen, the way a space's list switches.
-  const [kind, setKind] = useState<ChannelItemModel["kind"]>("task");
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  // ⌘⇧S focuses whichever list's search is on screen; the box holds the ref
+  // that request lands on.
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const focusRequest = useSidebarSearchStore((state) => state.focusRequest);
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    const input = searchRef.current;
+    if (!input || input.closest("[inert]")) return;
+    if (!useSidebarSearchStore.getState().claimFocus(focusRequest)) return;
+    input.focus();
+    input.select();
+  }, [focusRequest]);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [spacesExpanded, setSpacesExpanded] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -276,10 +289,11 @@ export function WorkColumn() {
     [items],
   );
   const matchingItems = useMemo(() => {
-    const ofKind = items
-      .filter((entry) => entry.item.kind === kind)
-      .map((entry) => entry.item);
-    const filtered = filterChannelItems(ofKind, { query, filters, me });
+    // Sessions and canvases in one list. They sort together by activity, so a
+    // day holds whatever you touched that day rather than all of one kind and
+    // then all of the other.
+    const all = items.map((entry) => entry.item);
+    const filtered = filterChannelItems(all, { query, filters, me });
     // Recent crosses every space, and every space's pins at the top of one
     // list is a pile nobody asked for. The Pinned filter still finds them;
     // they just sit under the day they were last touched.
@@ -287,7 +301,7 @@ export function WorkColumn() {
       item.pinned ? { ...item, pinned: false } : item,
     );
     return sortChannelItems(unpinned, sort);
-  }, [items, kind, query, filters, me, sort]);
+  }, [items, query, filters, me, sort]);
   const spaceNameById = useMemo(
     () => new Map(channels.map((channel) => [channel.id, channel.name])),
     [channels],
@@ -317,16 +331,15 @@ export function WorkColumn() {
       ),
     [matchingItems, sort, dayStart, grouping, spaceOf],
   );
-  // #me leads, then the starred spaces in the list's own (name) order.
-  const starredSpaces = useMemo(() => {
-    const starred = [
+  // #me leads, then the starred spaces in the list's own (name) order. The
+  // search box sits in Recent and narrows Recent; the spaces stay whole.
+  const starredSpaces = useMemo(
+    () => [
       ...channels.filter((c) => c.channelType === "personal"),
       ...channels.filter((c) => c.channelType !== "personal" && c.starred),
-    ];
-    return needle
-      ? starred.filter((c) => c.name.toLowerCase().includes(needle))
-      : starred;
-  }, [channels, needle]);
+    ],
+    [channels],
+  );
 
   // One project-wide query for every starred row's faces, the same one the
   // legacy space list used: presence here is who has been working in a space,
@@ -381,7 +394,11 @@ export function WorkColumn() {
 
   // A search is the user asking for everything that matches, so it opens the
   // list rather than making them expand it first.
-  const showAllRecent = recentExpanded || needle !== "";
+  // The column answers the click; the rows catch up. Expanding turns five rows
+  // into every row you have touched, which is enough work that doing it
+  // urgently left the caret frozen until the list had been built.
+  const showAllRecent = useDeferredValue(recentExpanded || needle !== "");
+  const recentRebuilding = showAllRecent !== (recentExpanded || needle !== "");
   // The cap is on rows, not on sections: a section is cut where the cap falls
   // and the ones past it drop, so a collapsed list reads like the open one.
   const shownSections = useMemo(() => {
@@ -444,13 +461,9 @@ export function WorkColumn() {
       }}
     >
       <div className="flex h-full min-h-0 flex-col">
-        <SidebarSearchHeader
-          title="Work"
-          query={query}
-          placeholder="Search sessions and spaces…"
-          searchLabel="Search work"
-          onClear={() => setQuery("")}
-        />
+        <ChromeBar>
+          <h2 className="font-bold text-base">Work</h2>
+        </ChromeBar>
         <AutocompleteList
           ref={setScrollRoot}
           className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !px-2 !pt-2 !pb-2 min-h-0 flex-1 scroll-py-8 flex-col gap-px overflow-y-auto"
@@ -462,32 +475,17 @@ export function WorkColumn() {
             trailing={null}
           />
           {recentOpen && (
-            <div className="flex items-center gap-1 px-1 pt-0.5 pb-1">
-              <Tabs
-                value={kind}
-                onValueChange={(value: string) =>
-                  setKind(value as ChannelItemModel["kind"])
-                }
+            <div className="flex items-center gap-1 px-1 pt-0.5 pb-1.5">
+              {/* Beside the list it narrows, rather than over the whole
+                  column: it has never searched the spaces below it. */}
+              <SidebarSearchInput
+                ref={searchRef}
+                query={query}
+                placeholder="Search recent…"
+                searchLabel="Search recent"
+                onClear={() => setQuery("")}
                 className="min-w-0 flex-1"
-              >
-                <TabsList
-                  variant="line"
-                  className="quill-tabs-fill h-auto gap-0.5 border-b-0"
-                >
-                  <TabsTrigger
-                    value="task"
-                    className="shrink-0 rounded-sm px-2 py-0.5 text-[12px]"
-                  >
-                    Sessions
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="canvas"
-                    className="shrink-0 rounded-sm px-2 py-0.5 text-[12px]"
-                  >
-                    Canvases
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+              />
               <ChannelFilterMenu
                 filters={filters}
                 onFilterChange={(key, value) =>
@@ -501,12 +499,12 @@ export function WorkColumn() {
                 onEditAppearance={() => setAppearanceOpen(true)}
                 sources={sources}
                 showCreatedBy
-                showRunFilters={kind === "task"}
-                groupings={
-                  kind === "task"
-                    ? ["date", "space", "repository"]
-                    : ["date", "space"]
-                }
+                // A canvas has no run, so a run filter narrows the list to
+                // the sessions that answer it — which is what asking about a
+                // status means.
+                showRunFilters
+                showKindFilter
+                groupings={["date", "space", "repository"]}
                 active={hasActiveChannelItemFilters(filters)}
               />
             </div>
@@ -522,12 +520,15 @@ export function WorkColumn() {
               <p className="px-2 py-1 text-[12px] text-muted-foreground">
                 {needle || hasActiveChannelItemFilters(filters)
                   ? "Nothing here matches."
-                  : kind === "canvas"
-                    ? "Canvases you open show up here."
-                    : "Sessions you open show up here."}
+                  : "Sessions and canvases you open show up here."}
               </p>
             ) : (
-              <div className="flex flex-col gap-px">
+              <div
+                className={cn(
+                  "flex flex-col gap-px transition-opacity duration-150",
+                  recentRebuilding && "pointer-events-none opacity-50",
+                )}
+              >
                 {shownSections.map((section, index) => (
                   <Fragment key={section.key}>
                     {section.label && (

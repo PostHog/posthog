@@ -1,3 +1,4 @@
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { stripInjectedBlocks } from "@posthog/core/editor/injectedBlocks";
 import type { SignalReport, Task } from "@posthog/shared/domain-types";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
@@ -16,6 +17,12 @@ export function stripContextBlocks(text: string): string {
 // tagged with the timestamp used to interleave them.
 export type FeedEntry =
   | { kind: "task"; id: string; createdAt: string; task: Task }
+  | {
+      kind: "canvas";
+      id: string;
+      createdAt: string;
+      canvas: DashboardRecord;
+    }
   | { kind: "report"; id: string; createdAt: string; report: SignalReport }
   | {
       kind: "system";
@@ -45,6 +52,8 @@ export function mergeFeedEntries(
   tasks: Task[],
   systemMessages: ChannelFeedSystemMessage[],
   reports: SignalReport[] = [],
+  /** The space's canvases, interleaved with everything else by date. */
+  canvases: readonly DashboardRecord[] = [],
 ): FeedEntry[] {
   const merged: FeedEntry[] = [
     ...tasks.map((task) => ({
@@ -58,6 +67,12 @@ export function mergeFeedEntries(
       id: report.id,
       createdAt: report.created_at,
       report,
+    })),
+    ...canvases.map((canvas) => ({
+      kind: "canvas" as const,
+      id: `canvas:${canvas.id}`,
+      createdAt: new Date(canvas.createdAt).toISOString(),
+      canvas,
     })),
     ...systemMessages.map((message) => ({
       kind: "system" as const,
@@ -78,4 +93,62 @@ export function mergeFeedEntries(
             : 0),
   );
   return merged;
+}
+
+/** One run of the log under a heading. `label` is null for an undivided list. */
+export interface FeedSection {
+  /** Stable across renders and unique per section. */
+  key: string;
+  label: string | null;
+  entries: FeedEntry[];
+}
+
+/**
+ * The log, cut into the sections its grouping asks for.
+ *
+ * Sections are keyed, not run-detected. Only a date grouping arrives already
+ * sorted into runs; grouping by repository or by type over an activity-sorted
+ * list reaches the same group again and again, and a run-based reading emitted
+ * a fresh heading each time — the same repository listed twice with rows split
+ * between them.
+ *
+ * The order is the order the list first reaches each section, so whatever you
+ * touched most recently still leads.
+ */
+export function buildFeedSections(
+  entries: readonly FeedEntry[],
+  {
+    labelOf,
+    keyOf,
+  }: {
+    labelOf: (entry: FeedEntry) => string | null;
+    /** Defaults to the label; pass one when two sections can share a label. */
+    keyOf?: (entry: FeedEntry) => string;
+  },
+): FeedSection[] {
+  const sections: FeedSection[] = [];
+  const byKey = new Map<string, FeedSection>();
+  for (const entry of entries) {
+    const label = labelOf(entry);
+    if (label === null) {
+      const open = sections[0];
+      if (open && open.label === null) {
+        open.entries.push(entry);
+        continue;
+      }
+      const section = { key: "all", label: null, entries: [entry] };
+      sections.push(section);
+      continue;
+    }
+    const key = keyOf ? keyOf(entry) : label;
+    const open = byKey.get(key);
+    if (open) {
+      open.entries.push(entry);
+      continue;
+    }
+    const section = { key, label, entries: [entry] };
+    byKey.set(key, section);
+    sections.push(section);
+  }
+  return sections;
 }
