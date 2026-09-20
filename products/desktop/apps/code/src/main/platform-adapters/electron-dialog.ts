@@ -28,7 +28,7 @@ function severityToType(severity?: DialogSeverity): MessageBoxOptions["type"] {
  * completely unresponsive to the user. Fall back to a visible window and focus
  * it so the dialog is always parented to and rendered on top of a real window.
  */
-function resolveDialogParent(): BrowserWindow | null {
+export function resolveDialogParent(): BrowserWindow | null {
   const focused = BrowserWindow.getFocusedWindow();
   if (focused) return focused;
   const windows = BrowserWindow.getAllWindows();

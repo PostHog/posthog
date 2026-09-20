@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.c
     ClockifyResumeConfig,
     _chained_resource,
     _clamp_future_value_to_now,
+    _flatten_approval_request,
     _flatten_time_entry,
     _format_datetime_z,
     clockify_source,
@@ -132,6 +133,34 @@ class TestFlattenTimeEntry:
     def test_missing_time_interval_is_noop(self) -> None:
         row = _flatten_time_entry({"id": "T1"})
         assert "time_interval_start" not in row
+
+
+class TestFlattenApprovalRequest:
+    def test_flattens_the_nested_request(self) -> None:
+        row = _flatten_approval_request(
+            {
+                "approvalRequest": {
+                    "id": "AR1",
+                    "status": {"state": "APPROVED", "note": ""},
+                    "owner": {"userId": "U1", "userName": "Ada"},
+                    "dateRange": {"start": "2026-03-02T00:00:00Z", "end": "2026-03-08T23:59:59Z"},
+                },
+                "trackedTime": "PT40H",
+            }
+        )
+        assert row["approval_request_id"] == "AR1"
+        assert row["approval_request_state"] == "APPROVED"
+        assert row["approval_request_owner_user_id"] == "U1"
+        assert row["approval_request_start"] == "2026-03-02T00:00:00Z"
+        assert row["approval_request_end"] == "2026-03-08T23:59:59Z"
+
+    def test_partial_request_only_flattens_what_is_present(self) -> None:
+        row = _flatten_approval_request({"approvalRequest": {"id": "AR1"}})
+        assert row["approval_request_id"] == "AR1"
+        assert "approval_request_state" not in row
+
+    def test_missing_request_is_noop(self) -> None:
+        assert _flatten_approval_request({"trackedTime": "PT1H"}) == {"trackedTime": "PT1H"}
 
 
 class TestPaginator:
@@ -436,6 +465,69 @@ class TestTimeOffRequestsEndpoint:
         _rows(_source("time_off_requests", _make_manager()))
 
         assert [body.get("page") for _url, _method, body in snapshots[1:]] == [1, 2]
+
+
+class TestApprovalRequestsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_rows_and_pages_on_a_stable_sort(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "W1"}]),
+                _response([{"approvalRequest": {"id": "AR1", "owner": {"userId": "U1"}}, "trackedTime": "PT40H"}]),
+            ],
+        )
+
+        rows = _rows(_source("approval_requests", _make_manager()))
+
+        assert rows[0]["workspace_id"] == "W1"
+        assert rows[0]["approval_request_id"] == "AR1"
+        assert rows[0]["approval_request_owner_user_id"] == "U1"
+        url, params = snapshots[-1]
+        assert url == f"{CLOCKIFY_BASE_URL}/workspaces/W1/approval-requests"
+        # Approvals are submitted while a sync runs, so an unsorted walk would skip or repeat rows
+        # across page boundaries.
+        assert params == {"page": 1, "page-size": 1000, "sort-column": "ID", "sort-order": "ASCENDING"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_row_without_an_approval_request_is_dropped(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Clockify documents the nested request as nullable; such a row has no id, and writing it
+        # would seed a null primary key.
+        _wire(
+            session,
+            [
+                _response([{"id": "W1"}]),
+                _response([{"approvalRequest": None}, {"approvalRequest": {"id": "AR1"}}]),
+            ],
+        )
+
+        rows = _rows(_source("approval_requests", _make_manager()))
+
+        assert [row["approval_request_id"] for row in rows] == ["AR1"]
+
+
+class TestUserGroupsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_keeps_members_and_asks_for_team_managers(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "W1"}]),
+                _response([{"id": "G1", "name": "Design", "userIds": ["U1", "U2"], "teamManagers": [{"id": "U1"}]}]),
+            ],
+        )
+
+        rows = _rows(_source("user_groups", _make_manager()))
+
+        assert rows[0]["workspace_id"] == "W1"
+        assert rows[0]["userIds"] == ["U1", "U2"]
+        url, params = snapshots[-1]
+        assert url == f"{CLOCKIFY_BASE_URL}/workspaces/W1/user-groups"
+        # Team managers are left out of the response unless asked for.
+        assert params["includeTeamManagers"] == "true"
 
 
 class TestChainedResource:

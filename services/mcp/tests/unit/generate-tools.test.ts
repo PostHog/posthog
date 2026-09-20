@@ -1768,6 +1768,32 @@ describe('generateToolCode with informational response wrapping', () => {
     })
 })
 
+describe('generateToolCode with a text projection', () => {
+    it('projects outside the enrichment, so the projected fields can name `_posthogUrl`', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            enrich_url: '{id}',
+            response: { text_include: ['id', 'status', '_posthogUrl'] },
+        }
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            makeResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('withTextProjection(await withPostHogUrl(context, {')
+        expect(result.code).toContain("}, '/things'), ['id', 'status', '_posthogUrl'])")
+        expect(result.toolUtilsValueImports).toEqual(new Set(['withTextProjection']))
+    })
+})
+
 describe('path parameter encoding', () => {
     it('wraps project_id with encodeURIComponent in generated paths', () => {
         const config: ToolConfig = {
