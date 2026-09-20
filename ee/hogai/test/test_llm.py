@@ -1010,7 +1010,6 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             self.assertEqual(client.max_retries, 0)
         self.assertIsNone(twin._client_params["timeout"])
 
-        # Nothing heartbeats while the gateway stalls, so every phase runs before the twin starts.
         phases = [
             AI_GATEWAY_TIMEOUT.connect,
             AI_GATEWAY_TIMEOUT.read,

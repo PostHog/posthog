@@ -89,7 +89,7 @@ def is_ai_gateway_served(output: object) -> bool:
     )
 
 
-# Anthropic's wording for a billing or usage-limit block, the same list the gateway classifies on.
+# Anthropic's wording for a billing or usage-limit block; the gateway classifies on the same list.
 _PROVIDER_BILLING_SIGNATURES = ("credit balance", "usage limit", "regain access", "plans & billing")
 
 
@@ -105,7 +105,7 @@ def _is_provider_billing_block(error: anthropic.APIStatusError) -> bool:
 
 
 def _carries_output(chunk: ChatGenerationChunk) -> bool:
-    """Whether the user has seen anything of this turn: text, thinking, or a tool call."""
+    """Thinking counts: the user sees it stream. An opening metadata chunk does not."""
     return bool(chunk.message.content) or bool(getattr(chunk.message, "tool_call_chunks", None))
 
 
@@ -524,8 +524,8 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         direct_kwargs = _without_ai_gateway_headers(kwargs)
         if _has_ai_gateway_headers(kwargs):
             served = False
-            # Anthropic opens the stream with a metadata chunk. Holding those keeps the fallback open until the
-            # turn has real output, and drops their usage from the merged generation when the twin takes over.
+            # Anthropic opens the stream with a metadata chunk. Holding those keeps the fallback open until real
+            # output, and keeps their usage off the twin's generation.
             held: list[ChatGenerationChunk] = []
             try:
                 async for chunk in super()._astream(
