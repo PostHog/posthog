@@ -50,6 +50,11 @@ class TestWrapClickhouseQueryError:
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+            (
+                6,
+                "CANNOT_PARSE_TEXT",
+                "The query contains a value that does not match the type it is used as. Check the date and number values in your filters and variables.",
+            ),
         ]
     )
     def test_fixed_message_codes_hide_raw_clickhouse_text(self, code: int, name: str, message: str) -> None:
@@ -69,7 +74,6 @@ class TestWrapClickhouseQueryError:
             (62, "SYNTAX_ERROR"),
             # These parse/convert codes embed the failing data value in the CH message, so they stay
             # internal to avoid leaking source values on public shared insights.
-            (6, "CANNOT_PARSE_TEXT"),
             (72, "CANNOT_PARSE_NUMBER"),
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),

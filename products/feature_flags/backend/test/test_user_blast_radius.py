@@ -20,13 +20,15 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("cannot_parse_text", 6),
-            ("cannot_parse_number", 72),
+            # 6 CANNOT_PARSE_TEXT carries a fixed user_safe message, so the 400 describes the
+            # problem without echoing the value that failed to parse.
+            ("cannot_parse_text", 6, "does not match the type it is used as"),
+            ("cannot_parse_number", 72, "Cannot parse NaN"),
         ]
     )
-    def test_clickhouse_value_parse_failure_surfaces_as_a_caller_error(self, _name, code):
+    def test_clickhouse_value_parse_failure_surfaces_as_a_caller_error(self, _name, code, expected):
         # A numeric operator against a null/non-numeric filter value fails the Float64 cast at
-        # execution; these codes wrap to InternalCHQueryError (not Exposed), so they used to 500.
+        # execution; without this handling both codes surface as a 500.
         # The 400 body must carry only the useful message: the DB::Exception framing and any
         # server stack trace tail are stripped, matching what ExposedCHQueryError exposes.
         raw = "DB::Exception: Cannot parse NaN: converting 'None' to Float64. Stack trace:\n0. DB::Exception::Exception"
@@ -34,7 +36,7 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
             raise err
         message = str(ctx.exception)
-        self.assertIn("Cannot parse NaN", message)
+        self.assertIn(expected, message)
         self.assertNotIn("Stack trace", message)
         self.assertNotIn("DB::Exception", message)
 
