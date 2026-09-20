@@ -52,6 +52,11 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
     "ClickHouse chunk queries that failed during feature flag last_called_at sync",
 )
 
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_MALFORMED_ROW_COUNTER = Counter(
+    "posthog_feature_flag_last_called_at_sync_malformed_rows_total",
+    "ClickHouse result rows skipped during feature flag last_called_at sync because their shape did not match the query",
+)
+
 
 STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
     "posthog_task_run_stale_queued_swept_total",
@@ -1248,6 +1253,10 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     asyncio.run(start_all())
 
 
+class FlagSyncRowShapeError(Exception):
+    """A ClickHouse result row did not match the columns the flag sync query selects."""
+
+
 @shared_task(
     bind=True,
     base=PushGatewayTask,
@@ -1255,7 +1264,8 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
     # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
-    autoretry_for=CH_TRANSIENT_ERRORS,
+    # A row of the wrong shape means a desynced connection, which a retry replaces.
+    autoretry_for=(*CH_TRANSIENT_ERRORS, FlagSyncRowShapeError),
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1421,6 +1431,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
 
         limit_hit = False
         chunk_failures = 0
+        malformed_rows = 0
         first_chunk_error: Exception | None = None
 
         # The checkpoint may only advance over an unbroken run of successful chunks from
@@ -1468,16 +1479,23 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                     break
                 continue
 
-            if not chunk_failures:
-                checkpoint_timestamp = chunk_end_ts
-
             if chunk_result:
                 total_clickhouse_results += len(chunk_result)
                 if len(chunk_result) >= settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT:
                     limit_hit = True
 
                 for row in chunk_result:
+                    # The query selects four columns, so a row of another shape means the
+                    # driver read a reply this connection was not expecting. Unpacking it
+                    # raises and ends the run, which loses every remaining chunk over one
+                    # bad row, so skip the row and read the rest of the window instead.
+                    if not isinstance(row, tuple | list) or len(row) != 4:
+                        malformed_rows += 1
+                        continue
                     team_id, flag_key, ts, count = row
+                    if not isinstance(team_id, int) or not isinstance(flag_key, str):
+                        malformed_rows += 1
+                        continue
                     key = (team_id, flag_key)
                     existing = merged_results.get(key)
                     if existing is None:
@@ -1489,6 +1507,11 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                         else:
                             best_ts = ts if ts is not None else existing_ts
                         merged_results[key] = (best_ts, existing_count + count)
+
+            # A skipped row leaves part of this chunk unread, so the checkpoint stays behind
+            # it and the next run reads the window again.
+            if not chunk_failures and not malformed_rows:
+                checkpoint_timestamp = chunk_end_ts
 
         if limit_hit:
             FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER.inc()
@@ -1509,6 +1532,19 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             # they are re-read on the next run, and last_called_at is only ever advanced.
             if first_chunk_error is not None and checkpoint_timestamp == last_sync_timestamp:
                 raise first_chunk_error
+
+        if malformed_rows:
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_MALFORMED_ROW_COUNTER.inc(malformed_rows)
+            logger.warning(
+                "Feature flag sync skipped malformed rows",
+                malformed_rows=malformed_rows,
+                clickhouse_results=total_clickhouse_results,
+                checkpoint_timestamp=checkpoint_timestamp.isoformat(),
+            )
+            # Nothing usable came back, so the connection is out of step rather than one row
+            # of it. Fail the run so Celery retries it on a fresh connection.
+            if not merged_results:
+                raise FlagSyncRowShapeError(f"{malformed_rows} of {total_clickhouse_results} rows had a wrong shape")
 
         if not merged_results:
             # Advance the checkpoint even when no results, so the next run starts from the
