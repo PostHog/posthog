@@ -4,7 +4,7 @@ import time
 import datetime
 import unicodedata
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -126,6 +126,36 @@ LOGIN_CODE_VERIFICATION_COUNTER = Counter(
     "Transitions in the code-based login-verification flow.",
     labelnames=["result"],  # sent | resent | send_failed | success | invalid | locked_out
 )
+
+LOGIN_CODE_VERIFICATION_EVENT = "login verification code outcome"
+
+
+def record_login_code_verification(result: str, user: Optional[User] = None, **properties: Any) -> None:
+    """Count the transition for Grafana and capture it as a product event.
+
+    The counter carries no identity, so it cannot say who stopped at the code screen. The event
+    carries the same result label into the analytics project, where it joins the send event and
+    the later login for the same person.
+    """
+    LOGIN_CODE_VERIFICATION_COUNTER.labels(result=result).inc()
+
+    if user is None:
+        return
+
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event=LOGIN_CODE_VERIFICATION_EVENT,
+            properties={"result": result, **properties},
+            groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
+        )
+    except Exception as e:
+        mfa_logger.warning(
+            "Failed to capture login code verification event",
+            result=result,
+            user_id=user.pk,
+            error=str(e),
+        )
 
 
 # Enforce Two-Factor Authentication only on sessions created after this date
@@ -453,7 +483,7 @@ class CodeBasedVerifier:
             # so only a fresh initial send (not a resend) clears it.
             if not is_resend:
                 self._reset_attempts(user.pk)
-            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="resent" if is_resend else "sent").inc()
+            record_login_code_verification("resent" if is_resend else "sent", user)
             mfa_logger.info(
                 "Code-based verification email sent",
                 user_id=user.pk,
@@ -461,7 +491,7 @@ class CodeBasedVerifier:
             )
             return True
         except Exception as e:
-            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_failed").inc()
+            record_login_code_verification("send_failed", user)
             mfa_logger.exception(
                 "Code-based verification email failed",
                 user_id=user.pk,
