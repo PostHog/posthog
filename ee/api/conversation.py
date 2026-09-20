@@ -299,6 +299,14 @@ class ConversationViewSet(
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"
 
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # `queue` serves both a GET listing and a POST enqueue, so one `required_scopes` value on the
+        # action would either lock reads behind `conversation:write` or let writes through on a
+        # read-only token. Resolve it per request method instead.
+        if getattr(view, "action", None) == "queue":
+            return ["conversation:read"] if request.method == "GET" else ["conversation:write"]
+        return None
+
     def _queue_conversation_id(self) -> str:
         if not self.lookup_url_kwarg:
             raise exceptions.ValidationError("Conversation not provided")
@@ -672,7 +680,12 @@ class ConversationViewSet(
         return self._queue_response(queue_store, queue)
 
     @extend_schema(parameters=[OpenApiParameter("queue_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
-    @action(detail=True, methods=["PATCH", "DELETE"], url_path=r"queue/(?P<queue_id>[^/.]+)")
+    @action(
+        detail=True,
+        methods=["PATCH", "DELETE"],
+        url_path=r"queue/(?P<queue_id>[^/.]+)",
+        required_scopes=["conversation:write"],
+    )
     def queue_item(self, request: Request, queue_id: str, *args, **kwargs):
         conversation_id = self._queue_conversation_id()
         error_response = self._ensure_queue_access(request, conversation_id)
@@ -695,7 +708,7 @@ class ConversationViewSet(
 
         return self._queue_response(queue_store, queue)
 
-    @action(detail=True, methods=["POST"], url_path="queue/clear")
+    @action(detail=True, methods=["POST"], url_path="queue/clear", required_scopes=["conversation:write"])
     def clear_queue(self, request: Request, *args, **kwargs):
         conversation_id = self._queue_conversation_id()
         error_response = self._ensure_queue_access(request, conversation_id)
@@ -718,7 +731,7 @@ class ConversationViewSet(
             "frontend opens SSE against. The conversation row is created on first use from the URL id."
         ),
     )
-    @action(detail=True, methods=["POST"], url_path="open")
+    @action(detail=True, methods=["POST"], url_path="open", required_scopes=["conversation:write"])
     def open(self, request: Request, *args, **kwargs):
         # Both warming and messaging launch a Run, so gate both on the AI-credit quota.
         if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
@@ -845,7 +858,7 @@ class ConversationViewSet(
             422: OpenApiResponse(description="Failed to cancel the conversation."),
         },
     )
-    @action(detail=True, methods=["PATCH"])
+    @action(detail=True, methods=["PATCH"], required_scopes=["conversation:write"])
     def cancel(self, request: Request, *args, **kwargs):
         # Sandbox runs cancel through the generic tasks relay (`runs/{run}/command/`); this endpoint
         # serves the LangGraph runtime only.
@@ -881,7 +894,7 @@ class ConversationViewSet(
             tasks_facade.soft_delete_task(instance.task_id, self.team_id, cast(User, request.user).id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(detail=True, methods=["POST"], url_path="append_message")
+    @action(detail=True, methods=["POST"], url_path="append_message", required_scopes=["conversation:write"])
     def append_message(self, request: Request, *args, **kwargs):
         """
         Appends a message to an existing conversation without triggering AI processing.
