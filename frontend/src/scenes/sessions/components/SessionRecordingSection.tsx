@@ -4,14 +4,15 @@ import { useState } from 'react'
 import { IconCollapse, IconExpand, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
 
-import { ReplayCaptureDiagnosticsPanel } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsPanel'
+import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { sessionProfileLogic } from '../sessionProfileLogic'
 
 export function SessionRecordingSection(): JSX.Element | null {
-    const { sessionId, hasRecording, hasRecordingLoading } = useValues(sessionProfileLogic)
+    const { sessionId, hasRecording, hasRecordingLoading, recordingAvailabilityUnknown } =
+        useValues(sessionProfileLogic)
     const [isExpanded, setIsExpanded] = useState(true)
 
     return (
@@ -39,7 +40,7 @@ export function SessionRecordingSection(): JSX.Element | null {
                             <div className="flex justify-center items-center h-[300px]">
                                 <Spinner />
                             </div>
-                        ) : hasRecording ? (
+                        ) : hasRecording || recordingAvailabilityUnknown ? (
                             <div className="h-[400px]">
                                 <SessionRecordingPlayer
                                     sessionRecordingId={sessionId}
@@ -52,15 +53,7 @@ export function SessionRecordingSection(): JSX.Element | null {
                                 />
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center justify-center py-6 px-4 text-muted-alt gap-4">
-                                <div className="flex flex-col items-center">
-                                    <IconVideoCamera className="text-4xl mb-2 opacity-50" />
-                                    <p className="m-0">No recording available for this session</p>
-                                </div>
-                                <div className="w-full max-w-xl">
-                                    <ReplayCaptureDiagnosticsPanel sessionId={sessionId} />
-                                </div>
-                            </div>
+                            <RecordingNotFound sessionRecordingId={sessionId} />
                         )}
                     </div>
                 )}
