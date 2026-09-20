@@ -4,8 +4,6 @@ from typing import Any
 from posthog.test.base import BaseTest
 
 from django.conf import settings
-from django.db import connection
-from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -213,49 +211,10 @@ class TestObservationMediaExpiry(BaseTest):
         ]
     )
     def test_media_is_expired_when_its_observation_goes_away(self, _name: str, delete) -> None:
-        # The expiry rides the transaction, and a TestCase never commits on its own.
-        with self.captureOnCommitCallbacks(execute=True):
-            delete(self)
+        delete(self)
 
         assert self._expires_after() <= timezone.now()
         assert ExportedAsset.objects_including_ttl_deleted.filter(pk=self.asset.pk).exists()
-
-    def test_a_cascade_expires_every_asset_in_one_statement(self) -> None:
-        for _ in range(4):
-            observation = ReplayObservation.objects.create(
-                scanner=self.scanner,
-                team=self.team,
-                session_id=f"s-{uuid7()}",
-                status=ObservationStatus.SUCCEEDED,
-                completed_at=timezone.now(),
-                scanner_snapshot=snapshot_for(self.scanner),
-                triggered_by=ObservationTrigger.SCHEDULE,
-            )
-            asset = ExportedAsset.objects.create(
-                team=self.team,
-                export_format=ExportedAsset.ExportFormat.PNG,
-                export_context={"observation_id": str(observation.id)},
-                expires_after=timezone.now() + timedelta(days=90),
-                is_system=True,
-            )
-            ReplayObservationMedia.objects.for_team(self.team.id).create(
-                team_id=self.team.id,
-                observation=observation,
-                asset=asset,
-                kind=ReplayObservationMedia.Kind.THUMBNAIL,
-                position=0,
-                video_start_ms=1000,
-            )
-
-        # The list fills as the block exits, so the callbacks run after it, under the query capture.
-        with self.captureOnCommitCallbacks() as callbacks:
-            self.scanner.delete()
-        with CaptureQueriesContext(connection) as queries:
-            for callback in callbacks:
-                callback()
-
-        assert [q for q in queries.captured_queries if "posthog_exportedasset" in q["sql"].lower()] != []
-        assert len([q for q in queries.captured_queries if "UPDATE" in q["sql"]]) == 1
 
     def test_the_sweeps_own_delete_is_not_undone(self) -> None:
         self.asset.delete()

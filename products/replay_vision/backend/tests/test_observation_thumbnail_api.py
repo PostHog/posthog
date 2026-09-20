@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils import timezone
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -66,5 +68,15 @@ class TestObservationThumbnail(_VisionAPITestCase):
 
     def test_an_unfinished_render_is_not_found(self) -> None:
         self._add_thumbnail(rendered=False)
+
+        assert self.client.get(self._url()).status_code == 404
+
+    def test_an_expired_frame_is_not_served(self) -> None:
+        # The sweep deletes the object some time after the row expires, and until then the join would
+        # still hand it out.
+        asset = self._add_thumbnail(rendered=True)
+        ExportedAsset.objects_including_ttl_deleted.filter(pk=asset.pk).update(
+            expires_after=timezone.now() - timedelta(seconds=1)
+        )
 
         assert self.client.get(self._url()).status_code == 404

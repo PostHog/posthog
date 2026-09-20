@@ -12,6 +12,7 @@ from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
+from django.utils.timezone import now
 
 import requests
 import structlog
@@ -1156,7 +1157,11 @@ class ReplayObservationViewSet(
             (
                 entry
                 for entry in observation.media.all()
-                if entry.kind == ReplayObservationMedia.Kind.THUMBNAIL and entry.asset.content_location
+                if entry.kind == ReplayObservationMedia.Kind.THUMBNAIL
+                and entry.asset.content_location
+                # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
+                # and an expired frame would serve until the sweep deletes it.
+                and not (entry.asset.expires_after is not None and entry.asset.expires_after <= now())
             ),
             None,
         )
