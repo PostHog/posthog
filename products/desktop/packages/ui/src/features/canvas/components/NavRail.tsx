@@ -262,6 +262,7 @@ function NavRailImpl() {
       }
       if (workLayout) {
         if (destination.pane === "activity") {
+          if (!workActivityOpen) showWorkColumn();
           toggleWorkActivity();
           return;
         }

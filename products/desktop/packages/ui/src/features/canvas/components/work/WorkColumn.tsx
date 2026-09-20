@@ -297,7 +297,7 @@ export function WorkColumn() {
   );
 
   const presenceBySpace = useSpacePresence();
-  const { togglePin } = usePinnedTasks();
+  const { togglePin, setPinnedMany } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
   const { setPinned: setCanvasPinned } = useDashboardMutations();
   const actions = useMemo<ChannelItemActions>(
@@ -327,21 +327,23 @@ export function WorkColumn() {
         });
       },
       setPinned: (batch, pinned) => {
+        const onError = () => {
+          toast.error("Couldn't update pin");
+        };
+        const taskIds = batch
+          .filter((item) => item.kind !== "canvas")
+          .map((item) => item.id);
+        if (taskIds.length > 0) setPinnedMany(taskIds, pinned).catch(onError);
         for (const item of batch) {
-          const pin =
-            item.kind === "canvas"
-              ? setCanvasPinned(item.id, pinned)
-              : togglePin(item.id);
-          pin.catch(() => {
-            toast.error("Couldn't update pin");
-          });
+          if (item.kind !== "canvas") continue;
+          setCanvasPinned(item.id, pinned).catch(onError);
         }
       },
       archive: (item) => {
         void archiveTask({ taskId: item.id });
       },
     }),
-    [archiveTask, channelByKey, setCanvasPinned, togglePin],
+    [archiveTask, channelByKey, setCanvasPinned, setPinnedMany, togglePin],
   );
 
   const showAllRecent = useDeferredValue(recentExpanded || needle !== "");
