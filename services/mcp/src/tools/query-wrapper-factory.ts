@@ -97,6 +97,83 @@ function withoutTestAccountFilterDefault<T extends ZodObjectAny>(schema: T): T {
     }) as unknown as T
 }
 
+const RETENTION_FILTER_FIELD = 'retentionFilter'
+const RETENTION_ENTITY_FIELDS = ['targetEntity', 'returningEntity'] as const
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Copy `name` into `id` on an events entity that has no `id` of its own.
+ *
+ * An `id` of `null` is left alone: the retention engine reads that as "any event", so filling it
+ * would narrow the query the caller asked for. Actions keep their own rejection, because their
+ * `name` is a label and the numeric ID it stands for cannot be recovered from it.
+ */
+function withEntityIdFromName(entity: unknown): unknown {
+    if (!isRecord(entity) || entity['type'] !== 'events' || 'id' in entity) {
+        return entity
+    }
+    const name = entity['name']
+    return typeof name === 'string' && name !== '' ? { ...entity, id: name } : entity
+}
+
+/**
+ * Repair the entities of a `retentionFilter`, or of a query that holds one.
+ */
+function withRetentionEntityIdsFromNames(value: unknown): unknown {
+    if (!isRecord(value)) {
+        return value
+    }
+    if (RETENTION_FILTER_FIELD in value) {
+        return {
+            ...value,
+            [RETENTION_FILTER_FIELD]: withRetentionEntityIdsFromNames(value[RETENTION_FILTER_FIELD]),
+        }
+    }
+    const repaired = { ...value }
+    for (const field of RETENTION_ENTITY_FIELDS) {
+        if (field in repaired) {
+            repaired[field] = withEntityIdFromName(repaired[field])
+        }
+    }
+    return repaired
+}
+
+function retentionFilterField(schema: z.ZodObject<z.ZodRawShape>): string | undefined {
+    if (RETENTION_FILTER_FIELD in schema.shape) {
+        return RETENTION_FILTER_FIELD
+    }
+    // Actors wrappers nest the retention query they drill into under `source`.
+    const source = schema.shape['source']
+    return source instanceof z.ZodObject && RETENTION_FILTER_FIELD in source.shape ? 'source' : undefined
+}
+
+/**
+ * Accept the retention entities that saved insights written before `id` existed still carry.
+ *
+ * Those insights store `{ "type": "events", "name": "<event name>" }`, because `name` was the
+ * field that matched the event until the schema replaced it with `id`. `insight-get` returns the
+ * saved query as it stands, so replaying one here failed on the missing `id` and the caller had to
+ * rebuild the entity from the event name by hand.
+ *
+ * The repair runs before validation and leaves the advertised schema untouched, so `id` stays
+ * required for everyone writing a new query.
+ */
+function withLegacyRetentionEntityIds<T extends ZodObjectAny>(schema: T): T {
+    if (!(schema instanceof z.ZodObject)) {
+        return schema
+    }
+    const field = retentionFilterField(schema)
+    if (field === undefined) {
+        return schema
+    }
+    return schema.extend({
+        [field]: z.preprocess(withRetentionEntityIdsFromNames, schema.shape[field] as z.ZodType),
+    }) as unknown as T
+}
+
 /**
  * Kea Router decodes paths before route matching, and scenes decode captured parameters again.
  * Double encoding keeps opaque values within the route matcher character set through both steps.
@@ -155,7 +232,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
     // Both the advertised tool schema and the handler's re-parse must use the
     // stripped schema — parsing with the original would re-apply the `false`
     // default and make omission indistinguishable from an explicit `false`.
-    const schema = withTraceDetail(withoutTestAccountFilterDefault(config.schema), config.kind)
+    const schema = withLegacyRetentionEntityIds(
+        withTraceDetail(withoutTestAccountFilterDefault(config.schema), config.kind)
+    )
     const isTraceQuery = TRACE_QUERY_KINDS.has(config.kind)
     return () => ({
         name: config.name,
