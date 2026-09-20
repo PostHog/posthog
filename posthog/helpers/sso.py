@@ -58,14 +58,20 @@ def _with_error_code(url: str, error_code: str) -> str:
 def sso_failure_redirect_url(request: HttpRequest, error_code: str, is_reauth: bool | None = None) -> str:
     """Where to send the browser when an SSO flow fails.
 
-    A re-auth still has a valid session, so it goes back to the page that opened the modal with the
-    error attached. /login is wrong for it even as a fallback: the frontend bounces a signed-in user
-    off that route (sceneLogic's `onlyUnauthenticated` handling) and drops the error code on the way.
+    A session that is already signed in goes back to the page it came from with the error attached.
+    /login is wrong for it even as a fallback: the frontend bounces a signed-in user off that route
+    (sceneLogic's `onlyUnauthenticated` handling) and drops the error code on the way, which leaves
+    a user who has just signed up back at the start of onboarding with nothing to explain it.
+
+    That covers a re-auth, and a callback the browser replayed - only the way back from the IdP
+    (`/complete/`) carries a code the provider has already spent, and a Back press into one is how a
+    user who has just signed up reaches it. A flow the user is starting keeps /login, because a
+    signed-in session there can still be one that is about to be replaced.
     """
     if is_reauth is None:
         is_reauth = is_sso_reauth_complete(request)
 
-    if is_reauth:
+    if is_reauth or (_is_authenticated(request) and request.path.startswith("/complete/")):
         next_url = get_safe_next_url(request.GET.get("next") or getattr(request, "session", {}).get("next"), request)
         return _with_error_code(next_url or "/", error_code)
 
