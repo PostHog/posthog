@@ -287,6 +287,19 @@ pnpm install --force
 **Python setuptools error**
 If you see `import gyp  # noqa: E402` during nodejs install, run `brew install python-setuptools`.
 
+**SciPy import error on macOS**
+If a backend test fails to import `scipy.stats` or `scipy.sparse.linalg` with a `__thread_bss` zero-fill section error, check the installed SciPy version.
+The SciPy 1.15.3 wheel can fail to load on macOS 27.
+The project requires SciPy 1.16.3 or a later patch release to avoid this failure.
+Run `uv sync --locked` in your Flox environment, then check the import:
+
+```bash
+python -c 'import scipy; from scipy import stats; print(scipy.__version__, stats.norm.cdf(0))'
+```
+
+The command must print the SciPy version and `0.5` without an import error.
+Then run your backend test again with `hogli test <path>`.
+
 **OpenSSL certificate verification error**
 If you get `Configuration property "enable.ssl.certificate.verification" not supported in this build: OpenSSL not available at build time` when running `hogli start`, set the right OpenSSL environment variables as described in [this issue](https://github.com/xmlsec/python-xmlsec/issues/261#issuecomment-1630889826) and try again.
 
