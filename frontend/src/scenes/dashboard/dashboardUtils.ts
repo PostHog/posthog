@@ -179,7 +179,7 @@ export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
-export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
+export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
