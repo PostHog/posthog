@@ -1488,6 +1488,12 @@ export const SignalsScoutProjectProfileGetQueryParams = () => zod.object({
         .describe(
             "When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request."
         ),
+    run_id: zod
+        .string()
+        .nullish()
+        .describe(
+            "The run whose scout's write posture `emit_eligibility` should answer for. A scout sandbox never needs this: its token is bound to the task that dispatched the run, and that binding is what the endpoint reads, so it wins over any value passed here. Pass it to inspect one scout's effective eligibility from outside a run — a run id from another project is ignored."
+        ),
     summary_only: zod
         .boolean()
         .default(signalsScoutProjectProfileGetQuerySummaryOnlyDefault)
@@ -2527,7 +2533,7 @@ export const SignalsScoutReportCheckCreateBody = () => zod
                             .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                             .optional()
                             .describe(
-                                'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.'
+                                'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
                             ),
                         comparison: zod
                             .object({
