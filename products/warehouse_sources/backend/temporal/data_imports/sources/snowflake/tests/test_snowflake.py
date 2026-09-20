@@ -1,4 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -845,7 +847,7 @@ class TestResumableStreaming:
         manager.load_state.return_value = SnowflakeResumeState(order_column="ID", last_value=4)
         with patch("snowflake.connector.connect", return_value=self._connection(metadata_cursor, streaming_cursor)):
             response = impl.build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
-            list(response.items())
+            list(cast("Iterable[Any]", response.items()))
         assert response.rows_to_sync == 5
         query = streaming_cursor.execute.call_args.args[0]
         assert "ORDER BY" not in query
