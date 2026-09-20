@@ -2962,6 +2962,9 @@ importers:
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-disposables:
+        specifier: 'catalog:'
+        version: 1.0.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-forms:
         specifier: 'catalog:'
         version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -22951,8 +22954,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.485.0:
-    resolution: {integrity: sha512-Lef9AmF5f/l77UYbJQtYSoLDWExShOpRmd7tF1T4sxYgOxqSWNKR4p+2BrtVL671v/m7XNdKg7ppbJakp7vDtQ==}
+  unlayer-types@1.488.0:
+    resolution: {integrity: sha512-cbWjqiclLyOqDKOCppEsddT+XBzI9zEpDLZymA6I5kgJcche1DhaNtfs7hmHqck+YeR7Xj4XQOfuUSm9BL1HcQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -43523,7 +43526,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.485.0
+      unlayer-types: 1.488.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45842,7 +45845,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.485.0: {}
+  unlayer-types@1.488.0: {}
 
   unpipe@1.0.0: {}
 

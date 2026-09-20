@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiError, CountedPaginatedResponse, NetworkError } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { OrganizationMemberType, Region } from '~/types'
 
@@ -319,5 +321,38 @@ describe('accountRelatedUsersLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersResponse: emptyResponse })
         expect(captureException).not.toHaveBeenCalled()
+    })
+
+    it('retries a request the browser dropped and keeps the failure off the toast', async () => {
+        const response = buildResponse([buildMember()], 1)
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockRejectedValueOnce(new NetworkError('network'))
+            .mockResolvedValue(response)
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersLoadFailed: false })
+        expect(listForOrg).toHaveBeenCalledTimes(2)
+        expect(logic.values.membersResponse?.count).toBe(1)
+        expect(toast).not.toHaveBeenCalled()
+    })
+
+    it('reports a server failure once, without retrying it', async () => {
+        silenceKeaLoadersErrors()
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockRejectedValue(new ApiError('Server error', 500))
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersLoadFailed: true })
+        expect(listForOrg).toHaveBeenCalledTimes(1)
+        expect(toast).toHaveBeenCalledTimes(1)
+        resumeKeaLoadersErrors()
     })
 })

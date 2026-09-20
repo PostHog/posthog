@@ -5,6 +5,8 @@ import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { projectLogic } from 'scenes/projectLogic'
 
+import { usePanelLoadBlocked } from 'products/customer_analytics/frontend/components/Accounts/usePanelLoadBlocked'
+
 import {
     accountSidebarConfigLogic,
     configuratorKeysToPinnedProperties,
@@ -69,6 +71,7 @@ export function AccountPinnedPropertiesPanel({
             loadPropertyData()
         }
     }
+    usePanelLoadBlocked('pinned_properties', propertiesPanelState === 'failed')
     const configuratorKey = `${source}:${accountId}`
     const propertyOptions: AccountPropertyOption[] = [
         ...(availableDefinitions?.customProperties ?? []).map((definition) => ({

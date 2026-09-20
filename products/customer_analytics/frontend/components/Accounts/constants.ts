@@ -79,6 +79,7 @@ export const AccountsEvents = {
     NotesTabFiltered: 'customer analytics notes tab filtered',
     NotesTabNoteClicked: 'customer analytics notes tab note clicked',
     NotesTabAccountClicked: 'customer analytics notes tab account clicked',
+    PanelLoadBlocked: 'customer analytics account panel load blocked',
 } as const
 
 export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts'

@@ -28,6 +28,7 @@ import type {
     PaginatedAccountNotebookListApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { isDroppedRequest, loadWithRetry, reloadOnReconnect } from '../../requestRecovery'
 import { AccountsEvents } from './constants'
 
 export const NOTES_PER_PAGE = 5
@@ -53,6 +54,7 @@ export interface accountNotebooksLogicValues {
     createdNoteLoading: boolean
     notebooks: AccountNotebookApi[] | null
     notebooksCount: number
+    notebooksLoadFailed: boolean
     notebooksResponse: PaginatedAccountNotebookListApi | null
     notebooksResponseLoading: boolean
     page: number
@@ -159,16 +161,20 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
                 loadNotebooks: async (_ = null, breakpoint) => {
                     const projectId = String(values.currentTeamId)
                     try {
-                        const response = await accountsNotebooksList(projectId, props.accountId, {
-                            limit: NOTES_PER_PAGE,
-                            offset: (values.page - 1) * NOTES_PER_PAGE,
-                            search: values.searchTerm.trim() || undefined,
-                            ordering: sortingToOrdering(values.sorting),
-                        })
+                        const response = await loadWithRetry(() =>
+                            accountsNotebooksList(projectId, props.accountId, {
+                                limit: NOTES_PER_PAGE,
+                                offset: (values.page - 1) * NOTES_PER_PAGE,
+                                search: values.searchTerm.trim() || undefined,
+                                ordering: sortingToOrdering(values.sorting),
+                            })
+                        )
                         breakpoint()
                         return response
                     } catch (error) {
-                        if (!isBreakpoint(error as Error)) {
+                        // A request the browser dropped says nothing about the account, and the table
+                        // already reports it, so it stays out of the toast and out of error tracking.
+                        if (!isBreakpoint(error as Error) && !isDroppedRequest(error)) {
                             posthog.captureException(error as Error, {
                                 scope: 'accountNotebooksLogic.loadNotebooks',
                             })
@@ -203,6 +209,16 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
         sorting: [DEFAULT_NOTES_SORTING as Sorting | null, { setSorting: (_, { sorting }) => sorting }],
         page: [1, { setPage: (_, { page }) => page }],
+        // A null `notebooks` also means "not loaded yet", so the table needs this to tell an account
+        // with no notes apart from one whose request failed.
+        notebooksLoadFailed: [
+            false,
+            {
+                loadNotebooks: () => false,
+                loadNotebooksSuccess: () => false,
+                loadNotebooksFailure: () => true,
+            },
+        ],
     }),
     selectors(({ actions }) => ({
         notebooks: [
@@ -256,7 +272,12 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             actions.setPage(1)
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache, values }) => {
         actions.loadNotebooks()
+        reloadOnReconnect(cache.disposables, () => {
+            if (values.notebooksLoadFailed) {
+                actions.loadNotebooks()
+            }
+        })
     }),
 ])

@@ -22,6 +22,7 @@ import type {
     PinnedAccountPropertyApi,
     UserCustomerAnalyticsConfigApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
+import { loadWithRetry, reloadOnReconnect } from 'products/customer_analytics/frontend/requestRecovery'
 
 import { MAX_PINNED_ACCOUNT_PROPERTIES } from './components/accountPropertyTypes'
 
@@ -287,7 +288,9 @@ export const accountSidebarConfigLogic: LogicWrapper<accountSidebarConfigLogicTy
                 null as UserCustomerAnalyticsConfigApi | null,
                 {
                     loadConfig: async (): Promise<UserCustomerAnalyticsConfigApi> =>
-                        await api.userCustomerAnalyticsConfigRetrieve(String(props.projectId), CURRENT_USER_CONFIG_ID),
+                        await loadWithRetry(() =>
+                            api.userCustomerAnalyticsConfigRetrieve(String(props.projectId), CURRENT_USER_CONFIG_ID)
+                        ),
                     persistPinnedProperties: async ({
                         pinnedProperties,
                     }: {
@@ -307,10 +310,12 @@ export const accountSidebarConfigLogic: LogicWrapper<accountSidebarConfigLogicTy
                 {
                     loadAvailableDefinitions: async (): Promise<AvailableDefinitions> => {
                         const projectId = String(props.projectId)
-                        const [customProperties, relationships] = await Promise.all([
-                            loadEveryPage((params) => api.customPropertyDefinitionsList(projectId, params)),
-                            loadEveryPage((params) => api.accountRelationshipDefinitionsList(projectId, params)),
-                        ])
+                        const [customProperties, relationships] = await loadWithRetry(() =>
+                            Promise.all([
+                                loadEveryPage((params) => api.customPropertyDefinitionsList(projectId, params)),
+                                loadEveryPage((params) => api.accountRelationshipDefinitionsList(projectId, params)),
+                            ])
+                        )
                         return {
                             customProperties: customProperties.filter(({ target_type }) => target_type === 'account'),
                             relationships,
@@ -436,10 +441,18 @@ export const accountSidebarConfigLogic: LogicWrapper<accountSidebarConfigLogicTy
                 })
             },
         })),
-        afterMount(({ actions, props }) => {
+        afterMount(({ actions, cache, props, values }) => {
             if (props.projectId > 0) {
                 actions.loadConfig()
                 actions.loadAvailableDefinitions()
+                reloadOnReconnect(cache.disposables, () => {
+                    if (values.configLoadFailed) {
+                        actions.loadConfig()
+                    }
+                    if (values.availableDefinitionsLoadFailed) {
+                        actions.loadAvailableDefinitions()
+                    }
+                })
             }
         }),
     ])
