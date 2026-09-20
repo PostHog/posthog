@@ -199,6 +199,16 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; PolycoreSupabaseDetector/1.0; +https://www.polycore.ai/)",
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
+        "SalesOS-EntityIdentity/1.0 (+https://salessearch.co.uk)",
+        "SalesOS-CompanyGraph/1.0 (+https://salessearch.co.uk)",
+        "SalesOS-CompanyGraphGate/1.0",
+        "SSI-Nutch/1.23 (SSI broad web crawler; https://ssi.inc/; adi@ssi.inc)",
+        "Mozilla/5.0 (compatible; SpiderLing; +https://www.sketchengine.eu/crawler/)",
+        # This one is not observed traffic. The token comes from the operator's crawler page, and the
+        # wrapper copies the SpiderLing line above.
+        "Mozilla/5.0 (compatible; SketchEngine; +https://www.sketchengine.eu/crawler/)",
+        "theWebIQBot/0.1 (+https://thewebiq.com)",
+        "mycel/0.4.0 (+https://github.com/splch/mycel)",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -246,6 +256,9 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "PagePilot-SiteAudit/1.0 (+https://pagepilot-ai-24.polsia.app)",
         "double-ats-customer-discoverer/0.1 (+https://double.fyi; respectful crawler)",
         "BenchRankBot/1.0 (+https://benchrank.app/bot)",
+        "posthog-competitor-happenings/0.1 (+https://github.com/PostHog/marketing)",
+        "BotAppetitBot/1.0 (+https://scan.milkmoonstudio.com/bot/; on-demand)",
+        "BotAppetitRenderer/1.0 (+https://scan.milkmoonstudio.com/bot/; on-demand; renders via Cloudflare Browser Rendering)",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",

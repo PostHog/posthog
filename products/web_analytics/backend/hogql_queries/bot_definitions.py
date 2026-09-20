@@ -900,6 +900,43 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "swissaitalent.ch",
         documentation_url="https://swissaitalent.ch/bot",
     ),
+    "SalesOS-EntityIdentity": BotDefinition(
+        "SalesOS Entity Identity",
+        "search_crawler",
+        "Bot",
+        "SalesSearch",
+        documentation_url="https://salessearch.co.uk",
+    ),
+    # The trailing slash keeps this off "SalesOS-CompanyGraphGate", which is a separate identity.
+    "SalesOS-CompanyGraph/": BotDefinition(
+        "SalesOS Company Graph",
+        "search_crawler",
+        "Bot",
+        "SalesSearch",
+        documentation_url="https://salessearch.co.uk",
+    ),
+    "SalesOS-CompanyGraphGate": BotDefinition(
+        "SalesOS Company Graph Gate",
+        "search_crawler",
+        "Bot",
+        "SalesSearch",
+        documentation_url="https://salessearch.co.uk",
+    ),
+    "SSI-Nutch": BotDefinition("SSI Nutch", "search_crawler", "Bot", "SSI", documentation_url="https://ssi.inc/"),
+    "SpiderLing": BotDefinition(
+        "SpiderLing", "search_crawler", "Bot", "Sketch Engine", documentation_url="https://www.sketchengine.eu/crawler/"
+    ),
+    # The operator documents "SpiderLing" and "SketchEngine" as two identifiers of one crawler, so
+    # both tokens carry the same name and group under one row in the crawler breakdown.
+    "SketchEngine": BotDefinition(
+        "SpiderLing", "search_crawler", "Bot", "Sketch Engine", documentation_url="https://www.sketchengine.eu/crawler/"
+    ),
+    "theWebIQBot": BotDefinition(
+        "theWebIQ", "search_crawler", "Bot", "theWebIQ", documentation_url="https://thewebiq.com"
+    ),
+    "mycel/": BotDefinition(
+        "mycel", "search_crawler", "Bot", "mycel", documentation_url="https://github.com/splch/mycel"
+    ),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
@@ -949,6 +986,21 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     "BenchRankBot": BotDefinition(
         "BenchRank", "seo_crawler", "Bot", "BenchRank", documentation_url="https://benchrank.app/bot"
+    ),
+    "posthog-competitor-happenings": BotDefinition(
+        "PostHog Competitor Happenings",
+        "seo_crawler",
+        "Bot",
+        "PostHog",
+        documentation_url="https://github.com/PostHog/marketing",
+    ),
+    # Matches both the scanner and the renderer, which run under one on-demand audit.
+    "BotAppetit": BotDefinition(
+        "Bot Appetit",
+        "seo_crawler",
+        "Bot",
+        "Milk Moon Studio",
+        documentation_url="https://scan.milkmoonstudio.com/bot/",
     ),
     # Social / link-preview crawlers
     "PagePeeker": BotDefinition(
