@@ -47,6 +47,9 @@ describe('accountRelatedUsersLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        // Safety net for the tests that call silenceKeaLoadersErrors() inline: it sets module-global
+        // state, so a throw before the inline resume would suppress errors in every later test.
+        resumeKeaLoadersErrors()
     })
 
     it('loads the first page of US organization members for the account external id', async () => {
@@ -336,7 +339,6 @@ describe('accountRelatedUsersLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersLoadFailed: true })
         expect(logic.values.membersResponse).toBeNull()
         expect(toast).toHaveBeenCalledTimes(1)
-        resumeKeaLoadersErrors()
     })
 
     it('retries a request the browser dropped and keeps the failure off the toast', async () => {
@@ -369,6 +371,5 @@ describe('accountRelatedUsersLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersLoadFailed: true })
         expect(listForOrg).toHaveBeenCalledTimes(1)
         expect(toast).toHaveBeenCalledTimes(1)
-        resumeKeaLoadersErrors()
     })
 })
