@@ -45883,6 +45883,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     */
+    export type HogEvaluationOutputTypeEnum = typeof HogEvaluationOutputTypeEnum[keyof typeof HogEvaluationOutputTypeEnum];
+
+
+    export const HogEvaluationOutputTypeEnum = {
+      Boolean: 'boolean',
+      Numeric: 'numeric',
+    } as const;
+
+    /**
      * Variable: {key, type: string|number|boolean, default}.
      */
     export type HogFlowVariablesItem = {[key: string]: string};
@@ -94015,9 +94027,8 @@ export namespace Schemas {
       /** Expected output: boolean or numeric. Sentiment is not supported by Hog.
        *
        * * `boolean` - Boolean (Pass/Fail)
-       * * `numeric` - Numeric
-       * * `sentiment` - Sentiment */
-      output_type?: OutputTypeEnum;
+       * * `numeric` - Numeric */
+      output_type?: HogEvaluationOutputTypeEnum;
       /** Output settings used to validate the preview, including numeric bounds and allows_na. */
       output_config?: TestHogRequestOutputConfig;
       /**

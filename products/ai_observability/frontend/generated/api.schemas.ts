@@ -1366,6 +1366,18 @@ export type TestHogRequestApiOutputConfig = {
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
 
+/**
+ * * `boolean` - Boolean (Pass/Fail)
+ * * `numeric` - Numeric
+ */
+export type HogEvaluationOutputTypeEnumApi =
+    (typeof HogEvaluationOutputTypeEnumApi)[keyof typeof HogEvaluationOutputTypeEnumApi]
+
+export const HogEvaluationOutputTypeEnumApi = {
+    Boolean: 'boolean',
+    Numeric: 'numeric',
+} as const
+
 export interface TestHogTargetConfigApi {
     /**
      * Aggregation window for trace samples, in seconds.
@@ -1385,9 +1397,8 @@ export interface TestHogRequestApi {
     /** Expected output: boolean or numeric. Sentiment is not supported by Hog.
      *
      * * `boolean` - Boolean (Pass/Fail)
-     * * `numeric` - Numeric
-     * * `sentiment` - Sentiment */
-    output_type?: OutputTypeEnumApi
+     * * `numeric` - Numeric */
+    output_type?: HogEvaluationOutputTypeEnumApi
     /** Output settings used to validate the preview, including numeric bounds and allows_na. */
     output_config?: TestHogRequestApiOutputConfig
     /**

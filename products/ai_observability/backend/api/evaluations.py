@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404
 
@@ -814,9 +814,14 @@ class TestHogTargetConfigSerializer(serializers.Serializer):
     )
 
 
+class HogEvaluationOutputType(models.TextChoices):
+    BOOLEAN = OutputType.BOOLEAN.value, OutputType.BOOLEAN.label
+    NUMERIC = OutputType.NUMERIC.value, OutputType.NUMERIC.label
+
+
 class TestHogRequestSerializer(serializers.Serializer):
     output_type = serializers.ChoiceField(
-        choices=OutputType.choices,
+        choices=HogEvaluationOutputType.choices,
         required=False,
         default=OutputType.BOOLEAN,
         help_text="Expected output: boolean or numeric. Sentiment is not supported by Hog.",

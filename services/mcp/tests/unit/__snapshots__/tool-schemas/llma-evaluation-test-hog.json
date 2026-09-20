@@ -90,8 +90,8 @@
         },
         "output_type": {
             "default": "boolean",
-            "description": "Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `sentiment` - Sentiment",
-            "enum": ["boolean", "numeric", "sentiment"],
+            "description": "Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric",
+            "enum": ["boolean", "numeric"],
             "type": "string"
         },
         "sample_count": {

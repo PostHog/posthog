@@ -1075,11 +1075,11 @@ export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax = 
 
 export const EvaluationsTestHogCreateBody = () => zod.object({
     output_type: zod
-        .enum(['boolean', 'numeric', 'sentiment'])
-        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
+        .enum(['boolean', 'numeric'])
+        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric')
         .default(evaluationsTestHogCreateBodyOutputTypeDefault)
         .describe(
-            'Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment'
+            'Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric'
         ),
     output_config: zod
         .object({

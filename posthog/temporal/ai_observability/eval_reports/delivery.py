@@ -43,6 +43,7 @@ _EMAIL_TD_STYLE = 'style="border: 1px solid #ddd; padding: 8px 12px;"'
 
 _OUTCOME_LABELS = {
     "boolean": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
+    "numeric": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
     "sentiment": (("positive", "Positive"), ("neutral", "Neutral"), ("negative", "Negative")),
 }
 
