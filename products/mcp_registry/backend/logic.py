@@ -234,6 +234,10 @@ def ranked_queryset(*, version: str, search: str, measured_only: bool, team_id: 
     measured servers. They multiply rather than tie-break so neither can dominate:
     a strong match on a dead server loses, and so does a live measured server that
     does not do the thing. Exponents weight fit over authority.
+
+    No `.distinct()`: every predicate here is an `Exists` or a subquery, so nothing
+    multiplies a server's row. `DISTINCT` over every column would compare and sort the
+    whole matched set, including the JSON columns, before the caller's `LIMIT` applies.
     """
     queryset = base_queryset(team_id, caller_is_staff)
     tokens = content_tokens(search)
@@ -246,21 +250,17 @@ def ranked_queryset(*, version: str, search: str, measured_only: bool, team_id: 
 
     if not tokens:
         ordering = [F("rank_score").desc(nulls_last=True)] if run is not None else []
-        return queryset.order_by(*ordering, "-is_measured", "display_name").distinct()
+        return queryset.order_by(*ordering, "-is_measured", "display_name")
 
     queryset = queryset.filter(_search_filter(tokens)).annotate(
         relevance=_relevance_annotation(tokens) / (_MAX_TOKEN_WEIGHT * len(tokens))
     )
     if run is None:
-        return queryset.order_by("-relevance", "-is_measured", "display_name").distinct()
-    return (
-        queryset.annotate(
-            combined_score=Power(F("relevance"), _FIT_EXPONENT)
-            * Power(Coalesce(F("rank_score"), Value(0.0)), _AUTHORITY_EXPONENT)
-        )
-        .order_by(F("combined_score").desc(nulls_last=True), "-is_measured", "display_name")
-        .distinct()
-    )
+        return queryset.order_by("-relevance", "-is_measured", "display_name")
+    return queryset.annotate(
+        combined_score=Power(F("relevance"), _FIT_EXPONENT)
+        * Power(Coalesce(F("rank_score"), Value(0.0)), _AUTHORITY_EXPONENT)
+    ).order_by(F("combined_score").desc(nulls_last=True), "-is_measured", "display_name")
 
 
 def get_server_for_caller(pk: str | UUID, *, team_id: int, caller_is_staff: bool) -> MCPRegistryServer:

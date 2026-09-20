@@ -7,17 +7,50 @@ models never cross this boundary. The Celery/beat surface lives in `facade/tasks
 rather than here so its heavy imports stay off the request path.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
+
+from django.db import OperationalError
+
+from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
 
 from products.mcp_registry.backend import logic
 from products.mcp_registry.backend.connect import build_connect_instructions
 from products.mcp_registry.backend.constants import MCP_REGISTRY_FEATURE_FLAG as MCP_REGISTRY_FEATURE_FLAG
-from products.mcp_registry.backend.models import MCPRegistryServer
+from products.mcp_registry.backend.models import (
+    MCPMeasuredStats,
+    MCPRankingRun,
+    MCPRankingScore,
+    MCPRegistryServer,
+    MCPRegistryTool,
+)
 from products.mcp_registry.backend.ranking import DEFAULT_RANKING_VERSION, RANKING_VERSIONS, latest_completed_run
 
 from . import contracts
 
 _DISCOVER_TOOLS_PER_CANDIDATE = 5
+
+# Every ranked read scans the whole index, and the index only grows, so a slow database
+# turns one call into a block of minutes rather than a slow answer. An agent calling
+# discover waits on it with no timeout of its own, so the ceiling has to live here.
+# Failing fast lets the caller narrow the query or move on.
+_INDEX_READ_STATEMENT_TIMEOUT_MS = 15_000
+
+# Models a ranked read touches, so the cap is installed on every alias it can route to.
+_INDEX_READ_MODELS = (MCPRegistryServer, MCPRegistryTool, MCPMeasuredStats, MCPRankingRun, MCPRankingScore)
+
+
+@contextmanager
+def _bounded_index_read() -> Iterator[None]:
+    """Cap a ranked read, and report the cap firing as `RegistryReadTimedOut`."""
+    try:
+        with bounded_statement_timeout(_INDEX_READ_STATEMENT_TIMEOUT_MS, models=_INDEX_READ_MODELS):
+            yield
+    except OperationalError as error:
+        if is_statement_timeout(error):
+            raise contracts.RegistryReadTimedOut from error
+        raise
 
 
 def known_ranking_versions() -> list[str]:
@@ -84,10 +117,15 @@ def list_servers(
     *, version: str, search: str, measured_only: bool, team_id: int, caller_is_staff: bool
 ) -> list[contracts.RegistryServerSummary]:
     """Ranked summaries for the caller's visible index."""
-    queryset = logic.ranked_queryset(
-        version=version, search=search, measured_only=measured_only, team_id=team_id, caller_is_staff=caller_is_staff
-    )
-    return [_summary(server) for server in queryset]
+    with _bounded_index_read():
+        queryset = logic.ranked_queryset(
+            version=version,
+            search=search,
+            measured_only=measured_only,
+            team_id=team_id,
+            caller_is_staff=caller_is_staff,
+        )
+        return [_summary(server) for server in queryset]
 
 
 def get_server_detail(*, pk: str, team_id: int, caller_is_staff: bool) -> contracts.RegistryServerDetail | None:
@@ -135,6 +173,15 @@ def discover_servers(
     *, intent: str, version: str, limit: int, team_id: int, caller_is_staff: bool
 ) -> list[contracts.DiscoverCandidate]:
     """Ranked candidates for a natural-language intent, each with its rationale."""
+    with _bounded_index_read():
+        return _discover_candidates(
+            intent=intent, version=version, limit=limit, team_id=team_id, caller_is_staff=caller_is_staff
+        )
+
+
+def _discover_candidates(
+    *, intent: str, version: str, limit: int, team_id: int, caller_is_staff: bool
+) -> list[contracts.DiscoverCandidate]:
     tokens = logic.content_tokens(intent)
     servers = list(
         logic.ranked_queryset(
@@ -216,21 +263,22 @@ def compare_rankings(
 ) -> dict[str, list[contracts.CompareRow]]:
     """Rank the same index under several versions side by side."""
     arms: dict[str, list[contracts.CompareRow]] = {}
-    for version in versions:
-        rows = logic.ranked_queryset(
-            version=version, search=search, measured_only=False, team_id=team_id, caller_is_staff=caller_is_staff
-        )[:limit]
-        arms[version] = [
-            contracts.CompareRow(
-                rank=index + 1,
-                id=server.id,
-                registry_name=server.registry_name,
-                display_name=server.display_name,
-                score=getattr(server, "rank_score", None) or 0.0,
-                is_measured=server.is_measured,
-            )
-            for index, server in enumerate(rows)
-        ]
+    with _bounded_index_read():
+        for version in versions:
+            rows = logic.ranked_queryset(
+                version=version, search=search, measured_only=False, team_id=team_id, caller_is_staff=caller_is_staff
+            )[:limit]
+            arms[version] = [
+                contracts.CompareRow(
+                    rank=index + 1,
+                    id=server.id,
+                    registry_name=server.registry_name,
+                    display_name=server.display_name,
+                    score=getattr(server, "rank_score", None) or 0.0,
+                    is_measured=server.is_measured,
+                )
+                for index, server in enumerate(rows)
+            ]
     return arms
 
 
