@@ -637,6 +637,10 @@ def _anthropic_message_body(text: str) -> dict:
     }
 
 
+def _usage(input_tokens: int) -> dict[str, int]:
+    return {"input_tokens": input_tokens, "output_tokens": 1, "total_tokens": input_tokens + 1}
+
+
 def _anthropic_error(
     status: int, error_type: str = "api_error", message: str = "failed", headers: dict[str, str] | None = None
 ) -> httpx.Response:
@@ -703,13 +707,35 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             }
         }
 
-    def _fake_astream(self, calls: list[str], gateway_chunks: int, gateway_raises: bool):
+    def _fake_astream(
+        self,
+        calls: list[str],
+        gateway_chunks: int,
+        gateway_raises: bool,
+        metadata_chunks: int = 0,
+        tool_chunk: bool = False,
+    ):
+        """`metadata_chunks` stand in for Anthropic's opening message-start chunk: usage, no output."""
+
         async def _astream(model, messages, stop=None, run_manager=None, **kwargs):
             if model.ai_gateway_fallback is None:
                 calls.append("direct")
-                yield ChatGenerationChunk(message=AIMessageChunk(content="direct"))
+                yield ChatGenerationChunk(
+                    message=AIMessageChunk(content="direct", usage_metadata=_usage(3)),
+                )
                 return
             calls.append("gateway")
+            for _ in range(metadata_chunks):
+                yield ChatGenerationChunk(message=AIMessageChunk(content="", usage_metadata=_usage(7)))
+            if tool_chunk:
+                yield ChatGenerationChunk(
+                    message=AIMessageChunk(
+                        content="",
+                        tool_call_chunks=[
+                            {"name": "query", "args": "{}", "id": "toolu_1", "index": 0, "type": "tool_call_chunk"}
+                        ],
+                    )
+                )
             for _ in range(gateway_chunks):
                 yield ChatGenerationChunk(message=AIMessageChunk(content="gateway"))
             if gateway_raises:
@@ -895,6 +921,84 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
 
         self.assertEqual(calls, ["gateway"])
 
+    async def test_streaming_falls_back_after_an_output_free_metadata_chunk(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(
+                ChatAnthropic,
+                "_astream",
+                self._fake_astream(calls, gateway_chunks=0, gateway_raises=True, metadata_chunks=1),
+            ),
+        ):
+            result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway", "direct"])
+        self.assertEqual(result.generations[0][0].text, "direct")
+        self.assertFalse(is_ai_gateway_served(result))
+        # The held chunk is dropped, so the gateway's usage does not land on the twin's generation.
+        generation = result.generations[0][0]
+        assert isinstance(generation, ChatGeneration) and isinstance(generation.message, AIMessage)
+        message = generation.message
+        assert message.usage_metadata is not None
+        self.assertEqual(message.usage_metadata["input_tokens"], 3)
+
+    async def test_streaming_marks_the_generation_when_output_follows_a_metadata_chunk(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(
+                ChatAnthropic,
+                "_astream",
+                self._fake_astream(calls, gateway_chunks=1, gateway_raises=False, metadata_chunks=1),
+            ),
+        ):
+            result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway"])
+        self.assertEqual(result.generations[0][0].text, "gateway")
+        self.assertTrue(is_ai_gateway_served(result))
+        generation = result.generations[0][0]
+        assert isinstance(generation, ChatGeneration) and isinstance(generation.message, AIMessage)
+        message = generation.message
+        assert message.usage_metadata is not None
+        self.assertEqual(message.usage_metadata["input_tokens"], 7)
+
+    async def test_streaming_does_not_fall_back_after_a_tool_call_chunk(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(
+                ChatAnthropic,
+                "_astream",
+                self._fake_astream(calls, gateway_chunks=0, gateway_raises=True, metadata_chunks=1, tool_chunk=True),
+            ),
+            self.assertRaises(anthropic.APIConnectionError),
+        ):
+            await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway"])
+
+    async def test_streaming_marks_a_gateway_stream_that_produced_no_output(self):
+        calls: list[str] = []
+        model = self._model(streaming=True)
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=self._config()),
+            patch.object(
+                ChatAnthropic,
+                "_astream",
+                self._fake_astream(calls, gateway_chunks=0, gateway_raises=False, metadata_chunks=1),
+            ),
+        ):
+            result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(calls, ["gateway"])
+        self.assertEqual(result.generations[0][0].text, "")
+        self.assertTrue(is_ai_gateway_served(result))
+
     def test_gateway_client_has_a_bounded_timeout(self):
         model = MaxChatAnthropic.via_ai_gateway(self.gateway, model="claude-sonnet-4-6", user=self.user, team=self.team)
         twin = model.ai_gateway_fallback
@@ -906,9 +1010,15 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             self.assertEqual(client.max_retries, 0)
         self.assertIsNone(twin._client_params["timeout"])
 
-        # The twin needs time to start streaming before the activity heartbeat times out.
-        assert AI_GATEWAY_TIMEOUT.connect is not None and AI_GATEWAY_TIMEOUT.read is not None
-        stalled_gateway_seconds = (AI_GATEWAY_TIMEOUT.connect + AI_GATEWAY_TIMEOUT.read) * (model.max_retries + 1)
+        # Nothing heartbeats while the gateway stalls, so every phase runs before the twin starts.
+        phases = [
+            AI_GATEWAY_TIMEOUT.connect,
+            AI_GATEWAY_TIMEOUT.read,
+            AI_GATEWAY_TIMEOUT.write,
+            AI_GATEWAY_TIMEOUT.pool,
+        ]
+        self.assertNotIn(None, phases)
+        stalled_gateway_seconds = sum(phase or 0.0 for phase in phases) * (model.max_retries + 1)
         self.assertGreaterEqual(CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT - stalled_gateway_seconds, 120)
 
     def test_token_counting_uses_the_direct_twin(self):

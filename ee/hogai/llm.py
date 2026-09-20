@@ -45,8 +45,9 @@ AI_GATEWAY_FALLBACK_COUNTER = Counter(
     ["reason"],
 )
 
-AI_GATEWAY_TIMEOUT = httpx.Timeout(150.0, connect=10.0)
-"""Above the gateway's 120s stream idle close, and short enough for the twin to answer inside the 300s heartbeat."""
+AI_GATEWAY_TIMEOUT = httpx.Timeout(150.0, connect=10.0, write=15.0, pool=5.0)
+"""Above the gateway's 120s stream idle close. Nothing heartbeats while the gateway stalls, so every phase is bounded
+to leave the twin time inside the 300s activity heartbeat."""
 
 AI_GATEWAY_SERVED_KEY = "ai_gateway_served"
 
@@ -101,6 +102,18 @@ def _is_provider_billing_block(error: anthropic.APIStatusError) -> bool:
         return False
     message = str(detail.get("message") or "").lower()
     return detail.get("type") == "billing_error" or any(sig in message for sig in _PROVIDER_BILLING_SIGNATURES)
+
+
+def _carries_output(chunk: ChatGenerationChunk) -> bool:
+    """Whether the user has seen anything of this turn: text, thinking, or a tool call."""
+    return bool(chunk.message.content) or bool(getattr(chunk.message, "tool_call_chunks", None))
+
+
+def _marked_as_gateway_served(chunks: list[ChatGenerationChunk]) -> list[ChatGenerationChunk]:
+    """One marked chunk marks the merged generation, which the SDK callback then skips."""
+    first = chunks[0]
+    first.generation_info = {**(first.generation_info or {}), AI_GATEWAY_SERVED_KEY: True}
+    return chunks
 
 
 def _ai_gateway_fallback_reason(error: Exception) -> str | None:
@@ -511,19 +524,30 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         direct_kwargs = _without_ai_gateway_headers(kwargs)
         if _has_ai_gateway_headers(kwargs):
             served = False
+            # Anthropic opens the stream with a metadata chunk. Holding those keeps the fallback open until the
+            # turn has real output, and drops their usage from the merged generation when the twin takes over.
+            held: list[ChatGenerationChunk] = []
             try:
                 async for chunk in super()._astream(
                     messages, stop=stop, run_manager=run_manager, stream_usage=stream_usage, **kwargs
                 ):
-                    if not served:
-                        # One marked chunk marks the merged generation, which the SDK callback then skips.
-                        chunk.generation_info = {**(chunk.generation_info or {}), AI_GATEWAY_SERVED_KEY: True}
-                        served = True
-                    yield chunk
+                    if served:
+                        yield chunk
+                        continue
+                    held.append(chunk)
+                    if not _carries_output(chunk):
+                        continue
+                    served = True
+                    for pending in _marked_as_gateway_served(held):
+                        yield pending
+                if not served and held:
+                    # A stream that ended without output was still served by the gateway.
+                    for pending in _marked_as_gateway_served(held):
+                        yield pending
                 return
             except Exception as error:
                 reason = _ai_gateway_fallback_reason(error)
-                # After a chunk the user has seen output, so a direct retry would repeat it.
+                # After output the user has seen the turn, so a direct retry would repeat it.
                 if served or reason is None:
                     raise
                 self._record_ai_gateway_fallback(reason, error)
