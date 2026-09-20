@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -9,7 +9,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    IncrementalConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -20,13 +27,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convertkit
 
 # Kit (formerly ConvertKit) v4 API. v3 (api.convertkit.com) is deprecated.
 CONVERTKIT_BASE_URL = "https://api.kit.com"
-PAGE_SIZE = 1000  # v4 max per_page
 REQUEST_TIMEOUT = 60
+# Sent as the cursor floor on a fan-out child's first sync, because the framework binds the
+# filter param whether or not a watermark exists yet.
+EPOCH_CURSOR = "1970-01-01T00:00:00Z"
 
 
 @dataclasses.dataclass
 class ConvertKitResumeConfig:
+    # Top-level endpoints resume from the `after` cursor of the last fully-yielded page.
     after: Optional[str] = None
+    # Fan-out endpoints resume by parent: the child paths already fully synced, the path in
+    # progress, and that path's paginator state. See
+    # `common.rest_source.__init__._make_paginate_dependent_resource`.
+    completed: Optional[list[str]] = None
+    current: Optional[str] = None
+    child_state: Optional[dict[str, Any]] = None
 
 
 def _get_headers() -> dict[str, str]:
@@ -107,7 +123,7 @@ def _build_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": PAGE_SIZE}
+    params: dict[str, Any] = {"per_page": config.page_size}
     params.update(config.extra_params)
 
     if (
@@ -129,33 +145,48 @@ def _build_params(
     return params
 
 
-def convertkit_source(
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": CONVERTKIT_BASE_URL,
+        "headers": _get_headers(),
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-Kit-Api-Key", "location": "header"},
+        "paginator": ConvertKitPaginator(),
+    }
+
+
+def _incremental_config(config: ConvertKitEndpointConfig, cursor_path: str) -> Optional[IncrementalConfig]:
+    filter_param = config.incremental_param_map.get(cursor_path)
+    if not filter_param:
+        return None
+    return {
+        "start_param": filter_param,
+        "cursor_path": cursor_path,
+        "initial_value": EPOCH_CURSOR,
+        "convert": _format_incremental_value,
+    }
+
+
+def _top_level_resource(
+    config: ConvertKitEndpointConfig,
     api_key: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ConvertKitResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
-) -> SourceResponse:
-    config = CONVERTKIT_ENDPOINTS[endpoint]
-
-    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
-
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    incremental_field: str | None,
+) -> Any:
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": CONVERTKIT_BASE_URL,
-            "headers": _get_headers(),
-            "auth": {"type": "api_key", "api_key": api_key, "name": "X-Kit-Api-Key", "location": "header"},
-            "paginator": ConvertKitPaginator(),
-        },
+        "client": _client_config(api_key),
         "resources": [
             {
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": params,
+                    "params": _build_params(
+                        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+                    ),
                     "data_selector": config.data_key,
                 },
             }
@@ -174,7 +205,7 @@ def convertkit_source(
         if state and state.get("after"):
             resumable_source_manager.save_state(ConvertKitResumeConfig(after=str(state["after"])))
 
-    resource = rest_api_resource(
+    return rest_api_resource(
         rest_config,
         team_id,
         job_id,
@@ -182,6 +213,103 @@ def convertkit_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+
+
+def _fanout_resource(
+    config: ConvertKitEndpointConfig,
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ConvertKitResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    incremental_field: str | None,
+) -> Any:
+    assert config.fanout is not None
+    parent_config = CONVERTKIT_ENDPOINTS[config.fanout.parent_name]
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and (resume.completed or resume.current):
+            initial_state = {
+                "completed": resume.completed or [],
+                "current": resume.current,
+                "child_state": resume.child_state,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                ConvertKitResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    return cast(
+        Any,
+        build_dependent_resource(
+            endpoint_configs=CONVERTKIT_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=db_incremental_field_last_value if should_use_incremental_field else None,
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
+            incremental_config_factory=lambda cursor_path: _incremental_config(config, cursor_path),
+            parent_endpoint_extra={"data_selector": parent_config.data_key},
+            child_endpoint_extra={"data_selector": config.data_key},
+            child_params_extra=dict(config.extra_params),
+            page_size_param="per_page",
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+
+
+def convertkit_source(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ConvertKitResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: str | None = None,
+) -> SourceResponse:
+    config = CONVERTKIT_ENDPOINTS[endpoint]
+
+    resource: Any
+    if config.fanout is not None:
+        resource = _fanout_resource(
+            config,
+            api_key,
+            endpoint,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+        )
+    else:
+        resource = _top_level_resource(
+            config,
+            api_key,
+            endpoint,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+        )
 
     return SourceResponse(
         name=endpoint,
@@ -193,9 +321,10 @@ def convertkit_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
-        # The API does not guarantee ascending order; the merge cursor still advances to the
-        # max incremental value across all pages, which we read in full each sync.
-        sort_mode="asc",
+        # "asc" endpoints are read in full each sync, so the merge cursor advances to the max
+        # incremental value across all pages even though the API guarantees no page order.
+        # "desc" holds the watermark until the sync completes; settings.py says why.
+        sort_mode=config.sort_mode,
     )
 
 
@@ -208,6 +337,10 @@ def validate_credentials(api_key: str, endpoint: str | None = None) -> tuple[boo
     if endpoint and endpoint not in CONVERTKIT_ENDPOINTS:
         return False, f"Unknown Kit endpoint: {endpoint}"
     config = CONVERTKIT_ENDPOINTS[endpoint] if endpoint else CONVERTKIT_ENDPOINTS["subscribers"]
+    if config.fanout is not None:
+        # A fan-out path is only reachable per parent record, so probe the parent listing the
+        # child is walked from, which is the call the sync makes first anyway.
+        config = CONVERTKIT_ENDPOINTS[config.fanout.parent_name]
     url = f"{CONVERTKIT_BASE_URL}{config.path}?per_page=1"
 
     ok, status = validate_via_probe(

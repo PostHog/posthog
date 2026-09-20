@@ -307,3 +307,217 @@ class TestConvertKitSource:
 
         assert [r["id"] for r in rows] == [7]
         manager.can_resume.assert_called_once()
+
+
+def _wire_calls(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+    """Like ``_wire``, but snapshots the URL alongside the params of each request."""
+    session.headers = {}
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        calls.append((request.url, dict(request.params or {})))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return calls
+
+
+class TestBroadcastStats:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_the_account_wide_stats_list(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls = _wire_calls(session, [_page("broadcasts", [205, 204], has_next=False, end_cursor=None)])
+
+        rows = _rows(_source("broadcast_stats", _make_manager()))
+
+        assert [r["id"] for r in rows] == [205, 204]
+        assert calls[0][0].endswith("/v4/broadcasts/stats")
+        # Stats keep moving after a send, so no timestamp window is applied.
+        assert "sent_after" not in calls[0][1]
+
+
+JUNCTIONS = [
+    ("form_subscribers", "forms", "/v4/forms/{}/subscribers", "form_id", "added_after"),
+    ("tag_subscribers", "tags", "/v4/tags/{}/subscribers", "tag_id", "tagged_after"),
+    ("sequence_subscribers", "sequences", "/v4/sequences/{}/subscribers", "sequence_id", "added_after"),
+]
+
+
+class TestSubscriberJunctions:
+    @parameterized.expand(JUNCTIONS)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_parents_and_injects_the_parent_id(
+        self, endpoint: str, parent_key: str, child_path: str, parent_column: str, _filter: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        calls = _wire_calls(
+            session,
+            [
+                _page(parent_key, [11, 12], has_next=False, end_cursor=None),
+                _page("subscribers", [1], has_next=False, end_cursor=None),
+                _page("subscribers", [2], has_next=False, end_cursor=None),
+            ],
+        )
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        # Every row carries the parent it came from, which is what makes the key unique table-wide.
+        assert [(r[parent_column], r["id"]) for r in rows] == [(11, 1), (12, 2)]
+        assert calls[1][0].endswith(child_path.format(11))
+        assert calls[2][0].endswith(child_path.format(12))
+        # Every subscriber state, not just the active ones Kit returns by default.
+        assert calls[1][1]["status"] == "all"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_form_parent_listing_includes_archived_forms(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls = _wire_calls(
+            session,
+            [
+                _page("forms", [11], has_next=False, end_cursor=None),
+                _page("subscribers", [1], has_next=False, end_cursor=None),
+            ],
+        )
+
+        _rows(_source("form_subscribers", _make_manager()))
+
+        assert calls[0][1]["status"] == "all"
+
+    @parameterized.expand(JUNCTIONS)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_watermark_narrows_each_child_request(
+        self, endpoint: str, parent_key: str, _child_path: str, _parent_column: str, filter_param: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        calls = _wire_calls(
+            session,
+            [
+                _page(parent_key, [11], has_next=False, end_cursor=None),
+                _page("subscribers", [1], has_next=False, end_cursor=None),
+            ],
+        )
+
+        _rows(
+            _source(
+                endpoint,
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+                incremental_field=filter_param.replace("_after", "_at"),
+            )
+        )
+
+        assert calls[1][1][filter_param] == "2026-01-02T03:04:05Z"
+        # The parent listing is walked in full, so only the child is windowed.
+        assert filter_param not in calls[0][1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_first_incremental_sync_sends_the_epoch_floor(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls = _wire_calls(
+            session,
+            [
+                _page("tags", [11], has_next=False, end_cursor=None),
+                _page("subscribers", [1], has_next=False, end_cursor=None),
+            ],
+        )
+
+        _rows(
+            _source(
+                "tag_subscribers",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                incremental_field="tagged_at",
+            )
+        )
+
+        # The framework binds the filter param whether or not a watermark exists, so the floor
+        # has to be a real timestamp rather than the string "None".
+        assert calls[1][1]["tagged_after"] == "1970-01-01T00:00:00Z"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_sends_no_window(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls = _wire_calls(
+            session,
+            [
+                _page("tags", [11], has_next=False, end_cursor=None),
+                _page("subscribers", [1], has_next=False, end_cursor=None),
+            ],
+        )
+
+        _rows(
+            _source(
+                "tag_subscribers",
+                _make_manager(),
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
+                incremental_field="tagged_at",
+            )
+        )
+
+        assert "tagged_after" not in calls[1][1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_each_parent_once_its_children_are_yielded(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire_calls(
+            session,
+            [
+                _page("forms", [11, 12], has_next=False, end_cursor=None),
+                _page("subscribers", [1], has_next=False, end_cursor=None),
+                _page("subscribers", [2], has_next=False, end_cursor=None),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source("form_subscribers", manager))
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved[-1] == ConvertKitResumeConfig(
+            completed=["/v4/forms/11/subscribers", "/v4/forms/12/subscribers"], current=None, child_state=None
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_synced_parents_and_continues_the_one_in_flight(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls = _wire_calls(
+            session,
+            [
+                _page("forms", [11, 12], has_next=False, end_cursor=None),
+                _page("subscribers", [2], has_next=False, end_cursor=None),
+            ],
+        )
+
+        manager = _make_manager(
+            ConvertKitResumeConfig(
+                completed=["/v4/forms/11/subscribers"],
+                current="/v4/forms/12/subscribers",
+                child_state={"after": "C9"},
+            )
+        )
+        rows = _rows(_source("form_subscribers", manager))
+
+        assert [r["form_id"] for r in rows] == [12]
+        assert [url for url, _ in calls] == [
+            "https://api.kit.com/v4/forms",
+            "https://api.kit.com/v4/forms/12/subscribers",
+        ]
+        assert calls[1][1]["after"] == "C9"
+
+
+class TestValidateFanoutCredentials:
+    @mock.patch(CONVERTKIT_SESSION_PATCH)
+    def test_probes_the_parent_listing(self, mock_session) -> None:
+        response = mock.MagicMock()
+        response.status_code = 200
+        mock_session.return_value.get.return_value = response
+
+        is_valid, _error = validate_credentials("key", "form_subscribers")
+
+        assert is_valid is True
+        # The child path carries an unresolved id placeholder, so probing it would 404 and
+        # report a working key as broken.
+        assert mock_session.return_value.get.call_args.args[0] == "https://api.kit.com/v4/forms?per_page=1"
