@@ -1,19 +1,3 @@
-/**
- * DnD tree operations for the filter expression tree.
- *
- * Drag and drop lets users reorder conditions within a group or move them
- * between groups. The scene's handleDragEnd callback orchestrates this:
- *
- *   1. Look up the dragged node's path via its stable nid
- *   2. resolveDropTarget — figure out which group the node was dropped on
- *      and at what index (end of group if dropped on the group droppable,
- *      or at a sibling's position if dropped on a sortable item)
- *   3. Guard: bail if dropping into own descendant (would create a cycle)
- *   4. If same group → reorderWithinGroup (arrayMove within children)
- *      If different group → moveBetweenGroups (clone tree, splice out, splice in)
- *
- * All functions are pure: they take a tree and return a new tree.
- */
 import { updateAtPath } from './eventFilterLogic'
 import type { FilterNode, TreePath } from './eventFilterLogic'
 import { getNodeAtPath, splitParentChild } from './filterTreePath'
@@ -25,18 +9,12 @@ interface DropTarget {
 }
 
 /**
- * Determine where a dragged node should land.
- *
  * Drop target IDs come in two forms:
- *   - "drop:<nid>" — the droppable zone of a group → append at end
- *   - "<nid>" — a sortable sibling item → insert at that item's position
- *
- * Returns the target group's path and the insert index, or null if the
- * drop target can't be resolved (e.g. nid not found, target isn't a group).
+ *   - "drop:<nid>" is the droppable zone of a group, which appends at the end
+ *   - "<nid>" is a sortable sibling item, which inserts at that item's position
  */
 export function resolveDropTarget(overIdStr: string, tree: FilterNode, nodeIds: NodeIdMap): DropTarget | null {
     if (overIdStr.startsWith('drop:')) {
-        // Dropped on a group droppable — append at end
         const groupNid = overIdStr.slice(5)
         const groupPath = nodeIds.pathOf(groupNid)
         if (!groupPath) {
@@ -48,7 +26,6 @@ export function resolveDropTarget(overIdStr: string, tree: FilterNode, nodeIds: 
         }
         return { groupPath, insertIndex: targetNode.children.length }
     }
-    // Dropped on a sortable item — insert at its position
     const overPath = nodeIds.pathOf(overIdStr)
     if (!overPath) {
         return null
@@ -61,11 +38,8 @@ export function resolveDropTarget(overIdStr: string, tree: FilterNode, nodeIds: 
 }
 
 /**
- * Reorder a child within the same AND/OR group.
- *
- * Returns the updated group node with children reordered (caller uses
- * updateTreeNode to patch it into the tree). Returns null if the path
- * doesn't point to an AND/OR group.
+ * Returns the updated group node, not the whole tree, so the caller must patch it back in
+ * with updateTreeNode.
  *
  * Takes arrayMove as a parameter to avoid coupling to @dnd-kit/sortable.
  */
@@ -107,13 +81,6 @@ function adjustDestPath(sourcePath: TreePath, sourceIndex: number, destPath: Tre
     return destPath
 }
 
-/**
- * Move a node from one AND/OR group to another.
- *
- * Resolves the destination group by nid on the original tree, then applies
- * the remove and insert as two immutable updateAtPath calls with path
- * adjustment to account for index shifts from the removal.
- */
 export function moveBetweenGroups(
     tree: FilterNode,
     sourcePath: TreePath,
@@ -128,13 +95,13 @@ export function moveBetweenGroups(
     }
     const movedNode = srcParent.children[sourceIndex]
 
-    // Resolve dest path on the original tree before any mutations
+    // nodeIds maps to the original tree, so resolve the dest path before the removal below
+    // invalidates it.
     const originalDestPath = nodeIds.pathOf(destGroupNid)
     if (originalDestPath === undefined) {
         return null
     }
 
-    // Step 1: remove from source
     const afterRemove = updateAtPath(tree, sourcePath, (node) => {
         if (node.type !== 'and' && node.type !== 'or') {
             return node
@@ -142,10 +109,8 @@ export function moveBetweenGroups(
         return { ...node, children: node.children.filter((_, i) => i !== sourceIndex) }
     })
 
-    // Step 2: adjust dest path for index shift caused by the removal
     const destPath = adjustDestPath(sourcePath, sourceIndex, originalDestPath)
 
-    // Step 3: insert into destination
     return updateAtPath(afterRemove, destPath, (node) => {
         if (node.type !== 'and' && node.type !== 'or') {
             return node
