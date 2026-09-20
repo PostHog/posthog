@@ -43,24 +43,33 @@ def _get(session: requests.Session, path: str) -> Any:
 
 def _get_list(session: requests.Session, path: str) -> list[dict[str, Any]]:
     body = _get(session, path)
-    # Require a bare array so an unexpected object payload fails loud instead of syncing the
-    # object as a single row.
     if not isinstance(body, list):
         raise ValueError(f"ConfigCat returned a non-list response body for {path}")
-    return [row for row in body if isinstance(row, dict)]
+    if any(not isinstance(row, dict) for row in body):
+        raise ValueError(f"ConfigCat returned a non-object row for {path}")
+    return body
+
+
+def _identifier(row: dict[str, Any], field: str) -> str:
+    value = row.get(field)
+    if isinstance(value, bool) or not isinstance(value, (str, int)) or not str(value):
+        raise ValueError(f"ConfigCat row has an invalid {field}")
+    return str(value)
 
 
 def _ids(rows: list[dict[str, Any]], field: str) -> list[str]:
-    return [str(row[field]) for row in rows if row.get(field)]
+    return [_identifier(row, field) for row in rows]
 
 
 def _product_ids(session: requests.Session) -> list[str]:
     return _ids(_get_list(session, CONFIGCAT_ENDPOINTS["products"].path), "productId")
 
 
-def _config_ids(session: requests.Session, product_id: str) -> list[str]:
+def _configs(session: requests.Session, product_id: str) -> list[dict[str, Any]]:
     path = CONFIGCAT_ENDPOINTS["configs"].path.format(productId=product_id)
-    return _ids(_get_list(session, path), "configId")
+    rows = _get_list(session, path)
+    _ids(rows, "configId")
+    return rows
 
 
 def _environment_ids(session: requests.Session, product_id: str) -> list[str]:
@@ -71,49 +80,94 @@ def _environment_ids(session: requests.Session, product_id: str) -> list[str]:
 def _setting_value_rows(body: Any, config_id: str, environment_id: str) -> list[dict[str, Any]]:
     if not isinstance(body, dict):
         raise ValueError(f"ConfigCat returned a non-object values body for config {config_id}")
+    formulas = body.get(SETTING_FORMULAS_SELECTOR)
+    if not isinstance(formulas, list):
+        raise ValueError(f"ConfigCat returned invalid settingFormulas for config {config_id}")
 
     rows: list[dict[str, Any]] = []
-    for formula in body.get(SETTING_FORMULAS_SELECTOR) or []:
+    for formula in formulas:
         if not isinstance(formula, dict):
-            continue
+            raise ValueError(f"ConfigCat returned a non-object setting formula for config {config_id}")
         setting = formula.get("setting")
-        # The config, environment and flag identifiers live on the envelope and on a nested
-        # object, so lift them onto the row — they are what makes it addressable and uniquely keyed.
+        if not isinstance(setting, dict):
+            raise ValueError(f"ConfigCat returned an invalid setting for config {config_id}")
+        _identifier(setting, "settingId")
         rows.append(
             {
                 **formula,
                 "configId": config_id,
                 "environmentId": environment_id,
-                "settingId": setting.get("settingId") if isinstance(setting, dict) else None,
+                "settingId": setting["settingId"],
             }
         )
     return rows
+
+
+def _v1_setting_value_rows(body: Any, config_id: str, environment_id: str) -> list[dict[str, Any]]:
+    if not isinstance(body, dict):
+        raise ValueError(f"ConfigCat returned a non-object values body for config {config_id}")
+    values = body.get("settingValues")
+    if not isinstance(values, list):
+        raise ValueError(f"ConfigCat returned invalid settingValues for config {config_id}")
+
+    rows: list[dict[str, Any]] = []
+    for value in values:
+        if not isinstance(value, dict):
+            raise ValueError(f"ConfigCat returned a non-object setting value for config {config_id}")
+        setting = value.get("setting")
+        if not isinstance(setting, dict):
+            raise ValueError(f"ConfigCat returned an invalid setting for config {config_id}")
+        _identifier(setting, "settingId")
+        rows.append(
+            {
+                **value,
+                "configId": config_id,
+                "environmentId": environment_id,
+                "settingId": setting["settingId"],
+            }
+        )
+    return rows
+
+
+def _validate_primary_keys(rows: list[dict[str, Any]], primary_keys: list[str]) -> None:
+    for row in rows:
+        for field in primary_keys:
+            _identifier(row, field)
 
 
 def _fan_out_rows(session: requests.Session, config: ConfigCatEndpointConfig) -> Iterator[list[dict[str, Any]]]:
     for product_id in _product_ids(session):
         if config.parent == "product":
             rows = _get_list(session, config.path.format(productId=product_id))
+            _validate_primary_keys(rows, config.primary_keys)
             if rows:
                 yield rows
             continue
 
-        config_ids = _config_ids(session, product_id)
+        configs = _configs(session, product_id)
 
         if config.parent == "config":
-            for config_id in config_ids:
+            for config_row in configs:
+                config_id = _identifier(config_row, "configId")
                 rows = _get_list(session, config.path.format(configId=config_id))
+                _validate_primary_keys(rows, config.primary_keys)
                 if rows:
                     yield rows
             continue
 
-        # A config and an environment are only a valid pair when they belong to the same product,
-        # so the environments are listed per product rather than once for the account.
         environment_ids = _environment_ids(session, product_id)
-        for config_id in config_ids:
+        for config_row in configs:
+            config_id = _identifier(config_row, "configId")
+            evaluation_version = config_row.get("evaluationVersion")
+            if evaluation_version not in ("v1", "v2"):
+                raise ValueError(f"ConfigCat config {config_id} has an invalid evaluationVersion")
             for environment_id in environment_ids:
-                path = config.path.format(configId=config_id, environmentId=environment_id)
-                rows = _setting_value_rows(_get(session, path), config_id, environment_id)
+                if evaluation_version == "v1":
+                    path = f"/v1/configs/{config_id}/environments/{environment_id}/values"
+                    rows = _v1_setting_value_rows(_get(session, path), config_id, environment_id)
+                else:
+                    path = config.path.format(configId=config_id, environmentId=environment_id)
+                    rows = _setting_value_rows(_get(session, path), config_id, environment_id)
                 if rows:
                     yield rows
 

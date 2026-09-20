@@ -1,5 +1,6 @@
-from dataclasses import dataclass
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -9,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 ConfigCatParent = Literal["product", "config", "config_environment"]
 
 
-@dataclass
+@frozen
 class ConfigCatEndpointConfig:
     name: str
     path: str

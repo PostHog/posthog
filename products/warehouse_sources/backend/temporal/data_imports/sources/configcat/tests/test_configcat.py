@@ -166,9 +166,9 @@ class TestConfigCatFanOut:
     ) -> None:
         bodies = {
             "/v1/products": [{"productId": "p1"}, {"productId": "p2"}],
-            "/v1/products/p1/configs": [{"configId": "c1"}],
+            "/v1/products/p1/configs": [{"configId": "c1", "evaluationVersion": "v2"}],
             "/v1/products/p1/environments": [{"environmentId": "e1"}],
-            "/v1/products/p2/configs": [{"configId": "c2"}],
+            "/v1/products/p2/configs": [{"configId": "c2", "evaluationVersion": "v2"}],
             "/v1/products/p2/environments": [{"environmentId": "e2"}],
             "/v2/configs/c1/environments/e1/values": {
                 "settingFormulas": [{"setting": {"settingId": 7}, "defaultValue": {"boolValue": True}}]
@@ -196,11 +196,58 @@ class TestConfigCatFanOut:
     def test_setting_values_non_object_body_fails_loud(self, mock_make_session: MagicMock) -> None:
         bodies = {
             "/v1/products": [{"productId": "p1"}],
-            "/v1/products/p1/configs": [{"configId": "c1"}],
+            "/v1/products/p1/configs": [{"configId": "c1", "evaluationVersion": "v2"}],
             "/v1/products/p1/environments": [{"environmentId": "e1"}],
             "/v2/configs/c1/environments/e1/values": [],
         }
         with pytest.raises(ValueError, match="non-object values body"):
+            self._run(mock_make_session, bodies, "setting_values")
+
+    @mock.patch.object(configcat, "make_tracked_session")
+    def test_v1_setting_values_use_v1_endpoint(self, mock_make_session: MagicMock) -> None:
+        bodies = {
+            "/v1/products": [{"productId": "p1"}],
+            "/v1/products/p1/configs": [{"configId": "c1", "evaluationVersion": "v1"}],
+            "/v1/products/p1/environments": [{"environmentId": "e1"}],
+            "/v1/configs/c1/environments/e1/values": {"settingValues": [{"setting": {"settingId": 7}, "value": True}]},
+        }
+
+        rows, paths = self._run(mock_make_session, bodies, "setting_values")
+
+        assert paths[-1] == "/v1/configs/c1/environments/e1/values"
+        assert rows == [
+            {
+                "setting": {"settingId": 7},
+                "settingId": 7,
+                "value": True,
+                "configId": "c1",
+                "environmentId": "e1",
+            }
+        ]
+
+    @parameterized.expand(
+        [
+            ("non_object_row", [{"productId": "p1"}, "bad"], "non-object row"),
+            ("missing_id", [{"name": "missing id"}], "invalid productId"),
+        ]
+    )
+    @mock.patch.object(configcat, "make_tracked_session")
+    def test_malformed_fan_out_parent_fails_loud(
+        self, _name: str, products: Any, error: str, mock_make_session: MagicMock
+    ) -> None:
+        with pytest.raises(ValueError, match=error):
+            self._run(mock_make_session, {"/v1/products": products}, "configs")
+
+    @mock.patch.object(configcat, "make_tracked_session")
+    def test_malformed_setting_formula_fails_loud(self, mock_make_session: MagicMock) -> None:
+        bodies = {
+            "/v1/products": [{"productId": "p1"}],
+            "/v1/products/p1/configs": [{"configId": "c1", "evaluationVersion": "v2"}],
+            "/v1/products/p1/environments": [{"environmentId": "e1"}],
+            "/v2/configs/c1/environments/e1/values": {"settingFormulas": [{"setting": {}}]},
+        }
+
+        with pytest.raises(ValueError, match="invalid settingId"):
             self._run(mock_make_session, bodies, "setting_values")
 
     @mock.patch.object(configcat, "make_tracked_session")
