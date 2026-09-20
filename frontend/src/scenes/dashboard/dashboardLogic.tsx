@@ -3456,6 +3456,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            // Tiles still in flight when the person leaves are abandoned: the success events never
+            // fire for them, so without this they are invisible in the refresh numbers.
+            for (const [shortId, status] of Object.entries(values.refreshStatus)) {
+                if (status.loading || status.queued) {
+                    eventUsageLogic.actions.reportDashboardTileRefreshAbandoned(
+                        props.id,
+                        shortId,
+                        status.timer ? new Date().getTime() - status.timer.getTime() : 0,
+                        !!status.loading
+                    )
+                }
+            }
             cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
         },

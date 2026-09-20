@@ -2645,6 +2645,21 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
+            it('reports tiles that are still in flight when the dashboard is left', async () => {
+                const reportAbandoned = jest.spyOn(eventUsageLogic.actions, 'reportDashboardTileRefreshAbandoned')
+                const running = 'running1' as InsightShortId
+                const waiting = 'waiting1' as InsightShortId
+
+                logic.actions.setRefreshStatuses([running, waiting], false, true)
+                logic.actions.setRefreshStatus(running, true, true)
+                logic.unmount()
+
+                expect(reportAbandoned).toHaveBeenCalledWith(5, running, expect.any(Number), true)
+                expect(reportAbandoned).toHaveBeenCalledWith(5, waiting, 0, false)
+
+                logic.mount()
+            })
+
             it('manual refresh reloads all insights', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!

@@ -558,6 +558,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         insight={insight}
                                         loadingQueued={loadingQueued}
                                         loading={loading}
+                                        loadingStartedAt={refreshStatus[insight.short_id]?.timer ?? null}
                                         apiErrored={apiErrored}
                                         apiError={apiError}
                                         queryId={insight.query_status?.id}

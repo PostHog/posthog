@@ -1250,6 +1250,17 @@ export interface eventUsageLogicActions {
         ignored: boolean
         insightId: number | null
     }
+    reportDashboardTileRefreshAbandoned: (
+        dashboardId: number,
+        shortId: string,
+        elapsedMs: number,
+        wasRunning: boolean
+    ) => {
+        dashboardId: number
+        elapsedMs: number
+        shortId: string
+        wasRunning: boolean
+    }
     reportDashboardTileRefreshed: (
         dashboardId: number,
         tile: DashboardTile<QueryBasedInsightModel>,
@@ -2793,6 +2804,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             forceRefresh,
             insightsRefreshedInfo,
         }),
+        reportDashboardTileRefreshAbandoned: (
+            dashboardId: number,
+            shortId: string,
+            elapsedMs: number,
+            wasRunning: boolean
+        ) => ({
+            dashboardId,
+            shortId,
+            elapsedMs,
+            wasRunning,
+        }),
         reportDashboardTileRefreshed: (
             dashboardId: number,
             tile: DashboardTile<QueryBasedInsightModel>,
@@ -3810,6 +3832,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 tiles_refreshed_count: insightsRefreshedInfo.tilesRefreshedCount,
                 tiles_errored_count: insightsRefreshedInfo.tilesErroredCount,
                 tiles_aborted_count: insightsRefreshedInfo.tilesAbortedCount,
+            })
+        },
+        reportDashboardTileRefreshAbandoned: async ({ dashboardId, shortId, elapsedMs, wasRunning }) => {
+            posthog.capture('dashboard insight refresh abandoned', {
+                dashboard_id: dashboardId,
+                insight_short_id: shortId,
+                elapsed_ms: elapsedMs,
+                was_running: wasRunning,
             })
         },
         reportDashboardTileRefreshed: async ({

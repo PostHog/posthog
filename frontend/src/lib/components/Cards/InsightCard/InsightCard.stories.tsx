@@ -86,6 +86,43 @@ const meta: Meta<InsightCardProps> = {
 export default meta
 type Story = StoryObj<InsightCardProps>
 
+/** A tile that is waiting for a free slot, next to one whose query is running and slow. */
+export const RefreshingTiles: Story = {
+    render: () => {
+        const pendingInsight = {
+            ...EXAMPLE_TRENDS,
+            name: 'Waiting for a slot',
+            result: null,
+        } as unknown as QueryBasedInsightModel
+        const runningInsight = {
+            ...EXAMPLE_TRENDS,
+            name: 'Running for a while',
+            result: null,
+        } as unknown as QueryBasedInsightModel
+
+        return (
+            <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
+                <InsightCardComponent
+                    insight={pendingInsight}
+                    loadingQueued
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="Dashboard"
+                />
+                <InsightCardComponent
+                    insight={runningInsight}
+                    loadingQueued
+                    loading
+                    loadingStartedAt={new Date(Date.now() - 65000)}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="Dashboard"
+                />
+            </div>
+        )
+    },
+}
+
 export const InsightCard: Story = {
     render: (args) => {
         const [insightColor, setInsightColor] = useState<InsightColor | null>(null)

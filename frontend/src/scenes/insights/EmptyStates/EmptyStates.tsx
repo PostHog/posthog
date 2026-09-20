@@ -28,6 +28,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
@@ -290,15 +291,15 @@ function LoadingDetails({
     queryId,
     rowsRead,
     bytesRead,
-    secondsElapsed,
+    millisecondsElapsed,
 }: {
     pollResponse?: Record<string, QueryStatus | null> | null
     queryId?: string | null
     rowsRead: number
     bytesRead: number
-    secondsElapsed: number
+    millisecondsElapsed: number
 }): JSX.Element {
-    const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
+    const bytesPerSecond = (bytesRead / (millisecondsElapsed || 1)) * 1000
     const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
     const cpuUtilization =
         (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
@@ -307,6 +308,11 @@ function LoadingDetails({
 
     return (
         <>
+            {millisecondsElapsed >= SHOW_ELAPSED_TIME_AFTER_MS && (
+                <p className="mx-auto text-center text-xs" data-attr="insight-loading-elapsed">
+                    Running for {humanFriendlyDuration(Math.floor(millisecondsElapsed / 1000), { maxUnits: 2 })}
+                </p>
+            )}
             <p className="mx-auto text-center text-xs">
                 {rowsRead > 0 && bytesRead > 0 && (
                     <>
@@ -337,6 +343,7 @@ export function StatelessInsightLoadingState({
     setProgress,
     progress,
     renderEmptyStateAsSkeleton = false,
+    startTime,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
@@ -345,10 +352,12 @@ export function StatelessInsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
     setProgress?: (loadId: string, progress: number) => void
     progress?: number
+    /** When the query started, for callers that have no poll response to read it from. */
+    startTime?: Date | null
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
-    const [secondsElapsed, setSecondsElapsed] = useState(0)
+    const [millisecondsElapsed, setMillisecondsElapsed] = useState(0)
 
     const [loadingMessageIndex, setLoadingMessageIndex] = useState(() =>
         inStorybook() || inStorybookTestRunner() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
@@ -362,6 +371,7 @@ export function StatelessInsightLoadingState({
 
         const status = pollResponse?.status?.query_progress
         const previousStatus = pollResponse?.previousStatus?.query_progress
+        const queryStartTime = pollResponse?.status?.start_time ?? startTime
         setRowsRead(previousStatus?.rows_read || 0)
         setBytesRead(previousStatus?.bytes_read || 0)
 
@@ -374,13 +384,13 @@ export function StatelessInsightLoadingState({
                 const diff = (status?.bytes_read || 0) - (previousStatus?.bytes_read || 0)
                 return Math.min(bytesRead + diff / 30, status?.bytes_read || 0)
             })
-            setSecondsElapsed(() => {
-                return dayjs().diff(dayjs(pollResponse?.status?.start_time), 'milliseconds')
+            setMillisecondsElapsed(() => {
+                return queryStartTime ? dayjs().diff(dayjs(queryStartTime), 'milliseconds') : 0
             })
         }, 100)
 
         return () => clearInterval(interval)
-    }, [pollResponse, isPageVisible])
+    }, [pollResponse, startTime, isPageVisible])
 
     // Toggle between loading messages every 3-5 seconds
     useEffect(() => {
@@ -448,12 +458,15 @@ export function StatelessInsightLoadingState({
                     queryId={queryId}
                     rowsRead={rowsRead}
                     bytesRead={bytesRead}
-                    secondsElapsed={secondsElapsed}
+                    millisecondsElapsed={millisecondsElapsed}
                 />
             </div>
         </div>
     )
 }
+
+/** Short loads finish before a duration is worth reading, so the elapsed time only appears once one drags. */
+const SHOW_ELAPSED_TIME_AFTER_MS = 5000
 
 const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
     <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
@@ -517,19 +530,78 @@ export function SlowQuerySuggestions({
     )
 }
 
+/** Seconds since `startTime`, ticking once a second. Returns 0 when there is no start time. */
+function useSecondsSince(startTime?: Date | null): number {
+    const [seconds, setSeconds] = useState(0)
+    const { isVisible: isPageVisible } = usePageVisibility()
+
+    useEffect(() => {
+        if (!startTime) {
+            setSeconds(0)
+            return
+        }
+        const update = (): void => setSeconds(dayjs().diff(dayjs(startTime), 'second'))
+        update()
+        if (!isPageVisible) {
+            return
+        }
+        const interval = setInterval(update, 1000)
+        return () => clearInterval(interval)
+    }, [startTime, isPageVisible])
+
+    return seconds
+}
+
+/**
+ * A dashboard tile that is waiting for a free slot, not running yet. Without this the person reads a
+ * running spinner and cannot tell why the tile makes no progress.
+ */
+export function InsightQueuedState({
+    renderEmptyStateAsSkeleton = false,
+}: {
+    renderEmptyStateAsSkeleton?: boolean
+}): JSX.Element {
+    return (
+        <div
+            data-attr="insight-queued-state"
+            className={clsx('flex flex-col gap-1 rounded px-4 py-6 w-full h-full', {
+                'justify-center items-center': !renderEmptyStateAsSkeleton,
+                'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
+            })}
+        >
+            <span className={clsx('font-semibold mb-1', renderEmptyStateAsSkeleton ? 'text-start' : 'text-center')}>
+                Waiting to load
+            </span>
+            <p
+                className={clsx(
+                    'text-xs text-secondary m-0 max-w-120',
+                    renderEmptyStateAsSkeleton ? 'text-start' : 'text-center'
+                )}
+            >
+                The dashboard loads a few tiles at a time. This one starts as soon as a slot opens up.
+            </p>
+        </div>
+    )
+}
+
 export function InsightLoadingState({
     queryId,
     insightProps,
     renderEmptyStateAsSkeleton = false,
     suppressSlowQuerySuggestions = false,
+    startTime,
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
     renderEmptyStateAsSkeleton?: boolean
     suppressSlowQuerySuggestions?: boolean
+    /** When the query started. Dashboard tiles load outside dataNodeLogic, so they keep their own timer. */
+    startTime?: Date | null
 }): JSX.Element {
     const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
+    const secondsSinceStartTime = useSecondsSince(startTime)
+    const loadingTimeSeconds = Math.max(insightLoadingTimeSeconds ?? 0, secondsSinceStartTime)
 
     const personsOnEventsMode =
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
@@ -538,7 +610,8 @@ export function InsightLoadingState({
         <StatelessInsightLoadingState
             queryId={queryId}
             pollResponse={insightPollResponse}
-            loadingTimeSeconds={insightLoadingTimeSeconds}
+            loadingTimeSeconds={loadingTimeSeconds}
+            startTime={startTime}
             renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={
                 suppressSlowQuerySuggestions ? (
@@ -549,7 +622,7 @@ export function InsightLoadingState({
                         <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
                     </div>
                 ) : (
-                    <SlowQuerySuggestions insightProps={insightProps} loadingTimeSeconds={insightLoadingTimeSeconds} />
+                    <SlowQuerySuggestions insightProps={insightProps} loadingTimeSeconds={loadingTimeSeconds} />
                 )
             }
         />

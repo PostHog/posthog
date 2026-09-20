@@ -14,6 +14,7 @@ import {
     InsightEmptyState,
     InsightErrorState,
     InsightLoadingState,
+    InsightQueuedState,
     InsightRefreshDataHint,
     InsightTimeoutState,
     InsightValidationError,
@@ -82,18 +83,25 @@ function DashboardInsightRefreshHintOrLoading({
     context?: QueryContext<InsightVizNode>
     onRetry: () => void
 }): JSX.Element {
-    const { itemsLoading, isRefreshingQueued, isRefreshing } = useValues(dashboardLogic({ id: dashboardId }))
+    const { itemsLoading, isRefreshingQueued, isRefreshing, refreshStatus } = useValues(
+        dashboardLogic({ id: dashboardId })
+    )
     const shortId =
         dashboardItemId && typeof dashboardItemId === 'string' && !dashboardItemId.startsWith('new')
             ? dashboardItemId
             : null
-    const tilePending = shortId !== null && (isRefreshingQueued(shortId) || isRefreshing(shortId))
-    if (itemsLoading || tilePending) {
+    const tileQueued = shortId !== null && isRefreshingQueued(shortId)
+    const tileRunning = shortId !== null && isRefreshing(shortId)
+    if (tileQueued && !tileRunning && !itemsLoading) {
+        return <InsightQueuedState renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton} />
+    }
+    if (itemsLoading || tileQueued) {
         return (
             <InsightLoadingState
                 queryId={queryId}
                 key={queryId}
                 insightProps={insightProps}
+                startTime={shortId !== null ? (refreshStatus[shortId]?.timer ?? null) : null}
                 renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
                 suppressSlowQuerySuggestions
             />
