@@ -25,6 +25,7 @@ ask for each piece.
 | `posthog:execute-sql`                      | Query events, errors, and page views in session          |
 | `posthog:query-error-tracking-issues-list` | Find error tracking issues linked to the session         |
 | `posthog:vision-observations-list`         | Check for an existing Replay Vision AI summary           |
+| `posthog:vision-observations-retrieve`     | Read one observation in full (`scanner_result`)          |
 | `posthog:vision-scanners-list`             | Find summarizer scanners (`scanner_type=summarizer`)     |
 | `posthog:vision-scanners-scan-session`     | Run a summarizer scanner on the session (slow, optional) |
 | `posthog:vision-scanners-create`           | Create a temporary summarizer scanner (ask first)        |
@@ -176,10 +177,22 @@ a scanner can only observe a given session once.
    }
    ```
 
-   Look for an observation where `scanner_snapshot.scanner_type` is `summarizer`
-   and `status` is `succeeded`. If found, read `scanner_result.model_output`
-   (`title`, `summary`, `intent`, `outcome`, `friction_points`, `keywords`) — done,
-   no new scan needed.
+   Each row carries only `id`, `session_id`, `status`, `summary_line`,
+   `created_at`, `scanner_id` and the recording URL. Use it to find the
+   observation, not to read it.
+
+   Retrieve each `succeeded` row, newest first, until one returns
+   `scanner_snapshot.scanner_type` `summarizer`:
+
+   ```json
+   posthog:vision-observations-retrieve
+   {
+     "id": "<observation_id>"
+   }
+   ```
+
+   Read that observation's `scanner_result.model_output` (`title`, `summary`,
+   `intent`, `outcome`, `friction_points`, `keywords`) — done, no new scan needed.
 
 2. **Find a summarizer scanner** if none exists yet:
 
@@ -207,7 +220,8 @@ a scanner can only observe a given session once.
    ```
 
 4. **Retrieve the result** by polling `vision-observations-list` (step 1) until
-   the new observation reaches `succeeded`.
+   the new observation reaches `succeeded`, then call
+   `vision-observations-retrieve` with its `id` to read the result.
 
 ### No summarizer scanner? Run a temporary one
 
@@ -245,8 +259,8 @@ with a throwaway scanner — but **ask the user's permission before creating any
    }
    ```
 
-   Poll `vision-observations-list` until the observation reaches `succeeded` and
-   read `scanner_result.model_output`.
+   Poll `vision-observations-list` until the observation reaches `succeeded`, then
+   read `scanner_result.model_output` from `vision-observations-retrieve`.
 
 4. **Ask whether to keep or delete the scanner.** Once you have the observation,
    ask the user if they want to keep the temporary scanner or delete it with

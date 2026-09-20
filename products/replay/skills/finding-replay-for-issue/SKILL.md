@@ -24,6 +24,7 @@ or duplicate occurrences. This skill picks the most useful one.
 | `posthog:query-session-recordings-list` | Fetch recording metadata for candidate sessions            |
 | `posthog:session-recording-get`         | Get full details for the selected recording                |
 | `posthog:vision-observations-list`      | Check for an existing Replay Vision AI summary             |
+| `posthog:vision-observations-retrieve`  | Read one observation in full (`scanner_result`)            |
 | `posthog:vision-scanners-list`          | Find summarizer scanners (`scanner_type=summarizer`)       |
 | `posthog:vision-scanners-scan-session`  | Run a summarizer scanner on the recording (optional, slow) |
 
@@ -132,8 +133,21 @@ If the user wants a narrative summary without watching, use Replay Vision —
    }
    ```
 
-   If an observation has `scanner_snapshot.scanner_type` `summarizer` and
-   `status` `succeeded`, read `scanner_result.model_output` (`title`, `summary`,
+   Each row carries only `id`, `session_id`, `status`, `summary_line`,
+   `created_at`, `scanner_id` and the recording URL. Use it to find the
+   observation, not to read it.
+
+   Retrieve each `succeeded` row, newest first, until one returns
+   `scanner_snapshot.scanner_type` `summarizer`:
+
+   ```json
+   posthog:vision-observations-retrieve
+   {
+     "id": "<observation_id>"
+   }
+   ```
+
+   Read that observation's `scanner_result.model_output` (`title`, `summary`,
    `intent`, `outcome`, `friction_points`, `keywords`) — done.
 
 2. **Find a summarizer scanner** if none exists:
@@ -158,7 +172,9 @@ If the user wants a narrative summary without watching, use Replay Vision —
    }
    ```
 
-4. **Retrieve** by polling `vision-observations-list` until `succeeded`.
+4. **Retrieve** by polling `vision-observations-list` until the new row reaches
+   `succeeded`, then call `vision-observations-retrieve` with its `id` to read
+   `scanner_result.model_output`.
 
 ## Tips
 
