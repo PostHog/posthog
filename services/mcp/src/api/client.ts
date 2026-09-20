@@ -25,7 +25,6 @@ import type {
     ResolvedMetricEntry,
 } from '@/schema/experiments'
 import { buildMetricEntries, ExperimentExposureQuerySchema } from '@/schema/experiments'
-import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
 
@@ -1190,35 +1189,10 @@ export class ApiClient {
                     params.set('filters_override', filters_override)
                 }
 
-                // Check if insightId is a short_id (8 character alphanumeric string)
-                // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
-                if (isShortId(insightId)) {
-                    // The list endpoint accepts ?short_id=... and runs the same
-                    // InsightSerializer.to_representation, which applies
-                    // variables_override / filters_override from query_params. So
-                    // short_id resolution + override application happen in one hop.
-                    params.set('short_id', insightId)
-                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${params}`
-
-                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
-
-                    if (!result.success) {
-                        return result
-                    }
-
-                    const insights = result.data.results
-                    const insight = insights[0]
-
-                    if (insights.length === 0 || !insight) {
-                        return {
-                            success: false,
-                            error: new Error(`No insight found with short_id: ${insightId}`),
-                        }
-                    }
-
-                    return { success: true, data: insight }
-                }
-
+                // The retrieve endpoint resolves either form: it reads a purely numeric
+                // value as the primary key, then falls back to `short_id`. It runs the same
+                // InsightSerializer.to_representation as the list endpoint, so
+                // variables_override / filters_override apply here too.
                 const queryString = params.toString() ? `?${params}` : ''
                 return this.fetchJson<Schemas.Insight>(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
