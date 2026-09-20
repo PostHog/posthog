@@ -4,15 +4,17 @@ BATCH_SIZE = 1000
 
 # Reruns skip rows the previous batch already filled, so an interrupted backfill resumes.
 # Targets and statuses that predate their content keys resolve the way the readers used to
-# resolve a missing key: generation, and completed.
+# resolve a missing key: generation, and completed. The metrics mirror merges with content
+# winning, the way the reader used to merge the two, because the oldest rows hold a mirror
+# that predates the content key and can be a different shape.
 BACKFILL_BATCH = """
     UPDATE llm_analytics_evaluationreportrun
     SET title = COALESCE(content ->> 'title', ''),
         evaluation_target = COALESCE(NULLIF(content ->> 'evaluation_target', ''), 'generation'),
         generation_status = COALESCE(NULLIF(content ->> 'generation_status', ''), 'completed'),
         metadata = CASE
-            WHEN metadata = '{}'::jsonb AND jsonb_typeof(content -> 'metrics') = 'object'
-            THEN content -> 'metrics'
+            WHEN jsonb_typeof(content -> 'metrics') = 'object'
+            THEN metadata || (content -> 'metrics')
             ELSE metadata
         END
     WHERE id IN (
@@ -43,5 +45,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(backfill, migrations.RunPython.noop, elidable=True),
+        # Not elidable: a squash that dropped it would add the columns to a database still on
+        # 0050 and leave every existing row unreadable to the report agent.
+        migrations.RunPython(backfill, migrations.RunPython.noop),
     ]

@@ -299,10 +299,19 @@ class TestBackfillReportRunIndexColumns(BaseTest):
             period_start=now - dt.timedelta(hours=2),
             period_end=now - dt.timedelta(hours=1),
         )
+        # A mirror that predates `content.metrics` and holds keys the content does not.
+        partial = EvaluationReportRun.objects.create(
+            report=report,
+            content={"title": "Partial", "metrics": {"total_runs": 9}},
+            metadata={"total_runs": 2, "legacy_key": "kept"},
+            period_start=now - dt.timedelta(days=4),
+            period_end=now - dt.timedelta(days=3),
+        )
 
         self._run_backfill()
         legacy.refresh_from_db()
         tagged.refresh_from_db()
+        partial.refresh_from_db()
 
         self.assertEqual(
             (legacy.title, legacy.evaluation_target, legacy.generation_status), ("Legacy", "generation", "completed")
@@ -313,3 +322,4 @@ class TestBackfillReportRunIndexColumns(BaseTest):
             ("Tagged", "trace", "metrics_unavailable"),
         )
         self.assertEqual(tagged.metadata, {"total_runs": 7})
+        self.assertEqual(partial.metadata, {"total_runs": 9, "legacy_key": "kept"})
