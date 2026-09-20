@@ -1207,6 +1207,117 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestErrorTrackingQueryRunner.test_volume_aggregation_counts_only_0_optimized
+  '''
+  SELECT fp_state.issue_id AS id,
+         any(fp_state.issue_status) AS status,
+         any(fp_state.issue_severity) AS severity,
+         any(fp_state.issue_name) AS name,
+         any(fp_state.issue_description) AS description,
+         any(fp_state.assigned_user_id) AS assignee_user_id,
+         any(fp_state.assigned_role_id) AS assignee_role_id,
+         min(fp_state.first_seen) AS first_seen,
+         max(ev.last_seen_fp) AS last_seen,
+         argMaxMerge(ev.function_state) AS function,
+         argMaxMerge(ev.source_state) AS source,
+         sum(ev.occ) AS occurrences,
+         least(uniqMerge(ev.sessions_state), sum(ev.occ)) AS sessions,
+         least(uniqMerge(ev.users_state), sum(ev.occ)) AS users,
+         argMaxMerge(ev.library_state) AS library
+  FROM
+    (SELECT cityHash64(JSONExtractString(e.properties, '$exception_fingerprint')) AS fp_hash,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen_fp,
+            argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function_state,
+            argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
+            argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library_state,
+            count() AS occ,
+            uniqState(nullIf(e.`$session_id`, '')) AS sessions_state,
+            uniqState(coalesce(nullIf(toString(e.person_id), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users_state
+     FROM events AS e
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY fp_hash) AS ev
+  INNER JOIN
+    (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_severity), error_tracking_fingerprint_issue_state.version), 1)) AS issue_severity,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
+     FROM error_tracking_fingerprint_issue_state
+     WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
+     GROUP BY fp_hash
+     HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
+  WHERE isNotNull(fp_state.issue_id)
+  GROUP BY id
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunner.test_volume_aggregation_counts_only_1_legacy
+  '''
+  SELECT e__fingerprint_issue_state.issue_id AS id,
+         any(e__fingerprint_issue_state.issue_status) AS status,
+         any(e__fingerprint_issue_state.issue_severity) AS severity,
+         any(e__fingerprint_issue_state.issue_name) AS name,
+         any(e__fingerprint_issue_state.issue_description) AS description,
+         any(e__fingerprint_issue_state.assigned_user_id) AS assignee_user_id,
+         any(e__fingerprint_issue_state.assigned_role_id) AS assignee_role_id,
+         max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+         min(e__fingerprint_issue_state.first_seen) AS first_seen,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+         count() AS occurrences,
+         least(uniq(nullIf(e.`$session_id`, '')), count()) AS sessions,
+         least(uniq(coalesce(nullIf(toString(e.person_id), '00000000-0000-0000-0000-000000000000'), e.distinct_id)), count()) AS users,
+         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+  FROM events AS e
+  LEFT OUTER JOIN
+    (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_severity), error_tracking_fingerprint_issue_state.version), 1)) AS issue_severity,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
+     FROM error_tracking_fingerprint_issue_state
+     WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
+     GROUP BY fp_hash
+     HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), e__fingerprint_issue_state.fp_hash)
+  WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(e__fingerprint_issue_state.issue_id), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(e__fingerprint_issue_state.issue_name, 'TypeError'), 0))
+  GROUP BY id
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
 # name: TestErrorTrackingQueryRunner.test_volume_aggregation_simple
   '''
   SELECT fp_state.issue_id AS id,

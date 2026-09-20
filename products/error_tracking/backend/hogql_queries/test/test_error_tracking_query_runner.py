@@ -1331,6 +1331,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @parameterized.expand([("optimized", False, 3), ("legacy", True, 1)])
     @time_machine.travel("2020-01-12", tick=False)
+    @snapshot_clickhouse_queries
     def test_volume_aggregation_counts_only(self, _name, use_issue_filter, expected_count):
         # Regression test: volumeResolution=0 (counts only) used to build
         # bin expressions that divide by zero. An issue-level filter routes the
