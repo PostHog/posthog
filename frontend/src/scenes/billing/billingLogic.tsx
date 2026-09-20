@@ -650,6 +650,7 @@ export interface billingLogicMeta {
         startupProgramLabelPrevious: (billing: BillingType | null) => StartupProgramLabel | null
         isAnnualPlanCustomer: (billing: BillingType | null) => boolean
         isProductAtOrOverUsageLimit: (billing: BillingType | null) => (productKey: ProductKey) => boolean
+        productsAtOrOverUsageLimit: (billing: BillingType | null) => BillingProductV2Type[]
         billingPeriodUTC: (billing: BillingType | null) => BillingPeriod
         showBillingSummary: (billing: BillingType | null, isOnboarding: boolean) => boolean
         showCreditCTAHero: (creditOverview: {
