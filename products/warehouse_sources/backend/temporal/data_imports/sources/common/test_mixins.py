@@ -10,6 +10,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.temporal.common.errors import NonReportableError
 
@@ -306,14 +307,14 @@ class TestValidateDatabaseHostMixin(SimpleTestCase):
         assert valid
 
 
-@dataclass
+@frozen
 class FakeSSHTunnelAuthConfig:
     type: str | None = "password"
     username: str | None = "user"
     password: str | None = "pass"
 
 
-@dataclass
+@frozen
 class FakeSSHTunnelConfig:
     enabled: bool
     host: str
