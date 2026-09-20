@@ -668,6 +668,15 @@ export interface sessionRecordingsPlaylistLogicActions {
     setIsFiltersExpanded: (isFiltersExpanded: boolean) => {
         isFiltersExpanded: boolean
     } // playlistFiltersLogic
+    reportRecordingsListFetchFailed: (
+        failure: RecordingsListLoadError,
+        isFirstPage: boolean,
+        source?: string | undefined
+    ) => {
+        failure: RecordingsListLoadError
+        isFirstPage: boolean
+        source: string | undefined
+    } // sessionRecordingEventUsageLogic
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
@@ -687,15 +696,6 @@ export interface sessionRecordingsPlaylistLogicActions {
             isFirstPage: boolean
             resultCount: number
         }
-        source: string | undefined
-    } // sessionRecordingEventUsageLogic
-    reportRecordingsListFetchFailed: (
-        failure: RecordingsListLoadError,
-        isFirstPage: boolean,
-        source?: string | undefined
-    ) => {
-        failure: RecordingsListLoadError
-        isFirstPage: boolean
         source: string | undefined
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {

@@ -114,6 +114,15 @@ export interface sessionRecordingEventUsageLogicActions {
     reportRecordingPlaylistCreated: (source: 'duplicate' | 'filters' | 'new' | 'pin') => {
         source: 'duplicate' | 'filters' | 'new' | 'pin'
     }
+    reportRecordingsListFetchFailed: (
+        failure: RecordingsListLoadError,
+        isFirstPage: boolean,
+        source?: string
+    ) => {
+        failure: RecordingsListLoadError
+        isFirstPage: boolean
+        source: string | undefined
+    }
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
@@ -133,15 +142,6 @@ export interface sessionRecordingEventUsageLogicActions {
             isFirstPage: boolean
             resultCount: number
         }
-        source: string | undefined
-    }
-    reportRecordingsListFetchFailed: (
-        failure: RecordingsListLoadError,
-        isFirstPage: boolean,
-        source?: string
-    ) => {
-        failure: RecordingsListLoadError
-        isFirstPage: boolean
         source: string | undefined
     }
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
