@@ -33,10 +33,12 @@ from posthog.models.group_type_mapping import (
     update_group_type_mapping_fields,
 )
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -3981,6 +3983,42 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("already exists", response.json()["error"])
+
+    @parameterized.expand(
+        [
+            (
+                "create_from_template_json",
+                "/api/projects/%s/dashboards/create_from_template_json",
+                {"template": valid_template},
+                status.HTTP_200_OK,
+            ),
+            (
+                "create_unlisted_dashboard",
+                "/api/environments/%s/dashboards/create_unlisted_dashboard/",
+                {"tag": "llm-analytics"},
+                status.HTTP_201_CREATED,
+            ),
+        ]
+    )
+    def test_template_creation_accepts_dashboard_write_scope(
+        self, _name: str, url_template: str, payload: dict, expected_status: int
+    ) -> None:
+        url = url_template % self.team.id
+        self.client.logout()
+
+        write_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="write", user=self.user, secure_value=hash_key_value(write_key), scopes=["dashboard:write"]
+        )
+        response = self.client.post(url, payload, format="json", headers={"Authorization": f"Bearer {write_key}"})
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+        read_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="read-only", user=self.user, secure_value=hash_key_value(read_key), scopes=["dashboard:read"]
+        )
+        response = self.client.post(url, payload, format="json", headers={"Authorization": f"Bearer {read_key}"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
 
     def test_filter_dashboards_by_creation_mode(self):
         """Test that dashboards can be filtered by creation_mode query param"""
