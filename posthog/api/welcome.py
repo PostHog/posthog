@@ -257,7 +257,7 @@ def _probe_latest_activity_id(
             scope__in=_RECENT_ACTIVITY_SCOPES,
             created_at__gte=since,
             is_system=False,
-            was_impersonated=False,  # matches idx_alog_team_scope_created partial index predicate
+            was_impersonated=False,
         )
         .order_by("-created_at")
         .values_list("id", flat=True)
@@ -403,8 +403,6 @@ def _get_recent_activity(team_ids: list[int], since: datetime) -> list[dict[str,
         return []
 
     # Over-fetch to leave room for de-duping noisy autosave rows on the same entity.
-    # Filters match the idx_alog_team_scope_created partial index predicate (is_system=False AND
-    # was_impersonated=False) so the planner can use it on team_id__in lookups.
     raw_rows = list(
         ActivityLog.objects.filter(
             team_id__in=team_ids,

@@ -100,8 +100,7 @@ RECENT_ENTITY_LIMIT = 5
 # Recent activity window — 14d captures weekly cadence (sprints, weekly reviews) and
 # bi-weekly iterations without drowning in stale edits. 20 distinct scopes is more
 # than any team realistically touches in two weeks; the long tail beyond that is
-# noise. The query hits the partial index `idx_alog_team_scope_created` whose
-# condition (`was_impersonated=False AND is_system=False`) matches the filter.
+# noise.
 RECENT_ACTIVITY_WINDOW_DAYS = 14
 RECENT_ACTIVITY_LIMIT = 20
 
@@ -752,10 +751,7 @@ def _recent_activity(team: Team) -> dict[str, Any]:
     user count, so a single power-user looping is distinguishable from broad team
     activity. `last_edit` lets the agent sort/skim by recency as well as volume.
 
-    The filter matches the partial index `idx_alog_team_scope_created` exactly — both
-    sides use `was_impersonated=False AND is_system=False`, so this is a single cheap
-    aggregate even on busy teams. Rows where either flag is NULL are intentionally
-    skipped; the index treats them as not-real-user-activity, and we follow.
+    Rows where either flag is NULL are intentionally skipped: not real user activity.
     """
     cutoff = timezone.now() - timedelta(days=RECENT_ACTIVITY_WINDOW_DAYS)
     rows = (
@@ -794,9 +790,8 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
     precedent a scout can route by, so it's surfaced directly in the profile —
     an ORM read, deliberately not the activity-log API (premium-gated on cloud),
     so every scout sees it regardless of the org's plan. The impersonation/system
-    filter matches the partial index `idx_alog_team_scp_act_crtd` (both flags
-    required False) and keeps support-staff edits out of the team's routing
-    precedent — the write path records `was_impersonated`, so such rows do exist.
+    filter keeps support-staff edits out of the team's routing precedent — the write
+    path records `was_impersonated`, so such rows do exist.
     """
     cutoff = timezone.now() - timedelta(days=REVIEWER_CORRECTIONS_WINDOW_DAYS)
     rows = ActivityLog.objects.filter(
