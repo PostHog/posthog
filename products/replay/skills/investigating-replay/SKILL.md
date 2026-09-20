@@ -199,9 +199,9 @@ a scanner can only observe a given session once.
    existing observation instead of a fresh result:
 
    - `pending` or `running` — a scan is already in flight. Poll it as in step 4.
-   - `failed` or `ineligible` — retrieve the row and tell the user why it produced
-     nothing. That scanner cannot scan the session again; only a different
-     summarizer scanner can.
+   - `failed` or `ineligible` — report the row's `summary_line`, and the
+     `error_reason` from the retrieved row when it is set. That scanner cannot
+     scan the session again; only a different summarizer scanner can.
 
    Go on to step 2 only when no summarizer scanner has observed the session.
 
@@ -234,9 +234,9 @@ a scanner can only observe a given session once.
    the new observation reaches a terminal `status` — `succeeded`, `failed` or
    `ineligible`. Stop polling on any of the three; only `pending` and `running`
    mean the scan is still in flight. Then call `vision-observations-retrieve` with
-   that observation `id` and read `scanner_result.model_output` on success, or
-   `error_reason` on `failed` or `ineligible`. Report a terminal non-success to
-   the user rather than waiting for a result that will not arrive.
+   that observation `id` and read `scanner_result.model_output` on success. On
+   `failed` or `ineligible`, report the `summary_line` and the `error_reason` when
+   it is set, rather than waiting for a result that will not arrive.
 
 ### No summarizer scanner? Run a temporary one
 
@@ -277,7 +277,8 @@ with a throwaway scanner — but **ask the user's permission before creating any
    Poll `vision-observations-list` until the observation reaches a terminal
    `status` (`succeeded`, `failed` or `ineligible`), then call
    `vision-observations-retrieve` with that observation `id` and read
-   `scanner_result.model_output` on success, or `error_reason` otherwise.
+   `scanner_result.model_output` on success. On `failed` or `ineligible`, report
+   the `summary_line` and the `error_reason` when it is set.
 
 4. **Ask whether to keep or delete the scanner.** Once you have the observation,
    ask the user if they want to keep the temporary scanner or delete it with

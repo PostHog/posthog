@@ -148,9 +148,9 @@ If the user wants a narrative summary without watching, use Replay Vision —
    existing observation instead of a fresh result:
 
    - `pending` or `running` — a scan is already in flight. Poll it as in step 4.
-   - `failed` or `ineligible` — retrieve the row and tell the user why it produced
-     nothing. That scanner cannot scan the session again; only a different
-     summarizer scanner can.
+   - `failed` or `ineligible` — report the row's `summary_line`, and the
+     `error_reason` from the retrieved row when it is set. That scanner cannot
+     scan the session again; only a different summarizer scanner can.
 
    Go on to step 2 only when no summarizer scanner has observed the session.
 
@@ -179,8 +179,9 @@ If the user wants a narrative summary without watching, use Replay Vision —
 4. **Retrieve** by polling `vision-observations-list` until the observation
    reaches a terminal `status` — `succeeded`, `failed` or `ineligible` — then call
    `vision-observations-retrieve` with that observation `id`. Read
-   `scanner_result.model_output` on success, or `error_reason` otherwise, and tell
-   the user when the scan produced no summary.
+   `scanner_result.model_output` on success. On `failed` or `ineligible`, tell the
+   user the scan produced no summary, with the `summary_line` and the
+   `error_reason` when it is set.
 
 ## Tips
 
