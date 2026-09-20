@@ -4,10 +4,13 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import httpx
+from openai import BadRequestError
 from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.report_agent import graph
+from posthog.temporal.ai_observability.eval_reports.report_agent.context_window import trim_agent_messages
 from posthog.temporal.ai_observability.eval_reports.report_agent.graph import (
     _append_references_section,
     _fallback_content,
@@ -23,6 +26,23 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 from posthog.temporal.ai_observability.eval_reports.targets import SESSION_ID_ALLOWLIST_KEY, TRACE_ID_ALLOWLIST_KEY
 from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
+
+
+def _agent_input() -> RunEvalReportAgentInput:
+    return RunEvalReportAgentInput(
+        team_id=1,
+        report_id="report-1",
+        trace_id="report-run-1",
+        session_id="report-session-1",
+        evaluation_id="eval-1",
+        evaluation_name="Relevance",
+        evaluation_description="",
+        evaluation_prompt="",
+        evaluation_type="llm_judge",
+        period_start="2026-04-08T14:00:00+00:00",
+        period_end="2026-04-08T15:00:00+00:00",
+        previous_period_start="2026-04-08T13:00:00+00:00",
+    )
 
 
 class TestSystemPromptFormat(SimpleTestCase):
@@ -639,3 +659,100 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
             trace_id="report-run-1",
             session_id="report-session-1",
         )
+
+    @patch.object(graph.logger, "exception")
+    @patch.object(graph, "build_langchain_callbacks", return_value=[])
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_flex_first_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_error_log_preserves_the_upstream_rejection_detail(
+        self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks, mock_logger_exception
+    ) -> None:
+        mock_metrics.return_value = EvalReportMetrics()
+        request = httpx.Request("POST", "https://gateway.invalid/chat/completions")
+        mock_create_agent.return_value.invoke.side_effect = BadRequestError(
+            "Request too large",
+            response=httpx.Response(400, request=request),
+            body={"code": "context_length_exceeded", "param": "messages", "type": "invalid_request_error"},
+        )
+
+        graph.run_eval_report_agent(_agent_input())
+
+        logged = mock_logger_exception.call_args.kwargs
+        self.assertEqual(logged["upstream_status"], 400)
+        self.assertEqual(logged["upstream_code"], "context_length_exceeded")
+        self.assertEqual(logged["upstream_param"], "messages")
+        self.assertEqual(logged["upstream_type"], "invalid_request_error")
+        self.assertEqual(logged["upstream_message"], "Request too large")
+
+
+class TestRunEvalReportAgentPartialRecovery(SimpleTestCase):
+    """A run that fails late still ships the analysis it finished.
+
+    The output tools build `state["report"]` in place, so the sections written before the
+    failure survive the exception. Without this the run discards them for a stub report.
+    """
+
+    @patch.object(graph, "build_langchain_callbacks", return_value=[])
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_flex_first_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_sections_written_before_the_failure_are_kept(
+        self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks
+    ) -> None:
+        mock_metrics.return_value = EvalReportMetrics()
+
+        def write_then_fail(state, _config):
+            state["report"].title = "Pass rate held at 92%"
+            state["report"].sections.append(ReportSection(title="Summary", content="A real finding."))
+            raise RuntimeError("agent failed")
+
+        mock_create_agent.return_value.invoke.side_effect = write_then_fail
+
+        content = graph.run_eval_report_agent(_agent_input())
+
+        self.assertEqual(content.title, "Pass rate held at 92%")
+        self.assertEqual(content.sections[0].content, "A real finding.")
+        self.assertEqual(content.sections[-1].title, "Report ended early")
+
+    @patch.object(graph, "build_langchain_callbacks", return_value=[])
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_flex_first_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_failure_before_any_section_still_falls_back(
+        self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks
+    ) -> None:
+        mock_metrics.return_value = EvalReportMetrics()
+        mock_create_agent.return_value.invoke.side_effect = RuntimeError("agent failed")
+
+        content = graph.run_eval_report_agent(_agent_input())
+
+        self.assertIn("Automated fallback report", content.title)
+
+
+class TestRunEvalReportAgentContextBudget(SimpleTestCase):
+    """The agent caps its own prompt.
+
+    Without the hook the message history grows with every tool result until the provider
+    rejects the call, which is how a report run loses its final generation.
+    """
+
+    @patch.object(graph, "build_langchain_callbacks", return_value=[])
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_flex_first_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_agent_trims_its_prompt_before_every_model_call(
+        self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks
+    ) -> None:
+        mock_metrics.return_value = EvalReportMetrics()
+        mock_create_agent.return_value.invoke.return_value = {
+            "report": EvalReportContent(
+                title="A report",
+                sections=[ReportSection(title="Summary", content="A finding.")],
+                metrics=EvalReportMetrics(),
+            )
+        }
+
+        graph.run_eval_report_agent(_agent_input())
+
+        self.assertIs(mock_create_agent.call_args.kwargs["pre_model_hook"], trim_agent_messages)

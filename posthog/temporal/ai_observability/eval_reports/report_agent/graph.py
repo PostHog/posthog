@@ -8,9 +8,11 @@ import structlog
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import create_react_agent
+from openai import APIStatusError
 
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.report_agent.context_window import trim_agent_messages
 from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -221,6 +223,56 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
     return None
 
 
+def _upstream_error_fields(error: Exception) -> dict[str, Any]:
+    """Return the provider's own description of a rejected call, for the agent error log.
+
+    A provider 400 says exactly which field it refused, but the exception string on its own
+    does not carry it, so a rejected call is otherwise undiagnosable after the fact.
+    """
+    if not isinstance(error, APIStatusError):
+        return {}
+    return {
+        "upstream_status": error.status_code,
+        "upstream_code": error.code,
+        "upstream_param": error.param,
+        "upstream_type": error.type,
+        "upstream_message": error.message[:1000],
+    }
+
+
+def _partial_content(
+    state: dict[str, Any],
+    metrics: EvalReportMetrics,
+    evaluation_target: str,
+) -> EvalReportContent | None:
+    """Return what the agent finished before it failed, or None if that is not shippable.
+
+    The output tools build `state["report"]` in place, so the sections written before the
+    failure survive the exception. Shipping those beats a stub that discards the whole run,
+    but only once they clear the same validation a completed run has to clear.
+    """
+    content = state.get("report")
+    if not isinstance(content, EvalReportContent):
+        return None
+
+    content.evaluation_target = evaluation_target
+    content.metrics = metrics
+    if _validate_agent_output(content, _handled_ids(state)) is not None:
+        return None
+
+    content.sections.append(
+        ReportSection(
+            title="Report ended early",
+            content=(
+                "This report stopped early, so the analysis above may not cover the whole period. "
+                "The metrics are complete: they are computed directly, not written by the agent."
+            ),
+        )
+    )
+    _append_references_section(content)
+    return content
+
+
 def run_eval_report_agent(
     inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
@@ -301,6 +353,7 @@ def run_eval_report_agent(
         tools=get_eval_report_tools(evaluation_target, inputs.output_type),
         prompt=system_prompt,
         state_schema=EvalReportAgentState,
+        pre_model_hook=trim_agent_messages,
     )
 
     # Seed the report with the computed metrics so they're available to the agent
@@ -385,7 +438,6 @@ def run_eval_report_agent(
         return content
 
     except Exception as e:
-        increment_report_generated("fallback_error")
         increment_errors(f"agent_{type(e).__name__}")
 
         logger.exception(
@@ -396,7 +448,15 @@ def run_eval_report_agent(
             evaluation_id=inputs.evaluation_id,
             trace_id=resolved_trace_id,
             session_id=resolved_session_id,
+            **_upstream_error_fields(e),
         )
+
+        partial = _partial_content(initial_state, metrics, evaluation_target)
+        if partial is not None:
+            increment_report_generated("partial")
+            return partial
+
+        increment_report_generated("fallback_error")
         return _fallback_content(
             inputs.evaluation_name,
             metrics,
