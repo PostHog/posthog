@@ -20,6 +20,7 @@ import {
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CanvasPreviewFrame } from "@posthog/ui/features/canvas/components/CanvasPreviewFrame";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { useCanvasTemplates } from "@posthog/ui/features/canvas/hooks/useCanvasTemplates";
@@ -190,7 +191,7 @@ const DashboardCard = memo(function DashboardCard({
         }
       >
         <Card className="gap-0 overflow-hidden p-0">
-          <PreviewFrame />
+          <PreviewFrame dashboardId={summary.id} />
           <CardContent className="flex flex-col gap-1 p-3">
             <div className="flex items-center justify-between gap-2">
               <Text size="sm" weight="medium" className="min-w-0 truncate">
@@ -232,14 +233,16 @@ const DashboardCard = memo(function DashboardCard({
   );
 });
 
-// The card's preview frame. Canvas records no longer carry source code — the
-// rendered output is the published build's artifact, wired up separately — so
-// the grid shows a stable placeholder frame instead of a live per-card render.
-function PreviewFrame() {
+/**
+ * The card's preview: the canvas's own published output, scaled into the
+ * frame. It had been a placeholder since the rendered output moved into a
+ * build artifact and nothing was wired back up to it.
+ */
+function PreviewFrame({ dashboardId }: { dashboardId: string }) {
   return (
-    <Box className="relative h-44 overflow-hidden border-border border-b bg-muted">
-      <PreviewPlaceholder label="Canvas preview" />
-    </Box>
+    <div className="relative h-44 overflow-hidden border-border border-b bg-muted">
+      <CanvasPreviewFrame dashboardId={dashboardId} className="h-full w-full" />
+    </div>
   );
 }
 
@@ -319,19 +322,5 @@ function DashboardCardMenu({
         </DropdownMenuContent>
       </DropdownMenu>
     </Box>
-  );
-}
-
-function PreviewPlaceholder({ label }: { label: string }) {
-  return (
-    <Flex
-      align="center"
-      justify="center"
-      className="absolute inset-0 text-center"
-    >
-      <Text size="xs" variant="muted">
-        {label}
-      </Text>
-    </Flex>
   );
 }
