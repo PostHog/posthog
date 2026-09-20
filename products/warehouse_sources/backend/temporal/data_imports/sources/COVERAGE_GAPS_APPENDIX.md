@@ -1723,14 +1723,14 @@ Note: Coda has been rebranded to Superhuman Docs, but the OpenAPI spec is still 
 
 ## Codacy — **thin**
 
-Today (6): `commits`, `files`, `issues`, `organizations`, `pull_requests`, `repositories`
+Today (11): `commit_delta_issues`, `commits`, `files`, `issues`, `metrics_timerange`, `organizations`, `people`, `pull_requests`, `repositories`, `tool_patterns`, `tools`
 
 Diffed against: <https://api.codacy.com/api/api-docs/swagger.yaml>
 
-- [ ] `/organizations/{provider}/{org}/people` — Org member lookup resolving the author identities attached to the commits and pull requests already synced (high)
-- [ ] `/tools and /tools/{toolUuid}/patterns` — Lookup that resolves the toolUuid and patternId every synced issue carries - without it issues cannot be grouped by rule or linter (high)
-- [ ] `/analysis/organizations/{provider}/{org}/repositories/{repo}/commits/{commitUuid}/deltaStatistics and /commits/{srcCommitUuid}/deltaIssues` — New vs fixed issues introduced by each commit - the change-over-time signal the flat issues table cannot produce (high)
-- [ ] `/organizations/{provider}/{org}/metrics/{metricName}/period, /period-grouped, /timerange` — Org-level quality metric time series (Codacy's dashboard numbers) precomputed per period (high)
+- [x] `/organizations/{provider}/{org}/people` — Org member lookup resolving the author identities attached to the commits and pull requests already synced (high)
+- [x] `/tools and /tools/{toolUuid}/patterns` — Lookup that resolves the toolUuid and patternId every synced issue carries - without it issues cannot be grouped by rule or linter (high)
+- [x] `/analysis/organizations/{provider}/{org}/repositories/{repo}/commits/{commitUuid}/deltaStatistics and /commits/{srcCommitUuid}/deltaIssues` — New vs fixed issues introduced by each commit - the change-over-time signal the flat issues table cannot produce (high) — `deltaIssues` synced as `commit_delta_issues`; `deltaStatistics` skipped, its counts are already on `commits` under `quality`
+- [x] `/organizations/{provider}/{org}/metrics/{metricName}/period, /period-grouped, /timerange` — Org-level quality metric time series (Codacy's dashboard numbers) precomputed per period (high) — `/timerange` synced as `metrics_timerange`; `/period` and `/period-grouped` skipped, they return a single period's value that `/timerange` already covers
 - [ ] `/organizations/{provider}/{org}/security/items and /security/items/search` — Security issues (SRM) with severity and SLA state - an entire product area with no synced table (high)
 - [ ] `/analysis/organizations/{provider}/{org}/repositories/{repo}/commit-statistics` — Per-repo commit statistics over time, giving repo health a trend rather than a snapshot (medium)
 - [ ] `/analysis/organizations/{provider}/{org}/repositories/{repo}/category-overviews and /issues/overview` — Issue counts broken down by category and severity - the standard reporting breakdown dimensions (medium)
@@ -1740,7 +1740,7 @@ Diffed against: <https://api.codacy.com/api/api-docs/swagger.yaml>
 - [ ] `/organizations/{provider}/{org}/repositories/{repo}/files/{fileId}/coverage and /files/{fileId}/duplication` — File-level coverage and duplication metrics that enrich the files table already synced (medium)
 - [ ] `/organizations/{provider}/{org}/audit` — Audit log of org and repo configuration changes, useful for correlating quality shifts with settings changes (low)
 
-Note: Codacy API v3 swagger is served at https://api.codacy.com/api/api-docs/swagger.yaml (~250 paths). Six static endpoints in codacy/settings.py, no dynamic discovery. Whole product domains are unrepresented: security/SRM, SBOM, org metrics time series, and coverage. Excluded config surfaces (coding-standards, gate-policies, settings/\*, tokens, integrations).
+Note: Codacy API v3 swagger is served at https://api.codacy.com/api/api-docs/swagger.yaml (~250 paths). Eleven static endpoints in codacy/settings.py, no dynamic discovery. Whole product domains are still unrepresented: security/SRM, SBOM, and coverage. Excluded config surfaces (coding-standards, gate-policies, settings/\*, tokens, integrations).
 
 ## Codecov — gaps
 
