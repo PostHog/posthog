@@ -179,9 +179,10 @@ a scanner can only observe a given session once.
 
    A row carries only the observation `id`, `session_id`, `status`, `scanner_id`,
    `summary_line` and the recording URL. Pick a row whose `status` is `succeeded`
-   and whose `scanner_id` belongs to a summarizer scanner — cross-check the ids
-   against `vision-scanners-list` with `scanner_type=summarizer` when more than one
-   scanner has observed the session. Then read that row in full:
+   and whose `scanner_id` belongs to a summarizer scanner. Always check the
+   `scanner_id` against `vision-scanners-list` with `scanner_type=summarizer`, even
+   when the session has only one succeeded row — any scanner type can observe a
+   session, and a monitor's output is not a summary. Then read that row in full:
 
    ```json
    posthog:vision-observations-retrieve
@@ -222,9 +223,12 @@ a scanner can only observe a given session once.
    ```
 
 4. **Retrieve the result** by polling `vision-observations-list` (step 1) until
-   the new observation reaches `succeeded`, then call
-   `vision-observations-retrieve` with that observation `id` to read
-   `scanner_result.model_output`.
+   the new observation reaches a terminal `status` — `succeeded`, `failed` or
+   `ineligible`. Stop polling on any of the three; only `pending` and `running`
+   mean the scan is still in flight. Then call `vision-observations-retrieve` with
+   that observation `id` and read `scanner_result.model_output` on success, or
+   `error_reason` on `failed` or `ineligible`. Report a terminal non-success to
+   the user rather than waiting for a result that will not arrive.
 
 ### No summarizer scanner? Run a temporary one
 
@@ -262,9 +266,10 @@ with a throwaway scanner — but **ask the user's permission before creating any
    }
    ```
 
-   Poll `vision-observations-list` until the observation reaches `succeeded`, then
-   call `vision-observations-retrieve` with that observation `id` and read
-   `scanner_result.model_output`.
+   Poll `vision-observations-list` until the observation reaches a terminal
+   `status` (`succeeded`, `failed` or `ineligible`), then call
+   `vision-observations-retrieve` with that observation `id` and read
+   `scanner_result.model_output` on success, or `error_reason` otherwise.
 
 4. **Ask whether to keep or delete the scanner.** Once you have the observation,
    ask the user if they want to keep the temporary scanner or delete it with

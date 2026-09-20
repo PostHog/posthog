@@ -135,9 +135,10 @@ If the user wants a narrative summary without watching, use Replay Vision —
 
    A row carries only the observation `id`, `session_id`, `status`, `scanner_id`,
    `summary_line` and the recording URL. Pick a row whose `status` is `succeeded`
-   and whose `scanner_id` belongs to a summarizer scanner — cross-check the ids
-   against `vision-scanners-list` with `scanner_type=summarizer` when more than one
-   scanner has observed the session. Then read that row in full with
+   and whose `scanner_id` belongs to a summarizer scanner. Always check the
+   `scanner_id` against `vision-scanners-list` with `scanner_type=summarizer`, even
+   when the session has only one succeeded row — any scanner type can observe a
+   session, and a monitor's output is not a summary. Then read that row in full with
    `vision-observations-retrieve` (`{ "id": "<observation_id>" }`), where
    `scanner_result.model_output` holds `title`, `summary`, `intent`, `outcome`,
    `friction_points` and `keywords` — done. A row with a terminal non-success
@@ -166,8 +167,11 @@ If the user wants a narrative summary without watching, use Replay Vision —
    }
    ```
 
-4. **Retrieve** by polling `vision-observations-list` until `succeeded`, then
-   call `vision-observations-retrieve` with that observation `id`.
+4. **Retrieve** by polling `vision-observations-list` until the observation
+   reaches a terminal `status` — `succeeded`, `failed` or `ineligible` — then call
+   `vision-observations-retrieve` with that observation `id`. Read
+   `scanner_result.model_output` on success, or `error_reason` otherwise, and tell
+   the user when the scan produced no summary.
 
 ## Tips
 
