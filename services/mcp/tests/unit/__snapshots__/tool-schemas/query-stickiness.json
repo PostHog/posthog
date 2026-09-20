@@ -125,7 +125,8 @@
                                                 "type": "string"
                                             },
                                             "operator": {
-                                                "enum": ["exact", "gt", "lt"],
+                                                "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                 "type": "string"
                                             },
                                             "type": {
@@ -260,7 +261,8 @@
                                                 "type": "string"
                                             },
                                             "operator": {
-                                                "enum": ["exact", "gt", "lt"],
+                                                "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                 "type": "string"
                                             },
                                             "type": {
@@ -436,7 +438,8 @@
                                                 "type": "string"
                                             },
                                             "operator": {
-                                                "enum": ["exact", "gt", "lt"],
+                                                "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                 "type": "string"
                                             },
                                             "type": {
@@ -1266,7 +1269,8 @@
                                                             "type": "string"
                                                         },
                                                         "operator": {
-                                                            "enum": ["exact", "gt", "lt"],
+                                                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                            "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                             "type": "string"
                                                         },
                                                         "type": {
@@ -1405,7 +1409,8 @@
                                                             "type": "string"
                                                         },
                                                         "operator": {
-                                                            "enum": ["exact", "gt", "lt"],
+                                                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                            "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                             "type": "string"
                                                         },
                                                         "type": {
@@ -1585,7 +1590,8 @@
                                                             "type": "string"
                                                         },
                                                         "operator": {
-                                                            "enum": ["exact", "gt", "lt"],
+                                                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                            "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                             "type": "string"
                                                         },
                                                         "type": {
@@ -1903,7 +1909,8 @@
                                                             "type": "string"
                                                         },
                                                         "operator": {
-                                                            "enum": ["exact", "gt", "lt"],
+                                                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                            "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                             "type": "string"
                                                         },
                                                         "type": {
@@ -2042,7 +2049,8 @@
                                                             "type": "string"
                                                         },
                                                         "operator": {
-                                                            "enum": ["exact", "gt", "lt"],
+                                                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                            "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                             "type": "string"
                                                         },
                                                         "type": {
@@ -2222,7 +2230,8 @@
                                                             "type": "string"
                                                         },
                                                         "operator": {
-                                                            "enum": ["exact", "gt", "lt"],
+                                                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                            "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                             "type": "string"
                                                         },
                                                         "type": {

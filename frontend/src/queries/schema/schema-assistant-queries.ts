@@ -114,9 +114,15 @@ export interface AssistantStringOrBooleanValuePropertyFilter {
 export type AssistantNumericValuePropertyFilterOperator =
     | PropertyOperator.Exact
     | PropertyOperator.GreaterThan
+    | PropertyOperator.GreaterThanOrEqual
     | PropertyOperator.LessThan
+    | PropertyOperator.LessThanOrEqual
 
 export interface AssistantNumericValuePropertyFilter {
+    /**
+     * `gt` - greater than. `gte` - greater than or equal to.
+     * `lt` - less than. `lte` - less than or equal to.
+     */
     operator: AssistantNumericValuePropertyFilterOperator
     value: number
 }
@@ -677,11 +683,15 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     compareFilter?: CompareFilter
 }
 
-export type AssistantFunnelsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
+export type AssistantFunnelsMath =
+    | FunnelMathType.AnyMatch
+    | FunnelMathType.FirstTimeForUser
+    | FunnelMathType.FirstTimeForUserWithFilters
 
 export interface AssistantFunnelNodeShared {
     /**
      * Optional math aggregation type for the series. Only specify this math type if the user wants one of these.
+     * `total` - counts every occurrence of the event. This is the default, so you can leave the field out.
      * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
      * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
      */
@@ -714,9 +724,9 @@ export interface AssistantFunnelsActionsNode extends Omit<Node, 'response'>, Ass
      */
     id: number
     /**
-     * Action name from the plan.
+     * Optional action name from the plan. The action is matched by `id`, so the name is for display only.
      */
-    name: string
+    name?: string
 }
 
 /**
@@ -805,10 +815,11 @@ export interface AssistantFunnelsFilter {
      */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
     /**
-     * Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.
+     * SQL expression the funnel aggregates by, instead of persons. Use `properties.$session_id` for unique sessions.
+     * Set this only if the user explicitly asks to aggregate the funnel by something other than persons.
      * @default null
      */
-    funnelAggregateByHogQL?: 'properties.$session_id' | null
+    funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
     /**
      * Controls how the breakdown value is attributed to a specific step.
      * `first_touch` - the breakdown value is the first property value found in the entire funnel.
@@ -871,7 +882,7 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
     /**
      * Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.
      */
-    aggregation_group_type_index?: integer
+    aggregation_group_type_index?: integer | null
 }
 
 export interface AssistantRetentionEventsNode {

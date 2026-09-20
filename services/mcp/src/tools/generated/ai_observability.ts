@@ -2412,7 +2412,7 @@ const AssistantStringOrBooleanValuePropertyFilterOperator = z.enum([
 
 const AssistantGenericPropertyFilterType = z.enum(['event', 'person', 'session', 'feature'])
 
-const AssistantNumericValuePropertyFilterOperator = z.enum(['exact', 'gt', 'lt'])
+const AssistantNumericValuePropertyFilterOperator = z.enum(['exact', 'gt', 'gte', 'lt', 'lte'])
 
 const AssistantArrayPropertyFilterOperator = z.enum(['exact', 'is_not'])
 
@@ -2435,7 +2435,9 @@ const AssistantGenericPropertyFilter = z.union([
     }),
     z.object({
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: AssistantGenericPropertyFilterType,
         value: z.coerce.number(),
     }),
@@ -2483,7 +2485,9 @@ const AssistantGroupPropertyFilter = z.union([
     z.object({
         group_type_index: integer.describe('Index of the group type from the group mapping.'),
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: z.literal('group').default('group'),
         value: z.coerce.number(),
     }),
@@ -2557,7 +2561,9 @@ const AssistantElementPropertyFilter = z.union([
             .describe(
                 'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
             ),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: z
             .literal('element')
             .describe(

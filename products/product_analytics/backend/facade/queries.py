@@ -22,6 +22,7 @@ _B = "products.product_analytics.backend.hogql_queries."
 
 _LAZY = {
     "ALLOWED_SESSION_MATH_PROPERTIES": "trends.aggregation_operations",
+    "FUNNEL_SESSION_AGGREGATION_EXPR": "funnels.utils",
     "PATHS_V2_OTHER": "paths_v2.path_item",
     "BoxPlotTrendsQueryRunner": "trends.boxplot_trends_query_runner",
     "CalendarHeatmapQueryRunner": "trends.calendar_heatmap_query_runner",
@@ -54,6 +55,9 @@ if TYPE_CHECKING:
     # modules stay off the django.setup() path. The runners that other products subclass must
     # resolve to their real class here, or subclass attribute inference collapses to Any. Ruff
     # cannot see the __getattr__ use, so each import carries an F401 guard.
+    from products.product_analytics.backend.hogql_queries.funnels.utils import (  # noqa: F401
+        FUNNEL_SESSION_AGGREGATION_EXPR,
+    )
     from products.product_analytics.backend.hogql_queries.trends.aggregation_operations import (  # noqa: F401
         ALLOWED_SESSION_MATH_PROPERTIES,
     )

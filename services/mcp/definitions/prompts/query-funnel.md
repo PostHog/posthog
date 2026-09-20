@@ -60,7 +60,9 @@ Supported operators for the Numeric type are:
 - equals (exact)
 - doesn't equal (is_not)
 - greater than (gt)
+- greater than or equal to (gte)
 - less than (lt)
+- less than or equal to (lte)
 - is set
 - is not set
 

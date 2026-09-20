@@ -197,20 +197,10 @@ const DateRange = z.object({
         )
         .optional(),
     daysOfWeek: z
-        .union([
-            z.array(
-                z.union([
-                    z.literal(1),
-                    z.literal(2),
-                    z.literal(3),
-                    z.literal(4),
-                    z.literal(5),
-                    z.literal(6),
-                    z.literal(7),
-                ])
-            ),
-            z.null(),
-        ])
+        .array(
+            z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)])
+        )
+        .nullable()
         .describe(
             'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
         )
@@ -366,7 +356,7 @@ const LogEntryPropertyFilter = z.object({
 
 const GroupPropertyFilter = z.object({
     group_key_names: z.record(z.string(), z.string()).optional(),
-    group_type_index: z.union([z.number().int(), z.null()]).optional(),
+    group_type_index: z.coerce.number().int().nullable().optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,

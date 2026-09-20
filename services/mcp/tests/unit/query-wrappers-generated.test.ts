@@ -85,4 +85,58 @@ describe('generated query wrappers', () => {
 
         expect(tool.schema.safeParse({ ...insightQueries[3][1], intervalCount }).success).toBe(expected)
     })
+
+    // Shapes a saved FunnelsQuery carries that the wrapper used to reject, which stopped a caller
+    // from replaying a saved funnel through the typed tool.
+    const savedFunnelCases: [string, Record<string, unknown>][] = [
+        ['default step math', { series: [{ kind: 'EventsNode', event: 'signed up', math: 'total' }] }],
+        ['an action step without a name', { series: [{ kind: 'ActionsNode', id: 42 }] }],
+        [
+            'a numeric threshold filter',
+            {
+                series: [
+                    {
+                        kind: 'EventsNode',
+                        event: 'order placed',
+                        properties: [{ type: 'event', key: 'cart_total', operator: 'gte', value: 25 }],
+                    },
+                ],
+            },
+        ],
+        [
+            'a custom aggregation expression',
+            {
+                series: [{ kind: 'EventsNode', event: 'signed up' }],
+                funnelsFilter: { funnelAggregateByHogQL: 'distinct_id' },
+            },
+        ],
+    ]
+
+    it.each(savedFunnelCases)('accepts a saved funnel with %s', (_case, { series, ...rest }) => {
+        const tool = GENERATED_TOOLS['query-funnel']!()
+        const savedFunnel = {
+            kind: 'FunnelsQuery',
+            series: [{ kind: 'EventsNode', event: '$pageview' }, ...(series as unknown[])],
+            ...rest,
+        }
+
+        expect(tool.schema.safeParse(savedFunnel).success).toBe(true)
+    })
+
+    it('keeps a saved funnel unaggregated when it has no group type', () => {
+        const tool = GENERATED_TOOLS['query-funnel']!()
+
+        // `z.coerce.number()` reads an explicit null as 0, which silently aggregates the funnel by
+        // the first group type instead of by persons.
+        const parsed = tool.schema.parse({
+            kind: 'FunnelsQuery',
+            series: [
+                { kind: 'EventsNode', event: '$pageview' },
+                { kind: 'EventsNode', event: 'signed up' },
+            ],
+            aggregation_group_type_index: null,
+        })
+
+        expect(parsed.aggregation_group_type_index).toBeNull()
+    })
 })

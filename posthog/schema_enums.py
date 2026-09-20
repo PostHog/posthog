@@ -299,12 +299,8 @@ class AssistantFunnelsBreakdownType(StrEnum):
     SESSION = "session"
 
 
-class FunnelAggregateByHogQL(Enum):
-    PROPERTIES__SESSION_ID = "properties.$session_id"
-    NONE_TYPE_NONE = None
-
-
 class AssistantFunnelsMath(StrEnum):
+    TOTAL = "total"
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
@@ -384,7 +380,9 @@ class AssistantNavigateUrl(StrEnum):
 class AssistantNumericValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     GT = "gt"
+    GTE = "gte"
     LT = "lt"
+    LTE = "lte"
 
 
 class Key5(StrEnum):

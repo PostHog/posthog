@@ -2711,7 +2711,8 @@
                             "type": "string"
                         },
                         "operator": {
-                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator",
+                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
                         },
                         "type": {
                             "const": "element",
@@ -2948,7 +2949,7 @@
             "properties": {
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `total` - counts every occurrence of the event. This is the default, so you can leave the field out. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "optionalInFunnel": {
                     "default": false,
@@ -2977,10 +2978,10 @@
                 },
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `total` - counts every occurrence of the event. This is the default, so you can leave the field out. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "name": {
-                    "description": "Action name from the plan.",
+                    "description": "Optional action name from the plan. The action is matched by `id`, so the name is for display only.",
                     "type": "string"
                 },
                 "optionalInFunnel": {
@@ -2999,7 +3000,7 @@
                     "type": "number"
                 }
             },
-            "required": ["id", "kind", "name"],
+            "required": ["id", "kind"],
             "type": "object"
         },
         "AssistantFunnelsActorsQuery": {
@@ -3105,7 +3106,7 @@
                 },
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `total` - counts every occurrence of the event. This is the default, so you can leave the field out. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "optionalInFunnel": {
                     "default": false,
@@ -3173,8 +3174,7 @@
                 },
                 "funnelAggregateByHogQL": {
                     "default": null,
-                    "description": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
-                    "enum": ["properties.$session_id", null],
+                    "description": "SQL expression the funnel aggregates by, instead of persons. Use `properties.$session_id` for unique sessions. Set this only if the user explicitly asks to aggregate the funnel by something other than persons.",
                     "type": ["string", "null"]
                 },
                 "funnelOrderType": {
@@ -3250,7 +3250,7 @@
             "type": "object"
         },
         "AssistantFunnelsMath": {
-            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+            "enum": ["total", "first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
         },
         "AssistantFunnelsNode": {
@@ -3270,7 +3270,14 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "$ref": "#/definitions/integer",
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
                     "description": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions."
                 },
                 "breakdownFilter": {
@@ -3381,7 +3388,8 @@
                             "type": "string"
                         },
                         "operator": {
-                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator",
+                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
                         },
                         "type": {
                             "$ref": "#/definitions/AssistantGenericPropertyFilterType"
@@ -3530,7 +3538,8 @@
                             "type": "string"
                         },
                         "operator": {
-                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator",
+                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
                         },
                         "type": {
                             "const": "group",
@@ -4033,7 +4042,8 @@
             "additionalProperties": false,
             "properties": {
                 "operator": {
-                    "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                    "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator",
+                    "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
                 },
                 "value": {
                     "type": "number"
@@ -4043,7 +4053,7 @@
             "type": "object"
         },
         "AssistantNumericValuePropertyFilterOperator": {
-            "enum": ["exact", "gt", "lt"],
+            "enum": ["exact", "gt", "gte", "lt", "lte"],
             "type": "string"
         },
         "AssistantPathCleaningFilter": {
@@ -4303,7 +4313,8 @@
                             "type": "string"
                         },
                         "operator": {
-                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator",
+                            "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
                         },
                         "type": {
                             "const": "recording",

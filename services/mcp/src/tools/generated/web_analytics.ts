@@ -520,8 +520,7 @@ const AssistantWebOverviewQuery = z.object({
     compareFilter: CompareFilter.describe(
         'Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.'
     ).optional(),
-    conversionGoal: z
-        .union([WebAnalyticsConversionGoal, z.null()])
+    conversionGoal: WebAnalyticsConversionGoal.nullable()
         .describe(
             'Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.'
         )
@@ -595,8 +594,7 @@ const AssistantWebStatsTableQuery = z.object({
     compareFilter: CompareFilter.describe(
         'Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.'
     ).optional(),
-    conversionGoal: z
-        .union([WebAnalyticsConversionGoal, z.null()])
+    conversionGoal: WebAnalyticsConversionGoal.nullable()
         .describe(
             'Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.'
         )

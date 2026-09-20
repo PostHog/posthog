@@ -7,7 +7,6 @@ from posthog.schema import (
     ActionsNode,
     BreakdownType,
     EventsNode,
-    FunnelAggregateByHogQL,
     FunnelsDataWarehouseNode,
     FunnelTimeToConvertResults,
     FunnelVizType,
@@ -31,6 +30,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.hogql_queries.funnels.funnel_event_query import FunnelEventQuery
 from products.product_analytics.backend.hogql_queries.funnels.funnel_query_context import FunnelQueryContext
 from products.product_analytics.backend.hogql_queries.funnels.utils import (
+    FUNNEL_SESSION_AGGREGATION_EXPR,
     funnel_window_interval_unit_to_sql,
     get_breakdown_cohort_name,
 )
@@ -237,7 +237,7 @@ class FunnelBase(ABC):
         return self._extra_event_fields + self._extra_event_properties
 
     def _is_session_aggregation(self) -> bool:
-        return self.context.funnelsFilter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID.value
+        return self.context.funnelsFilter.funnelAggregateByHogQL == FUNNEL_SESSION_AGGREGATION_EXPR
 
     @property
     def _absolute_actors_step(self) -> Optional[int]:

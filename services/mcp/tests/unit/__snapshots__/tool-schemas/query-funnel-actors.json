@@ -56,10 +56,17 @@
             "description": "The source funnel insight query whose step (or trends point) we are drilling into.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.",
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "maximum": 9007199254740991,
+                            "minimum": -9007199254740991,
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions."
                 },
                 "breakdownFilter": {
                     "description": "A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation. When using breakdowns, you must:\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using a breakdown:\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.",
@@ -192,16 +199,14 @@
                         "funnelAggregateByHogQL": {
                             "anyOf": [
                                 {
-                                    "const": "properties.$session_id",
                                     "type": "string"
                                 },
                                 {
-                                    "const": null,
                                     "type": "null"
                                 }
                             ],
                             "default": null,
-                            "description": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions."
+                            "description": "SQL expression the funnel aggregates by, instead of persons. Use `properties.$session_id` for unique sessions. Set this only if the user explicitly asks to aggregate the funnel by something other than persons."
                         },
                         "funnelOrderType": {
                             "default": "ordered",
@@ -299,7 +304,8 @@
                                                         "type": "string"
                                                     },
                                                     "operator": {
-                                                        "enum": ["exact", "gt", "lt"],
+                                                        "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                        "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                         "type": "string"
                                                     },
                                                     "type": {
@@ -434,7 +440,8 @@
                                                         "type": "string"
                                                     },
                                                     "operator": {
-                                                        "enum": ["exact", "gt", "lt"],
+                                                        "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                        "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                         "type": "string"
                                                     },
                                                     "type": {
@@ -610,7 +617,8 @@
                                                         "type": "string"
                                                     },
                                                     "operator": {
-                                                        "enum": ["exact", "gt", "lt"],
+                                                        "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                        "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                         "type": "string"
                                                     },
                                                     "type": {
@@ -1286,8 +1294,8 @@
                                         "type": "string"
                                     },
                                     "math": {
-                                        "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
-                                        "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+                                        "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `total` - counts every occurrence of the event. This is the default, so you can leave the field out. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                                        "enum": ["total", "first_time_for_user", "first_time_for_user_with_filters"],
                                         "type": "string"
                                     },
                                     "optionalInFunnel": {
@@ -1337,7 +1345,8 @@
                                                                     "type": "string"
                                                                 },
                                                                 "operator": {
-                                                                    "enum": ["exact", "gt", "lt"],
+                                                                    "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                    "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                                     "type": "string"
                                                                 },
                                                                 "type": {
@@ -1481,7 +1490,8 @@
                                                                     "type": "string"
                                                                 },
                                                                 "operator": {
-                                                                    "enum": ["exact", "gt", "lt"],
+                                                                    "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                    "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                                     "type": "string"
                                                                 },
                                                                 "type": {
@@ -1676,7 +1686,8 @@
                                                                     "type": "string"
                                                                 },
                                                                 "operator": {
-                                                                    "enum": ["exact", "gt", "lt"],
+                                                                    "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                    "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                                     "type": "string"
                                                                 },
                                                                 "type": {
@@ -1846,12 +1857,12 @@
                                         "type": "string"
                                     },
                                     "math": {
-                                        "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
-                                        "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+                                        "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `total` - counts every occurrence of the event. This is the default, so you can leave the field out. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                                        "enum": ["total", "first_time_for_user", "first_time_for_user_with_filters"],
                                         "type": "string"
                                     },
                                     "name": {
-                                        "description": "Action name from the plan.",
+                                        "description": "Optional action name from the plan. The action is matched by `id`, so the name is for display only.",
                                         "type": "string"
                                     },
                                     "optionalInFunnel": {
@@ -1901,7 +1912,8 @@
                                                                     "type": "string"
                                                                 },
                                                                 "operator": {
-                                                                    "enum": ["exact", "gt", "lt"],
+                                                                    "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                    "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                                     "type": "string"
                                                                 },
                                                                 "type": {
@@ -2045,7 +2057,8 @@
                                                                     "type": "string"
                                                                 },
                                                                 "operator": {
-                                                                    "enum": ["exact", "gt", "lt"],
+                                                                    "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                    "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                                     "type": "string"
                                                                 },
                                                                 "type": {
@@ -2240,7 +2253,8 @@
                                                                     "type": "string"
                                                                 },
                                                                 "operator": {
-                                                                    "enum": ["exact", "gt", "lt"],
+                                                                    "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                    "enum": ["exact", "gt", "gte", "lt", "lte"],
                                                                     "type": "string"
                                                                 },
                                                                 "type": {
@@ -2395,7 +2409,7 @@
                                         "type": "number"
                                     }
                                 },
-                                "required": ["id", "name"],
+                                "required": ["id"],
                                 "type": "object"
                             },
                             {
@@ -2432,8 +2446,9 @@
                                                             "type": "string"
                                                         },
                                                         "math": {
-                                                            "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                                                            "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `total` - counts every occurrence of the event. This is the default, so you can leave the field out. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
                                                             "enum": [
+                                                                "total",
                                                                 "first_time_for_user",
                                                                 "first_time_for_user_with_filters"
                                                             ],
@@ -2496,7 +2511,14 @@
                                                                                         "type": "string"
                                                                                     },
                                                                                     "operator": {
-                                                                                        "enum": ["exact", "gt", "lt"],
+                                                                                        "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                                        "enum": [
+                                                                                            "exact",
+                                                                                            "gt",
+                                                                                            "gte",
+                                                                                            "lt",
+                                                                                            "lte"
+                                                                                        ],
                                                                                         "type": "string"
                                                                                     },
                                                                                     "type": {
@@ -2678,7 +2700,14 @@
                                                                                         "type": "string"
                                                                                     },
                                                                                     "operator": {
-                                                                                        "enum": ["exact", "gt", "lt"],
+                                                                                        "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                                        "enum": [
+                                                                                            "exact",
+                                                                                            "gt",
+                                                                                            "gte",
+                                                                                            "lt",
+                                                                                            "lte"
+                                                                                        ],
                                                                                         "type": "string"
                                                                                     },
                                                                                     "type": {
@@ -2894,7 +2923,14 @@
                                                                                         "type": "string"
                                                                                     },
                                                                                     "operator": {
-                                                                                        "enum": ["exact", "gt", "lt"],
+                                                                                        "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                                        "enum": [
+                                                                                            "exact",
+                                                                                            "gt",
+                                                                                            "gte",
+                                                                                            "lt",
+                                                                                            "lte"
+                                                                                        ],
                                                                                         "type": "string"
                                                                                     },
                                                                                     "type": {
@@ -3094,15 +3130,16 @@
                                                             "type": "string"
                                                         },
                                                         "math": {
-                                                            "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                                                            "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `total` - counts every occurrence of the event. This is the default, so you can leave the field out. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
                                                             "enum": [
+                                                                "total",
                                                                 "first_time_for_user",
                                                                 "first_time_for_user_with_filters"
                                                             ],
                                                             "type": "string"
                                                         },
                                                         "name": {
-                                                            "description": "Action name from the plan.",
+                                                            "description": "Optional action name from the plan. The action is matched by `id`, so the name is for display only.",
                                                             "type": "string"
                                                         },
                                                         "optionalInFunnel": {
@@ -3162,7 +3199,14 @@
                                                                                         "type": "string"
                                                                                     },
                                                                                     "operator": {
-                                                                                        "enum": ["exact", "gt", "lt"],
+                                                                                        "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                                        "enum": [
+                                                                                            "exact",
+                                                                                            "gt",
+                                                                                            "gte",
+                                                                                            "lt",
+                                                                                            "lte"
+                                                                                        ],
                                                                                         "type": "string"
                                                                                     },
                                                                                     "type": {
@@ -3344,7 +3388,14 @@
                                                                                         "type": "string"
                                                                                     },
                                                                                     "operator": {
-                                                                                        "enum": ["exact", "gt", "lt"],
+                                                                                        "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                                        "enum": [
+                                                                                            "exact",
+                                                                                            "gt",
+                                                                                            "gte",
+                                                                                            "lt",
+                                                                                            "lte"
+                                                                                        ],
                                                                                         "type": "string"
                                                                                     },
                                                                                     "type": {
@@ -3560,7 +3611,14 @@
                                                                                         "type": "string"
                                                                                     },
                                                                                     "operator": {
-                                                                                        "enum": ["exact", "gt", "lt"],
+                                                                                        "description": "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.",
+                                                                                        "enum": [
+                                                                                            "exact",
+                                                                                            "gt",
+                                                                                            "gte",
+                                                                                            "lt",
+                                                                                            "lte"
+                                                                                        ],
                                                                                         "type": "string"
                                                                                     },
                                                                                     "type": {
@@ -3745,7 +3803,7 @@
                                                             "type": "number"
                                                         }
                                                     },
-                                                    "required": ["id", "name"],
+                                                    "required": ["id"],
                                                     "type": "object"
                                                 }
                                             ]

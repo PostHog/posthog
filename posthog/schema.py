@@ -118,7 +118,6 @@ from posthog.schema_enums import (
     ExternalQueryStatus as ExternalQueryStatus,
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
-    FunnelAggregateByHogQL as FunnelAggregateByHogQL,
     FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
     FunnelCorrelationResultsType as FunnelCorrelationResultsType,
@@ -819,7 +818,12 @@ class AssistantRecordingPropertyFilter2(BaseModel):
             ' "mobile").'
         ),
     )
-    operator: AssistantNumericValuePropertyFilterOperator
+    operator: AssistantNumericValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
+        ),
+    )
     type: Literal["recording"] = "recording"
     value: float
 
@@ -3647,7 +3651,12 @@ class AssistantElementPropertyFilter2(BaseModel):
             " element (e.g., `div.main > button.cta`)."
         ),
     )
-    operator: AssistantNumericValuePropertyFilterOperator
+    operator: AssistantNumericValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
+        ),
+    )
     type: Literal["element"] = Field(
         default="element",
         description=(
@@ -3774,9 +3783,13 @@ class AssistantFunnelsFilter(BaseModel):
             " to explicitly state this in the plan."
         ),
     )
-    funnelAggregateByHogQL: FunnelAggregateByHogQL | None = Field(
+    funnelAggregateByHogQL: str | None = Field(
         default=None,
-        description=("Use this field only if the user explicitly asks to aggregate the funnel by unique sessions."),
+        description=(
+            "SQL expression the funnel aggregates by, instead of persons. Use"
+            " `properties.$session_id` for unique sessions. Set this only if the user"
+            " explicitly asks to aggregate the funnel by something other than persons."
+        ),
     )
     funnelOrderType: StepOrderValue | None = Field(
         default=StepOrderValue.ORDERED,
@@ -3871,7 +3884,12 @@ class AssistantGenericPropertyFilter2(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantNumericValuePropertyFilterOperator
+    operator: AssistantNumericValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
+        ),
+    )
     type: AssistantGenericPropertyFilterType
     value: float
 
@@ -3963,7 +3981,12 @@ class AssistantGroupPropertyFilter2(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantNumericValuePropertyFilterOperator
+    operator: AssistantNumericValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
+        ),
+    )
     type: Literal["group"] = "group"
     value: float
 
@@ -4059,7 +4082,12 @@ class AssistantNumericValuePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: AssistantNumericValuePropertyFilterOperator
+    operator: AssistantNumericValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to."
+        ),
+    )
     value: float
 
 
@@ -9673,10 +9701,12 @@ class AssistantFunnelNodeShared(BaseModel):
         default=None,
         description=(
             "Optional math aggregation type for the series. Only specify this math type"
-            " if the user wants one of these. `first_time_for_user` - counts the number"
-            " of users who have completed the event for the first time ever."
-            " `first_time_for_user_with_filters` - counts the number of users who have"
-            " completed the event with specified filters for the first time."
+            " if the user wants one of these. `total` - counts every occurrence of the"
+            " event. This is the default, so you can leave the field out."
+            " `first_time_for_user` - counts the number of users who have completed the"
+            " event for the first time ever. `first_time_for_user_with_filters` -"
+            " counts the number of users who have completed the event with specified"
+            " filters for the first time."
         ),
     )
     optionalInFunnel: bool | None = Field(
@@ -9724,13 +9754,20 @@ class AssistantFunnelsActionsNode(BaseModel):
         default=None,
         description=(
             "Optional math aggregation type for the series. Only specify this math type"
-            " if the user wants one of these. `first_time_for_user` - counts the number"
-            " of users who have completed the event for the first time ever."
-            " `first_time_for_user_with_filters` - counts the number of users who have"
-            " completed the event with specified filters for the first time."
+            " if the user wants one of these. `total` - counts every occurrence of the"
+            " event. This is the default, so you can leave the field out."
+            " `first_time_for_user` - counts the number of users who have completed the"
+            " event for the first time ever. `first_time_for_user_with_filters` -"
+            " counts the number of users who have completed the event with specified"
+            " filters for the first time."
         ),
     )
-    name: str = Field(..., description="Action name from the plan.")
+    name: str | None = Field(
+        default=None,
+        description=(
+            "Optional action name from the plan. The action is matched by `id`, so the name is for display only."
+        ),
+    )
     optionalInFunnel: bool | None = Field(
         default=False,
         description=(
@@ -9781,10 +9818,12 @@ class AssistantFunnelsEventsNode(BaseModel):
         default=None,
         description=(
             "Optional math aggregation type for the series. Only specify this math type"
-            " if the user wants one of these. `first_time_for_user` - counts the number"
-            " of users who have completed the event for the first time ever."
-            " `first_time_for_user_with_filters` - counts the number of users who have"
-            " completed the event with specified filters for the first time."
+            " if the user wants one of these. `total` - counts every occurrence of the"
+            " event. This is the default, so you can leave the field out."
+            " `first_time_for_user` - counts the number of users who have completed the"
+            " event for the first time ever. `first_time_for_user_with_filters` -"
+            " counts the number of users who have completed the event with specified"
+            " filters for the first time."
         ),
     )
     optionalInFunnel: bool | None = Field(

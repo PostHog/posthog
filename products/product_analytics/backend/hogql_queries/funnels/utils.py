@@ -35,6 +35,10 @@ CONVERSION_WINDOW_INTERVAL_BOUNDS: dict[FunnelConversionWindowTimeUnit, tuple[in
     FunnelConversionWindowTimeUnit.MONTH: (1, 12),
 }
 
+# The `funnelAggregateByHogQL` expression that means "aggregate by unique sessions". Any other
+# expression is a custom aggregation target and is parsed as HogQL.
+FUNNEL_SESSION_AGGREGATION_EXPR = "properties.$session_id"
+
 
 def conversion_window_to_seconds(interval: int, unit: FunnelConversionWindowTimeUnit) -> int:
     """The funnel engine's conversion window realization: fixed seconds per unit, with month

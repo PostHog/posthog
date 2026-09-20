@@ -147,6 +147,13 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext, opts?: { strictPri
         // branch after them is unreachable and inputs get silently mangled
         // (e.g. a `["host.com"]` filter value became `true`). Coercion is for
         // lone primitive fields, where there is no other branch to fall through to.
+        // `X | null` becomes `.nullable()` rather than a union, because a named
+        // coercing ref (`integer` is `z.coerce.number()`) ignores strictPrimitives
+        // and would read an explicit null as 0.
+        const nonNull = variants.filter((v) => v.type !== 'null')
+        if (nonNull.length === 1 && nonNull.length < variants.length) {
+            return `${schemaToZod(nonNull[0]!, ctx, opts)}.nullable()`
+        }
         const members = variants.map((v) => schemaToZod(v, ctx, { strictPrimitives: true })).join(', ')
         return `z.union([${members}])`
     }

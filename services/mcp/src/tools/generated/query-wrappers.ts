@@ -9,10 +9,7 @@ import type { ZodObjectAny } from '@/tools/types'
 const integer = z.coerce.number().int()
 
 const AssistantGroupMultipleBreakdownFilter = z.object({
-    group_type_index: z
-        .union([integer, z.null()])
-        .describe('Index of the group type from the group mapping.')
-        .optional(),
+    group_type_index: integer.nullable().describe('Index of the group type from the group mapping.').optional(),
     property: z.string().describe('Property name from the plan to break down by.'),
     type: z.literal('group').default('group'),
 })
@@ -98,7 +95,7 @@ const AssistantStringOrBooleanValuePropertyFilterOperator = z.enum([
 
 const AssistantGenericPropertyFilterType = z.enum(['event', 'person', 'session', 'feature'])
 
-const AssistantNumericValuePropertyFilterOperator = z.enum(['exact', 'gt', 'lt'])
+const AssistantNumericValuePropertyFilterOperator = z.enum(['exact', 'gt', 'gte', 'lt', 'lte'])
 
 const AssistantArrayPropertyFilterOperator = z.enum(['exact', 'is_not'])
 
@@ -121,7 +118,9 @@ const AssistantGenericPropertyFilter = z.union([
     }),
     z.object({
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: AssistantGenericPropertyFilterType,
         value: z.coerce.number(),
     }),
@@ -169,7 +168,9 @@ const AssistantGroupPropertyFilter = z.union([
     z.object({
         group_type_index: integer.describe('Index of the group type from the group mapping.'),
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: z.literal('group').default('group'),
         value: z.coerce.number(),
     }),
@@ -243,7 +244,9 @@ const AssistantElementPropertyFilter = z.union([
             .describe(
                 'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
             ),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: z
             .literal('element')
             .describe(
@@ -746,7 +749,7 @@ const AssistantTrendsFilter = z.object({
 })
 
 const AssistantTrendsQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: integer.nullable().describe('Groups aggregation').optional(),
     breakdownFilter: AssistantTrendsBreakdownFilter.describe(
         'Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user’s question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question. When using breakdowns, you must:\n- **Identify the property group** and name for each breakdown.\n- **Provide the property name** for each breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using breakdowns:\n- page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown.'
     ).optional(),
@@ -778,8 +781,8 @@ const AssistantFunnelsBreakdownType = z.enum(['person', 'event', 'group', 'sessi
 
 const AssistantFunnelsBreakdownFilter = z.object({
     breakdown: z.string().describe('The entity property to break down by.'),
-    breakdown_group_type_index: z
-        .union([integer, z.null()])
+    breakdown_group_type_index: integer
+        .nullable()
         .describe(
             'If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.'
         )
@@ -837,8 +840,11 @@ const AssistantFunnelsFilter = z.object({
         .default([])
         .optional(),
     funnelAggregateByHogQL: z
-        .union([z.literal('properties.$session_id'), z.literal(null)])
-        .describe('Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.')
+        .string()
+        .nullable()
+        .describe(
+            'SQL expression the funnel aggregates by, instead of persons. Use `properties.$session_id` for unique sessions. Set this only if the user explicitly asks to aggregate the funnel by something other than persons.'
+        )
         .default(null)
         .optional(),
     funnelOrderType: StepOrderValue.describe(
@@ -872,14 +878,14 @@ const AssistantFunnelsFilter = z.object({
         .optional(),
 })
 
-const AssistantFunnelsMath = z.enum(['first_time_for_user', 'first_time_for_user_with_filters'])
+const AssistantFunnelsMath = z.enum(['total', 'first_time_for_user', 'first_time_for_user_with_filters'])
 
 const AssistantFunnelsEventsNode = z.object({
     custom_name: z.string().describe('Optional custom name for the event if it is needed to be renamed.').optional(),
     event: z.string().describe('Name of the event.'),
     kind: z.literal('EventsNode').default('EventsNode'),
     math: AssistantFunnelsMath.describe(
-        'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
+        'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `total` - counts every occurrence of the event. This is the default, so you can leave the field out. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
     optionalInFunnel: z.coerce
         .boolean()
@@ -896,9 +902,12 @@ const AssistantFunnelsActionsNode = z.object({
     id: z.coerce.number().describe('Action ID from the plan.'),
     kind: z.literal('ActionsNode').default('ActionsNode'),
     math: AssistantFunnelsMath.describe(
-        'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
+        'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `total` - counts every occurrence of the event. This is the default, so you can leave the field out. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
-    name: z.string().describe('Action name from the plan.'),
+    name: z
+        .string()
+        .describe('Optional action name from the plan. The action is matched by `id`, so the name is for display only.')
+        .optional(),
     optionalInFunnel: z.coerce
         .boolean()
         .describe(
@@ -931,6 +940,7 @@ const AssistantFunnelsNode = z.union([
 
 const AssistantFunnelsQuery = z.object({
     aggregation_group_type_index: integer
+        .nullable()
         .describe(
             'Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.'
         )
@@ -1058,7 +1068,7 @@ const AssistantRetentionFilter = z.object({
 })
 
 const AssistantRetentionQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: integer.nullable().describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
     filterTestAccounts: z.coerce
         .boolean()
@@ -1285,7 +1295,7 @@ const AssistantPathsFilter = z.object({
 })
 
 const AssistantPathsQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: integer.nullable().describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
     filterTestAccounts: z.coerce
         .boolean()
@@ -1348,7 +1358,7 @@ const AssistantLifecycleActionsNode = z.object({
 const AssistantLifecycleSeriesNode = z.union([AssistantLifecycleEventsNode, AssistantLifecycleActionsNode])
 
 const AssistantLifecycleQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: integer.nullable().describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
     filterTestAccounts: z.coerce
         .boolean()

@@ -2,7 +2,6 @@ from typing import Any, Optional, cast
 
 from posthog.schema import (
     ExperimentActorsQuery,
-    FunnelAggregateByHogQL,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
@@ -32,6 +31,7 @@ from posthog.types import InsightActorsQueryNode
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.product_analytics.backend.facade.queries import (
+    FUNNEL_SESSION_AGGREGATION_EXPR,
     FunnelCorrelationQueryRunner,
     FunnelsQueryRunner,
     LifecycleQueryRunner,
@@ -199,7 +199,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if isinstance(self.source_runner, FunnelsQueryRunner):
             assert isinstance(self.query.source, FunnelsQuery)
             funnels_filter = self.query.source.funnelsFilter or FunnelsFilter()
-            return funnels_filter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID.value
+            return funnels_filter.funnelAggregateByHogQL == FUNNEL_SESSION_AGGREGATION_EXPR
         return False
 
     def _calculate(self) -> HogQLQueryResponse:

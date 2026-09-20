@@ -246,7 +246,7 @@ const AssistantStringOrBooleanValuePropertyFilterOperator = z.enum([
 
 const AssistantGenericPropertyFilterType = z.enum(['event', 'person', 'session', 'feature'])
 
-const AssistantNumericValuePropertyFilterOperator = z.enum(['exact', 'gt', 'lt'])
+const AssistantNumericValuePropertyFilterOperator = z.enum(['exact', 'gt', 'gte', 'lt', 'lte'])
 
 const AssistantArrayPropertyFilterOperator = z.enum(['exact', 'is_not'])
 
@@ -269,7 +269,9 @@ const AssistantGenericPropertyFilter = z.union([
     }),
     z.object({
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: AssistantGenericPropertyFilterType,
         value: z.coerce.number(),
     }),
@@ -317,7 +319,9 @@ const AssistantGroupPropertyFilter = z.union([
     z.object({
         group_type_index: integer.describe('Index of the group type from the group mapping.'),
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: z.literal('group').default('group'),
         value: z.coerce.number(),
     }),
@@ -391,7 +395,9 @@ const AssistantElementPropertyFilter = z.union([
             .describe(
                 'The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).'
             ),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: z
             .literal('element')
             .describe(
@@ -538,7 +544,9 @@ const AssistantRecordingPropertyFilter = z.union([
             .describe(
                 'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
             ),
-        operator: AssistantNumericValuePropertyFilterOperator,
+        operator: AssistantNumericValuePropertyFilterOperator.describe(
+            '`gt` - greater than. `gte` - greater than or equal to. `lt` - less than. `lte` - less than or equal to.'
+        ),
         type: z.literal('recording').default('recording'),
         value: z.coerce.number(),
     }),
