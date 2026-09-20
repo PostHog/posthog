@@ -16,6 +16,7 @@ import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
 import {
   isRestorableVisitHref,
   type NavRailPane,
+  railPaneFoldsIntoWork,
 } from "@posthog/ui/features/canvas/railPane";
 import {
   applyTabViewState,
@@ -279,14 +280,12 @@ const WORK_DESTINATION: RailDestination = {
   onReclick: showWorkColumn,
 };
 
-const WORK_FOLDED_LABELS = new Set(["Home", "Spaces", "Canvases"]);
-
 export function visibleWorkRailDestinations(
   flags: RailFlags,
 ): readonly RailDestination[] {
   const rest = RAIL_DESTINATIONS.filter(
-    ({ enabled, label }) =>
-      !WORK_FOLDED_LABELS.has(label) && (enabled?.(flags) ?? true),
+    ({ enabled, pane }) =>
+      !railPaneFoldsIntoWork(pane) && (enabled?.(flags) ?? true),
   );
   return [WORK_DESTINATION, ...rest];
 }

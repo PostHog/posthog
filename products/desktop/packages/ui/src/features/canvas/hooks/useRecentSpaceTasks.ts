@@ -6,7 +6,6 @@ import {
   type ChannelPresence,
   liveUuidsFromTasks,
   NO_LIVE_UUIDS,
-  type PresenceWindows,
   presenceByChannel,
 } from "@posthog/core/canvas/presence";
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
@@ -413,9 +412,7 @@ function samePresence(a: ChannelPresence, b: ChannelPresence): boolean {
  * don't change, so a memoized space row only re-renders when its own presence
  * does.
  */
-export function useSpacePresence(
-  windows: PresenceWindows = {},
-): ReadonlyMap<string, ChannelPresence> {
+export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
   const client = useOptionalAuthenticatedClient();
   const archivedTaskIds = useArchivedTaskIds();
   const { data } = useQuery({
@@ -449,7 +446,6 @@ export function useSpacePresence(
     const fresh = presenceByChannel(live, {
       now,
       limit: SPACE_PRESENCE_LIMIT,
-      ...windows,
     });
     const stable = new Map<string, ChannelPresence>();
     for (const [channelId, next] of fresh) {
@@ -459,5 +455,5 @@ export function useSpacePresence(
       stable.set(channelId, kept);
     }
     return stable;
-  }, [data, archivedTaskIds, now, windows]);
+  }, [data, archivedTaskIds, now]);
 }

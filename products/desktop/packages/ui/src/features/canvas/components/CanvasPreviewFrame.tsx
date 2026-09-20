@@ -63,7 +63,7 @@ export function CanvasPreviewFrame({
 
   return (
     <div ref={attach} className={className}>
-      {artifactUrl && width > 0 ? (
+      {inView && artifactUrl && width > 0 ? (
         <div
           className="pointer-events-none origin-top-left"
           style={{
