@@ -4,7 +4,14 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import CachedFunnelsQueryResponse, DashboardFilter, EventsNode, FunnelsQuery, IntervalType
+from posthog.schema import (
+    CachedFunnelsQueryResponse,
+    CompareFilter,
+    DashboardFilter,
+    EventsNode,
+    FunnelsQuery,
+    IntervalType,
+)
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 
@@ -48,6 +55,13 @@ class TestFunnelsDashboardFilters(BaseTest):
         runner.apply_dashboard_filters(DashboardFilter(filterTestAccounts=dashboard_filter))
 
         assert runner.query.filterTestAccounts is expected
+
+    def test_dashboard_compare_filter_override(self) -> None:
+        runner = self._runner()
+
+        runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True, compare_to="-4w")))
+
+        assert runner.query.compareFilter == CompareFilter(compare=True, compare_to="-4w")
 
 
 class TestFunnelsSeriesCustomNames(BaseTest):

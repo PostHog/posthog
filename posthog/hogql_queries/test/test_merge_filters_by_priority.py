@@ -49,6 +49,13 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         assert merged["filterTestAccounts"] is True
         assert merged["breakdown_filter"] == {"breakdown": "$browser", "breakdown_type": "event"}
 
+    def test_tile_compare_filter_wins_over_dashboard(self):
+        merged = merge_filters_by_priority(
+            {"compareFilter": {"compare": True}},
+            {"compareFilter": {"compare": False}},
+        )
+        assert merged["compareFilter"] == {"compare": False}
+
     @parameterized.expand(
         [
             ("null tile breakdown inherits dashboard breakdown", None, {"breakdown": "$os", "breakdown_type": "event"}),

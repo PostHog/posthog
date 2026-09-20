@@ -3362,6 +3362,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if dashboard_filter.filterTestAccounts is not None and hasattr(self.query, "filterTestAccounts"):
             self.query.filterTestAccounts = dashboard_filter.filterTestAccounts
 
+        if dashboard_filter.compareFilter is not None and hasattr(self.query, "compareFilter"):
+            self.query.compareFilter = dashboard_filter.compareFilter
+
         self.__post_init__()
 
 

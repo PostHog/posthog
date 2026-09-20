@@ -4,7 +4,15 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import DashboardFilter, DataWarehouseNode, EventsNode, IntervalType, TracesQuery, TrendsQuery
+from posthog.schema import (
+    CompareFilter,
+    DashboardFilter,
+    DataWarehouseNode,
+    EventsNode,
+    IntervalType,
+    TracesQuery,
+    TrendsQuery,
+)
 
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -39,6 +47,11 @@ NON_INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
 
 # Every supported query type carries a `filterTestAccounts` field.
 ALL_QUERY_RUNNERS = INTERVAL_QUERY_RUNNERS + NON_INTERVAL_QUERY_RUNNERS
+
+# `compareFilter` support coincides exactly with `interval` support (trends carries both,
+# traces neither), so these alias the same lists rather than redeclaring identical runner builders.
+COMPARE_QUERY_RUNNERS = INTERVAL_QUERY_RUNNERS
+NON_COMPARE_QUERY_RUNNERS = NON_INTERVAL_QUERY_RUNNERS
 
 
 class TestDashboardFiltersIntervalOverride(BaseTest):
@@ -100,6 +113,41 @@ class TestDashboardFiltersTestAccountsOverride(BaseTest):
         runner.apply_dashboard_filters(DashboardFilter())
 
         assert runner.query.filterTestAccounts is True
+
+
+class TestDashboardFiltersCompareFilterOverride(BaseTest):
+    def _runner(self, build: Callable[[Team], QueryRunner]) -> QueryRunner:
+        return build(self.team)
+
+    @parameterized.expand(
+        [
+            ("forces_previous_period", CompareFilter(compare=True)),
+            ("forces_no_comparison", CompareFilter(compare=False)),
+            ("forces_custom_rolling_range", CompareFilter(compare=True, compare_to="-4w")),
+        ]
+    )
+    def test_compare_override_written_onto_compare_supporting_query(self, _name, override):
+        runner = self._runner(COMPARE_QUERY_RUNNERS[0][1])
+
+        runner.apply_dashboard_filters(DashboardFilter(compareFilter=override))
+
+        assert runner.query.compareFilter == override
+
+    def test_inherit_leaves_query_compare_filter_untouched(self):
+        runner = self._runner(COMPARE_QUERY_RUNNERS[0][1])
+        runner.query.compareFilter = CompareFilter(compare=True, compare_to="-1m")
+
+        runner.apply_dashboard_filters(DashboardFilter())
+
+        assert runner.query.compareFilter == CompareFilter(compare=True, compare_to="-1m")
+
+    @parameterized.expand(NON_COMPARE_QUERY_RUNNERS)
+    def test_compare_override_silently_skipped_for_non_compare_query(self, _name, build):
+        runner = self._runner(build)
+
+        runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True)))
+
+        assert not hasattr(runner.query, "compareFilter")
 
 
 class TestDashboardPropertyOverrides(BaseTest):

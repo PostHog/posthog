@@ -1350,11 +1350,14 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         if (
             self.query.compareFilter is not None
             and self.query.compareFilter.compare
-            and dashboard_filter.date_from == "all"
+            and self.query.dateRange is not None
+            and self.query.dateRange.date_from == "all"
         ):
             # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
             # we should disable `compare` _no matter how_ we arrived at the final executed query
             self.query.compareFilter.compare = False
+            # Rebuild self.series: __post_init__ above ran while compare was still true, doubling it.
+            self.__post_init__()
 
     def _format_breakdown_label(self, breakdown_value: Any):
         if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:
