@@ -81,6 +81,34 @@ describe('Playlist', () => {
         expect(screen.queryByTestId('mock-troubleshooting')).not.toBeInTheDocument()
     })
 
+    it('names the reason a list load failed and retries it', async () => {
+        let attempts = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings': () => {
+                    attempts += 1
+                    return [500, { detail: 'Query exceeded memory limits.' }]
+                },
+                '/api/environments/:team_id/session_recordings/properties': { results: [] },
+            },
+        })
+
+        renderPlaylist()
+        logic.actions.loadSessionRecordings(undefined, undefined, true)
+
+        await waitFor(() => {
+            expect(screen.getByText(/Query exceeded memory limits\./)).toBeInTheDocument()
+        })
+
+        const attemptsBeforeRetry = attempts
+        // The banner renders its action twice, one copy per width; either is the same button.
+        userEvent.click(screen.getAllByTestId('session-recordings-list-retry')[0])
+
+        await waitFor(() => {
+            expect(attempts).toBeGreaterThan(attemptsBeforeRetry)
+        })
+    })
+
     it('shows the selected sessions notice and clears session_ids via "Show all"', async () => {
         logic.actions.setFilters({ session_ids: ['s1', 's2'] })
 

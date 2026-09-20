@@ -28,7 +28,10 @@ import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import {
+    RecordingsListLoadError,
+    sessionRecordingsPlaylistLogic,
+} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
 import { urls } from 'scenes/urls'
@@ -411,13 +414,38 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
     )
 }
 
+const ListLoadErrorBanner = ({ error }: { error: RecordingsListLoadError }): JSX.Element => {
+    const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
+    const { loadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
+
+    return (
+        <LemonBanner
+            type="error"
+            action={{
+                children: 'Try again',
+                // Forced, so the retry reads the rows again instead of answering from the memo of
+                // an earlier load for the same filters.
+                onClick: () => loadSessionRecordings(undefined, undefined, true),
+                loading: sessionRecordingsResponseLoading,
+                'data-attr': 'session-recordings-list-retry',
+            }}
+        >
+            {/* A request that never reached PostHog carries the browser's own wording, which
+                says nothing a viewer can act on. */}
+            {error.status === null
+                ? "Couldn't load recordings. Check your connection and try again."
+                : `Couldn't load recordings: ${error.detail}`}
+        </LemonBanner>
+    )
+}
+
 const ListEmptyState = ({ listEmptyState }: Pick<PlaylistProps, 'listEmptyState'>): JSX.Element => {
-    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIError, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
-            {sessionRecordingsAPIErrored ? (
-                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+            {sessionRecordingsAPIError ? (
+                <ListLoadErrorBanner error={sessionRecordingsAPIError} />
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
@@ -436,12 +464,12 @@ const CollectionEmptyState = ({
     isSynthetic?: boolean
     description?: string
 }): JSX.Element => {
-    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIError, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
-            {sessionRecordingsAPIErrored ? (
-                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+            {sessionRecordingsAPIError ? (
+                <ListLoadErrorBanner error={sessionRecordingsAPIError} />
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : isSynthetic ? (

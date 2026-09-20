@@ -2,6 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -2032,7 +2033,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             const erroring = sessionRecordingsPlaylistLogic({ logicKey: 'error-then-success' })
             erroring.mount()
             await expectLogic(erroring).toDispatchActions(['loadSessionRecordingsFailure'])
-            expect(erroring.values.sessionRecordingsAPIErrored).toBe(true)
+            expect(erroring.values.sessionRecordingsAPIError).toEqual({ status: 500, detail: 'Request failed' })
 
             listSpy.mockResolvedValueOnce({ results: [aRecording], has_next: false } as Awaited<
                 ReturnType<typeof api.recordings.list>
@@ -2040,7 +2041,36 @@ describe('sessionRecordingsPlaylistLogic', () => {
             erroring.actions.loadSessionRecordings(undefined, undefined, true)
             await expectLogic(erroring).toDispatchActions(['loadSessionRecordingsSuccess'])
 
-            expect(erroring.values.sessionRecordingsAPIErrored).toBe(false)
+            expect(erroring.values.sessionRecordingsAPIError).toBeNull()
+            erroring.unmount()
+        })
+
+        it('reports a failed list load next to the fetched event', async () => {
+            // `recording list fetched` only counts the loads that worked, so on its own it cannot
+            // say how often the list leaves a viewer with nothing to open.
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            jest.spyOn(api.recordings, 'list').mockRejectedValue(
+                Object.assign(new Error('Request failed'), { status: 500, detail: 'Query exceeded memory limits.' })
+            )
+
+            const erroring = sessionRecordingsPlaylistLogic({
+                logicKey: 'failure-reporting-event',
+                analyticsSource: 'replay-home',
+            })
+            erroring.mount()
+            await expectLogic(erroring).toDispatchActions(['loadSessionRecordingsFailure'])
+
+            expect(captureSpy.mock.calls.filter(([event]) => event === 'recording list fetch failed')).toEqual([
+                [
+                    'recording list fetch failed',
+                    {
+                        status: 500,
+                        error_detail: 'Query exceeded memory limits.',
+                        source: 'replay-home',
+                        is_first_page: true,
+                    },
+                ],
+            ])
             erroring.unmount()
         })
 
@@ -2138,7 +2168,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(embedded).toFinishAllListeners()
 
             expect(onRecordingsLoadFailed).not.toHaveBeenCalled()
-            expect(embedded.values.sessionRecordingsAPIErrored).toBe(false)
+            expect(embedded.values.sessionRecordingsAPIError).toBeNull()
             expect(onRecordingsLoaded.mock.calls).toEqual([[[aRecording], true]])
             embedded.unmount()
         })

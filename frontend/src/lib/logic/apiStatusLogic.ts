@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isBrowserNetworkFailure } from 'lib/api-error'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -111,7 +112,9 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             if (error || !response?.status) {
                 await breakpoint(50)
                 // Likely CORS headers errors (i.e. request failing without reaching Django))
-                if (error?.message === 'Failed to fetch') {
+                // Each browser engine words a dead fetch differently, so the shared classifier
+                // decides it rather than a match on one engine's message.
+                if (isBrowserNetworkFailure(error)) {
                     actions.setInternetConnectionIssue(true)
                 }
             }

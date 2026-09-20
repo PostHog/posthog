@@ -475,6 +475,23 @@ function sortRecordings(
     })
 }
 
+/**
+ * Why a list load failed, in the shape both the playlist's own banner and an embedding page read.
+ * `status` is null for a request that never reached the server, so a refusal the backend states
+ * can be told from a transport failure.
+ */
+export interface RecordingsListLoadError {
+    status: number | null
+    detail: string
+}
+
+function listLoadError(error: string, errorObject: any): RecordingsListLoadError {
+    return {
+        status: typeof errorObject?.status === 'number' ? errorObject.status : null,
+        detail: errorObject?.detail || error,
+    }
+}
+
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
     /**
@@ -509,7 +526,7 @@ export interface SessionRecordingPlaylistLogicProps {
      * supersedes, or that the viewer leaves behind, stops at a breakpoint and is not a failure, so
      * it is not reported here.
      */
-    onRecordingsLoadFailed?: (error: { status: number | null; detail: string }, isFirstPage: boolean) => void
+    onRecordingsLoadFailed?: (error: RecordingsListLoadError, isFirstPage: boolean) => void
     /**
      * Called once each time the recording the player shows changes — clicked, played next,
      * picked via the URL, or the implicit autoplay fallback to the top of the list (on first
@@ -619,7 +636,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     selectedRecordingOutsideFilters: boolean
     selectedRecordingsIds: string[]
     sessionRecordings: SessionRecordingType[]
-    sessionRecordingsAPIErrored: boolean
+    sessionRecordingsAPIError: RecordingsListLoadError | null
     sessionRecordingsResponse: RecordingsQueryResponse & {
         order: RecordingsQuery['order']
         order_direction: RecordingsQuery['order_direction']
@@ -670,6 +687,15 @@ export interface sessionRecordingsPlaylistLogicActions {
             isFirstPage: boolean
             resultCount: number
         }
+        source: string | undefined
+    } // sessionRecordingEventUsageLogic
+    reportRecordingsListFetchFailed: (
+        failure: RecordingsListLoadError,
+        isFirstPage: boolean,
+        source?: string | undefined
+    ) => {
+        failure: RecordingsListLoadError
+        isFirstPage: boolean
         source: string | undefined
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
@@ -977,7 +1003,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             featureFlagLogic,
             ['setFeatureFlags'],
             sessionRecordingEventUsageLogic,
-            ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
+            ['reportRecordingsListFetched', 'reportRecordingsListFetchFailed', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
             playerSettingsLogic,
@@ -1436,15 +1462,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setSelectedRecordingId: (_, { id }) => id ?? null,
             },
         ],
-        sessionRecordingsAPIErrored: [
-            false,
+        sessionRecordingsAPIError: [
+            null as RecordingsListLoadError | null,
             {
-                loadSessionRecordingsFailure: () => true,
-                loadSessionRecordingsSuccess: () => false,
-                setFilters: () => false,
-                setAdvancedFilters: () => false,
-                loadNext: () => false,
-                loadPrev: () => false,
+                loadSessionRecordingsFailure: (_, { error, errorObject }) => listLoadError(error, errorObject),
+                loadSessionRecordingsSuccess: () => null,
+                setFilters: () => null,
+                setAdvancedFilters: () => null,
+                loadNext: () => null,
+                loadPrev: () => null,
             },
         ],
         selectedRecordingsIds: [
@@ -1769,18 +1795,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
 
             loadSessionRecordingsFailure: ({ error, errorObject }) => {
+                const failure = listLoadError(error, errorObject)
+                // `recording list fetched` counts the loads that worked, so on its own it cannot
+                // say how often the list fails. This is the other side of that count.
+                actions.reportRecordingsListFetchFailed(failure, !cache.loadDirection, props.analyticsSource)
                 // The status rides alongside the message so a host page can tell a refusal the
                 // backend states on purpose from a transport failure. What it offers for either is
                 // its own decision, and the two differ: the shelf on the experiment recordings tab
                 // shows a 400 as a plain answer, while the list there keeps the retry, because the
                 // refusals it can still reach pass once the exposures finish computing.
-                props.onRecordingsLoadFailed?.(
-                    {
-                        status: typeof errorObject?.status === 'number' ? errorObject.status : null,
-                        detail: errorObject?.detail || error,
-                    },
-                    !cache.loadDirection
-                )
+                props.onRecordingsLoadFailed?.(failure, !cache.loadDirection)
             },
 
             loadPinnedRecordingsSuccess: () => {

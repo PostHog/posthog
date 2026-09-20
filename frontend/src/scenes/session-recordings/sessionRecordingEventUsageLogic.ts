@@ -7,6 +7,7 @@ import { metricCount, metricHistogram } from 'lib/operationalMetrics'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import type { RecordingsListLoadError } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { userLogic } from 'scenes/userLogic'
 
@@ -27,6 +28,9 @@ export enum SessionRecordingFilterType {
     DateRange = 'date_range',
     DurationType = 'duration_type',
 }
+
+/** How much of the failure message the report carries, so an unexpected one stays bounded. */
+const LIST_ERROR_DETAIL_LIMIT = 200
 
 interface RecordingViewedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
@@ -131,6 +135,15 @@ export interface sessionRecordingEventUsageLogicActions {
         }
         source: string | undefined
     }
+    reportRecordingsListFetchFailed: (
+        failure: RecordingsListLoadError,
+        isFirstPage: boolean,
+        source?: string
+    ) => {
+        failure: RecordingsListLoadError
+        isFirstPage: boolean
+        source: string | undefined
+    }
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
         filterType: SessionRecordingFilterType
     }
@@ -169,6 +182,12 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
             page,
             source,
         }),
+        reportRecordingsListFetchFailed: (
+            failure: RecordingsListLoadError,
+            /** False for the pages scrolling adds, which say nothing about what the list first showed. */
+            isFirstPage: boolean,
+            source?: string
+        ) => ({ failure, isFirstPage, source }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
         reportRecordingPlayerSeekbarEventHovered: true,
@@ -246,6 +265,14 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
             } catch (e) {
                 posthog.captureException(e, { filters })
             }
+        },
+        reportRecordingsListFetchFailed: ({ failure, isFirstPage, source }) => {
+            posthog.capture('recording list fetch failed', {
+                status: failure.status,
+                error_detail: failure.detail.slice(0, LIST_ERROR_DETAIL_LIMIT),
+                source,
+                is_first_page: isFirstPage,
+            })
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list properties fetched', { load_time: loadTime })
