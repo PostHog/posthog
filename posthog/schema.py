@@ -26546,16 +26546,20 @@ class DashboardFilter(BaseModel):
         extra="forbid",
     )
     breakdown_filter: BreakdownFilter | None = None
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description="Period comparison forced onto every insight that supports one.",
+    )
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
     filterTestAccounts: bool | None = Field(
         default=None,
-        description=("Tri-state test-account override. Null/absent = inherit; true = force on; false = force off."),
+        description=("Tri-state test-account override. True = force on; false = force off."),
     )
     interval: IntervalType | None = Field(
         default=None,
-        description=("Time granularity forced onto every insight that supports one. Absent/null = inherit."),
+        description="Time granularity forced onto every insight that supports one.",
     )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
 
@@ -28642,6 +28646,7 @@ class TileFilters(BaseModel):
         extra="forbid",
     )
     breakdown_filter: BreakdownFilter | None = None
+    compareFilter: CompareFilter | None = None
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None

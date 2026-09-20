@@ -581,6 +581,13 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
+}
+
 export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
 
 export const IntervalTypeApi = {
@@ -921,12 +928,14 @@ export interface BehavioralPropertyFilterApi {
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
-    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    /** Tri-state test-account override. True = force on; false = force off. */
     filterTestAccounts?: boolean | null
-    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    /** Time granularity forced onto every insight that supports one. */
     interval?: IntervalTypeApi | null
     properties?:
         | (
