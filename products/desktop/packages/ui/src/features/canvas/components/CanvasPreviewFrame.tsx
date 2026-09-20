@@ -1,10 +1,8 @@
 import { publishedCanvasBuild } from "@posthog/core/canvas/canvasBuildSchemas";
 import { Text } from "@posthog/quill";
 import { BuiltCanvas } from "@posthog/ui/features/canvas/freeform/BuiltCanvas";
-import { handleFreeformDataRequest } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
-import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
 const LAYOUT_WIDTH = 1200;
@@ -42,23 +40,10 @@ export function CanvasPreviewFrame({
   });
   const build = lifecycle ? publishedCanvasBuild(lifecycle) : undefined;
   const artifactUrl = build?.artifactUrl ?? null;
-  const sourceVersionId = build?.sourceVersionId ?? undefined;
 
-  const queryClient = useQueryClient();
-  const onDataRequest = useCallback(
-    (method: string, payload: unknown) => {
-      if (method === "agentRequest") {
-        return Promise.reject(
-          new Error("A canvas preview cannot start an agent"),
-        );
-      }
-      return handleFreeformDataRequest(method, payload, queryClient, {
-        dashboardId,
-        sourceVersionId,
-        requestConnectorPermission: () => Promise.resolve(false),
-      });
-    },
-    [dashboardId, queryClient, sourceVersionId],
+  const denyDataRequest = useCallback(
+    () => Promise.reject(new Error("A canvas preview has no data access")),
+    [],
   );
 
   return (
@@ -74,8 +59,8 @@ export function CanvasPreviewFrame({
         >
           <BuiltCanvas
             artifactUrl={artifactUrl}
-            capabilities={build?.manifest?.capabilities}
-            onDataRequest={onDataRequest}
+            capabilities={undefined}
+            onDataRequest={denyDataRequest}
           />
         </div>
       ) : (
