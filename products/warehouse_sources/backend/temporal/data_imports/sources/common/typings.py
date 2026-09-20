@@ -100,6 +100,11 @@ class SourceResponse:
     """Override the batcher's per-chunk byte cap (defaults to DEFAULT_CHUNK_SIZE_BYTES). Lower it for
     sources whose rows are large (e.g. whole documents) so the source->Arrow conversion doesn't
     materialise an oversized table and OOM the worker."""
+    incremental_field_last_value_provider: Optional[Callable[[], Any]] = None
+    """Watermark for the next run, read once the item stream is exhausted. Set by a source whose
+    cursor is a position in the origin's change log rather than a value the rows carry, where the
+    maximum over the rows can never reach the cursor and stops moving altogether once the origin
+    table goes quiet. Returns None when the run produced no cursor."""
     xmin_ceiling_xid: Optional[int] = None
     """xmin syncs: bare 32-bit ceiling captured this run, persisted as the next run's lower bound."""
     xmin_ceiling_xid8: Optional[int] = None

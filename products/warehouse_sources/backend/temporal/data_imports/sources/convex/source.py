@@ -138,7 +138,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
             # Match a stable substring of the raised message, not the `InvalidWindowError` class name:
             # the non-retryable check compares against `str(exception)`, which contains the message
             # but not the class name. The table name in the message is volatile, so it's excluded.
-            "is older than Convex's ~30 day retention window": "Delta cursor is older than Convex's ~30 day retention window. Please trigger a full resync of this source.",
+            "is older than Convex's 14 day retention window": "Delta cursor is older than Convex's 14 day retention window. Trigger a full resync of this source.",
         }
 
     def get_retryable_errors(self) -> set[str]:

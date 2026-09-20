@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    advance_source_incremental_cursor,
     advance_xmin_state,
     cleanup_memory,
     handle_corrupted_delta_log,
@@ -274,6 +275,8 @@ class PipelineNonDLT(Generic[ResumableData]):
             prepared_queryable_folder = await self._post_run_operations(row_count=row_count)
 
             await advance_xmin_state(self._resource, self._schema, self._logger)
+
+            await advance_source_incremental_cursor(self._resource, self._schema, self._logger)
 
             result = PipelineResult(should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run())
             if isinstance(prepared_queryable_folder, str):

@@ -764,6 +764,35 @@ async def finalize_desc_sort_incremental_value(
             await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
 
+async def advance_source_incremental_cursor(
+    resource: SourceResponse,
+    schema: "ExternalDataSchema",
+    logger: FilteringBoundLogger,
+    log_prefix: str = "",
+    staging_run_uuid: str | None = None,
+) -> None:
+    """Persist the watermark a source reports for itself, once the run's data is durable.
+
+    A source whose cursor is a position in the origin's change log cannot have that cursor derived
+    from the rows it returned: the maximum over the rows always trails the log position, and on an
+    origin table that stops changing it never moves at all. Read at the end of extraction, so a run
+    that fails part-way re-reads from the stored watermark instead.
+    """
+    if not schema.should_use_incremental_field or resource.incremental_field_last_value_provider is None:
+        return
+
+    cursor = resource.incremental_field_last_value_provider()
+    if cursor is None:
+        return
+
+    await logger.adebug(f"{log_prefix}Advancing source-reported incremental cursor to {cursor}")
+    await database_sync_to_async_pool(schema.refresh_from_db)()
+    if staging_run_uuid is not None:
+        await database_sync_to_async_pool(schema.stage_incremental_field_value)(staging_run_uuid, cursor)
+    else:
+        await database_sync_to_async_pool(schema.update_incremental_field_value)(cursor)
+
+
 async def advance_xmin_state(
     resource: SourceResponse,
     schema: "ExternalDataSchema",

@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    advance_source_incremental_cursor,
     advance_xmin_state,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
@@ -610,6 +611,12 @@ class PipelineV3(Generic[ResumableData]):
             # no batches the load consumer is never notified. Without this a v3 schema whose
             # source stays quiet could never satisfy `_fast_return_eligible`.
             await self._stamp_full_run()
+            # A source-reported cursor is the one thing a zero-batch run still has to persist:
+            # a quiet origin table returns no rows but does move the cursor forward, and with no
+            # batches there is no export signal to promote a staged value, so write it directly.
+            await advance_source_incremental_cursor(
+                self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: "
+            )
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
             return
 
@@ -631,6 +638,14 @@ class PipelineV3(Generic[ResumableData]):
         )
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
+
+        await advance_source_incremental_cursor(
+            self._resource,
+            self._schema,
+            self._logger,
+            log_prefix="V3 Pipeline: ",
+            staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
+        )
 
         # initial_sync_complete is set by the loader's post-load after data lands in Delta.
 

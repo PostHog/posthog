@@ -52,6 +52,13 @@ class ConvexResumeConfig:
     snapshot: int | None = None
 
 
+@dataclasses.dataclass(frozen=False)
+class _SyncCursor:
+    """Carries the cursor out of the item stream, which the pipeline reads only once it ends."""
+
+    value: int | None = None
+
+
 _CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)?\.convex\.cloud$")
 
 
@@ -208,11 +215,12 @@ def list_snapshot(
     table_name: str,
     resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
     component: str = _ROOT_COMPONENT,
-) -> Generator[list[dict[str, Any]], None, int]:
+) -> Generator[list[dict[str, Any]], None, int | None]:
     """Paginate through a full table snapshot.
 
     Yields batches of documents. Returns the snapshot cursor (as the generator return value)
-    which can be used as the starting cursor for document_deltas.
+    which can be used as the starting cursor for document_deltas, or None when the deployment
+    reported no snapshot.
 
     A non-root `component` reads the table from that component; the root component is the default.
     """
@@ -248,7 +256,7 @@ def list_snapshot(
         has_more = data.get("hasMore", False)
 
         if not has_more:
-            return snapshot or 0
+            return snapshot
 
         if cursor is not None:
             resumable_source_manager.save_state(ConvexResumeConfig(cursor=cursor, snapshot=snapshot))
@@ -275,7 +283,7 @@ def document_deltas(
 
     A non-root `component` reads the table from that component; the root component is the default.
 
-    Raises InvalidWindowError if the cursor is older than Convex's retention window (~30 days).
+    Raises InvalidWindowError if the cursor is older than Convex's retention window (14 days).
     """
     base_url = f"{deploy_url.rstrip('/')}/api/document_deltas"
     current_cursor = cursor
@@ -306,7 +314,7 @@ def document_deltas(
             error_data = response.json()
             if error_data.get("code") == "InvalidWindowToReadDocuments":
                 raise InvalidWindowError(
-                    f"Delta cursor for table '{table_name}' is older than Convex's ~30 day retention window. "
+                    f"Delta cursor for table '{table_name}' is older than Convex's 14 day retention window. "
                     f"Please trigger a full resync of this source."
                 )
         response.raise_for_status()
@@ -378,18 +386,39 @@ def convex_source(
     # stays as the SourceResponse name so the Delta storage path is stable.
     component, convex_table_name = split_qualified_table_name(table_name)
 
+    # Convex reports its cursor as a position in the deployment's document log. No row carries it,
+    # and on a table that stops getting writes the maximum `_ts` stops moving, so a watermark
+    # derived from the stored rows stays pinned at the last write until it falls out of the
+    # retention window — and a full resync re-reads the same rows and pins it again.
+    sync_cursor = _SyncCursor()
+
     def items_generator():
+        batches: Generator[list[dict[str, Any]], None, int | None]
         if should_use_incremental_field and db_incremental_field_last_value is not None:
-            cursor = int(db_incremental_field_last_value)
-            deltas_manager = resumable_source_manager.with_namespace(_DELTAS_RESUME_NAMESPACE)
-            for batch in document_deltas(
-                clean_url, deploy_key, convex_table_name, cursor, deltas_manager, component=component
-            ):
-                yield _normalize_timestamps(batch)
+            batches = document_deltas(
+                clean_url,
+                deploy_key,
+                convex_table_name,
+                int(db_incremental_field_last_value),
+                resumable_source_manager.with_namespace(_DELTAS_RESUME_NAMESPACE),
+                component=component,
+            )
         else:
-            snapshot_manager = resumable_source_manager.with_namespace(_SNAPSHOT_RESUME_NAMESPACE)
-            for batch in list_snapshot(clean_url, deploy_key, convex_table_name, snapshot_manager, component=component):
-                yield _normalize_timestamps(batch)
+            batches = list_snapshot(
+                clean_url,
+                deploy_key,
+                convex_table_name,
+                resumable_source_manager.with_namespace(_SNAPSHOT_RESUME_NAMESPACE),
+                component=component,
+            )
+
+        while True:
+            try:
+                batch = next(batches)
+            except StopIteration as end:
+                sync_cursor.value = end.value
+                return
+            yield _normalize_timestamps(batch)
 
     return SourceResponse(
         name=table_name,
@@ -400,4 +429,5 @@ def convex_source(
         partition_mode="datetime",
         partition_format="week",
         partition_keys=["_creationTime"],
+        incremental_field_last_value_provider=lambda: sync_cursor.value,
     )

@@ -402,6 +402,131 @@ class TestConvexSource:
             assert first_params[key] == value
 
 
+class TestConvexSourceCursor:
+    """The stored watermark must be the cursor Convex returned, not the max `_ts` of the rows."""
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_delta_cursor_advances_when_the_table_got_no_writes(self, mock_get: Mock) -> None:
+        # The regression: a quiet table returns no rows, so a row-derived watermark stays at the
+        # last write and eventually falls out of Convex's retention window.
+        manager = _make_manager(can_resume=False)
+        mock_get.return_value.get.return_value = _make_response({"values": [], "cursor": 9000, "hasMore": False})
+
+        response = convex_source(
+            deploy_url="https://x.convex.cloud",
+            deploy_key="key",
+            table_name="t",
+            team_id=1,
+            job_id="job",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=10,
+            resumable_source_manager=manager,
+        )
+
+        assert list(cast(Iterable[Any], response.items())) == []
+        assert response.incremental_field_last_value_provider is not None
+        assert response.incremental_field_last_value_provider() == 9000
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_delta_cursor_outruns_the_rows_it_returned(self, mock_get: Mock) -> None:
+        # Every row's `_ts` sits at or below the log position, so the cursor is the only value that
+        # can be replayed against document_deltas.
+        manager = _make_manager(can_resume=False)
+        mock_get.return_value.get.side_effect = [
+            _make_response({"values": [{"_id": "a", "_ts": 20}], "cursor": 40, "hasMore": True}),
+            _make_response({"values": [{"_id": "b", "_ts": 55}], "cursor": 90, "hasMore": False}),
+        ]
+
+        response = convex_source(
+            deploy_url="https://x.convex.cloud",
+            deploy_key="key",
+            table_name="t",
+            team_id=1,
+            job_id="job",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=10,
+            resumable_source_manager=manager,
+        )
+
+        list(cast(Iterable[Any], response.items()))
+        assert response.incremental_field_last_value_provider is not None
+        assert response.incremental_field_last_value_provider() == 90
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_first_sync_keeps_the_snapshot_cursor(self, mock_get: Mock) -> None:
+        # Without this a full resync cannot recover a table that already fell out of the window:
+        # list_snapshot re-reads the same rows, whose newest `_ts` is just as stale.
+        manager = _make_manager(can_resume=False)
+        mock_get.return_value.get.return_value = _make_response(
+            {"values": [{"_id": "a", "_ts": 20}], "cursor": "opaque", "snapshot": 7000, "hasMore": False}
+        )
+
+        response = convex_source(
+            deploy_url="https://x.convex.cloud",
+            deploy_key="key",
+            table_name="t",
+            team_id=1,
+            job_id="job",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+            resumable_source_manager=manager,
+        )
+
+        list(cast(Iterable[Any], response.items()))
+        assert response.incremental_field_last_value_provider is not None
+        assert response.incremental_field_last_value_provider() == 7000
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_no_cursor_leaves_the_stored_watermark_alone(self, mock_get: Mock) -> None:
+        # A deployment that reports no snapshot must not be read as position 0, which
+        # document_deltas would reject on the next run.
+        manager = _make_manager(can_resume=False)
+        mock_get.return_value.get.return_value = _make_response({"values": [], "hasMore": False})
+
+        response = convex_source(
+            deploy_url="https://x.convex.cloud",
+            deploy_key="key",
+            table_name="t",
+            team_id=1,
+            job_id="job",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+            resumable_source_manager=manager,
+        )
+
+        list(cast(Iterable[Any], response.items()))
+        assert response.incremental_field_last_value_provider is not None
+        assert response.incremental_field_last_value_provider() is None
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_a_failed_run_reports_no_cursor(self, mock_get: Mock) -> None:
+        # The cursor is only durable once the stream completes; a run that dies part-way must
+        # re-read from the stored watermark rather than skip the pages it never wrote.
+        manager = _make_manager(can_resume=False)
+        failing_page = _make_response({}, status_code=500)
+        failing_page.raise_for_status.side_effect = HTTPError("500 Server Error", response=failing_page)
+        mock_get.return_value.get.side_effect = [
+            _make_response({"values": [{"_id": "a"}], "cursor": 40, "hasMore": True}),
+            failing_page,
+        ]
+
+        response = convex_source(
+            deploy_url="https://x.convex.cloud",
+            deploy_key="key",
+            table_name="t",
+            team_id=1,
+            job_id="job",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=10,
+            resumable_source_manager=manager,
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Iterable[Any], response.items()))
+        assert response.incremental_field_last_value_provider is not None
+        assert response.incremental_field_last_value_provider() is None
+
+
 class TestComponentSupport:
     @parameterized.expand(
         [
@@ -571,7 +696,7 @@ class TestConvexNonRetryableErrors:
             ),
             (
                 "invalid_window",
-                "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
+                "Delta cursor for table 'events' is older than Convex's 14 day retention window. "
                 "Please trigger a full resync of this source.",
             ),
         ]
@@ -635,7 +760,7 @@ class TestConvexRetryableErrors:
             ("409", "409 Client Error: Conflict for url: https://x.convex.cloud/api/document_deltas"),
             (
                 "invalid_window",
-                "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
+                "Delta cursor for table 'events' is older than Convex's 14 day retention window. "
                 "Please trigger a full resync of this source.",
             ),
         ]
