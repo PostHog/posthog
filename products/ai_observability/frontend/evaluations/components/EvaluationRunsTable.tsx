@@ -42,7 +42,7 @@ export function EvaluationRunsTable(): JSX.Element {
     const { filteredEvaluationRuns, evaluationRuns, evaluationRunsError, evaluation, evaluationRunsLoading } =
         useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
-    const showOutcomeFilters = evaluationSupportsRunOutcomes(evaluation)
+    const showOutcomeFilters = evaluation?.output_type === 'numeric' || evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
     // Every run in this table belongs to `evaluation`, so its polarity applies to the whole column.
     const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
@@ -98,11 +98,23 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Result',
             key: 'result',
-            render: (_, run) => <EvaluationResultTag run={run} trueIsFailure={trueIsFailure} />,
+            render: (_, run) => (
+                <EvaluationResultTag
+                    run={run}
+                    trueIsFailure={trueIsFailure}
+                    passingRule={evaluation?.output_config.passing_rule}
+                />
+            ),
             sorter: (a, b) => {
                 return (
-                    getEvaluationResultSortValue(b, { trueIsFailure }) -
-                    getEvaluationResultSortValue(a, { trueIsFailure })
+                    getEvaluationResultSortValue(b, {
+                        trueIsFailure,
+                        passingRule: evaluation?.output_config.passing_rule,
+                    }) -
+                    getEvaluationResultSortValue(a, {
+                        trueIsFailure,
+                        passingRule: evaluation?.output_config.passing_rule,
+                    })
                 )
             },
         },

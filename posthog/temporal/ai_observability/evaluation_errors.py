@@ -172,6 +172,7 @@ def terminal_user_error_result(
     spec: EvaluationErrorSpec,
     message: str | None,
     allows_na: bool,
+    output_type: str = "boolean",
     provider: str | None = None,
     model: str | None = None,
     key_id: str | None = None,
@@ -200,6 +201,9 @@ def terminal_user_error_result(
         result["provider_key_state"] = spec.provider_key_state
     if allows_na:
         result["applicable"] = False
+    if output_type == "numeric":
+        result["result_type"] = "numeric"
+        result.pop("verdict", None)
     return result
 
 
@@ -207,6 +211,7 @@ def terminal_user_error_result_from_application_error(
     error: ApplicationError,
     *,
     allows_na: bool,
+    output_type: str = "boolean",
     provider: str | None = None,
     model: str | None = None,
     key_id: str | None = None,
@@ -226,6 +231,7 @@ def terminal_user_error_result_from_application_error(
         spec=spec,
         message=error.message,
         allows_na=allows_na,
+        output_type=output_type,
         provider=str(detail_provider) if detail_provider else provider,
         model=str(detail_model) if detail_model else model,
         key_id=str(detail_key_id) if detail_key_id else key_id,

@@ -48,7 +48,15 @@ import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_RUNS_QUERY_LIMIT, evaluationPassedHogQL, evaluationPassRateHogQL } from './constants'
+import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
+import {
+    EVALUATION_NUMERIC_GRADED_HOGQL,
+    EVALUATION_NUMERIC_MEAN_HOGQL,
+    numericEvaluationPassedHogQL,
+    EVALUATION_RUNS_QUERY_LIMIT,
+    evaluationPassedHogQL,
+    evaluationPassRateHogQL,
+} from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReports,
@@ -105,6 +113,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
+        setOutputType,
+        patchOutputConfig,
         setEvaluationTarget,
         setSettleStrategy,
         patchTargetConfig,
@@ -126,7 +136,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
+        evaluation.output_type !== 'numeric' &&
+        evaluation.id
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
@@ -146,7 +158,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
 
     const trendInsightUrl =
-        supportsRunOutcomes && !isNewEvaluation && evaluation.id
+        (supportsRunOutcomes || evaluation.output_type === 'numeric') && !isNewEvaluation && evaluation.id
             ? urls.insightNew({
                   query: {
                       kind: NodeKind.InsightVizNode,
@@ -156,9 +168,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                               {
                                   kind: NodeKind.EventsNode,
                                   event: '$ai_evaluation',
-                                  custom_name: `${evaluation.name} — Pass rate`,
+                                  custom_name: `${evaluation.name} - ${evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
                                   math: HogQLMathType.HogQL,
-                                  math_hogql: evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
+                                  math_hogql:
+                                      evaluation.output_type === 'numeric'
+                                          ? evaluation.output_config.passing_rule
+                                              ? evaluationPassRateHogQL(
+                                                    numericEvaluationPassedHogQL(evaluation),
+                                                    EVALUATION_NUMERIC_GRADED_HOGQL
+                                                )
+                                              : EVALUATION_NUMERIC_MEAN_HOGQL
+                                          : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
                                   properties: [
                                       {
                                           key: '$ai_evaluation_id',
@@ -168,7 +188,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                       },
                                   ],
                               },
-                              ...(evaluation.output_config.allows_na
+                              ...(evaluation.output_type !== 'numeric' && evaluation.output_config.allows_na
                                   ? [
                                         {
                                             kind: NodeKind.EventsNode as const,
@@ -405,7 +425,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         'data-attr': 'llma-evaluation-runs-tab',
                         content: (
                             <div className="max-w-6xl">
-                                <div className="flex justify-between items-center mb-4">
+                                <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
                                     <div className="min-w-0">
                                         <p className="text-muted text-sm m-0">
                                             History of when this evaluation has been executed.
@@ -431,10 +451,21 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                     <div className="text-muted">Total runs</div>
                                                 </div>
+                                                {evaluation.output_type === 'numeric' && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg">
+                                                            {runsSummary.scoreMean ?? '–'}
+                                                        </div>
+                                                        <div className="text-muted">Mean score</div>
+                                                    </div>
+                                                )}
                                                 {supportsRunOutcomes && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg text-success">
-                                                            {runsSummary.successRate}%
+                                                            {evaluation.output_type === 'numeric' &&
+                                                            runsSummary.scoreMean == null
+                                                                ? '–'
+                                                                : `${runsSummary.successRate}%`}
                                                         </div>
                                                         <div className="text-muted">Success rate</div>
                                                     </div>
@@ -555,7 +586,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <LemonSelect
                                                         value={evaluation.evaluation_type}
                                                         onChange={(value) => setEvaluationType(value as EvaluationType)}
-                                                        options={evaluationMethodOptions}
+                                                        options={evaluationMethodOptions.map((option) => ({
+                                                            ...option,
+                                                            disabledReason:
+                                                                !isNewEvaluation &&
+                                                                evaluation.output_type === 'numeric' &&
+                                                                option.value === 'sentiment'
+                                                                    ? 'Create a new evaluation to change its output type.'
+                                                                    : undefined,
+                                                        }))}
                                                         fullWidth
                                                     />
                                                 </LemonField.Pure>
@@ -730,6 +769,32 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </>
                                             )}
 
+                                            {!isSentiment && (
+                                                <LemonField.Pure label="Output type">
+                                                    <LemonSelect
+                                                        value={evaluation.output_type}
+                                                        options={[
+                                                            { value: 'boolean', label: 'Boolean' },
+                                                            { value: 'numeric', label: 'Numeric score' },
+                                                        ]}
+                                                        onChange={(value) =>
+                                                            setOutputType(value as 'boolean' | 'numeric')
+                                                        }
+                                                        disabledReason={
+                                                            !isNewEvaluation
+                                                                ? 'Create a new evaluation to change its output type.'
+                                                                : undefined
+                                                        }
+                                                        data-attr="llma-evaluation-output-type"
+                                                    />
+                                                </LemonField.Pure>
+                                            )}
+                                            {evaluation.output_type === 'numeric' && (
+                                                <NumericEvaluationConfig
+                                                    config={evaluation.output_config}
+                                                    onChange={patchOutputConfig}
+                                                />
+                                            )}
                                             <LemonField.Pure label="Description (optional)">
                                                 <LemonTextArea
                                                     value={evaluation.description || ''}

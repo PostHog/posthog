@@ -1300,6 +1300,16 @@ class TestToolsCoordinate(SimpleTestCase):
 
 
 class TestLabelGenerationEvals(SimpleTestCase):
+    def test_numeric_evaluations_use_their_own_rule_and_keep_unrated_scores(self):
+        rows = [[name, "numeric", None, None, None, "reason", True, 7.5] for name in ["high", "low", "unrated"]]
+        configs = {
+            "high": {"passing_rule": {"operator": "gte", "threshold": 7}},
+            "low": {"passing_rule": {"operator": "lte", "threshold": 7}},
+        }
+        labeled = _label_generation_evals(rows, set(), configs)
+        self.assertEqual([row["outcome"] for row in labeled], ["pass", "fail", None])
+        self.assertEqual([row["score"] for row in labeled], [7.5, 7.5, 7.5])
+
     # (eval_id, result_type, result, sentiment_label, sentiment_score, reasoning, applicable)
     ROWS: list[list[object]] = [
         ["detector-eval", "boolean", True, None, None, "struggled", None],
@@ -1320,6 +1330,6 @@ class TestLabelGenerationEvals(SimpleTestCase):
         self.assertEqual(outcomes, {"detector-eval": "pass", "quality-eval": "pass", "sentiment-eval": "negative"})
 
     def test_unsupported_output_type_is_dropped(self):
-        labeled = _label_generation_evals([["numeric-eval", "numeric", 1, None, None, "", None]], set())
+        labeled = _label_generation_evals([["unknown-eval", "unknown", 1, None, None, "", None]], set())
 
         self.assertEqual(labeled, [])

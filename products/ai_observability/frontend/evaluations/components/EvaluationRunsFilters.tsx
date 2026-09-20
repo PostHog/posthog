@@ -32,7 +32,12 @@ export function EvaluationRunsFilters(): JSX.Element | null {
             onChange={(value) => {
                 setEvaluationRunsFilter(value, evaluationRunsFilter)
             }}
-            options={[...BASE_FILTER_OPTIONS, ...(evaluation?.output_config?.allows_na ? [NA_FILTER_OPTION] : [])]}
+            options={[
+                ...(evaluation?.output_type === 'numeric' && !evaluation.output_config.passing_rule
+                    ? BASE_FILTER_OPTIONS.slice(0, 1)
+                    : BASE_FILTER_OPTIONS),
+                ...(evaluation?.output_config?.allows_na ? [NA_FILTER_OPTION] : []),
+            ]}
             size="small"
             // pinned: autocapture data-attr - existing dashboards depend on it
             data-attr="llma-evaluation-summary-filter"

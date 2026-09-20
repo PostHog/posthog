@@ -287,7 +287,18 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
         properties["$ai_evaluation_key_id"] = result.get("key_id")
 
-    if result["result_type"] == "sentiment":
+    if result["result_type"] == "numeric":
+        properties["$ai_evaluation_allows_na"] = allows_na
+        if allows_na:
+            properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))
+        if not result.get("skipped") and result.get("applicable", True):
+            if "score" in result:
+                properties["$ai_score"] = result["score"]
+            if "score_min" in result:
+                properties["$ai_score_min"] = result["score_min"]
+            if "score_max" in result:
+                properties["$ai_score_max"] = result["score_max"]
+    elif result["result_type"] == "sentiment":
         if not result.get("skipped"):
             properties["$ai_sentiment_label"] = result.get("sentiment_label")
             properties["$ai_sentiment_score"] = result.get("sentiment_score")
@@ -434,7 +445,9 @@ async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) 
                 "input_tokens": result.get("input_tokens", 0),
                 "output_tokens": result.get("output_tokens", 0),
                 "total_tokens": result.get("total_tokens", 0),
-                "verdict": result["verdict"],
+                **({"verdict": result["verdict"]} if "verdict" in result else {}),
+                **({"score": result["score"]} if "score" in result else {}),
+                "result_type": result["result_type"],
             },
             groups={"organization": organization_id, "instance": settings.SITE_URL},
         )

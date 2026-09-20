@@ -369,6 +369,17 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     return <span className="text-muted text-sm">No runs</span>
                 }
 
+                if (evaluation.output_type === 'numeric') {
+                    return (
+                        <div className="text-sm">
+                            <div>{`${stats.runs_count} runs`}</div>
+                            <div>{`Mean score: ${stats.score_mean ?? '–'}`}</div>
+                            {evaluation.output_config.passing_rule && (
+                                <div>{`Pass rate: ${stats.applicable_count ? `${stats.pass_rate.toFixed(1)}%` : '–'}`}</div>
+                            )}
+                        </div>
+                    )
+                }
                 // Sentiment evals classify rather than pass/fail, so a pass rate is meaningless
                 if (evaluation.evaluation_type === 'sentiment') {
                     return (

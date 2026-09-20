@@ -18,7 +18,7 @@ export function GenerationEvalRunsTable({
     generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationRunsLogic)
-    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
+    const { detectorEvaluationIds, evaluations } = useValues(llmEvaluationsLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -45,7 +45,14 @@ export function GenerationEvalRunsTable({
             title: 'Result',
             key: 'result',
             render: (_, run) => (
-                <EvaluationResultTag run={run} trueIsFailure={detectorEvaluationIds.includes(run.evaluation_id)} />
+                <EvaluationResultTag
+                    run={run}
+                    passingRule={
+                        evaluations?.find((evaluation) => evaluation.id === run.evaluation_id)?.output_config
+                            .passing_rule
+                    }
+                    trueIsFailure={detectorEvaluationIds.includes(run.evaluation_id)}
+                />
             ),
             sorter: (a, b) => {
                 return (

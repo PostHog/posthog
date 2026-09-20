@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -42,8 +42,17 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS, TransientJudgeError, _execute_llm_judge_activity
-from .evaluation_workflow_activities import LocalEvaluationOutcome, backfill_verdict_timestamp
+from .evaluation_llm_judge import (
+    JUDGE_EVENT_MAX_CHARS,
+    TransientJudgeError,
+    _execute_llm_judge_activity,
+    get_output_type_config,
+)
+from .evaluation_workflow_activities import (
+    LocalEvaluationOutcome,
+    backfill_verdict_timestamp,
+    build_evaluation_event_properties,
+)
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -2421,6 +2430,95 @@ class TestExecuteSentimentEvalActivity:
 
 
 class TestEvalResultModels:
+    @pytest.mark.parametrize("score", [0, 0.25, 1, None, -0.1, 1.1])
+    def test_numeric_judge_validates_bounds_before_returning(self, score: float | None) -> None:
+        evaluation = {
+            "id": "numeric-eval",
+            "team_id": 1,
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Rate quality"},
+            "output_type": "numeric",
+            "output_config": {"min": 0, "max": 1, "allows_na": True},
+        }
+        schema = get_output_type_config(True, output_type="numeric").response_format
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as model_spec,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+        ):
+            model_spec.return_value.resolve.return_value = MagicMock(
+                provider="openai",
+                model="gpt-4o-mini",
+                provider_key=None,
+                is_byok=False,
+            )
+            client.return_value.complete.return_value = MagicMock(
+                parsed=schema.model_validate({"reasoning": "Quality", "score": score, "applicable": score is not None}),
+                usage=None,
+            )
+            inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
+            if score is not None and not 0 <= score <= 1:
+                with pytest.raises(ApplicationError) as error:
+                    _execute_llm_judge_activity(inputs)
+                assert error.value.non_retryable
+                assert error.value.details[0]["error_type"] == "parse_error"
+                return
+            result = _execute_llm_judge_activity(inputs)
+        assert result["result_type"] == "numeric"
+        assert "verdict" not in result
+        assert result["applicable"] is (score is not None)
+        if score is None:
+            assert "score" not in result
+            assert "score_min" not in result
+        else:
+            assert result["score"] == score
+            assert result["score_min"] == 0
+            assert result["score_max"] == 1
+
+    @pytest.mark.parametrize("value", [True, "0.5", float("nan"), float("inf")])
+    def test_numeric_schema_rejects_invalid_scores(self, value: object) -> None:
+        schema = get_output_type_config(False, output_type="numeric").response_format
+        with pytest.raises(ValueError):
+            schema.model_validate({"reasoning": "Quality", "score": value})
+
+    @pytest.mark.parametrize(
+        "applicable,score,valid", [(True, 0, True), (False, None, True), (True, None, False), (False, 0, False)]
+    )
+    def test_numeric_na_consistency(self, applicable: bool, score: float | None, valid: bool) -> None:
+        schema = get_output_type_config(True, output_type="numeric").response_format
+        data = {"reasoning": "Quality", "score": score, "applicable": applicable}
+        if valid:
+            assert schema.model_validate(data).model_dump()["score"] == score
+        else:
+            with pytest.raises(ValueError):
+                schema.model_validate(data)
+
+    @pytest.mark.parametrize(
+        "extra,expected",
+        [
+            ({"score": 0, "score_min": 0, "score_max": 1}, {"$ai_score": 0, "$ai_score_min": 0, "$ai_score_max": 1}),
+            ({"applicable": False}, {}),
+            ({"skipped": True, "skip_reason": "trace_not_found"}, {}),
+        ],
+    )
+    def test_numeric_event_properties(self, extra: dict[str, Any], expected: dict[str, Any]) -> None:
+        result = cast(
+            EvaluationActivityResult,
+            {
+                "result_type": "numeric",
+                "reasoning": "Quality",
+                "allows_na": True,
+                **extra,
+            },
+        )
+        properties = build_evaluation_event_properties(
+            {"id": "eval", "name": "Quality", "evaluation_type": "hog"},
+            result,
+            datetime(2026, 7, 1, tzinfo=UTC),
+        )
+        assert properties["$ai_evaluation_result_type"] == "numeric"
+        assert "$ai_evaluation_result" not in properties
+        assert {key: value for key, value in properties.items() if key.startswith("$ai_score")} == expected
+
     def test_boolean_eval_result(self):
         """Test BooleanEvalResult model"""
         result = BooleanEvalResult(reasoning="Test reasoning", verdict=True)

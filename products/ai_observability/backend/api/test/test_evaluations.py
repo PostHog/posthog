@@ -10,13 +10,19 @@ from django.test import SimpleTestCase
 from drf_spectacular.plumbing import get_override
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer, _TargetConfigField
+from products.ai_observability.backend.api.evaluations import (
+    EvaluationSerializer,
+    ModelConfigurationSerializer,
+    TestHogRequestSerializer as HogRequestSerializer,
+    _TargetConfigField,
+)
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_configs import validate_target_config
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
@@ -51,6 +57,41 @@ def _setup_team():
     )
     User.objects.create_and_join(org, "test-evaluations@posthog.com", "testpassword123")
     return team
+
+
+class TestNumericEvaluationSerializer(SimpleTestCase):
+    def test_preview_validates_numeric_config(self):
+        serializer = HogRequestSerializer(
+            data={"source": "return 0;", "output_type": "numeric", "output_config": {"min": 0, "allows_na": True}}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["output_type"], "numeric")
+        self.assertTrue(serializer.validated_data["allows_na"])
+
+    def test_preview_rejects_invalid_numeric_bounds(self):
+        serializer = HogRequestSerializer(
+            data={"source": "return 0;", "output_type": "numeric", "output_config": {"min": 10, "max": 0}}
+        )
+        self.assertFalse(serializer.is_valid())
+
+    def test_patch_can_clear_rule_without_clearing_bounds(self):
+        evaluation = Evaluation(
+            evaluation_type="hog",
+            evaluation_config={"source": "return 0;"},
+            output_type="numeric",
+            output_config={"min": 0, "max": 10, "passing_rule": {"operator": "gte", "threshold": 7}},
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        data = serializer.validate({"output_config": {"passing_rule": None}})
+        self.assertEqual(data["output_config"], {"min": 0, "max": 10, "allows_na": False})
+
+    def test_existing_boolean_cannot_change_to_numeric(self):
+        evaluation = Evaluation(
+            evaluation_type="hog", evaluation_config={"source": "return true;"}, output_type="boolean", output_config={}
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        with self.assertRaises(ValidationError):
+            serializer.validate({"output_type": "numeric"})
 
 
 class TestModelConfigurationSerializer(SimpleTestCase):
@@ -94,6 +135,33 @@ class TestTargetConfigFieldSchema(SimpleTestCase):
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
+    def test_numeric_passing_rule_controls_report_creation_and_scheduling(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Response score",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return 0;"},
+                "output_type": "numeric",
+                "output_config": {"min": 0, "max": 10},
+                "enabled": True,
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        evaluation = Evaluation.objects.get(id=response.json()["id"])
+        self.assertFalse(EvaluationReport.objects.filter(evaluation=evaluation).exists())
+        url = f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/"
+        response = self.client.patch(url, {"output_config": {"passing_rule": {"operator": "gte", "threshold": 7}}})
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["output_config"]["min"], 0)
+        report = EvaluationReport.objects.get(evaluation=evaluation)
+        self.assertTrue(EvaluationReport.objects.deliverable().filter(id=report.id).exists())
+        response = self.client.patch(url, {"output_config": {"passing_rule": None}})
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertFalse(EvaluationReport.objects.reportable().filter(id=report.id).exists())
+        response = self.client.patch(url, {"output_type": "boolean"})
+        self.assertEqual(response.status_code, 400)
+
     def _create_configured_llm_judge(self) -> tuple[Evaluation, LLMModelConfiguration]:
         model_configuration = LLMModelConfiguration.objects.create(
             team=self.team, provider="openai", model="gpt-5-mini"
@@ -1236,6 +1304,23 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
 
 class TestTestHogEndpoint(APIBaseTest):
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    def test_numeric_preview_does_not_coerce_score_to_boolean(self, mock_query):
+        mock_query.return_value = self._mock_hogql_response()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {
+                "source": "return 0;",
+                "output_type": "numeric",
+                "output_config": {"min": 0},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        result = response.json()["results"][0]
+        self.assertEqual(result["score"], 0)
+        self.assertIsNone(result["result"])
+        self.assertIsNone(result["error"])
+
     EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
 
     def _mock_hogql_response(self, count=1):

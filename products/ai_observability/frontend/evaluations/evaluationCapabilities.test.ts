@@ -22,6 +22,9 @@ describe('evaluationCapabilities', () => {
         ['sentiment', 'trace', false, false],
         ['boolean', 'session', true, false],
         ['sentiment', 'session', false, false],
+        ['numeric', 'generation', false, false],
+        ['numeric', 'trace', false, false],
+        ['numeric', 'session', false, false],
     ])(
         'supports the expected capabilities for %s %s evaluations',
         (outputType, target, supportsReports, supportsRunOutcomes) => {
@@ -29,6 +32,19 @@ describe('evaluationCapabilities', () => {
 
             expect(evaluationSupportsReports(evaluation)).toBe(supportsReports)
             expect(evaluationSupportsRunOutcomes(evaluation)).toBe(supportsRunOutcomes)
+        }
+    )
+
+    it.each(['generation', 'trace', 'session'] as const)(
+        'supports numeric %s reports only with a passing rule',
+        (target) => {
+            const evaluation = {
+                target,
+                output_type: 'numeric' as const,
+                output_config: { passing_rule: { operator: 'gte' as const, threshold: 7 } },
+            }
+            expect(evaluationSupportsReports(evaluation)).toBe(true)
+            expect(evaluationSupportsRunOutcomes(evaluation)).toBe(true)
         }
     )
 

@@ -1246,6 +1246,13 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         const fetchedEvaluation = await api.get<EvaluationConfig>(
                             `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
                         )
+                        if (fetchedEvaluation.output_type === 'numeric') {
+                            lemonToast.error(
+                                'Numeric evaluations are not supported in Playground. Edit this evaluation from the evaluations page.'
+                            )
+                            router.actions.replace(urls.aiObservabilityEvaluation(fetchedEvaluation.id))
+                            return
+                        }
                         actions.setSourceNames(null, fetchedEvaluation.name ?? null, promptId)
                         if (fetchedEvaluation.evaluation_type === 'llm_judge') {
                             actions.setSystemPrompt(

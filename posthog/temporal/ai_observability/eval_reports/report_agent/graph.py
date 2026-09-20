@@ -50,6 +50,7 @@ def _compute_metrics(
     output_type: str = "boolean",
     true_is_failure: bool = False,
     evaluation_target: str = GENERATION_TARGET,
+    output_config: dict[str, Any] | None = None,
 ) -> EvalReportMetrics | None:
     """Compute report metrics directly via HogQL (independent of agent state).
 
@@ -61,7 +62,7 @@ def _compute_metrics(
         ts_start = _ch_ts(period_start)
         ts_end = _ch_ts(period_end)
         ts_prev_start = _ch_ts(previous_period_start)
-        definition = get_outcome_definition(output_type, true_is_failure=true_is_failure)
+        definition = get_outcome_definition(output_type, true_is_failure=true_is_failure, output_config=output_config)
 
         result_counts, total = _fetch_period_summary(
             team_id, evaluation_id, ts_start, ts_end, definition, evaluation_target
@@ -72,6 +73,7 @@ def _compute_metrics(
 
         return EvalReportMetrics(
             output_type=output_type,
+            output_config=output_config or {},
             total_runs=total,
             result_counts=result_counts,
             period_start=period_start,
@@ -122,9 +124,11 @@ def _fallback_content(
             f"No evaluation runs recorded for **{evaluation_name}** in this period. "
             f"Check that the evaluation is enabled and that {ingestion_hint}."
         )
-    elif metrics.output_type == "boolean":
+    elif metrics.output_type == "numeric" and metrics.pass_rate is None:
+        summary = f"No numeric scores were produced across {metrics.total_runs} runs. All results were not applicable."
+    elif metrics.output_type in ("boolean", "numeric"):
         trend = ""
-        if metrics.previous_pass_rate is not None:
+        if metrics.pass_rate is not None and metrics.previous_pass_rate is not None:
             diff = metrics.pass_rate - metrics.previous_pass_rate
             if diff > 1:
                 trend = f" (up from {metrics.previous_pass_rate}%)"
@@ -225,6 +229,7 @@ def run_eval_report_agent(
     inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
     detector_evaluation_ids: Sequence[str] = (),
+    numeric_output_configs: dict[str, dict[str, Any]] | None = None,
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -248,6 +253,7 @@ def run_eval_report_agent(
         inputs.previous_period_start,
         output_type=inputs.output_type,
         true_is_failure=inputs.true_is_failure,
+        output_config=inputs.output_config,
         evaluation_target=evaluation_target,
     )
 
@@ -294,6 +300,7 @@ def run_eval_report_agent(
         period_end=inputs.period_end,
         report_prompt_guidance=inputs.report_prompt_guidance,
         true_is_failure=inputs.true_is_failure,
+        output_config=inputs.output_config,
     )
 
     agent = create_react_agent(
@@ -317,7 +324,9 @@ def run_eval_report_agent(
         "evaluation_target": evaluation_target,
         "output_type": inputs.output_type,
         "true_is_failure": inputs.true_is_failure,
+        "output_config": inputs.output_config,
         "detector_evaluation_ids": list(detector_evaluation_ids),
+        "numeric_output_configs": {**(numeric_output_configs or {}), inputs.evaluation_id: inputs.output_config},
         "period_start": inputs.period_start,
         "period_end": inputs.period_end,
         "previous_period_start": inputs.previous_period_start,

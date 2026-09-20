@@ -1,6 +1,6 @@
 import { evaluationsList, llmAnalyticsEvaluationReportsList } from '../generated/api'
 import type { EvaluationApi, EvaluationReportApi } from '../generated/api.schemas'
-import { listAllEvaluationReports, listAllEvaluations } from './evaluationsApi'
+import { evaluationFromApi, listAllEvaluationReports, listAllEvaluations } from './evaluationsApi'
 
 jest.mock('../generated/api', () => ({
     evaluationsList: jest.fn(),
@@ -65,6 +65,23 @@ const evaluationReportApi = (id: string, evaluation: string): EvaluationReportAp
 })
 
 describe('evaluationsApi', () => {
+    it.each(['llm_judge', 'hog'] as const)('keeps numeric %s configurations in the list', (evaluation_type) => {
+        const output_config = {
+            min: 0,
+            max: 10,
+            allows_na: true,
+            passing_rule: { operator: 'gte' as const, threshold: 7 },
+        }
+        const evaluation = evaluationFromApi({
+            ...evaluationApi('1'),
+            evaluation_type,
+            evaluation_config: evaluation_type === 'hog' ? { source: 'return 7;' } : { prompt: 'Score correctness' },
+            output_type: 'numeric',
+            output_config,
+        })
+        expect(evaluation).toMatchObject({ evaluation_type, output_type: 'numeric', output_config })
+    })
+
     beforeEach(() => {
         jest.mocked(evaluationsList).mockReset()
         jest.mocked(llmAnalyticsEvaluationReportsList).mockReset()

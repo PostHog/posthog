@@ -20,7 +20,13 @@ class EvaluationReportQuerySet(models.QuerySet):
                 evaluation__target=target,
                 evaluation__output_type__in=output_types,
             )
-        return self.filter(reportable_filter)
+        return self.filter(reportable_filter).exclude(
+            models.Q(evaluation__output_type="numeric")
+            & (
+                ~models.Q(evaluation__output_config__has_key="passing_rule")
+                | models.Q(evaluation__output_config__passing_rule=None)
+            )
+        )
 
     def deliverable(self) -> "EvaluationReportQuerySet":
         return self.reportable().filter(

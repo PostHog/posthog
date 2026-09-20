@@ -9,6 +9,7 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
+import { EvaluationResultTag } from '../../components/EvaluationResultTag'
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
 import { evaluationIsDetector } from '../constants'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
@@ -198,24 +199,44 @@ export function HogTestResultsPanel(): JSX.Element | null {
 
     // Every result here belongs to `evaluation`, so its polarity applies to the whole panel.
     const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
-    const passed = hogTestResults?.filter((r) => r.result === !trueIsFailure).length ?? 0
-    const failed = hogTestResults?.filter((r) => r.result === trueIsFailure).length ?? 0
-    const na = hogTestResults?.filter((r) => r.result === null && !r.error).length ?? 0
+    const numeric = evaluation?.output_type === 'numeric'
+    const rule = evaluation?.output_config.passing_rule
+    const passed =
+        hogTestResults?.filter((r) =>
+            numeric
+                ? r.score != null &&
+                  !!rule &&
+                  (rule.operator === 'gte' ? r.score >= rule.threshold : r.score <= rule.threshold)
+                : r.result === !trueIsFailure
+        ).length ?? 0
+    const failed =
+        hogTestResults?.filter((r) =>
+            numeric
+                ? r.score != null &&
+                  !!rule &&
+                  (rule.operator === 'gte' ? r.score < rule.threshold : r.score > rule.threshold)
+                : r.result === trueIsFailure
+        ).length ?? 0
+    const na = hogTestResults?.filter((r) => (numeric ? r.score == null : r.result === null) && !r.error).length ?? 0
     const errors = hogTestResults?.filter((r) => r.error !== null).length ?? 0
 
     return (
         <div className="border rounded p-3 space-y-2">
             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 text-sm">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
                     <span className="font-semibold">Test results</span>
                     {hogTestResults && (
                         <>
-                            <LemonTag type="success" icon={<IconCheck />}>
-                                {passed} passed
-                            </LemonTag>
-                            <LemonTag type="danger" icon={<IconX />}>
-                                {failed} failed
-                            </LemonTag>
+                            {(!numeric || rule) && (
+                                <>
+                                    <LemonTag type="success" icon={<IconCheck />}>
+                                        {passed} passed
+                                    </LemonTag>
+                                    <LemonTag type="danger" icon={<IconX />}>
+                                        {failed} failed
+                                    </LemonTag>
+                                </>
+                            )}
                             {na > 0 && (
                                 <LemonTag type="muted" icon={<IconMinus />}>
                                     {na} N/A
@@ -250,6 +271,20 @@ export function HogTestResultsPanel(): JSX.Element | null {
                                             </LemonTag>
                                         </span>
                                     </Tooltip>
+                                )
+                            }
+                            if (numeric) {
+                                return (
+                                    <EvaluationResultTag
+                                        run={{
+                                            status: 'completed',
+                                            result: null,
+                                            result_type: 'numeric',
+                                            score: row.score,
+                                            applicable: row.score != null,
+                                        }}
+                                        passingRule={rule}
+                                    />
                                 )
                             }
                             if (row.result === null) {
@@ -354,7 +389,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                         quickSuggestionsDelay: 300,
                     }}
                 />
-                <div className="flex justify-between items-center text-sm text-muted">
+                <div className="flex flex-wrap gap-2 justify-between items-center text-sm text-muted">
                     <div className="flex items-center gap-2">
                         <Tooltip
                             title={
@@ -399,9 +434,13 @@ export function EvaluationCodeEditor(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <span>Expected output:</span>
                         <LemonTag type="completion">
-                            {evaluation.output_config.allows_na
-                                ? 'Boolean or null (true/false/null)'
-                                : 'Boolean (true/false)'}
+                            {evaluation.output_type === 'numeric'
+                                ? evaluation.output_config.allows_na
+                                    ? 'Number or null'
+                                    : 'Number'
+                                : evaluation.output_config.allows_na
+                                  ? 'Boolean or null (true/false/null)'
+                                  : 'Boolean (true/false)'}
                         </LemonTag>
                     </div>
                 </div>
@@ -420,7 +459,13 @@ export function EvaluationCodeEditor(): JSX.Element {
                     </Link>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
-                    {HOG_EVAL_EXAMPLES.map((example) => (
+                    {(evaluation.output_type === 'numeric'
+                        ? [
+                              { label: 'Latency', source: 'return target.total_latency_seconds;' },
+                              { label: 'Cost', source: 'return target.total_cost_usd;' },
+                          ]
+                        : HOG_EVAL_EXAMPLES
+                    ).map((example) => (
                         <LemonButton
                             key={example.label}
                             type="secondary"
@@ -461,14 +506,20 @@ export function EvaluationCodeEditor(): JSX.Element {
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                     <li>
-                        Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or <code>false</code> (
-                        {trueIsFailure ? 'pass' : 'fail'})
-                        {evaluation.output_config.allows_na ? (
+                        {evaluation.output_type === 'numeric' ? (
+                            <span>Return a number within the configured bounds.</span>
+                        ) : (
                             <>
-                                {' '}
-                                or <code>null</code> (N/A)
+                                Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or <code>false</code> (
+                                {trueIsFailure ? 'pass' : 'fail'})
+                                {evaluation.output_config.allows_na ? (
+                                    <>
+                                        {' '}
+                                        or <code>null</code> (N/A)
+                                    </>
+                                ) : null}
                             </>
-                        ) : null}
+                        )}
                     </li>
                     {evaluation.output_config.allows_na && (
                         <li>

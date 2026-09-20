@@ -23,13 +23,14 @@ import {
     evaluationsTestHogCreate,
 } from '../generated/api'
 import type { EvaluationBackfillApi, TestHogRequestApi, TestHogResultItemApi } from '../generated/api.schemas'
+import type { EvaluationApiOutputConfig } from '../generated/api.schemas'
 import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
-import { evaluationIsDetector } from './constants'
+import { evaluationIsDetector, numericOutputConfigError } from './constants'
 import {
     evaluationCanResolveModel,
     evaluationSupportsReports,
@@ -44,6 +45,7 @@ import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import type {
     EvaluationConditionSet,
     EvaluationConfig,
+    EvaluationOutputConfig,
     EvaluationRun,
     EvaluationRunsFilter,
     EvaluationSettleStrategy,
@@ -145,8 +147,8 @@ function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation 
         ...evaluation,
         evaluation_type: 'llm_judge',
         evaluation_config: { prompt: '' },
-        output_type: 'boolean',
-        output_config: { allows_na: false },
+        output_type: evaluation.output_type === 'numeric' ? 'numeric' : 'boolean',
+        output_config: evaluation.output_type === 'numeric' ? evaluation.output_config : { allows_na: false },
     }
 }
 
@@ -154,10 +156,13 @@ function toHogEvaluation(evaluation: EvaluationConfig): HogEvaluation {
     return {
         ...evaluation,
         evaluation_type: 'hog',
-        evaluation_config: { source: DEFAULT_HOG_SOURCE },
-        output_type: 'boolean',
+        evaluation_config: { source: evaluation.output_type === 'numeric' ? 'return 0;' : DEFAULT_HOG_SOURCE },
+        output_type: evaluation.output_type === 'numeric' ? 'numeric' : 'boolean',
         model_configuration: null,
-        output_config: { ...evaluation.output_config, allows_na: false },
+        output_config:
+            evaluation.output_type === 'numeric'
+                ? evaluation.output_config
+                : { ...evaluation.output_config, allows_na: false },
     }
 }
 
@@ -188,6 +193,22 @@ function filterEvaluationRuns(
     // A skipped run carries result=false when the evaluation disallows N/A, so it has to be
     // excluded before the outcome is read or it lands in the fail bucket without being graded.
     const gradedRuns = completedRuns.filter((r) => !r.skipped)
+    if (evaluation?.output_type === 'numeric') {
+        if (filter === 'na') {
+            return gradedRuns.filter((run) => run.applicable === false)
+        }
+        const rule = evaluation.output_config.passing_rule
+        if (!rule) {
+            return []
+        }
+        return gradedRuns.filter((run) => {
+            if (run.applicable === false || run.score == null) {
+                return false
+            }
+            const passed = rule.operator === 'gte' ? run.score >= rule.threshold : run.score <= rule.threshold
+            return filter === 'pass' ? passed : filter === 'fail' ? !passed : false
+        })
+    }
     const passingResult = !(evaluation && evaluationIsDetector(evaluation))
     if (filter === 'pass') {
         return gradedRuns.filter((r) => r.result === passingResult)
@@ -212,6 +233,8 @@ function buildHogTestRequest(evaluation: TestableHogEvaluation): TestHogRequestA
     const request: TestHogRequestApi = {
         source: evaluation.evaluation_config.source,
         sample_count: 5,
+        output_type: evaluation.output_type,
+        output_config: evaluation.output_config,
         allows_na: evaluation.output_config?.allows_na ?? false,
         conditions: evaluation.conditions
             .filter((condition) => condition.properties && condition.properties.length > 0)
@@ -285,6 +308,7 @@ export interface llmEvaluationLogicValues {
         applicabilityRate: number
         errors: number
         failed: number
+        scoreMean: number | null
         successful: number
         successRate: number
         total: number
@@ -344,7 +368,7 @@ export interface llmEvaluationLogicActions {
         runsBackfill: EvaluationBackfillApi | null
         payload?: any
     }
-    loadRunsStats: () => any
+    loadRunsStats: (_?: void) => void
     loadRunsStatsFailure: (
         error: string,
         errorObject?: any
@@ -354,10 +378,13 @@ export interface llmEvaluationLogicActions {
     }
     loadRunsStatsSuccess: (
         runsStats: EvaluationRunsStats | null,
-        payload?: any
+        payload?: void
     ) => {
         runsStats: EvaluationRunsStats | null
-        payload?: any
+        payload?: void
+    }
+    patchOutputConfig: (patch: EvaluationOutputConfig) => {
+        patch: EvaluationApiOutputConfig
     }
     patchTargetConfig: (patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>) => {
         patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>
@@ -424,6 +451,9 @@ export interface llmEvaluationLogicActions {
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
+    setOutputType: (outputType: 'boolean' | 'numeric') => {
+        outputType: 'boolean' | 'numeric'
+    }
     setRunsBackfillId: (backfillId: string | null) => {
         backfillId: string | null
     }
@@ -481,6 +511,7 @@ export interface llmEvaluationLogicMeta {
             applicabilityRate: number
             errors: number
             failed: number
+            scoreMean: number | null
             successful: number
             successRate: number
             total: number
@@ -537,6 +568,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationDescription: (description: string) => ({ description }),
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
         setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
+        setOutputType: (outputType: 'boolean' | 'numeric') => ({ outputType }),
+        patchOutputConfig: (patch: EvaluationOutputConfig) => ({ patch }),
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTrueIsFailure: (trueIsFailure: boolean) => ({ trueIsFailure }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
@@ -619,6 +652,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                 input_preview: '',
                                 output_preview: '',
                                 result: null,
+                                score: null,
                                 reasoning: '',
                                 error: typeof message === 'string' ? message : JSON.stringify(message),
                             },
@@ -668,22 +702,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         runsStats: [
             null as EvaluationRunsStats | null,
             {
-                loadRunsStats: async () => {
-                    if (!props.evaluationId || props.evaluationId === 'new') {
+                loadRunsStats: async (_?: void, breakpoint?: () => void): Promise<EvaluationRunsStats | null> => {
+                    if (!props.evaluationId || props.evaluationId === 'new' || !values.evaluation) {
                         return null
                     }
-
-                    return await queryEvaluationRunsStats({
+                    const stats = await queryEvaluationRunsStats({
+                        evaluation: values.evaluation,
                         evaluationId: props.evaluationId,
                         backfillId: values.runsBackfillId ?? undefined,
                         forceRefresh: values.isForceRefresh,
                     })
+                    breakpoint?.()
+                    return stats
                 },
             },
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         originalEvaluation: [
             null as EvaluationConfig | null,
             {
@@ -701,8 +737,37 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } }
                         : state,
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
+                setOutputType: (state, { outputType }) => {
+                    if (!state || props.evaluationId !== 'new' || state.evaluation_type === 'sentiment') {
+                        return state
+                    }
+                    const output_config = { allows_na: state.output_config.allows_na ?? false }
+                    if (state.evaluation_type === 'hog') {
+                        const source = state.evaluation_config.source
+                        return {
+                            ...state,
+                            output_type: outputType,
+                            output_config,
+                            evaluation_config: {
+                                ...state.evaluation_config,
+                                source:
+                                    outputType === 'numeric' &&
+                                    (source === DEFAULT_HOG_SOURCE || LEGACY_HOG_DEFAULT_SOURCES.includes(source))
+                                        ? 'return 0;'
+                                        : outputType === 'boolean' && source === 'return 0;'
+                                          ? DEFAULT_HOG_SOURCE
+                                          : source,
+                            },
+                        }
+                    }
+                    return { ...state, output_type: outputType, output_config }
+                },
+                patchOutputConfig: (state, { patch }) =>
+                    state?.output_type === 'numeric'
+                        ? { ...state, output_config: { ...state.output_config, ...patch } }
+                        : state,
                 setAllowsNA: (state, { allowsNA }) =>
-                    state && isBooleanEvaluationOutput(state.output_type)
+                    state && state.output_type !== 'sentiment'
                         ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } }
                         : state,
                 setTrueIsFailure: (state, { trueIsFailure }) =>
@@ -723,6 +788,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return toHogEvaluation(state)
                     }
                     if (evaluationType === 'sentiment') {
+                        if (props.evaluationId !== 'new' && state.output_type === 'numeric') {
+                            return state
+                        }
                         return toSentimentEvaluation(state)
                     }
                     return toLLMJudgeEvaluation(state)
@@ -766,6 +834,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
         hogTestResults: {
+            setOutputType: () => null,
+            patchOutputConfig: () => null,
             clearHogTestResults: () => null,
             setAllowsNA: () => null,
             setEvaluationTarget: () => null,
@@ -839,6 +909,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationDescription: () => true,
                 setEvaluationPrompt: () => true,
                 setEvaluationEnabled: () => true,
+                setOutputType: () => true,
+                patchOutputConfig: () => true,
                 setAllowsNA: () => true,
                 setTrueIsFailure: () => true,
                 setTriggerConditions: () => true,
@@ -857,6 +929,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             'all' as EvaluationRunsFilter,
             {
                 setEvaluationRunsFilter: (_, { filter }) => filter,
+                patchOutputConfig: (state, { patch }) =>
+                    patch.passing_rule === null && (state === 'pass' || state === 'fail') ? 'all' : state,
                 loadEvaluationSuccess: (_, { evaluation }) =>
                     evaluation?.evaluation_type === 'sentiment' ? DEFAULT_SENTIMENT_RUNS_FILTER : 'all',
             },
@@ -876,9 +950,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     requestedTab ?? (evaluation?.id ? 'runs' : 'configuration'),
             },
         ],
-    }),
+    })),
 
     listeners(({ actions, values, props }) => ({
+        loadEvaluationSuccess: () => {
+            actions.loadRunsStats()
+        },
         loadEvaluationConfigSuccess: () => {
             // The new-eval draft's enabled default is read before the team's evaluation config has
             // loaded — correct it once we know the draft can't actually resolve a model.
@@ -1156,6 +1233,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 })
             }
         },
+        patchOutputConfig: () => {
+            actions.loadRunsStats()
+        },
         setEvaluationType: () => {
             if (!evaluationSupportsReports(values.evaluation) && values.activeTab === 'reports') {
                 actions.setActiveTab('configuration')
@@ -1193,6 +1273,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.evaluation, s.modelSelectionRequired],
             (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean) => {
                 if (!evaluation) {
+                    return false
+                }
+                if (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) {
                     return false
                 }
                 const hasValidName = (evaluation.name?.length ?? 0) > 0
@@ -1251,13 +1334,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return null
                 }
 
-                const { total, applicable, trueCount } = stats
-                const passed = evaluation && evaluationIsDetector(evaluation) ? applicable - trueCount : trueCount
+                const { total, trueCount } = stats
+                const applicable = evaluation?.output_type === 'numeric' ? (stats.scoreCount ?? 0) : stats.applicable
+                const passed =
+                    evaluation?.output_type === 'numeric'
+                        ? (stats.numericPassCount ?? 0)
+                        : evaluation && evaluationIsDetector(evaluation)
+                          ? applicable - trueCount
+                          : trueCount
                 // Applicable runs excludes N/A results
                 const failed = applicable - passed
 
                 return {
                     total,
+                    scoreMean: stats.scoreMean ?? null,
                     successful: passed,
                     failed,
                     errors: 0,

@@ -1,6 +1,50 @@
 import pytest
 
-from products.ai_observability.backend.models.evaluation_configs import validate_target_config
+from products.ai_observability.backend.models.evaluation_configs import (
+    validate_evaluation_configs,
+    validate_target_config,
+)
+
+
+class TestNumericOutputConfig:
+    @pytest.mark.parametrize(
+        "runtime,config", [("llm_judge", {"prompt": "Score completeness"}), ("hog", {"source": "return 0;"})]
+    )
+    def test_numeric_configuration(self, runtime, config):
+        _, output = validate_evaluation_configs(
+            runtime, "numeric", config, {"min": 0, "max": 10, "passing_rule": {"operator": "gte", "threshold": 7}}
+        )
+        assert output == {"min": 0, "max": 10, "allows_na": False, "passing_rule": {"operator": "gte", "threshold": 7}}
+
+    @pytest.mark.parametrize(
+        "output",
+        [
+            {"min": 2, "max": 1},
+            {"min": True},
+            {"max": "10"},
+            {"max": float("inf")},
+            {"step": 0},
+            {"step": -1},
+            {"typo": 1},
+            {"passing_rule": {"operator": "gt", "threshold": 0}},
+            {"passing_rule": {"operator": "gte"}},
+            {"passing_rule": {"operator": "gte", "threshold": True}},
+            {"passing_rule": {"operator": "gte", "threshold": float("nan")}},
+            {"min": 0, "passing_rule": {"operator": "gte", "threshold": -1}},
+        ],
+    )
+    def test_invalid_numeric_configuration(self, output):
+        with pytest.raises(ValueError):
+            validate_evaluation_configs("hog", "numeric", {"source": "return 0;"}, output)
+
+    def test_unbounded_and_nullable_configuration(self):
+        _, output = validate_evaluation_configs(
+            "hog",
+            "numeric",
+            {"source": "return 0;"},
+            {"min": None, "max": None, "step": None, "passing_rule": None, "allows_na": True},
+        )
+        assert output == {"allows_na": True}
 
 
 class TestValidateTargetConfig:

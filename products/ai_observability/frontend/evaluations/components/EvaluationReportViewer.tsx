@@ -153,6 +153,7 @@ function ReportSectionContent({
 
 const RESULT_ORDER: Record<EvaluationOutputType, string[]> = {
     boolean: ['pass', 'fail', 'na'],
+    numeric: ['pass', 'fail', 'na'],
     sentiment: ['positive', 'neutral', 'negative'],
 }
 
@@ -224,7 +225,7 @@ function getBooleanPassRate(
 
 export function summarizeEvaluationReportResults(metrics: EvaluationReportStoredMetrics): string {
     const resultMetrics = getResultMetrics(metrics)
-    if ((metrics.output_type ?? 'boolean') === 'boolean') {
+    if (['boolean', 'numeric'].includes(metrics.output_type ?? 'boolean')) {
         const passRate = getBooleanPassRate(metrics, resultMetrics)
         const summaryParts = passRate == null ? [] : [`Pass rate ${formatResultRate(passRate, 1)}`]
         summaryParts.push(
@@ -250,7 +251,7 @@ export function summarizeEvaluationReportResults(metrics: EvaluationReportStored
 
 function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): JSX.Element {
     const resultMetrics = getResultMetrics(metrics)
-    const isBooleanMetrics = (metrics.output_type ?? 'boolean') === 'boolean'
+    const isBooleanMetrics = ['boolean', 'numeric'].includes(metrics.output_type ?? 'boolean')
     const passRate = isBooleanMetrics ? getBooleanPassRate(metrics, resultMetrics) : undefined
     const passRateDiff =
         passRate == null || metrics.previous_pass_rate == null ? null : passRate - metrics.previous_pass_rate
@@ -259,6 +260,9 @@ function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): J
 
     return (
         <div className="bg-bg-light border rounded p-3 mb-3">
+            {metrics.output_type === 'numeric' && metrics.output_config?.passing_rule && (
+                <p className="text-sm text-muted">{`Passing rule used for this report: score ${metrics.output_config.passing_rule.operator === 'gte' ? '≥' : '≤'} ${metrics.output_config.passing_rule.threshold}`}</p>
+            )}
             <div className="flex items-center gap-6 flex-wrap text-sm">
                 <div>
                     <div className="text-muted text-xs">Total runs</div>

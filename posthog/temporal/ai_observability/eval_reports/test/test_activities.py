@@ -15,7 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
@@ -36,6 +36,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
 )
+from posthog.temporal.ai_observability.eval_reports.report_agent.graph import _compute_metrics
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
 from posthog.temporal.ai_observability.eval_reports.types import (
     PrepareReportContextInput,
@@ -147,6 +148,10 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
             "posthog.temporal.ai_observability.eval_reports.activities._load_detector_evaluation_ids",
             return_value=["detector-id"],
         ) as load_detectors,
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.activities._load_numeric_output_configs",
+            return_value={},
+        ),
     ):
         result = await run_eval_report_agent_activity(inputs)
 
@@ -793,6 +798,54 @@ class TestPeriodForScheduledReport(BaseTest):
 
 
 class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [("registered", True, True), ("unregistered_applicable", False, True), ("unregistered", False, False)]
+    )
+    def test_numeric_reports_classify_real_scores_and_exclude_skips(
+        self, _name: str, registered: bool, score_registered: bool
+    ) -> None:
+        if score_registered:
+            PropertyDefinition.objects.create(
+                team=self.team, name="$ai_score", property_type="Numeric", is_numerical=True
+            )
+        if registered:
+            PropertyDefinition.objects.create(team=self.team, name="$ai_evaluation_applicable", property_type="Boolean")
+        start = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
+        rows: list[dict[str, object]] = [
+            {"$ai_score": 0},
+            {"$ai_score": 7},
+            {"$ai_score": 7.5},
+            {"$ai_evaluation_applicable": False},
+            {"$ai_evaluation_skipped": True},
+        ]
+        for index, properties in enumerate(rows):
+            _create_event(
+                team=self.team,
+                event="$ai_evaluation",
+                distinct_id=f"numeric-{index}",
+                timestamp=start,
+                properties={
+                    "$ai_evaluation_id": "numeric-eval",
+                    "$ai_evaluation_result_type": "numeric",
+                    **properties,
+                },
+            )
+        for operator, expected in [("gte", {"pass": 2, "fail": 1, "na": 1}), ("lte", {"pass": 2, "fail": 1, "na": 1})]:
+            config = {"passing_rule": {"operator": operator, "threshold": 7}}
+            metrics = _compute_metrics(
+                self.team.id,
+                "numeric-eval",
+                start.isoformat(),
+                (start + dt.timedelta(days=1)).isoformat(),
+                (start - dt.timedelta(days=1)).isoformat(),
+                output_type="numeric",
+                output_config=config,
+            )
+            assert metrics is not None
+            self.assertEqual(metrics.total_runs, 4)
+            self.assertEqual(metrics.result_counts, expected)
+            self.assertEqual(metrics.output_config, config)
+
     """Exercises the batched count check against real ClickHouse events — no query mocking —
     so it guards the properties Carlos cares about: each report's count is identical to the
     single-report query (right evaluation, right `since` window, right threshold)."""

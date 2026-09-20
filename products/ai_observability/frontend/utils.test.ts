@@ -75,6 +75,20 @@ function makeEvaluationRunRow({
 }
 
 describe('mapEvaluationRunRow', () => {
+    it.each([0, 0.5, -2])('keeps numeric score %p and its original bounds', (score) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'numeric' })
+        row[15] = score
+        row[16] = -5
+        row[17] = 10
+        expect(mapEvaluationRunRow(row)).toMatchObject({
+            result_type: 'numeric',
+            result: null,
+            score,
+            score_min: -5,
+            score_max: 10,
+        })
+    })
+
     it('maps sentiment rows without coercing missing boolean results to false', () => {
         const run = mapEvaluationRunRow(
             makeEvaluationRunRow({

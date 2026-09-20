@@ -6,6 +6,7 @@ import { BindLogic, Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { getEvaluationResultDisplay } from '../../components/EvaluationResultTag'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun } from '../types'
 import { EvaluationRunsTable } from './EvaluationRunsTable'
@@ -35,6 +36,23 @@ const passingRun: EvaluationRun = {
 }
 
 describe('EvaluationRunsTable', () => {
+    it.each([
+        [0, undefined, undefined, false, '0', 'none'],
+        [7, 'gte', 7, false, '7', 'success'],
+        [7, 'lte', 7, false, '7', 'success'],
+        [6, 'gte', 7, false, '6', 'danger'],
+        [8, 'lte', 7, false, '8', 'danger'],
+        [null, undefined, undefined, false, 'N/A', 'muted'],
+        [null, undefined, undefined, true, 'Skipped', 'muted'],
+    ] as const)('displays score %p with %p rule', (score, operator, threshold, skipped, label, type) => {
+        expect(
+            getEvaluationResultDisplay(
+                { ...passingRun, result: null, result_type: 'numeric', score, applicable: score != null, skipped },
+                { passingRule: operator ? { operator, threshold: threshold! } : null }
+            )
+        ).toMatchObject({ label, type })
+    })
+
     let logic: ReturnType<typeof llmEvaluationLogic.build>
 
     beforeEach(() => {

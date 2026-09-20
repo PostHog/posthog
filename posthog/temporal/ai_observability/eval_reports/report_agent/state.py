@@ -1,6 +1,6 @@
 """State definitions for the evaluation report agent."""
 
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from langgraph.graph.message import add_messages
 from langgraph.managed import RemainingSteps
@@ -31,7 +31,9 @@ class EvalReportAgentState(TypedDict):
     evaluation_target: str
     output_type: str
     true_is_failure: bool
+    output_config: dict[str, Any]
     detector_evaluation_ids: list[str]
+    numeric_output_configs: dict[str, dict[str, Any]]
     period_start: str
     period_end: str
     previous_period_start: str

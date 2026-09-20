@@ -4,7 +4,7 @@ import time
 import datetime as dt
 from collections import defaultdict
 from itertools import batched
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -604,7 +604,7 @@ async def prepare_report_context_activity(
     def prepare() -> PrepareReportContextOutput:
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-        report = EvaluationReport.objects.select_related("evaluation").get(id=inputs.report_id)
+        report = EvaluationReport.objects.reportable().select_related("evaluation").get(id=inputs.report_id)
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
 
@@ -654,6 +654,7 @@ async def prepare_report_context_activity(
             evaluation_type=evaluation.evaluation_type,
             output_type=evaluation.output_type,
             true_is_failure=bool(evaluation.output_config.get("true_is_failure")),
+            output_config=evaluation.output_config,
             period_start=period_start.isoformat(),
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),
@@ -686,6 +687,7 @@ async def run_eval_report_agent_activity(
                     inputs,
                     evaluation_target=evaluation_target,
                     detector_evaluation_ids=_load_detector_evaluation_ids(inputs.team_id),
+                    numeric_output_configs=_load_numeric_output_configs(inputs.team_id),
                 ),
                 evaluation_target,
             )
@@ -708,6 +710,19 @@ def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
     )
 
     return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
+
+
+def _load_numeric_output_configs(team_id: int) -> dict[str, dict[str, Any]]:
+    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
+        Evaluation,
+    )
+
+    return {
+        str(evaluation_id): config
+        for evaluation_id, config in Evaluation.objects.filter(team_id=team_id, output_type="numeric").values_list(
+            "id", "output_config"
+        )
+    }
 
 
 def _load_detector_evaluation_ids(team_id: int) -> list[str]:
@@ -799,7 +814,7 @@ async def store_report_run_activity(
                     "$ai_report_previous_total_runs": parsed_metrics.previous_total_runs,
                 }
             )
-        if parsed_metrics is not None and parsed_metrics.output_type == "boolean":
+        if parsed_metrics is not None and parsed_metrics.output_type in ("boolean", "numeric"):
             # Preserve the original flat properties for existing boolean-report consumers.
             properties.update(
                 {

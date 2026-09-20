@@ -184,7 +184,7 @@ def _format_pass_rate(rate: float | None) -> str:
 
 def _format_outcome_value(metrics: EvalReportMetrics, outcome: str) -> str:
     count = metrics.result_counts[outcome]
-    if metrics.output_type == "boolean":
+    if metrics.output_type in ("boolean", "numeric"):
         return str(count)
 
     rate = metrics.result_rates.get(outcome)
@@ -201,7 +201,7 @@ def _format_outcome_value(metrics: EvalReportMetrics, outcome: str) -> str:
 
 def _format_boolean_pass_rate_value(metrics: EvalReportMetrics) -> str:
     value = _format_pass_rate(metrics.pass_rate)
-    if metrics.previous_pass_rate is None:
+    if metrics.pass_rate is None or metrics.previous_pass_rate is None:
         return value
 
     diff = metrics.pass_rate - metrics.previous_pass_rate
@@ -228,7 +228,7 @@ def _render_metrics_block_html(
     outcome_labels = _OUTCOME_LABELS[metrics.output_type]
     headers = "".join(f"<th>{label}</th>" for _, label in outcome_labels)
     values = "".join(f"<td>{_format_outcome_value(metrics, outcome)}</td>" for outcome, _ in outcome_labels)
-    if metrics.output_type == "boolean":
+    if metrics.output_type in ("boolean", "numeric"):
         headers += "<th>Pass rate</th>"
         values += f"<td><strong>{_format_boolean_pass_rate_value(metrics)}</strong></td>"
     table = f"<table><tr><th>Total runs</th>{headers}</tr><tr><td>{metrics.total_runs}</td>{values}</tr></table>"
@@ -243,7 +243,7 @@ def _render_metrics_slack_blocks(metrics: EvalReportMetrics | None) -> list[dict
     outcome_lines = [
         f"{label}: {_format_outcome_value(metrics, outcome)}" for outcome, label in _OUTCOME_LABELS[metrics.output_type]
     ]
-    if metrics.output_type == "boolean":
+    if metrics.output_type in ("boolean", "numeric"):
         outcome_lines.append(f"Pass rate: {_format_boolean_pass_rate_value(metrics)}")
     code_block = "\n".join([f"Total runs: {metrics.total_runs}", *outcome_lines])
 

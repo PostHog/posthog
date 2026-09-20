@@ -87,6 +87,66 @@ describe('evaluationMetricsLogic', () => {
         evaluationsLogic.unmount()
     })
 
+    it.each(['gte', 'lte'] as const)('includes numeric %s outcomes in the overview pass rate', (operator) => {
+        evaluationsLogic.actions.loadEvaluationsSuccess([
+            evaluation('boolean', null),
+            {
+                ...evaluation('numeric', null),
+                output_type: 'numeric',
+                output_config: { passing_rule: { operator, threshold: 0 } },
+            },
+            { ...evaluation('ungraded', null), output_type: 'numeric', output_config: {} },
+        ])
+        metricsLogic.actions.loadStatsSuccess([
+            stats('boolean', 10, 10),
+            {
+                ...stats('numeric', 100, 0),
+                applicable_count: 0,
+                score_count: 80,
+                score_mean: 6.5,
+                numeric_pass_count: 40,
+            },
+            { ...stats('ungraded', 20, 0), score_count: 20, numeric_pass_count: 0 },
+        ])
+        expect(metricsLogic.values.summaryMetrics).toMatchObject({
+            total_runs: 130,
+            overall_pass_rate: 55.6,
+            failing_evaluations_count: 1,
+        })
+        expect(metricsLogic.values.evaluationsWithMetrics[1].stats).toMatchObject({
+            score_mean: 6.5,
+            pass_rate: 50,
+            applicable_count: 80,
+        })
+        expect(metricsLogic.values.chartQuery?.series[0].properties).toEqual([
+            expect.objectContaining({ value: ['boolean', 'numeric'] }),
+        ])
+        const math = metricsLogic.values.chartQuery?.series[0].math_hogql ?? ''
+        expect(math).toContain(`toFloat(properties.$ai_score) ${operator === 'gte' ? '>=' : '<='} 0`)
+        expect(math).toContain("properties.$ai_evaluation_id = 'numeric'")
+        expect(math).toContain('properties.$ai_evaluation_applicable')
+        expect(math).toContain(EVALUATION_NOT_SKIPPED_HOGQL)
+    })
+
+    it.each([false, true])('has no pass rate when numeric runs have no graded outcomes (rule: %s)', (hasRule) => {
+        evaluationsLogic.actions.loadEvaluationsSuccess([
+            {
+                ...evaluation('numeric', null),
+                output_type: 'numeric',
+                output_config: hasRule ? { passing_rule: { operator: 'gte', threshold: 100 } } : {},
+            },
+        ])
+        metricsLogic.actions.loadStatsSuccess([
+            { ...stats('numeric', 4, 0), score_count: hasRule ? 0 : 4, numeric_pass_count: 0 },
+        ])
+        expect(metricsLogic.values.summaryMetrics).toEqual({
+            total_runs: 4,
+            overall_pass_rate: null,
+            failing_evaluations_count: 0,
+        })
+        expect(metricsLogic.values.chartQuery !== null).toBe(hasRule)
+    })
+
     it('uses one filtered breakdown query and scopes metrics to the selected directory', () => {
         const firstRootEvaluation = evaluation('root-one', null, "Root's evaluation")
         const secondRootEvaluation = evaluation('root-two', null, "Root's evaluation")
@@ -161,7 +221,7 @@ describe('evaluationMetricsLogic', () => {
         expect(mathHogql).toContain("properties.$ai_evaluation_result = 'false'")
         // Both sides of the ratio drop skipped runs — otherwise the false a skip stores reads as
         // a detector pass, and the chart disagrees with the list, which already excludes them.
-        expect(mathHogql).toContain(`AND ${EVALUATION_NOT_SKIPPED_HOGQL}) /`)
+        expect(mathHogql).toContain(`AND ${EVALUATION_NOT_SKIPPED_HOGQL})) /`)
         expect(mathHogql).toContain(`IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
     })
 
