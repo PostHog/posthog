@@ -1,8 +1,9 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -33,7 +34,7 @@ REQUEST_TIMEOUT = 60
 EPOCH_CURSOR = "1970-01-01T00:00:00Z"
 
 
-@dataclasses.dataclass
+@frozen
 class ConvertKitResumeConfig:
     # Top-level endpoints resume from the `after` cursor of the last fully-yielded page.
     after: Optional[str] = None

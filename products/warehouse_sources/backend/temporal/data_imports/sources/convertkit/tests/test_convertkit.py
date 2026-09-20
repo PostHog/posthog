@@ -342,6 +342,7 @@ JUNCTIONS = [
     ("tag_subscribers", "tags", "/v4/tags/{}/subscribers", "tag_id", "tagged_after"),
     ("sequence_subscribers", "sequences", "/v4/sequences/{}/subscribers", "sequence_id", "added_after"),
 ]
+INCREMENTAL_JUNCTIONS = [JUNCTIONS[0], JUNCTIONS[2]]
 
 
 class TestSubscriberJunctions:
@@ -384,7 +385,7 @@ class TestSubscriberJunctions:
 
         assert calls[0][1]["status"] == "all"
 
-    @parameterized.expand(JUNCTIONS)
+    @parameterized.expand(INCREMENTAL_JUNCTIONS)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_watermark_narrows_each_child_request(
         self, endpoint: str, parent_key: str, _child_path: str, _parent_column: str, filter_param: str, MockSession
@@ -418,24 +419,24 @@ class TestSubscriberJunctions:
         calls = _wire_calls(
             session,
             [
-                _page("tags", [11], has_next=False, end_cursor=None),
+                _page("forms", [11], has_next=False, end_cursor=None),
                 _page("subscribers", [1], has_next=False, end_cursor=None),
             ],
         )
 
         _rows(
             _source(
-                "tag_subscribers",
+                "form_subscribers",
                 _make_manager(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=None,
-                incremental_field="tagged_at",
+                incremental_field="added_at",
             )
         )
 
         # The framework binds the filter param whether or not a watermark exists, so the floor
         # has to be a real timestamp rather than the string "None".
-        assert calls[1][1]["tagged_after"] == "1970-01-01T00:00:00Z"
+        assert calls[1][1]["added_after"] == "1970-01-01T00:00:00Z"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_sends_no_window(self, MockSession) -> None:

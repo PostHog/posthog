@@ -140,11 +140,9 @@ CONVERTKIT_ENDPOINTS: dict[str, ConvertKitEndpointConfig] = {
         data_key="subscribers",
         primary_keys=["tag_id", "id"],
         partition_key="created_at",
-        supports_incremental=True,
-        incremental_fields=[_datetime_field("tagged_at")],
-        incremental_param_map={"tagged_at": "tagged_after"},
+        # Tags can be removed from subscribers. A full snapshot lets the load replace stale
+        # junction rows that an addition-only tagged_after cursor can never emit.
         extra_params={"status": "all"},
-        sort_mode="desc",
         fanout=DependentEndpointConfig(
             parent_name="tags",
             resolve_param="tag_id",
