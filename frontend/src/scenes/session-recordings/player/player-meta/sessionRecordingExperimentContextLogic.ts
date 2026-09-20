@@ -2,6 +2,10 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, red
 import { loaders } from 'kea-loaders'
 
 import { dayjs } from 'lib/dayjs'
+import {
+    isRecordingSidecarAccessDenied,
+    rememberRecordingSidecarAccessDenial,
+} from 'scenes/session-recordings/player/recordingSidecarAccess'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { experimentsSessionContextRetrieve } from 'products/experiments/frontend/generated/api'
@@ -147,12 +151,17 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
                     if (!props.sessionRecordingId) {
                         return null
                     }
+                    const projectId = values.currentProjectId
+                    if (isRecordingSidecarAccessDenied('experiment-context', projectId)) {
+                        return null
+                    }
                     try {
-                        return await experimentsSessionContextRetrieve(String(values.currentProjectId), {
+                        return await experimentsSessionContextRetrieve(String(projectId), {
                             session_id: props.sessionRecordingId,
                         })
-                    } catch {
+                    } catch (e) {
                         // A 404 just means the recording has no queryable metadata (yet) — show nothing.
+                        rememberRecordingSidecarAccessDenial('experiment-context', projectId, e)
                         return null
                     }
                 },

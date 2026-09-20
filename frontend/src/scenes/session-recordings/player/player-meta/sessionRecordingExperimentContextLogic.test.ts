@@ -4,6 +4,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { makeExperimentSessionContextItem } from '../../__mocks__/experiment_session_context'
+import { resetRecordingSidecarAccessDenials } from '../recordingSidecarAccess'
 import { sessionRecordingExperimentContextLogic } from './sessionRecordingExperimentContextLogic'
 
 const mockResponse = {
@@ -33,6 +34,8 @@ describe('sessionRecordingExperimentContextLogic', () => {
             },
         })
         initKeaTests()
+        // The denial memo is module state that outlives a mount on purpose, so clear it per test.
+        resetRecordingSidecarAccessDenials()
     })
 
     it('derives items and the multi-variant warning from the response', async () => {
@@ -44,6 +47,52 @@ describe('sessionRecordingExperimentContextLogic', () => {
             hasExperimentContext: true,
             hasMultipleVariantWarning: true,
         })
+    })
+
+    it('stops requesting experiment context once access is denied', async () => {
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/experiments/session_context/': () => {
+                    requests += 1
+                    return [403, { code: 'permission_denied', detail: "You don't have access to the project." }]
+                },
+            },
+        })
+
+        logic = sessionRecordingExperimentContextLogic({ sessionRecordingId: 'denied-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadExperimentContextSuccess'])
+
+        const nextRecording = sessionRecordingExperimentContextLogic({ sessionRecordingId: 'denied-2' })
+        nextRecording.mount()
+        await expectLogic(nextRecording).toDispatchActions(['loadExperimentContextSuccess']).toMatchValues({
+            experimentContext: null,
+        })
+
+        expect(requests).toBe(1)
+    })
+
+    it('keeps retrying after a failure that is not an access denial', async () => {
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/experiments/session_context/': () => {
+                    requests += 1
+                    return [503, {}]
+                },
+            },
+        })
+
+        logic = sessionRecordingExperimentContextLogic({ sessionRecordingId: 'transient-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadExperimentContextSuccess'])
+
+        const nextRecording = sessionRecordingExperimentContextLogic({ sessionRecordingId: 'transient-2' })
+        nextRecording.mount()
+        await expectLogic(nextRecording).toDispatchActions(['loadExperimentContextSuccess'])
+
+        expect(requests).toBe(2)
     })
 
     it('has no context when the response is empty', async () => {
