@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -10,7 +12,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 DEFAULT_PAGE_SIZE = 1000  # v4 max per_page
 
 
-@dataclass
+@frozen
 class ConvertKitEndpointConfig:
     name: str
     path: str
