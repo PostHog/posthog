@@ -363,39 +363,6 @@ const inboxReportsLink = (): ToolBase<
     },
 })
 
-const InboxReportsUnlinkSchema = () => {
-    const SignalsReportsUnlinkBody = orvalSchemas.SignalsReportsUnlinkBody()
-    const SignalsReportsUnlinkParams = orvalSchemas.SignalsReportsUnlinkParams()
-    return SignalsReportsUnlinkParams.omit({ project_id: true }).extend(SignalsReportsUnlinkBody.shape)
-}
-
-const inboxReportsUnlink = (): ToolBase<
-    ReturnType<typeof InboxReportsUnlinkSchema>,
-    WithPostHogUrl<Schemas.SignalReportUnlinkResponse>
-> => ({
-    name: 'inbox-reports-unlink',
-    schema: InboxReportsUnlinkSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsUnlinkSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.kind !== undefined) {
-            body['kind'] = params.kind
-        }
-        if (params.report_id !== undefined) {
-            body['report_id'] = params.report_id
-        }
-        if (params.reason !== undefined) {
-            body['reason'] = params.reason
-        }
-        const result = await context.api.request<Schemas.SignalReportUnlinkResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/unlink/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
-    },
-})
-
 const InboxReportsListSchema = () => {
     const SignalsReportsListQueryParams = orvalSchemas.SignalsReportsListQueryParams()
     return SignalsReportsListQueryParams
@@ -549,6 +516,39 @@ const inboxReportsSetState = (): ToolBase<
         const result = await context.api.request<Schemas.SignalReport>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/state/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+    },
+})
+
+const InboxReportsUnlinkSchema = () => {
+    const SignalsReportsUnlinkBody = orvalSchemas.SignalsReportsUnlinkBody()
+    const SignalsReportsUnlinkParams = orvalSchemas.SignalsReportsUnlinkParams()
+    return SignalsReportsUnlinkParams.omit({ project_id: true }).extend(SignalsReportsUnlinkBody.shape)
+}
+
+const inboxReportsUnlink = (): ToolBase<
+    ReturnType<typeof InboxReportsUnlinkSchema>,
+    WithPostHogUrl<Schemas.SignalReportUnlinkResponse>
+> => ({
+    name: 'inbox-reports-unlink',
+    schema: InboxReportsUnlinkSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsUnlinkSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.SignalReportUnlinkResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/unlink/`,
             body,
         })
         return await withPostHogUrl(context, result, `/inbox/${result.id}`)
@@ -2453,10 +2453,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-link': inboxReportsLink,
-    'inbox-reports-unlink': inboxReportsUnlink,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
+    'inbox-reports-unlink': inboxReportsUnlink,
     'inbox-reports-update': inboxReportsUpdate,
     'inbox-source-configs-create': inboxSourceConfigsCreate,
     'inbox-source-configs-list': inboxSourceConfigsList,
