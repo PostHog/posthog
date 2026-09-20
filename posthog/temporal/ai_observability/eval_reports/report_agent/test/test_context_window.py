@@ -11,11 +11,14 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.context_window 
 )
 
 
-def _turn(index: int, payload: str) -> list:
-    call_id = f"call-{index}"
+def _turn(index: int, payload: str, parallel_calls: int = 1) -> list:
+    call_ids = [f"call-{index}-{position}" for position in range(parallel_calls)]
     return [
-        AIMessage(content="", tool_calls=[{"name": "get_trace_detail", "args": {}, "id": call_id}]),
-        ToolMessage(content=payload, tool_call_id=call_id),
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "get_trace_detail", "args": {}, "id": call_id} for call_id in call_ids],
+        ),
+        *(ToolMessage(content=payload, tool_call_id=call_id) for call_id in call_ids),
     ]
 
 
@@ -55,6 +58,18 @@ class TestTrimAgentMessages(SimpleTestCase):
         self.assertIs(trimmed[0], messages[0])
         self.assertIs(trimmed[-1], messages[-1])
 
+    def test_one_turn_larger_than_the_budget_keeps_every_result_and_still_fits(self):
+        payload = "x" * int(MAX_TOOL_RESULT_TOKENS * CHARS_PER_TOKEN)
+        messages = [
+            HumanMessage(content="Please generate the evaluation report."),
+            *_turn(0, payload, parallel_calls=8),
+        ]
+
+        trimmed = trim_agent_messages({"messages": messages})["llm_input_messages"]
+
+        self.assertEqual(len(trimmed), len(messages))
+        self.assertLessEqual(_prompt_chars(trimmed) / CHARS_PER_TOKEN, MAX_PROMPT_TOKENS)
+
     def test_trim_never_leaves_a_tool_result_without_its_request(self):
         payload = "x" * int(MAX_TOOL_RESULT_TOKENS * CHARS_PER_TOKEN)
         messages = [HumanMessage(content="Please generate the evaluation report.")]
@@ -63,6 +78,7 @@ class TestTrimAgentMessages(SimpleTestCase):
 
         trimmed = trim_agent_messages({"messages": messages})["llm_input_messages"]
 
+        self.assertIsInstance(trimmed[-2], AIMessage)
         answered_call_ids = {
             tool_call["id"] for message in trimmed if isinstance(message, AIMessage) for tool_call in message.tool_calls
         }
