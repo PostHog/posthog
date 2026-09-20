@@ -314,7 +314,8 @@ class ClickHouseClient:
         self.params["max_query_size"] = "1048576"  # 1MB
 
         # PyArrow reads the raw body when streaming Arrow, and aiohttp fails a read once a decompressed
-        # response goes past its 32 MiB cap. Both want the body uncompressed, so no query path compresses.
+        # response goes past its 32 MiB cap. Both want the body uncompressed, so every query path
+        # defaults to off. A caller that needs compression opts back in through kwargs or per-query settings.
         self.params["enable_http_compression"] = "0"
 
         self.params.update(kwargs)
