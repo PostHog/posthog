@@ -77,9 +77,7 @@ describe('generated query wrappers', () => {
         expect(actorsSchema.properties?.source).not.toHaveProperty('properties.aggregation_group_type_index')
     })
 
-    // Saved retention insights written before the assistant schema gained `id` carry the event
-    // name in `name`, and `insight-get` returns them that way. Replaying one must not need the
-    // caller to rebuild the entity.
+    // The shape `insight-get` returns for a retention insight saved before the schema gained `id`.
     const savedLegacyRetentionFilter = {
         period: 'Week',
         targetEntity: { name: 'user signed up', type: 'events' },

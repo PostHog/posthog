@@ -105,11 +105,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Copy `name` into `id` on an events entity that has no `id` of its own.
- *
- * An `id` of `null` is left alone: the retention engine reads that as "any event", so filling it
- * would narrow the query the caller asked for. Actions keep their own rejection, because their
- * `name` is a label and the numeric ID it stands for cannot be recovered from it.
+ * An `id` of `null` stays as it is, because the retention engine reads that as "any event" and
+ * filling it would narrow the query the caller asked for. An action stays as it is too, because
+ * its `name` is a label and the numeric ID it stands for cannot be recovered from it.
  */
 function withEntityIdFromName(entity: unknown): unknown {
     if (!isRecord(entity) || entity['type'] !== 'events' || 'id' in entity) {
@@ -119,9 +117,6 @@ function withEntityIdFromName(entity: unknown): unknown {
     return typeof name === 'string' && name !== '' ? { ...entity, id: name } : entity
 }
 
-/**
- * Repair the entities of a `retentionFilter`, or of a query that holds one.
- */
 function withRetentionEntityIdsFromNames(value: unknown): unknown {
     if (!isRecord(value)) {
         return value
@@ -151,15 +146,10 @@ function retentionFilterField(schema: z.ZodObject<z.ZodRawShape>): string | unde
 }
 
 /**
- * Accept the retention entities that saved insights written before `id` existed still carry.
- *
- * Those insights store `{ "type": "events", "name": "<event name>" }`, because `name` was the
- * field that matched the event until the schema replaced it with `id`. `insight-get` returns the
- * saved query as it stands, so replaying one here failed on the missing `id` and the caller had to
- * rebuild the entity from the event name by hand.
- *
- * The repair runs before validation and leaves the advertised schema untouched, so `id` stays
- * required for everyone writing a new query.
+ * Retention insights saved before the assistant schema gained `id` store their entities as
+ * `{ "type": "events", "name": "<event name>" }`, because `name` was the field that matched the
+ * event. `insight-get` returns such a query as it stands, so replaying one needs the repair. The
+ * repair sits in front of the schema, which keeps `id` required for anyone writing a new query.
  */
 function withLegacyRetentionEntityIds<T extends ZodObjectAny>(schema: T): T {
     if (!(schema instanceof z.ZodObject)) {
