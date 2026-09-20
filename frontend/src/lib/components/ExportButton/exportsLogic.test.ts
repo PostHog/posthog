@@ -1,4 +1,4 @@
-import api from 'lib/api'
+import api, { NetworkError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -672,6 +672,17 @@ describe('exportsLogic', () => {
             } finally {
                 jest.useRealTimers()
             }
+        })
+
+        it('keeps the network failure classified so error tracking groups it', async () => {
+            jest.spyOn(api.exports, 'create').mockRejectedValue(new NetworkError('network'))
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.MP4 } })
+            await flush()
+
+            const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
+            await expect(runPromise).rejects.toBeInstanceOf(NetworkError)
+            await expect(runPromise).rejects.toMatchObject({ reason: 'network' })
         })
 
         it('replaces the failure toast with the upsell survey when the export limit is reached', async () => {

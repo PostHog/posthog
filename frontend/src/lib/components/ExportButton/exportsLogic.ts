@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { NetworkError } from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import {
     ExportNudge,
@@ -486,10 +486,15 @@ export const exportsLogic = kea<exportsLogicType>([
                             })
                         } catch (error) {
                             // Preserve the errors the caller renders itself — the limit upsell and the
-                            // reason a recording is too long — and give everything else a friendly
-                            // message for the failure toast.
+                            // reason a recording is too long — and the classified network failure,
+                            // whose `NetworkError` name and reason are what error tracking groups on.
+                            // Give everything else a friendly message for the failure toast.
                             const attr = (error as { data?: APIErrorType })?.data?.attr
-                            if (attr === 'export_limit_exceeded' || attr === 'export_duration_unsupported') {
+                            if (
+                                attr === 'export_limit_exceeded' ||
+                                attr === 'export_duration_unsupported' ||
+                                error instanceof NetworkError
+                            ) {
                                 throw error
                             }
                             const message = error instanceof Error ? error.message : String(error)
