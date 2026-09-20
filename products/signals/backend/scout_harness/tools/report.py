@@ -1127,6 +1127,17 @@ def _chart_event_key(chart: ReportChartInput) -> str:
     )
 
 
+def _link_event_key(link: ReportLink) -> list[str]:
+    """The parts of one written link that make an edit distinct for ingestion.
+
+    The reason rides along with the kind and the target, because two edits that link the same pair
+    the same way with different reasons are two real mutations. Keyed on the kind and target alone,
+    the second one hashes like the first and ingestion drops its event, the way the charts part
+    keys on a chart's content rather than its id.
+    """
+    return [link.kind.value, link.report_id, link.reason or ""]
+
+
 def _metric_event_key(metric: ReportMetricInput) -> str:
     comparison = [metric.comparison.value, metric.comparison.label] if metric.comparison is not None else None
     return json.dumps(
@@ -1428,7 +1439,7 @@ def _capture_report_edited(
     # hashes to. Kept in the scout's order: the rows land in that order on the report.
     appended_links = links if result.links_appended and links else None
     if appended_links:
-        written = [[link.kind.value, link.report_id] for link in appended_links]
+        written = [_link_event_key(link) for link in appended_links]
         parts.append(f"links:{json.dumps(written, separators=(',', ':'))}")
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
@@ -1949,7 +1960,7 @@ def _do_edit_report(
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
     evidence_appended = len(evidence_document_ids)
     changed = (
-        bool(updated_fields or note_appended or reviewers_set or repository_set or evidence_appended)
+        bool(updated_fields or note_appended or reviewers_set or repository_set or evidence_appended or links_appended)
         or charts_set is not None
         or metrics_set is not None
         or prompts_set is not None
@@ -1984,7 +1995,7 @@ def _do_edit_report(
         # Metrics, suggested questions and the repository live in the inbox, nowhere in the Slack
         # message, so an edit that touched only them has nothing to say in the channel — delivering
         # it would post the report a second time byte for byte.
-        inbox_only = (metrics_set is not None or prompts_set is not None or repository_set) and not (
+        inbox_only = (metrics_set is not None or prompts_set is not None or repository_set or links_appended) and not (
             updated_fields or note_appended or reviewers_set or evidence_appended or charts_set is not None
         )
         if report_status is not None and _surfaced(report_status) and not inbox_only:

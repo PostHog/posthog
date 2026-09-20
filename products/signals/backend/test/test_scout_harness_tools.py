@@ -77,6 +77,7 @@ from products.signals.backend.scout_harness.tools.report import (
     _build_suggested_prompts,
     _chart_event_key,
     _forwarded_summary,
+    _link_event_key,
     _link_reasons,
     _report_event_uuid,
 )
@@ -1629,6 +1630,19 @@ class TestReportLinkSafetyJudgeInput:
     def test_no_link_reasons_adds_nothing_to_the_judge_input(self) -> None:
         # An edit whose links carry no reason must produce the judge prompt it produced before.
         assert _link_reasons_signal([]) is None
+
+    def test_the_event_key_separates_two_links_that_differ_only_in_reason(self) -> None:
+        # Two edits linking the same pair the same way with different reasons are two real
+        # mutations. Keyed on the kind and target alone, the second hashes like the first and
+        # ingestion drops its event, so the later link never reaches a destination.
+        target = str(uuid.uuid4())
+        first = ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=target, reason="shares the module")
+        second = ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=target, reason="shares the migration")
+
+        assert _link_event_key(first) != _link_event_key(second)
+        assert _link_event_key(first) == _link_event_key(
+            ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=target, reason="shares the module")
+        )
 
     def test_edit_passes_every_link_reason_and_drops_the_empty_ones(self) -> None:
         # `_link_reasons` is what the entrypoints hand the judge, so a link whose reason it skips is

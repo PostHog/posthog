@@ -1140,9 +1140,13 @@ class SignalReportArtefact(UUIDModel):
         }
     )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
-    # chain is a handful of reports deep. The budget guards the cycle walk on the write path
-    # against a graph that grew past anything a reader could order.
+    # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
+    # against a graph that grew past anything a reader could order. Rows and levels are bounded
+    # separately from reports: linking one pair twice is allowed, so a report can hold many rows
+    # that name reports the walk already visited, and one level costs one query.
     MAX_REPORT_LINK_GRAPH_NODES = 500
+    MAX_REPORT_LINK_GRAPH_ROWS = 5_000
+    MAX_REPORT_LINK_GRAPH_LEVELS = 50
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
             ArtefactType.CODE_REFERENCE,
@@ -1408,17 +1412,26 @@ class SignalReportArtefact(UUIDModel):
         """Whether `goal` is reachable from `start` by following `report_link` rows of one kind.
 
         Breadth-first, one query per level rather than one per report, because the depth of a real
-        chain is small and the fan-out is not. Exhausting the node budget answers True: the graph
-        is then too large to order, which is the same outcome for the caller as a cycle.
+        chain is small and the fan-out is not. Exhausting any budget answers True: the graph is
+        then too large to order, which is the same outcome for the caller as a cycle, and the walk
+        runs while the team's link lock is held so it must not become the slow step.
         """
         seen = {start}
         frontier = [start]
+        rows_read = 0
+        levels = 0
         while frontier:
+            levels += 1
+            if levels > cls.MAX_REPORT_LINK_GRAPH_LEVELS:
+                return True
             stored = cls.objects.filter(
                 team_id=team_id, report_id__in=frontier, type=cls.ArtefactType.REPORT_LINK
-            ).values_list("content", flat=True)
+            ).values_list("content", flat=True)[: cls.MAX_REPORT_LINK_GRAPH_ROWS - rows_read + 1]
             next_frontier: list[str] = []
             for raw in stored:
+                rows_read += 1
+                if rows_read > cls.MAX_REPORT_LINK_GRAPH_ROWS:
+                    return True
                 try:
                     link = ReportLink.model_validate_json(raw)
                 except ValidationError:
@@ -1481,11 +1494,30 @@ class SignalReportArtefact(UUIDModel):
         is small, so serializing a team's link writes costs nothing that matters. The lock is
         transaction-scoped, so a caller that already opened a transaction (the scout edit path)
         holds it until its own commit.
+
+        The source report row is locked first, before the advisory lock. The generic artefact
+        endpoint already holds `select_for_update` on that row by the time it reaches this guard,
+        so taking the two in the opposite order here would let one request hold the row and wait
+        for the advisory lock while another holds the advisory lock and waits for the `KEY SHARE`
+        lock that inserting the artefact needs. Postgres resolves that cycle by aborting one of
+        them, which reaches the caller as a 500.
         """
+        try:
+            source_id = str(uuid.UUID(str(report_id)))
+        except ValueError:
+            raise ArtefactContentValidationError(f"Report id {report_id!r} is not a UUID.")
         with transaction.atomic():
+            locked = (
+                SignalReport.objects.select_for_update()
+                .filter(team_id=team_id, id=source_id)
+                .values_list("id", flat=True)
+                .first()
+            )
+            if locked is None:
+                raise ArtefactContentValidationError(f"Report {source_id} was not found in this project.")
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"signals-report-link:{team_id}"])
-            cls.validate_report_link(team_id=team_id, report_id=report_id, content=content)
+            cls.validate_report_link(team_id=team_id, report_id=source_id, content=content)
             yield
 
     @classmethod

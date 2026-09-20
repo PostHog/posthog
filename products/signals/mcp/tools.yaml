@@ -218,14 +218,15 @@ tools:
         description: >
             Record how one report relates to another, as a directed link that reads as a sentence starting at the report
             in `id`: "this report `kind` that report". Use this when one finding turns into a stack of dependent
-            changes: file or claim the second report, then link it `depends_on` the first, so a reviewer opening either
-            report sees which pull request has to merge first instead of working it out from the diffs. The other kinds
+            changes: file or claim the second report, then link it `depends_on` the first, so the order the pull
+            requests have to merge in is recorded instead of being worked out from the diffs. The other kinds
             are `part_of` (one piece of a larger report), `follow_up_of` (work the other report left behind),
             `duplicate_of` (the same problem filed twice), and `recurrence_of` (a problem a resolved report already
             covered). Only the report in `id` gets a row, so link from the side the sentence starts at. Both reports
             must be in this project, a report cannot link to itself, and links of one kind must stay acyclic, so a link
             that would close a dependency loop is rejected with 400. Reading a report's links is
-            `inbox-report-artefacts-list` filtered to type `report_link`; removing one is `inbox-reports-unlink`.
+            `inbox-report-artefacts-list` on that report filtered to type `report_link`, which returns the links it
+            was linked *from*, not the ones pointing at it; removing one is `inbox-reports-unlink`.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true

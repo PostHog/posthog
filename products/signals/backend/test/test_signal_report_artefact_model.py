@@ -224,6 +224,21 @@ class TestSignalReportArtefactHelpers(BaseTest):
         with self.assertRaises(ArtefactContentValidationError):
             self._link(self._report(), foreign)
 
+    def test_report_link_rejects_a_source_report_in_another_team(self):
+        # The write locks the source report row before the team's link lock, so a report_id the
+        # team does not own has to fail there rather than insert an artefact against it.
+        other_team = Team.objects.create(organization=self.organization, name="other source")
+        foreign_source = SignalReport.objects.create(
+            team=other_team,
+            status=SignalReport.Status.READY,
+            title="t",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+        with self.assertRaises(ArtefactContentValidationError):
+            self._link(foreign_source, self._report())
+
     def test_report_link_rejects_a_deleted_report(self):
         target = self._report()
         target.status = SignalReport.Status.DELETED
