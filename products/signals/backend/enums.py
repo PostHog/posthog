@@ -39,7 +39,7 @@ REPORT_LINK_KIND_LABELS: dict[ReportLinkKind, str] = {
 }
 
 
-def report_link_kind_choices() -> list[tuple[str, str]]:
+def report_link_kind_choices() -> list[tuple[str, str | Promise]]:
     # drf-spectacular matches an ENUM_NAME_OVERRIDES entry by a hash of the exact (value, label)
     # pairs, so the serializer's ChoiceField and the override must both read this one callable.
     return [(kind.value, label) for kind, label in REPORT_LINK_KIND_LABELS.items()]

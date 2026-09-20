@@ -359,7 +359,7 @@ const inboxReportsLink = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/link/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+        return await withPostHogUrl(context, result, `/inbox/${result.report_id}`)
     },
 })
 
@@ -551,7 +551,7 @@ const inboxReportsUnlink = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/unlink/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
     },
 })
 
