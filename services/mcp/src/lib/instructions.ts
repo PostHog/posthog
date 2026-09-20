@@ -242,7 +242,6 @@ export class ToolDomainExtractor {
         'end',
         'freeze',
         'launch',
-        'link',
         'move',
         'patch',
         'pause',
@@ -258,7 +257,6 @@ export class ToolDomainExtractor {
         'test',
         'unarchive',
         'unfreeze',
-        'unlink',
     ])
 
     private readonly items: ToolItem[]
