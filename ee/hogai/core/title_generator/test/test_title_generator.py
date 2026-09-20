@@ -223,6 +223,21 @@ class TestTitleGenerator(BaseTest):
         self.assertEqual(self.conversation.title, "Fallback title")
         self.assertIsNone(self.conversation.topic)
 
+    def test_generation_failure_leaves_the_conversation_untitled(self):
+        with (
+            patch("ee.hogai.core.title_generator.nodes.has_conversation_topic_feature_flag", return_value=True),
+            patch.object(TitleGeneratorNode, "_topic_model", new=RunnableLambda(_raise)),
+            patch.object(TitleGeneratorNode, "_model", new=RunnableLambda(_raise)),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            new_state = node.run(
+                AssistantState(messages=[HumanMessage(content="Test Message")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+        self.assertIsNone(new_state)
+        self.conversation.refresh_from_db()
+        self.assertIsNone(self.conversation.title)
+
     def test_handles_json_content_without_error(self):
         """Test that title generation works when user message contains JSON with curly braces."""
         json_content = """Hi Max,

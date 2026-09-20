@@ -2,6 +2,7 @@ import re
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, Generation, LLMResult
 from parameterized import parameterized
+from pydantic import Field, SecretStr
 
 from posthog.settings import BASE_DIR
 
@@ -560,6 +562,19 @@ class TestMaxChatOpenAI(BaseTest):
         self.assertIsInstance(ChatAnthropic.__dict__["_async_client"], cached_property)
         self.assertTrue(callable(ChatAnthropic.__dict__["_client"].func))
         self.assertTrue(callable(ChatAnthropic.__dict__["_async_client"].func))
+
+    def test_openai_api_key_is_coerced_to_secret(self):
+        """Structural guard: langchain reads the key with get_secret_value(). If the inherited
+        `openai_api_key` annotation ever stops coercing a plain string, client setup raises
+        AttributeError and every generation fails, so our coercion must absorb the string."""
+
+        class MaxChatOpenAIWithUncoercedKey(MaxChatOpenAI):
+            openai_api_key: Any = Field(default=None, alias="api_key")
+
+        llm = MaxChatOpenAIWithUncoercedKey(user=self.user, team=self.team, api_key="plain-string-key")
+
+        self.assertIsInstance(llm.openai_api_key, SecretStr)
+        self.assertEqual(llm.openai_api_key.get_secret_value(), "plain-string-key")
 
 
 class TestProjectOrgUserContextPrompt(SimpleTestCase):

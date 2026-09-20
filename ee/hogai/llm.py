@@ -19,7 +19,7 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_core.runnables import ensure_config
 from langchain_openai import ChatOpenAI
 from prometheus_client import Counter
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SecretStr
 
 from posthog.models import Team, User
 from posthog.settings import CLOUD_DEPLOYMENT
@@ -196,6 +196,10 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
     posthog_provider: ClassVar[str] = "openai"
 
     def model_post_init(self, __context: Any) -> None:
+        # langchain calls get_secret_value() on the key, so a plain string breaks client setup.
+        api_key: Any = self.openai_api_key
+        if isinstance(api_key, str):
+            self.openai_api_key = SecretStr(api_key)
         super().model_post_init(__context)
         if settings.IN_EVAL_TESTING and not self.service_tier and self.model_name in OPENAI_FLEX_MODELS:
             self.service_tier = "flex"  # 50% cheaper than default tier, but slower
