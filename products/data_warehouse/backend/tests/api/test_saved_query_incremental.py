@@ -2,11 +2,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.presentation.views.saved_query import (
+from products.data_warehouse.backend.presentation.views.saved_query.incremental_config import (
     CHECK_INCREMENTAL_MAX_QUERY_LENGTH,
     CheckIncrementalThrottle,
-    DataWarehouseSavedQueryViewSet,
 )
+from products.data_warehouse.backend.presentation.views.saved_query.viewset import DataWarehouseSavedQueryViewSet
 
 GROUPED = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 CONFIG = {"enabled": True, "incremental_key": "day", "unique_key": ["day"]}
@@ -49,6 +49,26 @@ class TestSavedQueryIncremental(APIBaseTest):
         )
 
         assert response.status_code == 201, response.json()
+
+    def test_incremental_history_comes_from_saved_state(self):
+        created = self._create()
+        saved_query_id = created.json()["id"]
+        assert created.json()["has_incremental_history"] is False
+
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        saved_query.incremental_state = {"has_incremental_history": True}
+        saved_query.save(update_fields=["incremental_state"])
+
+        response = self.client.get(self._url(f"{saved_query_id}/"))
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["has_incremental_history"] is True
+
+    def test_disabled_legacy_config_counts_as_incremental_history(self):
+        response = self._create(incremental={**CONFIG, "enabled": False})
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["has_incremental_history"] is True
 
     def test_incremental_state_is_read_only(self):
         created = self._create(incremental=CONFIG)

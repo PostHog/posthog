@@ -49,6 +49,7 @@ export const EveryScopeInANarrowRow: Story = {
                     'llm_skill:write',
                     'warehouse_view:write',
                     'warehouse_table:write',
+                    'replay_scanner:write',
                 ]}
             />
         </div>

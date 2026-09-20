@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 
 from posthog.dataclasses import frozen
+from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReportArtefact, SignalReportAssignment
-
-if TYPE_CHECKING:
-    from posthog.models.user import User
+from products.tasks.backend.facade import api as tasks_facade
 
 
 @frozen
@@ -81,6 +79,22 @@ def get_active_claims(*, team_id: int, report_ids: list[str]) -> dict[str, Repor
 
 def get_active_claim(*, team_id: int, report_id: str | UUID) -> ReportClaim | None:
     return get_active_claims(team_id=team_id, report_ids=[str(report_id)]).get(str(report_id))
+
+
+def responsible_user(claim: ReportClaim) -> User | None:
+    """The PostHog user who answers for a claim, or None when no person stands behind it.
+
+    A user claim and an external agent claim carry the user. An internal task claim carries only
+    the task, and the task runs as the user who started it, so that user answers for the claim.
+    """
+    if claim.actor_user is not None:
+        return claim.actor_user
+    if claim.actor_task_id is None:
+        return None
+    tasks = tasks_facade.get_tasks_by_ids([claim.actor_task_id], [claim.team_id])
+    if not tasks or tasks[0].created_by_id is None:
+        return None
+    return User.objects.filter(id=tasks[0].created_by_id).first()
 
 
 def reports_with_active_claim(*, team_id: int, actor: ArtefactAttribution | None = None) -> Q:

@@ -131,7 +131,10 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, ca
             SalesforceAuthRequestError.raise_from_response(res)
         except SalesforceAuthRequestError as err:
             attempt += 1
-            if attempt >= _MAX_TOKEN_REFRESH_ATTEMPTS or _TRANSIENT_TOKEN_REQUEST_ERROR not in str(err):
+            # A 5xx from the token endpoint (Salesforce's own maintenance page, an outage) never
+            # minted a token either, so it's as safe to reissue as the connection failures above.
+            transient = _TRANSIENT_TOKEN_REQUEST_ERROR in str(err) or err.response.status_code >= 500
+            if attempt >= _MAX_TOKEN_REFRESH_ATTEMPTS or not transient:
                 raise
             time.sleep(min(0.5 * attempt, 5))
             continue

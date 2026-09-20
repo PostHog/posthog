@@ -171,7 +171,7 @@ export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'repl
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
- * scratchpad callout, the roster's on/off filter, owner filter, and search, and opening a folded
+ * scratchpad callout, the roster's on/off filter, owner filter, search, and sort, and opening a folded
  * run group).
  */
 export type ScoutActionType =
@@ -202,6 +202,7 @@ export type ScoutActionType =
     | 'filter_owner'
     | 'search_scouts'
     | 'expand_run_group'
+    | 'sort_roster'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -396,24 +397,32 @@ export function captureInboxReportsImpressed(params: {
  * "opened from Needs decision" are one breakdown. Null when the report isn't in a loaded list
  * (a cold deep-link), in which case `rank` and `list_size` are null too.
  */
-export function captureInboxReportOpened(params: {
-    report: SignalReport
-    openMethod: InboxReportOpenMethod
-    previousReportId: string | null
-    rank: number | null
-    listSize: number | null
-    section: InboxReportSectionKey | null
-}): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_OPENED, {
-        ...baseReportProperties(params.report),
-        status: params.report.status ?? null,
-        source_products: params.report.source_products ?? [],
-        open_method: params.openMethod,
-        previous_report_id: params.previousReportId,
-        rank: params.rank,
-        list_size: params.listSize,
-        section: params.section,
-    })
+export function captureInboxReportOpened(
+    params: {
+        report: SignalReport
+        openMethod: InboxReportOpenMethod
+        previousReportId: string | null
+        rank: number | null
+        listSize: number | null
+        section: InboxReportSectionKey | null
+    },
+    /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
+    options?: CaptureOptions
+): void {
+    captureInboxEvent(
+        INBOX_EVENTS.REPORT_OPENED,
+        {
+            ...baseReportProperties(params.report),
+            status: params.report.status ?? null,
+            source_products: params.report.source_products ?? [],
+            open_method: params.openMethod,
+            previous_report_id: params.previousReportId,
+            rank: params.rank,
+            list_size: params.listSize,
+            section: params.section,
+        },
+        options
+    )
 }
 
 export function captureInboxReportClosed(

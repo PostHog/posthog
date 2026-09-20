@@ -45,6 +45,14 @@ class NotebookCellLimitExceeded(Exception):
     """
 
 
+class NotebookContentNotConvertible(Exception):
+    """Raised when a create sends rich-text content that the markdown converter cannot read.
+
+    Lives here because it crosses the product boundary: account notebooks are created through
+    the facade, and that API has to turn this into a 400 on `content` instead of a 500.
+    """
+
+
 @dataclass(frozen=True)
 class NotebookData:
     """A notebook's persisted state, as other products read it."""

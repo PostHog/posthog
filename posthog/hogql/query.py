@@ -15,7 +15,7 @@ from posthog.schema import (
     HogQLVariable,
 )
 
-from posthog.hogql import ast
+from posthog.hogql import ast, query_stats
 from posthog.hogql.constants import (
     HogQLDialect,
     HogQLGlobalSettings,
@@ -67,7 +67,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
@@ -121,6 +121,7 @@ class HogQLQueryExecutor:
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
+    clickhouse_settings: Optional[HogQLGlobalSettings] = None
     direct_context: Optional[HogQLContext] = None
     direct_sql: Optional[str] = None
     direct_source_id: Optional[str] = None
@@ -627,6 +628,7 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self, *, include_settings: bool = True):
         settings = get_default_hogql_global_settings(self.team.pk, self.settings)
+        self.clickhouse_settings = settings
         if self.limit_context in (
             LimitContext.EXPORT,
             LimitContext.COHORT_CALCULATION,
@@ -694,6 +696,7 @@ class HogQLQueryExecutor:
                 raise
 
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
+        self.context.referenced_saved_query_ids.clear()
         self._parse_query()
 
         if embedded_select:
@@ -785,6 +788,7 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 hogql_features=hogql_features,
+                saved_query_ids=sorted(self.context.referenced_saved_query_ids) or None,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
@@ -807,6 +811,10 @@ class HogQLQueryExecutor:
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
 
+            stats = query_stats.get_active()
+            # The rows are read back per thread after the run, so a run ClickHouse stops is still
+            # recorded with what it read, and a series running in another thread is not charged here.
+            query_stats.reset_last_rows_read()
             try:
                 try:
                     self.results, self.types = run_clickhouse_query()
@@ -823,6 +831,15 @@ class HogQLQueryExecutor:
                         self.error = "Unknown error"
                 else:
                     raise
+            finally:
+                if stats is not None and isinstance(self.clickhouse_prepared_ast, ast.Expr):
+                    stats.record_execution(
+                        tree=self.clickhouse_prepared_ast,
+                        context=clickhouse_context,
+                        rows_read=query_stats.last_rows_read(),
+                        lookup=get_query_tag_value("lookup"),
+                        settings=self.clickhouse_settings,
+                    )
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):

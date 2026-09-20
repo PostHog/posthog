@@ -249,6 +249,7 @@ def process_database_schema_query(
             user=user,
             error_factory=ValidationError,
             modifiers=create_default_modifiers_for_team(team),
+            schema_table_names=set(query.tables) if query.tables else None,
         )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         serialized_tables = database.serialize(
@@ -359,15 +360,23 @@ def process_query_model(
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
             if user is not None and (language_result := _language_service_call(team, user, query)) is not None:
                 body = language_result.body
-                kind_map = {"field": "Field", "property": "Property", "table": "Class", "keyword": "Keyword"}
+                kind_map = {
+                    "field": "Field",
+                    "function": "Function",
+                    "keyword": "Keyword",
+                    "operator": "Operator",
+                    "property": "Property",
+                    "table": "Class",
+                }
                 try:
                     return HogQLAutocompleteResponse(
                         suggestions=[
                             {
                                 "label": suggestion["label"],
-                                "insertText": suggestion["label"],
+                                "insertText": suggestion.get("insertText", suggestion["label"]),
                                 "kind": kind_map.get(suggestion["kind"], "Text"),
                                 "detail": suggestion.get("detail"),
+                                "sortText": suggestion.get("sortText"),
                             }
                             for suggestion in body["suggestions"]
                         ],
@@ -506,6 +515,8 @@ def _run_query_runner(
 ) -> dict | BaseModel | RawCachedQueryResponse:
     if dashboard_filters:
         query_runner.apply_dashboard_filters(dashboard_filters)
+        # A tag, so it reaches the async worker, which rebuilds the runner from the query alone.
+        tag_queries(dashboard_all_time=dashboard_filters.date_from == "all")
     if variables_override:
         query_runner.apply_variable_overrides(variables_override)
     if pagination_cursor:

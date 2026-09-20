@@ -9,13 +9,16 @@ from products.wizard.backend.logic.runs.errors import WizardRunDispatchError
 from products.wizard.backend.logic.workers.config import local_wizard_source_root
 from products.wizard.backend.observability.contracts import WizardRunDispatchOutcome
 from products.wizard.backend.observability.service import wizard_observability
+from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
 from products.wizard.backend.temporal import client as temporal_client
 from products.wizard.backend.temporal.constants import wizard_run_workflow_id
 from products.wizard.backend.temporal.contracts import WizardRunActivityInput
 from products.wizard.backend.temporal.errors import WizardTemporalError
 
 
+@wizard_span("wizard.run.dispatch")
 def dispatch_created_cloud_wizard_run_to_temporal_worker(team_id: int, run_id: UUID) -> None:
+    annotate_run_span(team_id, run_id)
     run = store.get_run(team_id, run_id)
 
     if run.environment != WizardRunEnvironment.CLOUD or run.status != WizardRunStatus.CREATED:

@@ -23,6 +23,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
+from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -103,6 +104,42 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
+
+
+def accept_github_event(delivery: WebhookDelivery) -> None:
+    """The inbound GitHub App webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import github_events  # noqa: PLC0415
+
+    github_events.accept_github_event(delivery)
+
+
+def accept_slack_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_event(delivery)
+
+
+def accept_slack_interactivity(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack click enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_interactivity(delivery)
+
+
+def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Slack workspace is connected to.
+
+    Both Slack endpoints ask through here. Ingress asks before it dispatches, and forwards the
+    signed request to the other region when the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    return slack_events.slack_delivery_ownership(delivery)
 
 
 def sync_google_account_email(integration_id: int, team_id: int) -> None:
@@ -338,6 +375,7 @@ def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> Con
             "slack_author_name",
             "teams_author_name",
             "teams_author_email",
+            "github_login",
             "email_from_name",
             "slack_author_email",
             "email_from",

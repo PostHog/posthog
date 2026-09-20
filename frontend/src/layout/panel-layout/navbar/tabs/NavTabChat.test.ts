@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
-import type { Task } from 'products/posthog_ai/frontend/api/types'
+import type { Task, TaskAssigneeFilter } from 'products/posthog_ai/frontend/api/types'
 
 import { groupAiHistory, groupConversations } from './NavTabChat'
 
@@ -48,6 +48,21 @@ const baseTask: Task = {
 }
 
 describe('groupAiHistory', () => {
+    it.each<[TaskAssigneeFilter, boolean]>([
+        ['for_you', true],
+        ['posthog_ai', true],
+        ['slack', false],
+        ['desktop', false],
+        ['my_scouts', false],
+        ['team_scouts', false],
+        ['all_team', true],
+    ])('includes chat history only when it matches %s', (filter, includesChats) => {
+        const items = groupAiHistory([conversation], [baseTask], filter).flatMap((group) => group.items)
+
+        expect(items.some((item) => item.kind === 'conversation')).toBe(includesChats)
+        expect(items.filter((item) => item.kind === 'task')).toHaveLength(1)
+    })
+
     it('combines chats and tasks in updated order', () => {
         const olderConversation = {
             ...conversation,
@@ -89,5 +104,23 @@ describe('groupAiHistory', () => {
         const items = groupAiHistory([recentConversation], [task]).flatMap((group) => group.items)
 
         expect(items.map((item) => item.key)).toEqual(['task:task-id', 'conversation:conversation-id'])
+    })
+
+    it('shows a chat that has a task as the task once the task list holds it, and as the chat until then', () => {
+        // Older than the task rows, so the order below does not depend on same-millisecond timestamps.
+        const chatWithTask = {
+            ...conversation,
+            updated_at: new Date(Date.now() - 2_000).toISOString(),
+            task: { id: 'task-id', latest_run: null },
+        }
+        const otherTask = { ...baseTask, id: 'other-task-id' }
+
+        const withTask = groupAiHistory([chatWithTask], [baseTask]).flatMap((group) => group.items)
+        const taskNotLoadedYet = groupAiHistory([chatWithTask], [otherTask]).flatMap((group) => group.items)
+        const chatsOnly = groupAiHistory([chatWithTask], []).flatMap((group) => group.items)
+
+        expect(withTask.map((item) => item.key)).toEqual(['task:task-id'])
+        expect(taskNotLoadedYet.map((item) => item.key)).toEqual(['task:other-task-id', 'conversation:conversation-id'])
+        expect(chatsOnly.map((item) => item.key)).toEqual(['conversation:conversation-id'])
     })
 })

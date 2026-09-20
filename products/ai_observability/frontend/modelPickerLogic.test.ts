@@ -167,6 +167,7 @@ describe('modelPickerLogic', () => {
         })
 
         it('should gracefully handle API errors for individual keys', async () => {
+            let key1Fails = true
             useMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
@@ -181,7 +182,7 @@ describe('modelPickerLogic', () => {
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
                         if (keyId === 'key-1') {
-                            return [500, { error: 'Internal error' }]
+                            return key1Fails ? [500, { error: 'Internal error' }] : [200, BYOK_OPENAI_MODELS]
                         }
                         if (keyId === 'key-2') {
                             return [200, BYOK_ANTHROPIC_MODELS]
@@ -206,6 +207,59 @@ describe('modelPickerLogic', () => {
                     providerKeyId: 'key-2',
                 }))
             )
+            expect(logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-1')).toEqual({
+                provider: 'openai',
+                providerKeyId: 'key-1',
+                label: 'OpenAI (Unavailable)',
+                models: [],
+                disabledReason: expect.any(String),
+            })
+            expect(logic.values.byokModelNotice).toEqual({
+                kind: 'models-failed',
+                keys: [expect.objectContaining({ id: 'key-1' })],
+            })
+
+            key1Fails = false
+            logic.actions.loadByokModels()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.failedByokProviderKeyIds).toEqual([])
+            expect(logic.values.byokModelNotice).toBeNull()
+        })
+    })
+
+    describe('byokModelNotice', () => {
+        it.each([
+            ['no provider keys', [], [], { kind: 'no-keys' }],
+            [
+                'only unhealthy keys',
+                [{ id: 'key-1', provider: 'openai', name: 'Production', state: 'invalid' }],
+                [],
+                { kind: 'no-usable-keys' },
+            ],
+            [
+                'a key with models',
+                [{ id: 'key-1', provider: 'anthropic', name: 'Production', state: 'ok' }],
+                BYOK_ANTHROPIC_MODELS,
+                null,
+            ],
+        ])('with %s', async (_, keys, models, expected) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': { results: keys },
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/llm_proxy/models/': () => [200, models],
+                },
+            })
+
+            logic = modelPickerLogic()
+            logic.mount()
+            expect(logic.values.byokModelNotice).toBeNull()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.byokModelNotice).toEqual(expected)
         })
     })
 

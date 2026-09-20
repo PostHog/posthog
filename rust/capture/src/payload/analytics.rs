@@ -115,6 +115,7 @@ pub async fn handle_event_payload(
     counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();
+    crate::prometheus::report_edge_to_now(headers, now);
 
     // Snapshot SDK identity while the events are still typed — later stages only
     // see serialized payloads.

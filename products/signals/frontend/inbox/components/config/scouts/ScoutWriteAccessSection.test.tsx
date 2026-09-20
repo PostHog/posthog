@@ -13,6 +13,7 @@ const CONFIG: SignalScoutConfigApi = {
     skill_name: 'signals-scout-hygiene',
     description: 'Dashboard hygiene',
     scout_origin: 'custom',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',
@@ -34,6 +35,7 @@ const CONFIG: SignalScoutConfigApi = {
     source_product: null,
     source_id: null,
     created_at: '2026-07-21T12:00:00Z',
+    updated_at: '2026-07-21T12:00:00Z',
 }
 
 describe('ScoutWriteAccessSection', () => {

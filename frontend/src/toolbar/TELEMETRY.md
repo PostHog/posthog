@@ -101,17 +101,18 @@ Fired when the UI host configuration modal is shown (auth error state).
 
 ### `toolbar api request`
 
-Fired after every `toolbarFetch` call. Covers all toolbar API endpoints.
+Fired after every `toolbarFetch` call, and after the entitlements request, which carries the session cookie instead of a bearer token.
+Covers all toolbar API endpoints.
 
 | Property          | Type      | Description                                        |
 | ----------------- | --------- | -------------------------------------------------- |
 | `method`          | `string`  | HTTP method (`GET`, `POST`, `PATCH`, `DELETE`)     |
 | `pathname`        | `string`  | API path (e.g., `/api/projects/@current/actions/`) |
-| `status`          | `number`  | HTTP response status code                          |
+| `status`          | `number`  | HTTP status, or 0 if the request never landed      |
 | `duration_ms`     | `number`  | Total time including any token retry               |
 | `did_token_retry` | `boolean` | Whether a 401 triggered a token refresh + retry    |
 
-**File:** `toolbarConfigLogic.ts`
+**File:** `toolbarFetch.ts`
 
 ## Menu and mode
 
