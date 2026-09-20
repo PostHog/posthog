@@ -11,7 +11,6 @@ import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
 import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTable } from './AccessControlTable'
-import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { getEntryId } from './helpers'
 import type { AccessControlsTab, ScopeType } from './types'
 
@@ -34,11 +33,9 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         activePanelSubject,
         visibleResourceKeySet,
         filteredResourceKeySet,
-        accessDetailPanelEnabled,
-        ruleModalState,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openAccessDetailPanel, openRuleModal } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openAccessDetailPanel } = useActions(logic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
 
@@ -51,63 +48,55 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
             : null
 
     return (
-        <>
-            <div className="space-y-4">
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={setActiveTab}
-                    tabs={[
-                        { key: 'defaults' as AccessControlsTab, label: 'Defaults' },
-                        {
-                            key: 'roles' as AccessControlsTab,
-                            label: 'Roles',
-                            tooltip: !canUseRoles ? 'Requires role-based access' : undefined,
-                        },
-                        { key: 'members' as AccessControlsTab, label: 'Members' },
-                    ]}
-                />
+        <div className="space-y-4">
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                tabs={[
+                    { key: 'defaults' as AccessControlsTab, label: 'Defaults' },
+                    {
+                        key: 'roles' as AccessControlsTab,
+                        label: 'Roles',
+                        tooltip: !canUseRoles ? 'Requires role-based access' : undefined,
+                    },
+                    { key: 'members' as AccessControlsTab, label: 'Members' },
+                ]}
+            />
 
-                <AccessControlTabContainer activeTab={activeTab}>
-                    {activeTab === 'defaults' ? (
-                        <AccessControlDefaultSettings projectId={projectId} />
-                    ) : (
-                        <div className="space-y-4">
-                            <AccessControlFilters
-                                activeTab={activeTab}
-                                searchText={searchText}
-                                setSearchText={setSearchText}
-                                filters={filters}
-                                setFilters={setFilters}
-                                roles={roles ?? []}
-                                members={allMembers}
-                                resources={resourcesWithProject}
-                                ruleOptions={ruleOptions}
-                                canUseRoles={canUseRoles}
-                            />
-                            <AccessControlTable
-                                activeTab={activeTab}
-                                entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
-                                loading={loading}
-                                canEditAny={canEdit}
-                                visibleResources={visibleResourceKeySet}
-                                filteredResources={filteredResourceKeySet}
-                                selectedEntryId={openInPanelId}
-                                onEdit={(entry) => {
-                                    if (!accessDetailPanelEnabled) {
-                                        openRuleModal({ scopeType, entry, projectId })
-                                        return
-                                    }
-                                    openAccessDetailPanel(scopeType, getEntryId(entry))
-                                    openSidePanel(SidePanelTab.AccessDetail, `${scopeType}:${getEntryId(entry)}`)
-                                }}
-                            />
-                        </div>
-                    )}
-                </AccessControlTabContainer>
-            </div>
-
-            {ruleModalState && <GroupedAccessControlRuleModal state={ruleModalState} />}
-        </>
+            <AccessControlTabContainer activeTab={activeTab}>
+                {activeTab === 'defaults' ? (
+                    <AccessControlDefaultSettings projectId={projectId} />
+                ) : (
+                    <div className="space-y-4">
+                        <AccessControlFilters
+                            activeTab={activeTab}
+                            searchText={searchText}
+                            setSearchText={setSearchText}
+                            filters={filters}
+                            setFilters={setFilters}
+                            roles={roles ?? []}
+                            members={allMembers}
+                            resources={resourcesWithProject}
+                            ruleOptions={ruleOptions}
+                            canUseRoles={canUseRoles}
+                        />
+                        <AccessControlTable
+                            activeTab={activeTab}
+                            entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
+                            loading={loading}
+                            canEditAny={canEdit}
+                            visibleResources={visibleResourceKeySet}
+                            filteredResources={filteredResourceKeySet}
+                            selectedEntryId={openInPanelId}
+                            onEdit={(entry) => {
+                                openAccessDetailPanel(scopeType, getEntryId(entry))
+                                openSidePanel(SidePanelTab.AccessDetail, `${scopeType}:${getEntryId(entry)}`)
+                            }}
+                        />
+                    </div>
+                )}
+            </AccessControlTabContainer>
+        </div>
     )
 }
 
