@@ -92,23 +92,29 @@ export const EmptyState: Story = {
     ),
 }
 
+const lineageTabDecorators = [
+    mswDecorator({
+        get: {
+            '/api/environments/:team_id/data_modeling_nodes/': { count: GRAPH_NODES.length, results: GRAPH_NODES },
+            '/api/environments/:team_id/data_modeling_edges/': { count: GRAPH_EDGES.length, results: GRAPH_EDGES },
+        },
+    }),
+]
+
+async function searchLineage(canvasElement: HTMLElement, term: string): Promise<HTMLElement> {
+    const canvas = within(canvasElement)
+    await canvas.findByText('monthly_report')
+    const search = canvas.getByPlaceholderText('Search, or +name for upstream')
+    fireEvent.change(search, { target: { value: term } })
+    return canvasElement.querySelector<HTMLElement>('.react-flow')!
+}
+
 export const SearchFocus: Story = {
     render: () => <ModelsLineageTab />,
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/environments/:team_id/data_modeling_nodes/': { count: GRAPH_NODES.length, results: GRAPH_NODES },
-                '/api/environments/:team_id/data_modeling_edges/': { count: GRAPH_EDGES.length, results: GRAPH_EDGES },
-            },
-        }),
-    ],
+    decorators: lineageTabDecorators,
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await canvas.findByText('monthly_report')
-        const graph = canvasElement.querySelector<HTMLElement>('.react-flow')!
+        const graph = await searchLineage(canvasElement, 'monthly_report')
         const target = graph.querySelector<HTMLElement>('.react-flow__node[data-id="4"]')!
-        const search = canvas.getByPlaceholderText('Search, or +name for upstream')
-        fireEvent.change(search, { target: { value: 'monthly_report' } })
         await waitFor(() => {
             const nodeBounds = target.getBoundingClientRect()
             const graphBounds = graph.getBoundingClientRect()
@@ -121,6 +127,36 @@ export const SearchFocus: Story = {
         })
         if (graph.querySelectorAll('.react-flow__node').length !== GRAPH_NODES.length) {
             throw new Error('Plain search must keep the rest of the graph visible')
+        }
+    },
+}
+
+export const SearchDimsNonMatches: Story = {
+    render: () => <ModelsLineageTab />,
+    decorators: lineageTabDecorators,
+    play: async ({ canvasElement }) => {
+        // A typo, so this also proves the match survives an imperfect name.
+        const graph = await searchLineage(canvasElement, 'monthly_reprot')
+        await waitFor(() => {
+            if (!graph.querySelector('.react-flow__node[data-id="4"] .ring-2')) {
+                throw new Error('The match must keep its ring')
+            }
+            if (graph.querySelectorAll('.react-flow__node .opacity-25').length !== GRAPH_NODES.length - 1) {
+                throw new Error('Every model but the match must be dimmed')
+            }
+        })
+        await within(canvasElement).findByText('Highlighting 1 of 4 models')
+    },
+}
+
+export const SearchWithNoMatch: Story = {
+    render: () => <ModelsLineageTab />,
+    decorators: lineageTabDecorators,
+    play: async ({ canvasElement }) => {
+        const graph = await searchLineage(canvasElement, 'zzzqqq')
+        await within(canvasElement).findByText('No models match your search')
+        if (graph.querySelector('.react-flow__node .opacity-25')) {
+            throw new Error('A search that matched nothing must not dim the whole graph')
         }
     },
 }

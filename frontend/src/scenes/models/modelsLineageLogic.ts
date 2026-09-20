@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
@@ -6,7 +7,7 @@ import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineag
 import {
     ParsedLineageSearch,
     edgesWithinNodes,
-    matchNodesByName,
+    matchNodes,
     nodeIdsForLineageSearch,
     parseLineageSearch,
 } from 'products/data_modeling/frontend/lineage/lineageSearch'
@@ -27,6 +28,8 @@ export interface modelsLineageLogicValues {
     visibleNodes: DataModelingNode[]
     visibleEdges: DataModelingEdge[]
     isFiltered: boolean
+    searchMatchCount: number | null
+    hasActiveFilters: boolean
 }
 
 export interface modelsLineageLogicActions {
@@ -80,11 +83,41 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         // Every keystroke would otherwise prune the graph and start a fresh ELK layout.
         setSearchTerm: async ({ searchTerm }, breakpoint) => {
+            // `resetFilters` clears the term without dispatching `setSearchTerm`, so a breakpoint
+            // never cancels this callback. Both waits below re-read the term, or a reset would
+            // reinstate the cleared search and report it as one the user ran.
             await breakpoint(250)
+            if (values.searchTerm !== searchTerm) {
+                return
+            }
             actions.setDebouncedSearchTerm(searchTerm)
+
+            // Let typing settle further, so one search reports once rather than once per pause.
+            await breakpoint(750)
+            // A term typed during the first load would otherwise report zero of zero models, which
+            // reads as a search that found nothing. The loaders clear on failure too, so this ends.
+            while (values.nodesLoading || values.edgesLoading) {
+                await breakpoint(250)
+                if (values.searchTerm !== searchTerm) {
+                    return
+                }
+            }
+            const term = searchTerm.trim()
+            if (!term || values.searchTerm !== searchTerm) {
+                return
+            }
+            posthog.capture('lineage searched', {
+                // Model names are customer data, so only the shape of the term is reported.
+                term_length: term.length,
+                mode: values.parsedSearch.mode,
+                // A plain term highlights and a `+` selector prunes, but either way this is what
+                // came back, which is what tells a failed search from a successful one.
+                match_count: values.searchMatchCount ?? values.visibleNodes.length,
+                node_count: values.nodes.length,
+            })
         },
     })),
     selectors({
@@ -98,7 +131,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 if (parsedSearch.mode !== 'search') {
                     return new Set()
                 }
-                return new Set(matchNodesByName(nodes, parsedSearch.term).map((node) => node.id))
+                return new Set(matchNodes(nodes, parsedSearch.term).map((node) => node.id))
             },
         ],
 
@@ -135,6 +168,26 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             (s) => [s.nodes, s.visibleNodes],
             (nodes: DataModelingNode[], visibleNodes: DataModelingNode[]): boolean =>
                 visibleNodes.length !== nodes.length,
+        ],
+
+        // Null when no plain term is typed and while the graph loads: the node list starts empty,
+        // so a term typed before it resolves would count zero and read as "nothing matched".
+        searchMatchCount: [
+            (s) => [s.parsedSearch, s.highlightedNodeIds, s.visibleNodes, s.nodesLoading],
+            (
+                parsedSearch: ParsedLineageSearch,
+                highlightedNodeIds: Set<string>,
+                visibleNodes: DataModelingNode[],
+                nodesLoading: boolean
+            ): number | null =>
+                !nodesLoading && parsedSearch.mode === 'search' && parsedSearch.term
+                    ? visibleNodes.filter((node) => highlightedNodeIds.has(node.id)).length
+                    : null,
+        ],
+
+        hasActiveFilters: [
+            (s) => [s.isFiltered, s.searchMatchCount],
+            (isFiltered: boolean, searchMatchCount: number | null): boolean => isFiltered || searchMatchCount !== null,
         ],
     }),
 ])
