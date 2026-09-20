@@ -26,14 +26,6 @@ COPPER_BASE_URL = "https://api.copper.com/developer_api/v1"
 # Copper requires this header on every request; "developer" is the documented value for API-key auth.
 COPPER_APPLICATION = "developer"
 
-# Maps an advertised incremental field to its server-side filter param and sort column.
-# Copper's search endpoints filter by `minimum_modified_date` / `minimum_created_date`
-# (inclusive Unix-epoch-seconds bounds) and sort by `date_modified` / `date_created`.
-INCREMENTAL_FIELD_TO_PARAMS: dict[str, tuple[str, str]] = {
-    "date_modified": ("minimum_modified_date", "date_modified"),
-    "date_created": ("minimum_created_date", "date_created"),
-}
-
 
 @dataclasses.dataclass
 class CopperResumeConfig:
@@ -124,15 +116,16 @@ def _build_search_body(
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"page_size": page_size}
 
-    if should_use_incremental_field and incremental_field in INCREMENTAL_FIELD_TO_PARAMS:
-        min_param, sort_field = INCREMENTAL_FIELD_TO_PARAMS[incremental_field]
-        body["sort_by"] = sort_field
-        body["sort_direction"] = "asc"
+    min_param = config.incremental_params.get(incremental_field or "") if should_use_incremental_field else None
+    if min_param is not None:
+        if config.sortable:
+            body["sort_by"] = incremental_field
+            body["sort_direction"] = "asc"
         last_value = _to_unix_seconds(db_incremental_field_last_value)
         if last_value is not None:
             # Inclusive bound: the boundary row is re-fetched and deduped by merge on primary key.
             body[min_param] = last_value
-    elif config.full_refresh_sort:
+    elif config.sortable and config.full_refresh_sort:
         body["sort_by"] = config.full_refresh_sort
         body["sort_direction"] = "asc"
 
@@ -195,8 +188,9 @@ def copper_source(
                 "endpoint": {
                     "path": config.path,
                     "method": config.method,
-                    # Copper responses are bare JSON arrays, so there's no data_selector.
+                    # Most Copper responses are bare JSON arrays, so data_selector is usually unset.
                     "json": body,
+                    "data_selector": config.data_selector,
                     "paginator": paginator,
                 },
             }
@@ -227,11 +221,11 @@ def copper_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode=config.partition_mode,
         partition_format=config.partition_format,
         partition_keys=config.partition_keys,
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
     )

@@ -4,12 +4,14 @@ from typing import Literal
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
+    SortMode,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Copper records expose `date_created` and `date_modified` as Unix epoch seconds (integers).
 DATE_MODIFIED = "date_modified"
 DATE_CREATED = "date_created"
+ACTIVITY_DATE = "activity_date"
 ID = "id"
 
 # Copper caps `page_size` at 200 for the search endpoints.
@@ -31,6 +33,23 @@ INCREMENTAL_FIELDS_MODIFIED_CREATED: list[IncrementalField] = [
     },
 ]
 
+# `/activities/search` filters on the activity date only — it has no modified/created filter.
+INCREMENTAL_FIELDS_ACTIVITY_DATE: list[IncrementalField] = [
+    {
+        "label": ACTIVITY_DATE,
+        "type": IncrementalFieldType.Integer,
+        "field": ACTIVITY_DATE,
+        "field_type": IncrementalFieldType.Integer,
+    },
+]
+
+# Inclusive minimum-date params the record search endpoints accept, per advertised incremental field.
+SEARCH_INCREMENTAL_PARAMS = {
+    DATE_MODIFIED: "minimum_modified_date",
+    DATE_CREATED: "minimum_created_date",
+}
+ACTIVITY_INCREMENTAL_PARAMS = {ACTIVITY_DATE: "minimum_activity_date"}
+
 
 @dataclass
 class CopperEndpointConfig:
@@ -41,13 +60,20 @@ class CopperEndpointConfig:
     # GET reference endpoints return the full collection in one unpaginated array.
     paginated: bool = True
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # Maps each advertised incremental field to the search body's inclusive minimum-date param.
+    incremental_params: dict[str, str] = field(default_factory=dict)
     # Stable creation timestamp used for partitioning (never `date_modified`).
     partition_keys: list[str] | None = None
     partition_mode: PartitionMode | None = None
     partition_format: PartitionFormat | None = None
-    primary_key: str = ID
+    primary_keys: list[str] = field(default_factory=lambda: [ID])
+    # Whether the search body accepts `sort_by` / `sort_direction`.
+    sortable: bool = True
     # Sort field applied on full-refresh syncs to keep pagination stable.
     full_refresh_sort: str | None = DATE_CREATED
+    sort_mode: SortMode = "asc"
+    # Set when the response wraps rows in an envelope instead of returning a bare array.
+    data_selector: str | None = None
 
 
 def _searchable(name: str, path: str) -> CopperEndpointConfig:
@@ -57,6 +83,7 @@ def _searchable(name: str, path: str) -> CopperEndpointConfig:
         method="POST",
         paginated=True,
         incremental_fields=INCREMENTAL_FIELDS_MODIFIED_CREATED,
+        incremental_params=SEARCH_INCREMENTAL_PARAMS,
         partition_keys=[DATE_CREATED],
         partition_mode="datetime",
         partition_format="week",
@@ -82,6 +109,24 @@ COPPER_ENDPOINTS: dict[str, CopperEndpointConfig] = {
     "opportunities": _searchable("opportunities", "/opportunities/search"),
     "projects": _searchable("projects", "/projects/search"),
     "tasks": _searchable("tasks", "/tasks/search"),
+    # Activities: the CRM interaction log. Same page-based search, but it takes no sort params and
+    # answers newest-first, and the only server-side filter is on `activity_date`. That date is
+    # user-editable, so an activity backdated below the watermark won't reappear on an incremental
+    # sync — a full refresh is the way to pick those up.
+    "activities": CopperEndpointConfig(
+        name="activities",
+        path="/activities/search",
+        method="POST",
+        paginated=True,
+        incremental_fields=INCREMENTAL_FIELDS_ACTIVITY_DATE,
+        incremental_params=ACTIVITY_INCREMENTAL_PARAMS,
+        partition_keys=[DATE_CREATED],
+        partition_mode="datetime",
+        partition_format="week",
+        sortable=False,
+        full_refresh_sort=None,
+        sort_mode="desc",
+    ),
     # Users: paginated search but no reliable timestamp filter, so full refresh only.
     "users": CopperEndpointConfig(
         name="users",
@@ -93,9 +138,24 @@ COPPER_ENDPOINTS: dict[str, CopperEndpointConfig] = {
     ),
     # Reference data: small unpaginated GET collections, useful for joins.
     "pipelines": _reference("pipelines", "/pipelines"),
+    "pipeline_stages": _reference("pipeline_stages", "/pipeline_stages"),
     "customer_sources": _reference("customer_sources", "/customer_sources"),
     "loss_reasons": _reference("loss_reasons", "/loss_reasons"),
     "contact_types": _reference("contact_types", "/contact_types"),
+    "lead_statuses": _reference("lead_statuses", "/lead_statuses"),
+    "custom_activity_types": _reference("custom_activity_types", "/custom_activity_types"),
+    # Activity types come back grouped under "user" and "system" instead of as a bare array, and the
+    # two categories share an id space (system "Property Changed" is id 1, and custom types are
+    # numbered from 1 too), so the category has to be part of the key.
+    "activity_types": CopperEndpointConfig(
+        name="activity_types",
+        path="/activity_types",
+        method="GET",
+        paginated=False,
+        primary_keys=[ID, "category"],
+        full_refresh_sort=None,
+        data_selector="$.*[*]",
+    ),
 }
 
 ENDPOINTS = tuple(COPPER_ENDPOINTS.keys())
