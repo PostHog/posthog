@@ -27,6 +27,7 @@ from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    DashboardFilter,
     DataTableNode,
     DataVisualizationNode,
     DateRange,
@@ -63,6 +64,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, record
 
+from posthog.api.services.query import _run_query_runner
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
@@ -170,6 +172,7 @@ def setup_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
 
 
 _QUERY_SCAN_FLAG_SHOW = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+_KINDS_WITH_THE_TEST_KIND = frozenset({"TestQuery"})
 _QUERY_SCAN_FLAG_LOG_ONLY = QueryScanFlag(
     mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5
 )
@@ -339,6 +342,7 @@ class TestQueryRunner(BaseTest):
                 return_value=QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             ),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch("posthog.query_scan.trigger.print_prepared_ast", return_value="SELECT 1"),
             mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
             mock.patch.object(
@@ -383,6 +387,7 @@ class TestQueryRunner(BaseTest):
                 return_value=QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             ),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
             mock.patch.object(
                 TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_until_clickhouse_gives_up
@@ -398,6 +403,50 @@ class TestQueryRunner(BaseTest):
             "killed": True,
             "analysis_requested": True,
         }
+
+    @parameterized.expand([("all time", "all", True), ("a recent range", "-7d", False)])
+    def test_the_analysis_knows_when_the_dashboard_chose_all_time(self, _name, date_from, expected):
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_over_the_floor(_self):
+            record(rows_read=90, duration_ms=4000.0)
+            active = get_active()
+            assert active is not None
+            active.record_execution(
+                tree=parse_select("select 1"), context=HogQLContext(team_id=self.team.pk), rows_read=90
+            )
+            return TheTestBasicQueryResponse(results=[])
+
+        redis_client = mock.Mock()
+        redis_client.get.return_value = None
+        redis_client.incr.return_value = 1
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with (
+            mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=_QUERY_SCAN_FLAG_SHOW),
+            mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
+            mock.patch("posthog.query_scan.trigger.print_prepared_ast", return_value="SELECT 1"),
+            mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
+            mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_over_the_floor),
+        ):
+            _run_query_runner(
+                runner,
+                dashboard_filters=DashboardFilter(date_from=date_from),
+                variables_override=None,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                user=self.user,
+                query_id=None,
+                insight_id=None,
+                dashboard_id=None,
+                is_query_service=False,
+                cache_age_seconds=None,
+                pagination_cursor=None,
+                analytics_props=None,
+                allow_raw_results=False,
+            )
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["dashboard_all_time"] is expected
 
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -2088,6 +2137,7 @@ class TestQueryFailureCaching(BaseTest):
         with (
             mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch.object(
                 runner_class, "_calculate", autospec=True, side_effect=calculate_until_clickhouse_gives_up
             ),

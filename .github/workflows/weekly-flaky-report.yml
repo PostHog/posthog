@@ -34,7 +34,7 @@ permissions:
 
 jobs:
     report:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # Worst case mirrors the digest: 3 endpoint attempts x 150s abort plus 2 x 30s
         # backoffs (~8.5min), plus checkout and owner resolution.
         timeout-minutes: 12

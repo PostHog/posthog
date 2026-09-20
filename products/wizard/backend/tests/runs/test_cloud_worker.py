@@ -1,5 +1,6 @@
 import io
 import tarfile
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -9,8 +10,15 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from asgiref.sync import async_to_sync
 from modal.exception import NotFoundError as ModalNotFoundError
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 from parameterized import parameterized
+
+from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.facade.sandbox import SandboxNotFoundError, SandboxNotRunningError
 from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
@@ -40,6 +48,17 @@ from products.wizard.backend.logic.workers.service import (
     prepare_local_wizard,
     provision_wizard_worker,
 )
+from products.wizard.backend.observability.tracing import wizard_span
+
+
+@pytest.fixture
+def span_exporter() -> Iterator[InMemorySpanExporter]:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    with patch("products.wizard.backend.observability.tracing.tracer", provider.get_tracer("test.wizard")):
+        yield exporter
+    provider.shutdown()
 
 
 def _execution_result(*, stdout: str = "", stderr: str = "", exit_code: int = 0) -> SimpleNamespace:
@@ -59,6 +78,7 @@ def test_provision_worker_configures_wizard_environment(
     get_user: MagicMock,
     create_wizard_token: MagicMock,
     get_sandbox_class: MagicMock,
+    span_exporter: InMemorySpanExporter,
 ) -> None:
     request = WizardWorkerProvisionRequest(team_id=7, created_by_id=13, run_id=uuid4())
     create_wizard_token.return_value = "wizard-secret"
@@ -83,6 +103,14 @@ def test_provision_worker_configures_wizard_environment(
     assert "POSTHOG_TASK_ID" not in config.environment_variables
     assert config.environment_variables["POSTHOG_HANDOFF_OUTPUT_PATH"] == wizard_handoff_output_path(request.run_id)
     assert config.ttl_seconds == 75 * 60
+
+    spans = {span.name: span for span in span_exporter.get_finished_spans()}
+    attributes = spans["wizard.worker.provision"].attributes
+    assert attributes is not None
+    assert attributes["team_id"] == request.team_id
+    assert attributes["wizard.run_id"] == str(request.run_id)
+    assert "wizard.sandbox.create" in spans
+    assert all("wizard-secret" not in span.to_json() for span in spans.values())
 
 
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
@@ -163,6 +191,7 @@ def test_provision_worker_ignores_local_mcp_endpoint_outside_debug_mode(
 def test_clone_repository_uses_integration_token(
     get_github_token: MagicMock,
     get_sandbox_class: MagicMock,
+    span_exporter: InMemorySpanExporter,
 ) -> None:
     request = GitRepositoryCloneRequest(
         sandbox_id="worker-id",
@@ -174,7 +203,8 @@ def test_clone_repository_uses_integration_token(
     sandbox.clone_repository.return_value = _execution_result()
     sandbox.execute.return_value = _execution_result()
 
-    root_path = clone_repository(request)
+    with wizard_span("request") as parent:
+        root_path = async_to_sync(asyncify(clone_repository))(request)
 
     assert root_path == "/tmp/workspace/repos/posthog/posthog"
     get_sandbox_class.return_value.get_by_id.assert_called_once_with(request.sandbox_id)
@@ -183,12 +213,28 @@ def test_clone_repository_uses_integration_token(
     assert "github-secret" not in sanitize_command
     assert "https://github.com/PostHog/PostHog.git" in sanitize_command
 
+    spans = {span.name: span for span in span_exporter.get_finished_spans()}
+    preparation = spans["wizard.repository.prepare"]
+    assert preparation.context is not None
+    assert preparation.parent is not None
+    assert preparation.parent.span_id == parent.get_span_context().span_id
+    for name in ("wizard.repository.credentials", "wizard.repository.clone", "wizard.repository.sanitize_remote"):
+        child = spans[name]
+        assert child.context is not None
+        assert child.parent is not None
+        assert child.parent.span_id == preparation.context.span_id
+        assert child.context.trace_id == parent.get_span_context().trace_id
+        assert child.start_time is not None and child.end_time is not None
+        assert child.end_time >= child.start_time
+    assert all("github-secret" not in span.to_json() for span in spans.values())
+
 
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
 @patch("products.wizard.backend.logic.workers.service.get_github_token", return_value="github-secret")
 def test_clone_repository_rejects_clone_failure(
     _get_github_token: MagicMock,
     get_sandbox_class: MagicMock,
+    span_exporter: InMemorySpanExporter,
 ) -> None:
     request = GitRepositoryCloneRequest(
         sandbox_id="worker-id",
@@ -206,6 +252,22 @@ def test_clone_repository_rejects_clone_failure(
 
     assert "github-secret" not in str(error.value)
     assert "[REDACTED]" in str(error.value)
+
+    spans = {span.name: span for span in span_exporter.get_finished_spans()}
+    for name in ("wizard.repository.clone", "wizard.repository.prepare"):
+        span = spans[name]
+        assert span.status.status_code == StatusCode.ERROR
+        assert span.status.description is None
+        assert span.attributes is not None
+        assert span.attributes["error.type"] == "WizardWorkerExecutionError"
+        assert not span.events
+    attributes = spans["wizard.repository.clone"].attributes
+    assert attributes is not None
+    assert attributes["process.exit.code"] == 128
+    assert "wizard.repository.sanitize_remote" not in spans
+    assert all(
+        "github-secret" not in span.to_json() and "PostHog/PostHog" not in span.to_json() for span in spans.values()
+    )
 
 
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")

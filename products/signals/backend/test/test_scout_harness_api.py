@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -2276,6 +2277,43 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         # No second row written.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
+    @parameterized.expand([(False,), (True,)])
+    def test_scout_read_reports_its_own_dry_run_block_though_the_team_can_emit(self, summary_only: bool) -> None:
+        run = _make_run(self.team)
+        assert run.scout_config is not None
+        SignalScoutConfig.objects.filter(pk=run.scout_config.pk).update(emit=False)
+        self._seed_profile()
+        # The sandbox token is bound to the task that dispatched the run, which is how the endpoint
+        # knows which scout is asking — the scout passes nothing.
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+
+        response = self.client.get(self._list_url(), {"summary_only": str(summary_only).lower()})
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        eligibility = body["summary"]["emit_eligibility"]
+        if summary_only:
+            assert "payload" not in body
+        else:
+            assert body["payload"]["inventory"]["emit_eligibility"] == eligibility
+
+        assert eligibility["can_emit"] is False
+        assert eligibility["scout_emit_enabled"] is False
+        assert eligibility["blocking_reason"] == "scout_emit_disabled"
+        assert eligibility["remediation"]
+        # The team-wide gates are untouched, so the block really is this scout's own posture.
+        assert eligibility["ai_processing_approved"] is True
+        assert eligibility["source_enabled"] is True
+        stored = SignalProjectProfile.objects.get(team=self.team).payload["inventory"]["emit_eligibility"]
+        assert stored["can_emit"] is True
+        assert stored["scout_emit_enabled"] is None
+
+    def test_read_outside_a_run_keeps_the_team_wide_eligibility(self) -> None:
+        # No scout to answer for, so there is no per-scout toggle to report and the stored floor stands.
+        self._seed_profile()
+        eligibility = self.client.get(self._list_url()).json()["payload"]["inventory"]["emit_eligibility"]
+        assert eligibility["scout_emit_enabled"] is None
+        assert eligibility["can_emit"] is True
+
     def test_scout_read_inventory_payload_carries_expected_keys(self) -> None:
         _authenticate_as_scout(self)
         response = self.client.get(self._list_url())
@@ -2338,7 +2376,9 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert set(body["summary"]["emit_eligibility"]) == {
             "ai_processing_approved",
             "source_enabled",
+            "scout_emit_enabled",
             "can_emit",
+            "blocking_reason",
             "remediation",
         }
         assert set(body["summary"]["existing_inbox_reports"]) == {"total", "by_status"}
@@ -2390,6 +2430,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             body="# test scout",
         )
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_display_name_update_preserves_identity_and_running_history(self) -> None:
         skill = self._make_skill("signals-scout-daily-digest")
         config = SignalScoutConfig.objects.create(
@@ -2408,15 +2449,21 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id)
         )
         assert original_config["display_name"] == ""
+        assert original_config["updated_at"] == "2026-09-01T12:00:00Z"
 
-        response = self.client.patch(
-            self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
-        )
+        with time_machine.travel("2026-09-01T13:00:00Z", tick=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
+            )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {**original_config, "display_name": "Checkout / daily digest"}
+        assert response.json() == {
+            **original_config,
+            "display_name": "Checkout / daily digest",
+            "updated_at": "2026-09-01T13:00:00Z",
+        }
         saved_config = next(item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id))
-        assert saved_config["display_name"] == "Checkout / daily digest"
+        assert saved_config == response.json()
         config.refresh_from_db()
         skill.refresh_from_db()
         run.refresh_from_db()

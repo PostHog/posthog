@@ -17,10 +17,12 @@ import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { isToolbarFeatureGated, toolbarEntitlementsLogic } from '~/toolbar/toolbarEntitlementsLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
 import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
+import { AvailableFeature } from '~/types'
 
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from '../../lib/components/heatmaps/types'
 import type { HedgehogModeInterface } from '../../lib/components/HedgehogMode/types'
@@ -258,6 +260,9 @@ export interface toolbarLogicActions {
     startGracefulExit: () => {
         value: true
     }
+    syncHeatmapGate: () => {
+        value: true
+    }
     syncWithHedgehog: () => {
         value: true
     }
@@ -411,6 +416,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setHedgehogModeEnabled: (hedgehogModeEnabled: boolean) => ({ hedgehogModeEnabled }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         syncWithHedgehog: true,
+        syncHeatmapGate: true,
         openHedgehogOptions: true,
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
@@ -775,6 +781,28 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        [toolbarEntitlementsLogic.actionTypes.loadEntitlements]: () => {
+            if (isToolbarFeatureGated(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')) {
+                actions.disableHeatmap()
+            }
+        },
+        [toolbarEntitlementsLogic.actionTypes.loadEntitlementsSuccess]: () => {
+            actions.syncHeatmapGate()
+        },
+        // Both halves of the gate move on their own: the entitlement arrives as an action, the
+        // rollout flag as a posthog-js callback. An open heatmap has to follow either one.
+        syncHeatmapGate: () => {
+            if (values.visibleMenu !== 'heatmap') {
+                return
+            }
+            const gated = isToolbarFeatureGated(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')
+            if (gated) {
+                actions.disableHeatmap()
+            } else {
+                actions.enableHeatmap()
+            }
+            values.getHedgehogActor()?.setOnFire(gated ? 0 : 1)
+        },
         setOAuthTokens: () => {
             if (values.minimized) {
                 actions.toggleMinimized(false)
@@ -796,8 +824,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.hideButtonSurveys()
 
             if (visibleMenu === 'heatmap') {
-                actions.enableHeatmap()
-                values.getHedgehogActor()?.setOnFire(1)
+                if (!isToolbarFeatureGated(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')) {
+                    actions.enableHeatmap()
+                    values.getHedgehogActor()?.setOnFire(1)
+                }
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
             } else if (visibleMenu === 'experiments') {
@@ -981,6 +1011,11 @@ export const toolbarLogic = kea<toolbarLogicType>([
         } catch {
             actions.setCspBlocksNewFunction(true)
         }
+
+        cache.disposables.add(
+            () => toolbarPosthogJS.onFeatureFlags(() => actions.syncHeatmapGate()),
+            'heatmapGateFlags'
+        )
 
         // Add window event listeners using disposables
         cache.disposables.add(() => {

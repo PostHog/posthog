@@ -586,45 +586,6 @@ export interface ReplayObservationLabelApi {
     feedback?: string
 }
 
-/**
- * * `thumbnail` - Thumbnail
- * * `clip` - Clip
- */
-export type ReplayObservationMediaKindEnumApi =
-    (typeof ReplayObservationMediaKindEnumApi)[keyof typeof ReplayObservationMediaKindEnumApi]
-
-export const ReplayObservationMediaKindEnumApi = {
-    Thumbnail: 'thumbnail',
-    Clip: 'clip',
-} as const
-
-/**
- * One thumbnail or clip illustrating an observation.
- */
-export interface ReplayObservationMediaApi {
-    /** Id of this media entry. */
-    readonly id: string
-    /** `thumbnail` for the single frame that illustrates the observation, `clip` for a short video.
-     *
-     * * `thumbnail` - Thumbnail
-     * * `clip` - Clip */
-    readonly kind: ReplayObservationMediaKindEnumApi
-    /** Export asset holding the bytes; fetch it from the export content endpoint. */
-    readonly asset_id: number
-    /**
-     * One sentence saying what the clip shows. Null for thumbnails.
-     * @nullable
-     */
-    readonly description: string | null
-    /** Where this media starts in the analysis video, in milliseconds. */
-    readonly video_start_ms: number
-    /**
-     * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
-     * @nullable
-     */
-    readonly video_end_ms: number | null
-}
-
 export interface ReplayObservationApi {
     readonly id: string
     /** The scanner that produced this observation. */
@@ -690,8 +651,8 @@ export interface ReplayObservationApi {
     readonly label: ReplayObservationLabelApi | null
     /** Whether the calling user has opened this observation. */
     readonly viewed: boolean
-    /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
-    readonly media: readonly ReplayObservationMediaApi[]
+    /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
+    readonly summary_line: string
     /** @nullable */
     started_at?: string | null
     /** @nullable */
@@ -2093,6 +2054,8 @@ export interface SignalScoutConfigApi {
      */
     readonly source_id: string | null
     readonly created_at: string
+    /** When this config last changed: an edit through this API, or a status change the system made such as an automatic pause. A scheduled run does not bump it — the coordinator stamps `last_run_at` with a direct write — so this reads as when the scout was last tuned rather than when it last ran. */
+    readonly updated_at: string
 }
 
 /**
@@ -2428,6 +2391,8 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     signals_count?: number | null
+    /** Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped. */
+    problem_types?: string[]
     /**
      * The monitor's answer, for `unusual_verdict`.
      * @nullable

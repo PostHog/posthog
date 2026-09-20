@@ -1,8 +1,10 @@
 from products.tasks.backend.facade import repo_selection
 from products.wizard.backend.facade.errors import MissingGitHubIntegrationError, RepositoryNotAccessibleError
 from products.wizard.backend.logic.runs.validation import validate_git_repository_name
+from products.wizard.backend.observability.tracing import wizard_span
 
 
+@wizard_span("wizard.repository.authorize")
 def authorize_git_repository_access(team_id: int, repository: str) -> int:
     validate_git_repository_name(repository)
 

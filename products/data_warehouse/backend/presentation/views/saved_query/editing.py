@@ -28,6 +28,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.data_modeling.backend.facade.api import has_incremental_history
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
@@ -156,6 +157,9 @@ class DataWarehouseSavedQuerySerializer(
         help_text="How far incremental materialization has progressed. Null until the first run "
         "records any. Written by the materialization run, not by this API.",
     )
+    has_incremental_history = serializers.SerializerMethodField(
+        help_text="Whether incremental settings participated in any materialization run."
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -166,6 +170,7 @@ class DataWarehouseSavedQuerySerializer(
             "query",
             "incremental",
             "incremental_state",
+            "has_incremental_history",
             "created_by",
             "created_at",
             "updated_at",
@@ -197,6 +202,7 @@ class DataWarehouseSavedQuerySerializer(
             "updated_at",
             "columns",
             "incremental_state",
+            "has_incremental_history",
             "status",
             "last_run_at",
             "managed_viewset_kind",
@@ -232,6 +238,10 @@ class DataWarehouseSavedQuerySerializer(
             DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team_id).filter(
                 saved_query=view, column_name=""
             ).delete()
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_incremental_history(self, view: DataWarehouseSavedQuery) -> bool:
+        return has_incremental_history(view)
 
     @extend_schema_field(
         serializers.DictField(

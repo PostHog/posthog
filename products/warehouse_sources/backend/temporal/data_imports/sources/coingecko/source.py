@@ -10,15 +10,22 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.coingecko import (
+    NO_COINS_ERROR,
     PLAN_DEMO,
     PLAN_PRO,
     CoinGeckoResumeConfig,
+    _parse_coin_ids,
     coingecko_source,
+    start_date_error,
     validate_credentials as validate_coingecko_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MAX_COINS,
+    MERGE_ONLY_ENDPOINTS,
+    PER_COIN_ENDPOINTS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -58,7 +65,9 @@ class CoinGeckoSource(ResumableSource[CoinGeckoSourceConfig, CoinGeckoResumeConf
 
 Create a key in your [CoinGecko developer dashboard](https://www.coingecko.com/en/developers/dashboard). Free **Demo** keys (`x-cg-demo-api-key`) and paid **Pro** keys (`x-cg-pro-api-key`) use different hosts — pick the plan that matches your key.
 
-CoinGecko enforces tight per-minute rate limits and monthly credit caps, especially on the Demo plan, so large tables may take a while to sync.""",
+CoinGecko enforces tight per-minute rate limits and monthly credit caps, especially on the Demo plan, so large tables may take a while to sync.
+
+The market pairs, historical chart and OHLC tables are per coin, so they only sync once you list the coins you want.""",
             iconPath="/static/services/coingecko.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coingecko",
             fields=cast(
@@ -82,6 +91,24 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
                         placeholder="CG-...",
                         secret=True,
                     ),
+                    SourceFieldInputConfig(
+                        name="coin_ids",
+                        label="Coin IDs",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="bitcoin, ethereum, solana",
+                        secret=False,
+                        caption=f"Comma-separated list of CoinGecko coin IDs, as they appear in the `coins_list` table. Up to {MAX_COINS} coins. The market pairs, historical chart and OHLC tables need this. The market-wide tables sync without it.",
+                    ),
+                    SourceFieldInputConfig(
+                        name="start_date",
+                        label="Start date",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="2025-01-01",
+                        secret=False,
+                        caption="Earliest day of history to sync for the chart tables (YYYY-MM-DD). Defaults to one year ago, which is as far back as the Demo plan serves.",
+                    ),
                 ],
             ),
         )
@@ -100,6 +127,7 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
             # not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.coingecko.com": "Your CoinGecko API key is invalid or has been revoked. Create a new Demo key in your CoinGecko dashboard, then reconnect.",
             "401 Client Error: Unauthorized for url: https://pro-api.coingecko.com": "Your CoinGecko Pro API key is invalid or has been revoked. Create a new Pro key in your CoinGecko dashboard, then reconnect.",
+            NO_COINS_ERROR: "Add at least one coin ID in the source settings to sync this table.",
         }
 
     def get_schemas(
@@ -111,10 +139,13 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every exposed endpoint is a catalog/snapshot with no server-side timestamp filter, so all
-        # are full refresh only — no endpoint carries incremental fields, so build_endpoint_schemas
-        # leaves supports_incremental/supports_append False.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY_ENDPOINTS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,
@@ -123,6 +154,19 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        coins = _parse_coin_ids(config.coin_ids)
+        if len(coins) > MAX_COINS:
+            return False, f"Too many coin IDs. List at most {MAX_COINS}."
+
+        error = start_date_error(config.start_date)
+        if error is not None:
+            return False, error
+
+        # Coin IDs are only checked per schema: the market-wide tables sync without them, so a
+        # source that syncs only those must still connect.
+        if not coins and schema_name in PER_COIN_ENDPOINTS:
+            return False, "Add at least one coin ID to sync this table."
+
         if validate_coingecko_credentials(config.plan, config.api_key):
             return True, None
 
@@ -148,6 +192,12 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every CoinGecko endpoint is full refresh
+            coin_ids=config.coin_ids,
+            start_date=config.start_date,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
