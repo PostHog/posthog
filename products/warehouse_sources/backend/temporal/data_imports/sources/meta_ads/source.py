@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
+    META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
@@ -174,6 +175,12 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Meta couldn't return this data even at the smallest request size. Lower the sync "
                 "history for insights in your Meta Ads source settings, then run the sync again."
             ),
+            # Graph API code 2642: the pagination cursor was rejected as invalid. The resumable
+            # source manager would resume this exact job with the same saved cursor and fail the
+            # same way every time, so retrying is pointless — only a fresh sync run (a new job,
+            # with a fresh cursor) can recover. `meta_ads._raise_meta_api_error` raises this
+            # message for that code.
+            META_INVALID_CURSOR_ERROR_MESSAGE: META_INVALID_CURSOR_ERROR_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:
