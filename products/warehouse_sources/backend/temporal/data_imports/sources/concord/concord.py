@@ -44,6 +44,10 @@ class ConcordResumeConfig:
     row_offset: Optional[int] = None
     # Start of the next audit-log window as a Unix ms timestamp (events_window pagination).
     window_start_ms: Optional[int] = None
+    # Position in the agreements walk a fan-out endpoint resumes at: the parent page, and the index
+    # of the agreement within it whose children were in flight.
+    parent_page: Optional[int] = None
+    parent_index: Optional[int] = None
 
 
 def base_url_for_environment(environment: str | None) -> str:
@@ -151,6 +155,41 @@ def _select_rows(
     else:
         rows = None
     return rows or []
+
+
+def _select_child_rows(
+    payload: Any, selector: str | None, logger: FilteringBoundLogger | None = None
+) -> list[dict[str, Any]]:
+    """Select the rows of a per-agreement child response.
+
+    `/members` answers with a bare JSON array; every other child endpoint wraps its rows in a key.
+    """
+    if selector is None:
+        return payload if isinstance(payload, list) else []
+    return _select_rows(payload, selector, logger)
+
+
+def _member_id(row: dict[str, Any]) -> Any:
+    """Return the id a member row is keyed on within its agreement.
+
+    `/members` mixes active users, invitations and delayed invitations. Only the invitation shapes
+    carry an `invitation` object, so preferring it keeps each `status` on a single id space — user
+    ids and invitation ids are separate sequences and would otherwise collide in the primary key.
+    """
+    invitation = row.get("invitation")
+    if isinstance(invitation, dict) and invitation.get("id") is not None:
+        return invitation["id"]
+    user = row.get("user")
+    if isinstance(user, dict):
+        return user.get("id")
+    return None
+
+
+def _normalize_child_row(endpoint: str, row: dict[str, Any], agreement_uuid: str) -> dict[str, Any]:
+    normalized = {**row, "agreement_uuid": agreement_uuid}
+    if endpoint == "agreement_members":
+        normalized["member_id"] = _member_id(row)
+    return normalized
 
 
 def _scope_organizations_to_org(rows: list[dict[str, Any]], configured_org_id: str | None) -> list[dict[str, Any]]:
@@ -320,6 +359,90 @@ def _iter_events_windows(
         window_start = next_start
 
 
+def _fetch_child_rows(
+    session: requests.Session,
+    base_url: str,
+    child_path: str,
+    headers: dict[str, str],
+    config: ConcordEndpointConfig,
+    logger: FilteringBoundLogger,
+    agreement_uuid: str,
+) -> list[dict[str, Any]]:
+    """Fetch one agreement's child rows, or none when that agreement is out of reach.
+
+    A key that can list agreements is not guaranteed access to every one of them, and an agreement
+    can be deleted while we walk the list. Either would fail the whole table for one bad parent, so
+    skip the agreement and keep going.
+    """
+    try:
+        payload = _fetch(session, _build_url(base_url, child_path, config.fanout_params), headers, logger)
+    except requests.HTTPError as error:
+        status = error.response.status_code if error.response is not None else None
+        if status in (403, 404):
+            logger.warning(
+                f"Skipping Concord agreement for '{config.name}': status={status}, agreement={agreement_uuid}"
+            )
+            return []
+        raise
+    return [
+        _normalize_child_row(config.name, row, agreement_uuid)
+        for row in _select_child_rows(payload, config.data_selector, logger)
+    ]
+
+
+def _iter_agreement_fanout(
+    session: requests.Session,
+    base_url: str,
+    org_id: str,
+    child_template: str,
+    headers: dict[str, str],
+    config: ConcordEndpointConfig,
+    logger: FilteringBoundLogger,
+    batcher: Batcher,
+    manager: ResumableSourceManager[ConcordResumeConfig],
+    start_page: int,
+    start_index: int = 0,
+) -> Iterator[Any]:
+    """Walk the agreements list and fetch `child_template` once per agreement.
+
+    None of the per-agreement endpoints paginate or expose a change filter, so every sync re-reads
+    each agreement's children and merge dedupes on the composite primary key.
+    """
+    parent_config = CONCORD_ENDPOINTS["agreements"]
+    parent_path = parent_config.path.replace("{organization_id}", org_id)
+
+    page = start_page
+    # Agreements of the first page whose children a prior run already finished.
+    skip = start_index
+    while True:
+        parent_params: dict[str, Any] = {
+            "statuses": AGREEMENT_STATUSES,
+            "page": page,
+            "numberOfItemsByPage": parent_config.page_size,
+        }
+        parent_payload = _fetch(session, _build_url(base_url, parent_path, parent_params), headers, logger)
+        agreements = _select_rows(parent_payload, parent_config.data_selector, logger)
+        for local_index, agreement in enumerate(agreements):
+            if local_index < skip:
+                continue
+            agreement_uuid = agreement.get("uuid")
+            if not agreement_uuid:
+                continue
+            child_path = child_template.replace("{agreement_uid}", str(agreement_uuid))
+            for row in _fetch_child_rows(session, base_url, child_path, headers, config, logger, str(agreement_uuid)):
+                batcher.batch(row)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+                    # Checkpoint the agreement still in flight rather than the next one: its rows
+                    # may be split across this flush and the next, so a resume has to redo it whole.
+                    # Merge dedupes the replayed rows on the composite primary key.
+                    manager.save_state(ConcordResumeConfig(parent_page=page, parent_index=local_index))
+        skip = 0
+        if len(agreements) < parent_config.page_size:
+            break
+        page += 1
+
+
 def get_rows(
     api_key: str,
     environment: str | None,
@@ -340,7 +463,8 @@ def get_rows(
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     org_id = resolve_organization_id(session, base_url, api_key, organization_id, logger) if config.org_scoped else None
-    path = config.path.format(organization_id=org_id) if org_id else config.path
+    # `.replace` not `.format`: fan-out paths still carry an unresolved `{agreement_uid}`.
+    path = config.path.replace("{organization_id}", org_id) if org_id else config.path
 
     base_params: dict[str, Any] = {}
     if config.org_in_query and org_id:
@@ -416,6 +540,14 @@ def get_rows(
         start_row_offset = resume.row_offset if resume and resume.row_offset is not None else 0
         yield from _iter_events_windows(
             session, base_url, path, headers, config, logger, batcher, manager, start_ms, start_row_offset
+        )
+
+    elif config.pagination == "agreement_fanout":
+        assert org_id is not None
+        start_page = resume.parent_page if resume and resume.parent_page is not None else 0
+        start_index = resume.parent_index if resume and resume.parent_index is not None else 0
+        yield from _iter_agreement_fanout(
+            session, base_url, org_id, path, headers, config, logger, batcher, manager, start_page, start_index
         )
 
     if batcher.should_yield(include_incomplete_chunk=True):
