@@ -1827,12 +1827,16 @@ export function ChannelFeedView({
   const [moreRef, moreInView] = useInView<HTMLDivElement>({
     rootMargin: "400px 0px",
   });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: visibleCount is a trigger — the sentinel can stay in view after a page lands, so the loader has to run again on the new count
   useEffect(() => {
-    if (moreInView) setVisibleCount((count) => count + FEED_PAGE);
-  }, [moreInView]);
+    if (!moreInView) return;
+    setVisibleCount((count) => Math.min(count + FEED_PAGE, entries.length));
+  }, [moreInView, visibleCount, entries.length]);
+  const feedKey = `${channelId}|${sort}|${activeKindFilter}|${JSON.stringify(filters)}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: feedKey is a trigger — a different filter set is a different list, which starts at the first page
   useEffect(() => {
     setVisibleCount(FEED_PAGE);
-  }, []);
+  }, [feedKey]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: channelId is a trigger — switching channels or finishing the initial load swaps/completes the rows without a remount, so re-land at the latest cards
   useLayoutEffect(() => {
     if (isLoading) return;

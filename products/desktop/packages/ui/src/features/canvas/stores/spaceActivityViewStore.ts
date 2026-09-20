@@ -33,6 +33,19 @@ export const useSpaceActivityViewStore = create<SpaceActivityViewState>()(
       setSort: (sort) => set({ sort }),
       setGrouping: (grouping) => set({ grouping }),
     }),
-    { name: "ph-space-activity-view" },
+    {
+      name: "ph-space-activity-view",
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<SpaceActivityViewState> | undefined;
+        return {
+          ...current,
+          ...saved,
+          filters: {
+            ...current.filters,
+            ...saved?.filters,
+          },
+        };
+      },
+    },
   ),
 );

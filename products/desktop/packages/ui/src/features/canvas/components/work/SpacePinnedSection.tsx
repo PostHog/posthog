@@ -1,8 +1,6 @@
 import { cn } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import { SideColumnHeading } from "@posthog/ui/features/canvas/components/work/SideColumnHeading";
-import { TaskStatusDot } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
-import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
 import { useMemo } from "react";
@@ -39,9 +37,6 @@ export function SpacePinnedSection({
               "transition-colors hover:bg-fill-hover",
             )}
           >
-            <span className="flex size-3.5 shrink-0 items-center justify-center">
-              <TaskStatusDot dot={taskDot({})} hitArea="row" />
-            </span>
             <span className="min-w-0 flex-1 truncate text-[12px]">
               {task.title}
             </span>
