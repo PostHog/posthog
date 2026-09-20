@@ -7,8 +7,6 @@ from itertools import batched
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
-from django.db.models import Q
-
 import temporalio.activity
 from dateutil.rrule import rrulestr
 from structlog import get_logger
@@ -201,11 +199,11 @@ def _count_triggered_pg_gate(
             return "cooldown", None
 
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_runs = EvaluationReportRun.objects.filter(
-        Q(content__generation_status__isnull=True) | ~Q(content__generation_status="metrics_unavailable"),
-        report=report,
-        created_at__gte=today_start,
-    ).count()
+    today_runs = (
+        EvaluationReportRun.objects.filter(report=report, created_at__gte=today_start)
+        .exclude(generation_status="metrics_unavailable")
+        .count()
+    )
     if today_runs >= report.daily_run_cap:
         return "daily_cap", None
 
@@ -757,6 +755,9 @@ async def store_report_run_activity(
             report_id=inputs.report_id,
             content=content,
             metadata=metrics or {},
+            title=content.get("title", ""),
+            evaluation_target=evaluation_target,
+            generation_status=generation_status.value,
             period_start=inputs.period_start,
             period_end=inputs.period_end,
         )

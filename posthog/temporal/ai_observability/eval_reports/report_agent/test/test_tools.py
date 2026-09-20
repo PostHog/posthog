@@ -1023,15 +1023,13 @@ class TestListAndGetReportRun(BaseTest):
         now = timezone.now()
         # Three prior runs, ending in ascending order so we can assert the most
         # recent comes first.
-        self.older_run = EvaluationReportRun.objects.create(
-            report=self.report,
+        self.older_run = self._create_run(
             content={"title": "Older report", "sections": []},
             metadata={"pass_rate": 85.0, "total_runs": 20},
             period_start=now - dt.timedelta(days=14),
             period_end=now - dt.timedelta(days=13),
         )
-        self.recent_run = EvaluationReportRun.objects.create(
-            report=self.report,
+        self.recent_run = self._create_run(
             content={"title": "Recent report", "sections": [{"title": "Summary", "content": "foo"}]},
             metadata={"pass_rate": 94.2, "total_runs": 53},
             period_start=now - dt.timedelta(days=2),
@@ -1041,6 +1039,17 @@ class TestListAndGetReportRun(BaseTest):
             "evaluation_id": str(self.evaluation.id),
             "period_start": now.isoformat(),
         }
+
+    def _create_run(self, content, report=None, **kwargs):
+        """Store a run the way store_report_run_activity does, index columns included."""
+        return self.EvaluationReportRun.objects.create(
+            report=report or self.report,
+            content=content,
+            title=content.get("title", ""),
+            evaluation_target=content.get("evaluation_target") or "generation",
+            generation_status=content.get("generation_status") or "completed",
+            **kwargs,
+        )
 
     def test_list_returns_compact_index_newest_first(self):
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
@@ -1073,8 +1082,7 @@ class TestListAndGetReportRun(BaseTest):
 
     def test_history_is_scoped_to_the_current_evaluation_target(self):
         now = timezone.now()
-        trace_run = self.EvaluationReportRun.objects.create(
-            report=self.report,
+        trace_run = self._create_run(
             content={"evaluation_target": "trace", "title": "Trace report", "sections": []},
             metadata={"pass_rate": 50.0, "total_runs": 2},
             period_start=now - dt.timedelta(hours=2),
@@ -1098,8 +1106,7 @@ class TestListAndGetReportRun(BaseTest):
         # excluded by a strict `lt` filter, dropping the immediately previous report —
         # the most useful one for delta/continuity analysis.
         boundary_start = dt.datetime.fromisoformat(self.state["period_start"])
-        boundary_run = self.EvaluationReportRun.objects.create(
-            report=self.report,
+        boundary_run = self._create_run(
             content={"title": "Back-to-back report", "sections": []},
             metadata={"pass_rate": 77.7, "total_runs": 11},
             period_start=boundary_start - dt.timedelta(hours=1),
@@ -1112,35 +1119,23 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(boundary_entry["pass_rate"], 77.7)
         self.assertEqual(boundary_entry["total_runs"], 11)
 
-    def test_list_falls_back_to_content_metrics_when_metadata_empty(self):
-        # The agent's output contract carries metrics inside content; only the
-        # downstream store activity mirrors them into metadata. The tool must read
-        # either source so it stays correct if the mirror is removed.
+    def test_list_reads_metrics_from_the_metadata_mirror(self):
         now = timezone.now()
-        content_only_run = self.EvaluationReportRun.objects.create(
-            report=self.report,
-            content={
-                "title": "Content-only metrics",
-                "sections": [],
-                "metrics": {
-                    "total_runs": 8,
-                    "result_counts": {"pass": 6, "fail": 2, "na": 0},
-                },
-            },
-            metadata={},
+        mirrored_run = self._create_run(
+            content={"title": "Mirrored metrics", "sections": []},
+            metadata={"total_runs": 8, "result_counts": {"pass": 6, "fail": 2, "na": 0}},
             period_start=now - dt.timedelta(hours=2),
             period_end=now - dt.timedelta(hours=1),
         )
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
-        entry = next(r for r in result if r["run_id"] == str(content_only_run.id))
+        entry = next(r for r in result if r["run_id"] == str(mirrored_run.id))
         self.assertEqual(entry["pass_rate"], 75.0)
         self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
 
     def test_metrics_unavailable_runs_are_not_agent_history(self):
         now = timezone.now()
-        unavailable_run = self.EvaluationReportRun.objects.create(
-            report=self.report,
+        unavailable_run = self._create_run(
             content={
                 "title": "Metrics temporarily unavailable",
                 "sections": [],
@@ -1187,7 +1182,7 @@ class TestListAndGetReportRun(BaseTest):
             delivery_targets=[],
             created_by=self.user,
         )
-        other_run = self.EvaluationReportRun.objects.create(
+        other_run = self._create_run(
             report=other_report,
             content={"title": "Other"},
             metadata={},
