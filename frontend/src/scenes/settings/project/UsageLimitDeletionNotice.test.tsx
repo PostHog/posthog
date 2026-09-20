@@ -51,8 +51,9 @@ describe('<UsageLimitDeletionNotice />', () => {
 
     it('loads billing itself, so an unloaded billing state does not hide the warning', async () => {
         billingState = billingWith([product({ type: 'session_replay', percentage_usage: 1 })])
-        render(<UsageLimitDeletionNotice />)
+        const { container } = render(<UsageLimitDeletionNotice />)
 
+        expect(container.querySelector('.LemonSkeleton')).toBeInTheDocument()
         expect(await screen.findByText(/Your organization has reached a usage limit/)).toBeInTheDocument()
         expect(screen.queryByText('suppression rule')).not.toBeInTheDocument()
     })

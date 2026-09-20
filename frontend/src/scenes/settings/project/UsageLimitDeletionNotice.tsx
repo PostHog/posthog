@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
@@ -10,17 +11,25 @@ import { urls } from 'scenes/urls'
  * expecting ingestion to resume. Say here that it will not, and name the steps that do work.
  */
 export function UsageLimitDeletionNotice(): JSX.Element | null {
-    const { billing, productsAtOrOverUsageLimit } = useValues(billingLogic)
+    const { billing, billingLoading, productsAtOrOverUsageLimit } = useValues(billingLogic)
     const { loadBilling } = useActions(billingLogic)
+    const [billingRequested, setBillingRequested] = useState(false)
 
     // Nothing on the settings path loads billing, and an empty product list reads the same as
     // "no limit reached", so ask for it once rather than hide the notice from a limited org.
     useEffect(() => {
         if (!billing) {
             loadBilling()
+            setBillingRequested(true)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    if (!billing) {
+        // Hold the space while the answer is unknown. A failed load leaves nothing to say, which
+        // is what an instance without billing gets.
+        return billingLoading || !billingRequested ? <LemonSkeleton className="h-12 mt-2" /> : null
+    }
 
     if (productsAtOrOverUsageLimit.length === 0) {
         return null
