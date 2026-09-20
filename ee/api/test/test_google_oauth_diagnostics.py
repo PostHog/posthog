@@ -8,7 +8,9 @@ from typing import Any
 
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 import jwt
 import requests
@@ -163,3 +165,17 @@ class TestGoogleOAuthDiagnostics(TestCase):
         serialized = json.dumps(event, default=str)
         for private in (ACCESS_TOKEN, EMAIL, SUB, profile["name"], profile["picture"]):
             assert private not in serialized
+
+    def test_existing_user_check_resolves_through_the_indexed_lower_fold(self) -> None:
+        with (
+            patch.object(GoogleOAuth2, "user_data", return_value={"sub": SUB, "email": EMAIL}),
+            patch("ee.api.google_oauth_diagnostics.posthoganalytics.capture"),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            CustomGoogleOAuth2().user_data(ACCESS_TOKEN, response=_token_response())
+
+        # `posthog_user` has an expression index on `LOWER(email)` only, so an `UPPER` comparison
+        # from `email__iexact` falls back to a sequential scan on every Google login.
+        user_lookups = [q["sql"] for q in queries.captured_queries if 'FROM "posthog_user"' in q["sql"]]
+        assert user_lookups
+        assert not [sql for sql in user_lookups if "UPPER(" in sql]

@@ -21,7 +21,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.contrib.auth import get_user_model
 
 import jwt
 import requests
@@ -31,6 +30,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.egress.google_workspace.transport import GoogleWorkspaceClient
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
 
 USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
@@ -263,7 +263,7 @@ def _account_properties(email: Any, sub: Any) -> Properties:
         UserSocialAuth.objects.filter(provider="google-oauth2", uid__in=uids).values_list("uid", flat=True)
     )
     return {
-        "existing_user": isinstance(email, str) and get_user_model().objects.filter(email__iexact=email).exists(),
+        "existing_user": isinstance(email, str) and EmailLookupHandler.users_matching_email(email).exists(),
         "has_google_social_auth": bool(linked_uids),
         "social_auth_uid_type": "sub" if sub in linked_uids else "email" if email in linked_uids else None,
     }
