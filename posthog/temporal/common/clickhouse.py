@@ -313,6 +313,10 @@ class ClickHouseClient:
 
         self.params["max_query_size"] = "1048576"  # 1MB
 
+        # PyArrow reads the raw body when streaming Arrow, and aiohttp fails a read once a decompressed
+        # response goes past its 32 MiB cap. Both want the body uncompressed, so no query path compresses.
+        self.params["enable_http_compression"] = "0"
+
         self.params.update(kwargs)
 
     def _request_headers(self) -> dict[str, str]:
@@ -577,8 +581,6 @@ class ClickHouseClient:
             The response received from the ClickHouse HTTP interface.
         """
         params = {**self.params}
-        # PyArrow reads response.raw directly in stream_query_as_arrow, so keep the HTTP body uncompressed.
-        params["enable_http_compression"] = "0"
         if query_id is not None:
             params["query_id"] = query_id
 
