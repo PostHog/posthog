@@ -193,6 +193,8 @@ class TestAppleSearchAdsSource:
             for field in config.fields
             if isinstance(field, SourceFieldInputConfig) and field.name == "ad_account_id"
         )
+        assert field_caption is not None
+        assert config.caption is not None
         step_five = next(line for line in config.caption.splitlines() if line.startswith("5."))
 
         for text in (field_caption, step_five):
