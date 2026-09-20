@@ -2926,6 +2926,561 @@ export interface ExperimentSessionContextsResponseApi {
     results: ExperimentSessionContextResponseApi[]
 }
 
+/**
+ * What the caller plans to test. Every field is optional; a section that needs a missing input
+ * comes back with status 'skipped'.
+ */
+export interface ExperimentSetupContextInputApi {
+    /**
+     * Event that marks a visit to the surface under test, for example '$pageview' or '$screen'. Needed for target_surface and for the baseline in candidate_metric.
+     * @maxLength 400
+     * @nullable
+     */
+    target_event?: string | null
+    /**
+     * Only counts target events whose $current_url contains this text, ignoring case. Needs target_event to be '$pageview'.
+     * @maxLength 1000
+     * @nullable
+     */
+    target_url_contains?: string | null
+    /**
+     * Event of the candidate primary metric. With target_event, candidate_metric returns a baseline. Without it, candidate_metric returns only the event's volume. Also marks the shared metrics that count this event.
+     * @maxLength 400
+     * @nullable
+     */
+    metric_event?: string | null
+    /**
+     * How many of the most recently created experiments to return, 1 to 25.
+     * @minimum 1
+     * @maximum 25
+     */
+    previous_experiments_limit?: number
+    /**
+     * How many shared metrics to return, most reused first, 1 to 25.
+     * @minimum 1
+     * @maximum 25
+     */
+    shared_metrics_limit?: number
+}
+
+/**
+ * * `ok` - Ok
+ * * `skipped` - Skipped
+ * * `timed_out` - Timed Out
+ * * `error` - Error
+ */
+export type SetupContextSectionStatusEnumApi =
+    (typeof SetupContextSectionStatusEnumApi)[keyof typeof SetupContextSectionStatusEnumApi]
+
+export const SetupContextSectionStatusEnumApi = {
+    Ok: 'ok',
+    Skipped: 'skipped',
+    TimedOut: 'timed_out',
+    Error: 'error',
+} as const
+
+export interface ExperimentSetupTeamDefaultsApi {
+    /**
+     * Default statistical method for new experiments: 'bayesian' or 'frequentist'.
+     * @nullable
+     */
+    stats_method: string | null
+    /**
+     * Default confidence level for new experiments, for example 0.95. Null when unset.
+     * @nullable
+     */
+    confidence_level: number | null
+    /**
+     * The team's default minimum detectable effect, as a percentage. Null when the team has not set one; product_default_minimum_detectable_effect applies then.
+     * @nullable
+     */
+    minimum_detectable_effect: number | null
+    /** The minimum detectable effect, as a percentage, that applies when the team has no default. */
+    product_default_minimum_detectable_effect: number
+    /** Default for counting only users whose metric window has fully passed. */
+    only_count_matured_users: boolean
+    /** Default for CUPED variance reduction on new experiments. */
+    cuped_enabled: boolean
+    /** Default for sequential testing. Applies only to the frequentist method. */
+    sequential_testing_enabled: boolean
+    /** Default for persisting flag values across authentication steps on new flags. It becomes the flag's ensure_experience_continuity. */
+    flags_persistence_default: boolean
+    /** How many filters the team uses to identify internal and test users. */
+    test_account_filter_count: number
+    /** Whether new insights and experiments filter out test accounts by default. */
+    test_account_filters_default_checked: boolean
+    /** The exposure event a new experiment launched now counts by default: '$experiment_exposure' or '$feature_flag_called'. */
+    default_exposure_event: string
+}
+
+export interface ExperimentSetupTeamDefaultsSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** The team's experiment defaults. */
+    data: ExperimentSetupTeamDefaultsApi | null
+}
+
+/**
+ * * `web` - Web
+ * * `mobile` - Mobile
+ * * `server` - Server
+ * * `other` - Other
+ */
+export type SdkLibCategoryEnumApi = (typeof SdkLibCategoryEnumApi)[keyof typeof SdkLibCategoryEnumApi]
+
+export const SdkLibCategoryEnumApi = {
+    Web: 'web',
+    Mobile: 'mobile',
+    Server: 'server',
+    Other: 'other',
+} as const
+
+export interface ExperimentSetupSdkLibApi {
+    /**
+     * The $lib value of the SDK, for example 'web'.
+     * @nullable
+     */
+    lib: string | null
+    /** 'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified.
+     *
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other */
+    category: SdkLibCategoryEnumApi
+    /** Multivariate flag calls this SDK sent in the window. */
+    calls: number
+    /** Distinct ids that sent those calls. */
+    distinct_ids: number
+    /** Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't. */
+    device_id_share: number
+    /**
+     * Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from this SDK reported it, as the web SDK doesn't.
+     * @nullable
+     */
+    locally_evaluated_share: number | null
+    /**
+     * Share of distinct ids that were anonymous, among those that report whether they are identified. Null when no call from this SDK reported it.
+     * @nullable
+     */
+    anonymous_share: number | null
+}
+
+export interface ExperimentSetupSdkProfileApi {
+    /** Days of flag calls read, ending now. */
+    window_days: number
+    /** The event read: '$experiment_exposure' when the project receives it, otherwise '$feature_flag_called'. Only one is read, because one copies the other, and only multivariate responses count either way. This says what the project's events carry today, so it can differ from team_defaults.default_exposure_event, which says what a new experiment would count. */
+    source_event: string
+    /** When the numbers were computed. They are cached for hours. */
+    computed_at: string
+    /** One row per SDK, most calls first. */
+    libs: ExperimentSetupSdkLibApi[]
+    /** True when more SDKs sent flag calls than libs lists. */
+    libs_truncated: boolean
+    /** Distinct multivariate flag keys called in the window. */
+    flags_seen: number
+    /** How many of those flag keys were called by both a server SDK and the web SDK. */
+    flags_evaluated_on_server_and_web: number
+    /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
+    evaluated_on_server_and_web: boolean
+}
+
+export interface ExperimentSetupSdkProfileSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Which SDKs send multivariate flag calls, across the whole project. */
+    data: ExperimentSetupSdkProfileApi | null
+}
+
+export interface ExperimentSetupLibReachApi {
+    /**
+     * The $lib value that sent the target events.
+     * @nullable
+     */
+    lib: string | null
+    /** 'web', 'mobile', 'server', or 'other'.
+     *
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other */
+    category: SdkLibCategoryEnumApi
+    /** Persons who sent the target event from this SDK. */
+    unique_persons: number
+}
+
+export interface ExperimentSetupTargetSurfaceApi {
+    /** Days of target events read, ending now. */
+    window_days: number
+    /** The target event that was counted. */
+    source_event: string
+    /**
+     * The URL filter that was applied, or null.
+     * @nullable
+     */
+    target_url_contains: string | null
+    /** When the numbers were computed. They are cached for an hour. */
+    computed_at: string
+    /** Whether test accounts were left out. It follows the default a new experiment gets, so the counts match the population that experiment analyzes. False when the project defines no test-account filters. */
+    test_accounts_filtered: boolean
+    /** Persons who sent the target event in the window. */
+    unique_persons: number
+    /** unique_persons divided by window_days. Pass it as exposure_rate_per_day to experiment-calculate-running-time, scaled by the share of traffic the experiment will include. */
+    exposures_per_day_estimate: number
+    /** Up to 5 SDKs by persons reached. */
+    libs: ExperimentSetupLibReachApi[]
+    /**
+     * Among web distinct ids that report whether they are identified, the share that was anonymous. Null when no web SDK sent the target event.
+     * @nullable
+     */
+    anonymous_share: number | null
+    /**
+     * Share of web target events that carry a $device_id. Null when no web SDK sent the target event.
+     * @nullable
+     */
+    device_id_share: number | null
+}
+
+export interface ExperimentSetupTargetSurfaceSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Traffic on the target surface. Skipped without target_event. */
+    data: ExperimentSetupTargetSurfaceApi | null
+}
+
+export interface ExperimentSetupFunnelBaselineApi {
+    /** Persons who reached the target. */
+    number_of_samples: number
+    /** Persons who converted. */
+    sum: number
+    /** One entry: the persons who converted. */
+    step_counts: number[]
+}
+
+export interface ExperimentSetupMeanCountBaselineApi {
+    /** Persons who reached the target. */
+    number_of_samples: number
+    /** Metric events those persons sent in the whole window. */
+    sum: number
+    /** Sum over persons of their metric event count squared. */
+    sum_squares: number
+}
+
+export interface ExperimentSetupCandidateMetricApi {
+    /** Days of events read, ending now. */
+    window_days: number
+    /** The metric event that was counted. */
+    source_event: string
+    /**
+     * The target event the baseline starts from, or null when none was passed.
+     * @nullable
+     */
+    target_event: string | null
+    /** When the numbers were computed. They are cached for an hour. */
+    computed_at: string
+    /** Whether test accounts were left out. It follows the default a new experiment gets, so the baseline matches the population that experiment analyzes. False when the project defines no test-account filters. */
+    test_accounts_filtered: boolean
+    /**
+     * Persons who sent the target event. Null without target_event.
+     * @nullable
+     */
+    persons_reached: number | null
+    /**
+     * Persons who sent the metric event at or after their first target event. Null without target_event.
+     * @nullable
+     */
+    persons_converted: number | null
+    /**
+     * persons_converted divided by persons_reached. Null without target_event.
+     * @nullable
+     */
+    conversion_rate: number | null
+    /** Pass as baseline_stats to experiment-calculate-running-time with metric_type 'funnel'. Null without target_event. */
+    funnel_baseline_stats: ExperimentSetupFunnelBaselineApi | null
+    /** Pass as baseline_stats to experiment-calculate-running-time with metric_type 'mean_count'. It counts metric events in the whole window, not only after the first target event, so it can overstate the baseline. Null without target_event. */
+    mean_count_baseline_stats: ExperimentSetupMeanCountBaselineApi | null
+    /**
+     * What the mean count baseline counts.
+     * @nullable
+     */
+    note: string | null
+    /**
+     * Metric events in the window. Set only when no target_event was passed.
+     * @nullable
+     */
+    event_volume: number | null
+    /**
+     * Persons who sent the metric event. Set only when no target_event was passed.
+     * @nullable
+     */
+    unique_persons: number | null
+}
+
+export interface ExperimentSetupCandidateMetricSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Baseline of the candidate metric. Skipped without metric_event. */
+    data: ExperimentSetupCandidateMetricApi | null
+}
+
+/**
+ * * `draft` - Draft
+ * * `running` - Running
+ * * `paused` - Paused
+ * * `exposure_frozen` - Exposure Frozen
+ * * `stopped` - Stopped
+ */
+export type PreviousExperimentStateEnumApi =
+    (typeof PreviousExperimentStateEnumApi)[keyof typeof PreviousExperimentStateEnumApi]
+
+export const PreviousExperimentStateEnumApi = {
+    Draft: 'draft',
+    Running: 'running',
+    Paused: 'paused',
+    ExposureFrozen: 'exposure_frozen',
+    Stopped: 'stopped',
+} as const
+
+export interface ExperimentSetupOutcomeApi {
+    /**
+     * Units analyzed across all variants in the latest completed result of the first primary metric. Users seen in several variants are left out under the default handling, so this can be lower than exposures. Null when that result stores no sample counts, which is not the same as analyzing nobody.
+     * @nullable
+     */
+    analyzed_exposures: number | null
+    /** Whether any variant was significant on that metric in that result. */
+    any_variant_significant: boolean
+    /**
+     * When that result was computed.
+     * @nullable
+     */
+    result_completed_at: string | null
+}
+
+export interface ExperimentSetupPreviousExperimentApi {
+    /** Experiment id. */
+    id: number
+    /** Experiment name. */
+    name: string
+    /** 'draft', 'running', 'paused' (running with its flag turned off), 'exposure_frozen' (running with enrollment closed to the already-exposed users) or 'stopped'.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `paused` - Paused
+     * * `exposure_frozen` - Exposure Frozen
+     * * `stopped` - Stopped */
+    state: PreviousExperimentStateEnumApi
+    /** When the experiment was created. */
+    created_at: string
+    /**
+     * When it launched. Null for drafts.
+     * @nullable
+     */
+    start_date: string | null
+    /**
+     * When it ended. Null unless stopped.
+     * @nullable
+     */
+    end_date: string | null
+    /**
+     * The recorded conclusion, for example 'won' or 'inconclusive', or null.
+     * @nullable
+     */
+    conclusion: string | null
+    /** Variants on the flag, control included. */
+    variant_count: number
+    /**
+     * Whether variants split traffic evenly. 34/33/33 counts as even. Null on a boolean flag, which has no variants.
+     * @nullable
+     */
+    split_even: boolean | null
+    /**
+     * Rollout percentage of the flag's first release condition.
+     * @nullable
+     */
+    rollout_percentage: number | null
+    /** How users seen in several variants are analyzed, with the default resolved.
+     *
+     * * `exclude` - exclude
+     * * `first_seen` - first_seen */
+    multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi
+    /** Whether the experiment sets multiple_variant_handling itself instead of using the default. */
+    multiple_variant_handling_set: boolean
+    /** Whether the flag keeps a user's variant across authentication steps. */
+    ensure_experience_continuity: boolean
+    /** What the flag buckets users on: 'distinct_id' (default) or 'device_id'. */
+    bucketing_identifier: string
+    /** Where the flag may be evaluated: 'server', 'client' or 'all'. */
+    evaluation_runtime: string
+    /** Whether the flag buckets groups instead of persons. */
+    group_aggregation: boolean
+    /**
+     * Custom exposure event, or null when the default exposure event is used.
+     * @nullable
+     */
+    custom_exposure_event: string | null
+    /**
+     * Action used as the custom exposure, or null.
+     * @nullable
+     */
+    custom_exposure_action_id: number | null
+    /** Whether exposures leave out test accounts. */
+    filter_test_accounts: boolean
+    /** Primary metrics, shared ones included. */
+    primary_metric_count: number
+    /** Secondary metrics, shared ones included. */
+    secondary_metric_count: number
+    /** Shared metrics attached to the experiment. */
+    shared_metric_count: number
+    /** metric_type of each primary metric, for example 'mean', 'funnel', 'ratio' or 'retention'. */
+    primary_metric_types: string[]
+    /**
+     * Minimum detectable effect saved from the running time calculator, or null.
+     * @nullable
+     */
+    minimum_detectable_effect: number | null
+    /** 'bayesian' or 'frequentist'. */
+    stats_method: string
+    /** Whether the experiment uses a holdout group. */
+    has_holdout: boolean
+    /** From the latest completed result of the first primary metric. Null when no result exists. */
+    outcome: ExperimentSetupOutcomeApi | null
+}
+
+export interface ExperimentSetupPreviousExperimentsSummaryApi {
+    /** Experiments listed. */
+    total: number
+    /** Listed experiments that launched. */
+    launched: number
+    /** Launched experiments with no completed result. */
+    launched_without_results: number
+    /** Launched experiments whose latest result stores no sample counts, so it says nothing either way. */
+    launched_with_unknown_analyzed_exposures: number
+    /** Launched experiments whose latest result analyzed no one. */
+    launched_with_zero_analyzed_exposures: number
+    /** Launched experiments whose latest result analyzed fewer than 100 units, zero included. */
+    launched_with_under_100_analyzed_exposures: number
+    /** Experiments that bucket on device id. */
+    using_device_id_bucketing: number
+    /** Experiments that keep variants across authentication steps. */
+    using_persistence: number
+    /** Experiments with a custom exposure event or action. */
+    using_custom_exposure: number
+    /** Experiments whose variants split traffic unevenly. */
+    using_uneven_split: number
+}
+
+export interface ExperimentSetupPreviousExperimentsApi {
+    /** Most recently created first. Archived experiments are included, deleted ones are not. */
+    experiments: ExperimentSetupPreviousExperimentApi[]
+    /** Counts over the listed experiments. */
+    summary: ExperimentSetupPreviousExperimentsSummaryApi
+}
+
+export interface ExperimentSetupPreviousExperimentsSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** How the project's recent experiments were set up and how they went. */
+    data: ExperimentSetupPreviousExperimentsApi | null
+}
+
+export interface ExperimentSetupSharedMetricApi {
+    /** Shared metric id, to attach it instead of creating an inline metric. */
+    id: number
+    /** Shared metric name. */
+    name: string
+    /**
+     * 'mean', 'funnel', 'ratio' or 'retention', or null for older metrics.
+     * @nullable
+     */
+    metric_type: string | null
+    /** Event names the metric counts. */
+    events: string[]
+    /** Actions the metric counts. */
+    action_ids: number[]
+    /** Experiments that use it as a primary metric. */
+    used_as_primary: number
+    /** Experiments that use it as a secondary metric. */
+    used_as_secondary: number
+    /**
+     * When it was last attached to an experiment, or null.
+     * @nullable
+     */
+    last_used_at: string | null
+    /**
+     * Whether the metric counts metric_event, directly or through an action. Null when no metric_event was passed.
+     * @nullable
+     */
+    matches_metric_event: boolean | null
+}
+
+export interface ExperimentSetupSharedMetricsApi {
+    /**
+     * The metric_event that was matched, or null.
+     * @nullable
+     */
+    metric_event: string | null
+    /** True when the project has more shared metrics than the event match could read, so a match further down the list may be missing. Matching is capped for cost. */
+    metric_event_match_truncated: boolean
+    /** Metrics that match metric_event first, then most reused. Uses by deleted experiments don't count. */
+    metrics: ExperimentSetupSharedMetricApi[]
+}
+
+export interface ExperimentSetupSharedMetricsSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Shared metrics the project reuses. */
+    data: ExperimentSetupSharedMetricsApi | null
+}
+
+/**
+ * Facts about the project that decide how to configure a new experiment. Facts only, no
+ * recommendations.
+ */
+export interface ExperimentSetupContextResponseApi {
+    /** The project's experiment defaults. */
+    team_defaults: ExperimentSetupTeamDefaultsSectionApi
+    /** Which SDKs call feature flags and where flags are evaluated. */
+    sdk_profile: ExperimentSetupSdkProfileSectionApi
+    /** Traffic on the surface under test. */
+    target_surface: ExperimentSetupTargetSurfaceSectionApi
+    /** Traffic and baseline of the candidate primary metric. */
+    candidate_metric: ExperimentSetupCandidateMetricSectionApi
+    /** Recent experiments in the project. */
+    previous_experiments: ExperimentSetupPreviousExperimentsSectionApi
+    /** Most reused shared metrics. */
+    shared_metrics: ExperimentSetupSharedMetricsSectionApi
+}
+
 export type ExperimentHoldoutsListParams = {
     /**
      * Number of results to return per page.
