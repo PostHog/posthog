@@ -1393,7 +1393,15 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Only the real user session should remain (test.com email excluded)
             assert len(response.results) == 1
 
-    def test_filter_test_accounts_with_cohort_filter(self):
+    @parameterized.expand(
+        [
+            ("live_cohort_excludes_test_user", False, 1),
+            # A deleted cohort resolves nowhere. Dropping its filter keeps the rest of the query
+            # working, instead of failing every query that has "filter test accounts" on.
+            ("deleted_cohort_filter_is_dropped", True, 2),
+        ]
+    )
+    def test_filter_test_accounts_with_cohort_filter(self, _name: str, cohort_deleted: bool, expected_count: int):
         from products.cohorts.backend.models.cohort import Cohort
 
         cohort = Cohort.objects.create(
@@ -1438,6 +1446,10 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         cohort.calculate_people_ch(pending_version=0)
 
+        if cohort_deleted:
+            cohort.deleted = True
+            cohort.save()
+
         with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
@@ -1449,8 +1461,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Should not raise — cohort filter routes through events subquery
             response = runner.run()
             assert isinstance(response, CachedSessionsQueryResponse)
-            # Cohort filter should actually exclude the test user
-            assert len(response.results) == 1
+            assert len(response.results) == expected_count
 
     def test_filter_test_accounts_with_session_property(self):
         self.team.test_account_filters = [

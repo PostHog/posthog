@@ -136,7 +136,7 @@ class PersonStrategy(ActorStrategy):
         if self.query.filterTestAccounts:
             applicable_test_filters = [
                 prop
-                for prop in (self.team.test_account_filters or [])
+                for prop in self.team.resolvable_test_account_filters
                 if isinstance(prop, dict) and prop.get("type") in PERSON_SCOPE_TEST_ACCOUNT_FILTER_TYPES
             ]
             if applicable_test_filters:

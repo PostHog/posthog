@@ -393,12 +393,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                 if series.properties is not None and series.properties != []:
                     event_filters.append(property_to_expr(series.properties, self.team))
         with self.timings.measure("test_account_filters"):
-            if (
-                self.query.filterTestAccounts
-                and isinstance(self.team.test_account_filters, list)
-                and len(self.team.test_account_filters) > 0
-            ):
-                for property in self.team.test_account_filters:
+            if self.query.filterTestAccounts and self.team.resolvable_test_account_filters:
+                for property in self.team.resolvable_test_account_filters:
                     event_filters.append(property_to_expr(property, self.team))
 
         if self.has_group_type:
