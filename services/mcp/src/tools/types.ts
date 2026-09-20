@@ -187,6 +187,7 @@ export type ToolUiMeta = {
 export const POSTHOG_META_KEY = 'com.posthog.mcp' as const
 export const POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY = '__formatted_results_override' as const
 export const POSTHOG_INFORMATIONAL_RESPONSE_KEY = '__informational_response' as const
+export const POSTHOG_TEXT_PROJECTION_KEY = '__text_projection' as const
 
 export type PostHogToolMeta = {
     /**

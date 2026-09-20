@@ -4,6 +4,7 @@ import { getDiscoveryHint } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
+import { hasTextProjection } from '@/tools/tool-utils'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
@@ -23,6 +24,12 @@ export interface BuildToolResultOptions {
     params: unknown
     /** Whether formatted-result text should win over structuredContent for this client profile. */
     suppressStructuredContentForFormattedResults?: boolean | undefined
+    /**
+     * Set when a UI app on this connection loads its own data through `callServerTool`. Such an app
+     * reads `structuredContent` and ignores the text channel, so a compact projection must not take
+     * the payload's place there.
+     */
+    structuredContentReadByApp?: boolean | undefined
     /**
      * For inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork): when a compact
      * formatted table is available, drop top-level `structuredContent` toward the model so
@@ -130,7 +137,9 @@ export function estimateResponseTokens(response: ToolResultPayload): number {
  *    text to win AND the caller didn't opt into JSON via `output_format=json`, we drop
  *    `structuredContent`. Coding agents surface `structuredContent` to the model in
  *    preference to `content[].text`, so keeping it would hide the formatted table
- *    behind raw JSON.
+ *    behind raw JSON. A `formattedResults` that is a text projection of the rows (see
+ *    `withTextProjection`) drops it for every client profile instead, unless the UI app itself
+ *    is the caller: a narrowing only holds if it holds in both channels.
  * 3. Conversely, a UI tool with no `formattedResults` on an inline-exec UI host keeps
  *    `structuredContent` and drops the mirrored text, so the payload reaches the agent
  *    exactly once instead of once per channel.
@@ -144,6 +153,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         toolName,
         params,
         suppressStructuredContentForFormattedResults,
+        structuredContentReadByApp,
         forceUiDataToMeta,
         includeAppData,
         distinctId,
@@ -194,11 +204,18 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     // Native widgets read metadata independently of the model's text format, so with app data
     // present `structuredContent` would be a third copy of the rows the text and `_meta` already
     // carry. MCP UI hosts only suppress it when a compact table can replace it for the model.
+    // A text projection narrows the rows rather than rendering them, so the payload it replaces must
+    // not reach the model through the other channel either — which channel a client reads is what the
+    // projection cannot know. `output_format=json` is how a caller asks for every field back.
+    const projectedRows = !isStringResult && hasTextProjection(handlerResult)
+
     const suppressStructuredContent =
         !!includeAppData ||
         (!callerWantsJson &&
             formattedResults !== undefined &&
-            (!!forceUiDataToMeta || !!suppressStructuredContentForFormattedResults))
+            (!!forceUiDataToMeta ||
+                !!suppressStructuredContentForFormattedResults ||
+                (projectedRows && !structuredContentReadByApp)))
 
     // Inline-exec UI hosts surface BOTH `content[].text` and `structuredContent` to the
     // model. A UI tool with no compact formatted table has nothing smaller to offer the
@@ -214,9 +231,13 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         !useJson &&
         formattedResults === undefined
 
+    // A caller that asks for JSON is asking for the fields the projection leaves out, so serving it
+    // there would make the escape hatch the projection's own note advertises return the same rows.
+    const skipFormattedResults = (includeAppData && useJson) || (projectedRows && callerWantsJson)
+
     const body = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
-        : ((includeAppData && useJson ? undefined : formattedResults) ??
+        : ((skipFormattedResults ? undefined : formattedResults) ??
           (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
 
     const footers: string[] = []

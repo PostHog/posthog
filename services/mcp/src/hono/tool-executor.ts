@@ -97,11 +97,9 @@ interface ExecMetricState {
  */
 function shouldSuppressStructuredContent(args: {
     isCliModeEnabled: boolean
-    useSingleExec: boolean
-    renderUiEnabled: boolean
+    isRenderUiHostInSingleExec: boolean
 }): boolean {
-    const isRenderUiHostInSingleExec = args.useSingleExec && args.renderUiEnabled
-    return args.isCliModeEnabled && !isRenderUiHostInSingleExec
+    return args.isCliModeEnabled && !args.isRenderUiHostInSingleExec
 }
 
 // The state is shared by every call in a JSON-RPC batch, so the client is copied, not written to.
@@ -356,6 +354,8 @@ export class ToolExecutor {
                 const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
                 const distinctId = needsDistinctId ? state.distinctId : undefined
 
+                const isRenderUiHostInSingleExec = state.useSingleExec && state.renderUiEnabled
+
                 response = buildToolResultPayload({
                     handlerResult,
                     toolMeta: tool._meta,
@@ -364,9 +364,9 @@ export class ToolExecutor {
                     includeAppData: state.clientProfile.consumer === 'posthog_ai',
                     suppressStructuredContentForFormattedResults: shouldSuppressStructuredContent({
                         isCliModeEnabled: state.clientProfile.isCliModeEnabled(),
-                        useSingleExec: state.useSingleExec,
-                        renderUiEnabled: state.renderUiEnabled,
+                        isRenderUiHostInSingleExec,
                     }),
+                    structuredContentReadByApp: isRenderUiHostInSingleExec,
                     distinctId,
                 })
             }
