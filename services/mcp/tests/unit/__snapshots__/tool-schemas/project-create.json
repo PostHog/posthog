@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "description": "Name for the new project. Must be unique within the organization, ignoring case. If omitted, PostHog generates a default name.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

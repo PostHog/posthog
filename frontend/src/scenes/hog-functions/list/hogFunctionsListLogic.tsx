@@ -12,11 +12,17 @@ import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    HogFunctionConfigurationContextId,
+    HogFunctionType,
+    HogFunctionTypeType,
+    UserType,
+} from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { AvailableFeature } from '../../../types'
-import { HogFunctionDeliveryType, getHogFunctionDeliveryType } from '../hog-function-utils'
+import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 const EMPTY_MANUAL_FUNCTIONS: HogFunctionType[] = []
@@ -25,7 +31,8 @@ export type HogFunctionListFilters = {
     search?: string
     showPaused?: boolean
     createdBy?: string | null
-    deliveryType?: HogFunctionDeliveryType
+    /** Which PostHog product an `internal_destination` delivers notifications for. */
+    notificationSource?: HogFunctionConfigurationContextId
 }
 
 export type HogFunctionListLogicProps = {
@@ -60,6 +67,7 @@ export interface hogFunctionsListLogicValues {
     hogFunctions: HogFunctionType[]
     hogFunctionsLoading: boolean
     loading: boolean
+    notificationSources: HogFunctionConfigurationContextId[]
     reorderModalOpen: boolean
     sortedHogFunctions: HogFunctionType[]
 }
@@ -202,6 +210,10 @@ export interface hogFunctionsListLogicMeta {
             sortedHogFunctions: HogFunctionType[],
             filteredHogFunctions: HogFunctionType[]
         ) => HogFunctionType[]
+        notificationSources: (
+            sortedHogFunctions: HogFunctionType[],
+            filters: HogFunctionListFilters
+        ) => HogFunctionConfigurationContextId[]
     }
 }
 
@@ -269,9 +281,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                             filter_groups: props.forceFilterGroups,
                             types: [props.type, ...(props.additionalTypes || [])],
                             search,
-                            // TODO: This is a temporary fix. We need proper server-side pagination
-                            // once we rework the data pipelines UI and batch exports is no longer
-                            // part of the same list
+                            // TODO: This is a temporary fix. We need proper server-side pagination.
                             limit: 300,
                         })
                     ).results
@@ -280,6 +290,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     return await api.hogFunctions.rearrange(newOrders)
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
+                    // deleteWithUndo turns an API rejection into a toast, so the callback firing is
+                    // the only signal that the row really went. Destinations a product manages are
+                    // refused, and dropping those rows here makes the table disagree with the server.
+                    let deleted = false
                     await deleteWithUndo({
                         endpoint: `projects/${values.currentProjectId}/hog_functions`,
                         object: {
@@ -291,12 +305,13 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                                 actions.loadHogFunctions()
                                 refreshTreeItem('hog_function/', hogFunction.id)
                             } else {
+                                deleted = true
                                 deleteFromTree('hog_function/', hogFunction.id)
                             }
                         },
                     })
 
-                    return values.hogFunctions.filter((x) => x.id !== hogFunction.id)
+                    return deleted ? values.hogFunctions.filter((x) => x.id !== hogFunction.id) : values.hogFunctions
                 },
                 toggleEnabled: async ({ hogFunction, enabled }) => {
                     const { hogFunctions } = values
@@ -350,7 +365,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 hogFunctions: HogFunctionType[],
                 user: UserType | null
             ): HogFunctionType[] => {
-                const { showPaused, createdBy, deliveryType } = filters
+                const { showPaused, createdBy, notificationSource } = filters
 
                 return hogFunctions.filter((x) => {
                     if (!shouldShowHogFunction(x, user)) {
@@ -365,7 +380,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         return false
                     }
 
-                    if (deliveryType && getHogFunctionDeliveryType(x) !== deliveryType) {
+                    if (
+                        notificationSource &&
+                        eventToHogFunctionContextId(x.filters?.events?.[0]?.id) !== notificationSource
+                    ) {
                         return false
                     }
 
@@ -378,6 +396,26 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             (s) => [s.sortedHogFunctions, s.filteredHogFunctions],
             (sortedHogFunctions: HogFunctionType[], filteredHogFunctions: HogFunctionType[]): HogFunctionType[] => {
                 return sortedHogFunctions.filter((hogFunction) => !filteredHogFunctions.includes(hogFunction))
+            },
+        ],
+
+        // The products that the listed notifications deliver for. The selected source stays in the list even
+        // when a search removed its notifications, so the filter never shows a value it cannot list.
+        notificationSources: [
+            (s) => [s.sortedHogFunctions, s.filters],
+            (
+                sortedHogFunctions: HogFunctionType[],
+                filters: HogFunctionListFilters
+            ): HogFunctionConfigurationContextId[] => {
+                const sources = new Set(
+                    sortedHogFunctions
+                        .filter((hogFunction) => hogFunction.type === 'internal_destination')
+                        .map((hogFunction) => eventToHogFunctionContextId(hogFunction.filters?.events?.[0]?.id))
+                )
+                if (filters.notificationSource) {
+                    sources.add(filters.notificationSource)
+                }
+                return Array.from(sources)
             },
         ],
     }),

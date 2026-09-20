@@ -650,6 +650,11 @@ def web_ensure_precomputed(
     # must not pay for its own backfill.
     if "run_inserts" not in kwargs:
         kwargs["run_inserts"] = background
+    # No web analytics build is read back in the same request: user reads either hit
+    # covering READY jobs or fall back to the live query, and builders (warmer,
+    # revalidation) run ahead of demand. Replica quorum therefore buys no consistency
+    # here — it only turns a downed aux replica into a total build outage.
+    kwargs.setdefault("read_after_write", False)
     # Per-team distinct-shape backstop. Only build paths can mint a new namespace, so this
     # only bites there (a user read is already run_inserts=False). At the ceiling, a *new*
     # shape drops back to a check-only pass — not ready → the caller serves live — instead
