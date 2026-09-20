@@ -100,6 +100,115 @@ class TestConfigCatSource:
         assert urls[0] == f"{CONFIGCAT_BASE_URL}/v1/organizations"
 
 
+class _FakeSession:
+    """Serves canned bodies by path and records every path the fan-out requested."""
+
+    def __init__(self, bodies: dict[str, Any]) -> None:
+        self.bodies = bodies
+        self.paths: list[str] = []
+
+    def get(self, url: str, timeout: int | None = None) -> Any:
+        path = url.removeprefix(CONFIGCAT_BASE_URL)
+        self.paths.append(path)
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = self.bodies[path]
+        return response
+
+
+class TestConfigCatFanOut:
+    @staticmethod
+    def _run(
+        mock_make_session: MagicMock, bodies: dict[str, Any], endpoint: str
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        session = _FakeSession(bodies)
+        mock_make_session.return_value = session
+        rows = _rows(configcat_source("user", "pass", endpoint, team_id=1, job_id="j"))
+        return rows, session.paths
+
+    @parameterized.expand(
+        [
+            ("configs", "/v1/products/{}/configs", "configId"),
+            ("environments", "/v1/products/{}/environments", "environmentId"),
+        ]
+    )
+    @mock.patch.object(configcat, "make_tracked_session")
+    def test_product_children_are_fetched_once_per_product(
+        self, endpoint: str, child_path: str, id_field: str, mock_make_session: MagicMock
+    ) -> None:
+        bodies = {
+            "/v1/products": [{"productId": "p1"}, {"productId": "p2"}],
+            child_path.format("p1"): [{id_field: "a"}],
+            child_path.format("p2"): [{id_field: "b"}],
+        }
+        rows, paths = self._run(mock_make_session, bodies, endpoint)
+
+        assert rows == [{id_field: "a"}, {id_field: "b"}]
+        assert paths == ["/v1/products", child_path.format("p1"), child_path.format("p2")]
+
+    @mock.patch.object(configcat, "make_tracked_session")
+    def test_settings_walk_products_then_configs(self, mock_make_session: MagicMock) -> None:
+        bodies = {
+            "/v1/products": [{"productId": "p1"}],
+            "/v1/products/p1/configs": [{"configId": "c1"}, {"configId": "c2"}],
+            "/v1/configs/c1/settings": [{"settingId": 1, "configId": "c1"}],
+            "/v1/configs/c2/settings": [{"settingId": 1, "configId": "c2"}],
+        }
+        rows, paths = self._run(mock_make_session, bodies, "settings")
+
+        # `settingId` repeats across configs, which is why the key is composite.
+        assert rows == [{"settingId": 1, "configId": "c1"}, {"settingId": 1, "configId": "c2"}]
+        assert paths[-2:] == ["/v1/configs/c1/settings", "/v1/configs/c2/settings"]
+
+    @mock.patch.object(configcat, "make_tracked_session")
+    def test_setting_values_pair_configs_with_environments_of_the_same_product(
+        self, mock_make_session: MagicMock
+    ) -> None:
+        bodies = {
+            "/v1/products": [{"productId": "p1"}, {"productId": "p2"}],
+            "/v1/products/p1/configs": [{"configId": "c1"}],
+            "/v1/products/p1/environments": [{"environmentId": "e1"}],
+            "/v1/products/p2/configs": [{"configId": "c2"}],
+            "/v1/products/p2/environments": [{"environmentId": "e2"}],
+            "/v2/configs/c1/environments/e1/values": {
+                "settingFormulas": [{"setting": {"settingId": 7}, "defaultValue": {"boolValue": True}}]
+            },
+            "/v2/configs/c2/environments/e2/values": {
+                "settingFormulas": [{"setting": {"settingId": 7}, "defaultValue": {"boolValue": False}}]
+            },
+        }
+        rows, paths = self._run(mock_make_session, bodies, "setting_values")
+
+        # A config only has values in its own product's environments — c1/e2 is not a valid pair.
+        assert [path for path in paths if path.startswith("/v2/")] == [
+            "/v2/configs/c1/environments/e1/values",
+            "/v2/configs/c2/environments/e2/values",
+        ]
+        # The envelope carries the config and environment, so they're lifted onto each row to
+        # complete the primary key.
+        assert [(row["configId"], row["environmentId"], row["settingId"]) for row in rows] == [
+            ("c1", "e1", 7),
+            ("c2", "e2", 7),
+        ]
+        assert rows[0]["defaultValue"] == {"boolValue": True}
+
+    @mock.patch.object(configcat, "make_tracked_session")
+    def test_setting_values_non_object_body_fails_loud(self, mock_make_session: MagicMock) -> None:
+        bodies = {
+            "/v1/products": [{"productId": "p1"}],
+            "/v1/products/p1/configs": [{"configId": "c1"}],
+            "/v1/products/p1/environments": [{"environmentId": "e1"}],
+            "/v2/configs/c1/environments/e1/values": [],
+        }
+        with pytest.raises(ValueError, match="non-object values body"):
+            self._run(mock_make_session, bodies, "setting_values")
+
+    @mock.patch.object(configcat, "make_tracked_session")
+    def test_fan_out_list_endpoint_non_list_body_fails_loud(self, mock_make_session: MagicMock) -> None:
+        with pytest.raises(ValueError, match="list response body"):
+            self._run(mock_make_session, {"/v1/products": {"error": "nope"}}, "configs")
+
+
 class TestCheckAccess:
     @staticmethod
     def _session_for(response: Any) -> MagicMock:
@@ -178,3 +287,12 @@ class TestConfigCatSourceResponse:
         assert CONFIGCAT_ENDPOINTS["products"].primary_keys == ["productId"]
         assert CONFIGCAT_ENDPOINTS["organizations"].primary_keys == ["organizationId"]
         assert set(CONFIGCAT_ENDPOINTS) == set(ENDPOINTS)
+
+    @parameterized.expand([(name,) for name, config in CONFIGCAT_ENDPOINTS.items() if config.parent is not None])
+    def test_fan_out_keys_include_every_parent_in_the_path(self, endpoint: str) -> None:
+        # A fan-out table aggregates rows from every parent, so a key missing a parent id seeds
+        # duplicates that every later merge multi-matches.
+        config = CONFIGCAT_ENDPOINTS[endpoint]
+        for placeholder in ("configId", "environmentId"):
+            if f"{{{placeholder}}}" in config.path:
+                assert placeholder in config.primary_keys

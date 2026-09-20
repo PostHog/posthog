@@ -1,5 +1,8 @@
 import base64
-from typing import Optional
+from collections.abc import Iterator
+from typing import Any, Optional
+
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -10,12 +13,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.settings import CONFIGCAT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.settings import (
+    CONFIGCAT_ENDPOINTS,
+    ConfigCatEndpointConfig,
+)
 
 CONFIGCAT_BASE_URL = "https://api.configcat.com"
 # Cheap org-level list used to confirm the Public API credential is genuine. The credential is
 # account-wide, so one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/v1/organizations"
+REQUEST_TIMEOUT_SECONDS = 60
+# The v2 values response is an envelope describing one config/environment pair; the per-flag rows
+# sit under this key.
+SETTING_FORMULAS_SELECTOR = "settingFormulas"
 
 
 def _headers(username: str, password: str) -> dict[str, str]:
@@ -23,6 +33,103 @@ def _headers(username: str, password: str) -> dict[str, str]:
     # password pair generated on the Public API credentials page — not the SDK keys).
     token = base64.b64encode(f"{username}:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}", "Accept": "application/json"}
+
+
+def _get(session: requests.Session, path: str) -> Any:
+    response = session.get(f"{CONFIGCAT_BASE_URL}{path}", timeout=REQUEST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    return response.json()
+
+
+def _get_list(session: requests.Session, path: str) -> list[dict[str, Any]]:
+    body = _get(session, path)
+    # Require a bare array so an unexpected object payload fails loud instead of syncing the
+    # object as a single row.
+    if not isinstance(body, list):
+        raise ValueError(f"ConfigCat returned a non-list response body for {path}")
+    return [row for row in body if isinstance(row, dict)]
+
+
+def _ids(rows: list[dict[str, Any]], field: str) -> list[str]:
+    return [str(row[field]) for row in rows if row.get(field)]
+
+
+def _product_ids(session: requests.Session) -> list[str]:
+    return _ids(_get_list(session, CONFIGCAT_ENDPOINTS["products"].path), "productId")
+
+
+def _config_ids(session: requests.Session, product_id: str) -> list[str]:
+    path = CONFIGCAT_ENDPOINTS["configs"].path.format(productId=product_id)
+    return _ids(_get_list(session, path), "configId")
+
+
+def _environment_ids(session: requests.Session, product_id: str) -> list[str]:
+    path = CONFIGCAT_ENDPOINTS["environments"].path.format(productId=product_id)
+    return _ids(_get_list(session, path), "environmentId")
+
+
+def _setting_value_rows(body: Any, config_id: str, environment_id: str) -> list[dict[str, Any]]:
+    if not isinstance(body, dict):
+        raise ValueError(f"ConfigCat returned a non-object values body for config {config_id}")
+
+    rows: list[dict[str, Any]] = []
+    for formula in body.get(SETTING_FORMULAS_SELECTOR) or []:
+        if not isinstance(formula, dict):
+            continue
+        setting = formula.get("setting")
+        # The config, environment and flag identifiers live on the envelope and on a nested
+        # object, so lift them onto the row — they are what makes it addressable and uniquely keyed.
+        rows.append(
+            {
+                **formula,
+                "configId": config_id,
+                "environmentId": environment_id,
+                "settingId": setting.get("settingId") if isinstance(setting, dict) else None,
+            }
+        )
+    return rows
+
+
+def _fan_out_rows(session: requests.Session, config: ConfigCatEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    for product_id in _product_ids(session):
+        if config.parent == "product":
+            rows = _get_list(session, config.path.format(productId=product_id))
+            if rows:
+                yield rows
+            continue
+
+        config_ids = _config_ids(session, product_id)
+
+        if config.parent == "config":
+            for config_id in config_ids:
+                rows = _get_list(session, config.path.format(configId=config_id))
+                if rows:
+                    yield rows
+            continue
+
+        # A config and an environment are only a valid pair when they belong to the same product,
+        # so the environments are listed per product rather than once for the account.
+        environment_ids = _environment_ids(session, product_id)
+        for config_id in config_ids:
+            for environment_id in environment_ids:
+                path = config.path.format(configId=config_id, environmentId=environment_id)
+                rows = _setting_value_rows(_get(session, path), config_id, environment_id)
+                if rows:
+                    yield rows
+
+
+def _fan_out_source(username: str, password: str, config: ConfigCatEndpointConfig) -> SourceResponse:
+    def items() -> Iterator[list[dict[str, Any]]]:
+        session = make_tracked_session(headers=_headers(username, password), redact_values=(username, password))
+        yield from _fan_out_rows(session, config)
+
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+    )
 
 
 def configcat_source(
@@ -33,6 +140,9 @@ def configcat_source(
     job_id: str,
 ) -> SourceResponse:
     config = CONFIGCAT_ENDPOINTS[endpoint]
+
+    if config.parent is not None:
+        return _fan_out_source(username, password, config)
 
     rest_config: RESTAPIConfig = {
         "client": {
