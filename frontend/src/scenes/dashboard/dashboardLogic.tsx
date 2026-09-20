@@ -40,7 +40,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
@@ -138,7 +138,7 @@ import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
-    DEFAULT_AUTO_PREVIEW_TILE_LIMIT,
+    AUTO_PREVIEW_TILE_LIMIT,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
@@ -2680,13 +2680,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 insightTiles: DashboardTile<
                     QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
                 >[]
-            ) => {
-                const payload = getFeatureFlagPayload(FEATURE_FLAGS.DASHBOARD_AUTO_PREVIEW_LIMIT)
-                const limit = typeof payload === 'number' ? payload : DEFAULT_AUTO_PREVIEW_TILE_LIMIT
-                // The limit is about the number of insights on a dashboard (per the flag's intent),
-                // so count insight tiles only — not text, button, or widget tiles.
-                return insightTiles.length < limit
-            },
+            ): boolean => insightTiles.length < AUTO_PREVIEW_TILE_LIMIT,
         ],
         savedDashboardSettings: [
             (s) => [s.dashboard],
