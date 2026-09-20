@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -29,6 +31,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.set
     INCREMENTAL_FIELDS as PADDLE_INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# Shared by the setup probe and by the sync-time error mapping below, so the same refusal reads
+# the same way in the source wizard and in the sync error panel.
+INVALID_API_KEY_ERROR = (
+    "Your Paddle API key is invalid or has been revoked. Create a new API key in your Paddle dashboard, then reconnect."
+)
+MISSING_PERMISSIONS_ERROR = (
+    "Paddle denied the request. Give your API key read permission for the data you want to sync, then reconnect."
+)
+KEY_CHECK_FAILED_ERROR = "PostHog could not check your Paddle API key. Wait a few minutes, then try again."
 
 
 @SourceRegistry.register
@@ -74,8 +86,8 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "400 Client Error: Bad Request for url: https://api.paddle.com": "Paddle rejected the request parameters. Please check your source configuration and incremental sync state, then try again.",
-            "401 Client Error: Unauthorized for url: https://api.paddle.com": "Your Paddle API key is invalid or expired. Please check your API key in Paddle and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.paddle.com": "Your Paddle API key does not have the required permissions. Please check your API key permissions in Paddle and try again.",
+            "401 Client Error: Unauthorized for url: https://api.paddle.com": INVALID_API_KEY_ERROR,
+            "403 Client Error: Forbidden for url: https://api.paddle.com": MISSING_PERMISSIONS_ERROR,
             # 404 on a list endpoint we know exists means the resource isn't reachable for this
             # account — Paddle Billing isn't enabled, or the API key belongs to a different
             # environment (sandbox vs. production) than the data. Retrying can't change that.
@@ -95,12 +107,15 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         try:
             if validate_paddle_credentials(config.paddle_api_key, schema_name):
                 return True, None
-            else:
-                return False, "Invalid Paddle API key"
-        except PaddlePermissionError as e:
-            return False, f"Paddle API key lacks permissions: {e}"
+            return False, INVALID_API_KEY_ERROR
+        except PaddlePermissionError:
+            return False, MISSING_PERMISSIONS_ERROR
         except Exception as e:
-            return False, str(e)
+            # The probe names the endpoint it could not read and the transport error carries the
+            # request URL, neither of which helps the person filling in the form. Capture them so
+            # the detail stays available for debugging, and show fixed guidance instead.
+            capture_exception(e)
+            return False, KEY_CHECK_FAILED_ERROR
 
     def get_schemas(
         self,
