@@ -279,7 +279,7 @@ const WORK_DESTINATION: RailDestination = {
   onReclick: showWorkColumn,
 };
 
-const WORK_FOLDED_LABELS = new Set(["Home", "Spaces", "Canvases", "Loops"]);
+const WORK_FOLDED_LABELS = new Set(["Home", "Spaces", "Canvases"]);
 
 export function visibleWorkRailDestinations(
   flags: RailFlags,

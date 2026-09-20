@@ -196,7 +196,7 @@ function ActivityNavItem({
  */
 function NavRailImpl() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
   const contextEnabled = useContextLayerFlag();
   const inboxAvailable = useInboxAvailable();
   const tabsEnabled = useSpacesTabs();

@@ -93,7 +93,7 @@ export function SpaceTabbedPage({
   const router = useRouter();
   const { channels, isLoading } = useChannels();
   const channel = channels.find((c) => c.id === channelId);
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
   useMarkChannelSeen(channelId);
   const contextLayerEnabled = useContextLayerFlag();
   const contextPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
