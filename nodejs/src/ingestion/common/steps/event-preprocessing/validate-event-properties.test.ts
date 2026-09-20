@@ -135,4 +135,109 @@ describe('createValidateEventPropertiesStep', () => {
             expect(result).toEqual(ok(input))
         })
     })
+
+    describe('identify/alias distinct-id validation', () => {
+        it.each<{ desc: string; value: unknown; receivedType: string }>([
+            { desc: 'a poisoned object ({ toString: null })', value: { toString: null }, receivedType: 'object' },
+            { desc: 'a plain object', value: { foo: 'bar' }, receivedType: 'object' },
+            { desc: 'an array', value: ['a', 'b'], receivedType: 'array' },
+            { desc: 'a number', value: 42, receivedType: 'number' },
+        ])(
+            'should drop $identify with an invalid_anon_distinct_id warning when $anon_distinct_id is $desc',
+            async ({ value, receivedType }) => {
+                const input = {
+                    event: createTestPipelineEvent({
+                        event: '$identify',
+                        distinct_id: 'user123',
+                        team_id: 1,
+                        properties: { $anon_distinct_id: value as any },
+                    }),
+                }
+
+                const result = await step(input)
+
+                expect(result).toEqual(
+                    drop(
+                        'invalid_anon_distinct_id',
+                        [],
+                        [
+                            {
+                                type: 'invalid_anon_distinct_id',
+                                details: {
+                                    eventUuid: '123e4567-e89b-12d3-a456-426614174000',
+                                    event: '$identify',
+                                    distinctId: 'user123',
+                                    receivedType,
+                                },
+                            },
+                        ]
+                    )
+                )
+            }
+        )
+
+        it.each<{ event: string }>([{ event: '$create_alias' }, { event: '$merge_dangerously' }])(
+            'should drop $event with an invalid_alias warning when alias is a poisoned object',
+            async ({ event }) => {
+                const input = {
+                    event: createTestPipelineEvent({
+                        event,
+                        distinct_id: 'user123',
+                        team_id: 1,
+                        properties: { alias: { toString: null } as any },
+                    }),
+                }
+
+                const result = await step(input)
+
+                expect(result).toEqual(
+                    drop(
+                        'invalid_alias',
+                        [],
+                        [
+                            {
+                                type: 'invalid_alias',
+                                details: {
+                                    eventUuid: '123e4567-e89b-12d3-a456-426614174000',
+                                    event,
+                                    distinctId: 'user123',
+                                    receivedType: 'object',
+                                },
+                            },
+                        ]
+                    )
+                )
+            }
+        )
+
+        it('should allow $identify with a valid string $anon_distinct_id', async () => {
+            const input = {
+                event: createTestPipelineEvent({
+                    event: '$identify',
+                    distinct_id: 'user123',
+                    team_id: 1,
+                    properties: { $anon_distinct_id: 'anon-abc' },
+                }),
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(ok(input))
+        })
+
+        it('should allow an identify event with no $anon_distinct_id or alias', async () => {
+            const input = {
+                event: createTestPipelineEvent({
+                    event: '$identify',
+                    distinct_id: 'user123',
+                    team_id: 1,
+                    properties: {},
+                }),
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(ok(input))
+        })
+    })
 })
