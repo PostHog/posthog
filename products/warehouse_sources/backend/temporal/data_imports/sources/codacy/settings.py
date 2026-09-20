@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -14,7 +16,7 @@ METRICS_LOOKBACK_DAYS = 365
 METRICS_PERIOD = "day"
 
 
-@dataclass
+@frozen
 class CodacyEndpointConfig:
     name: str
     # Path template with {provider}, {organization}, and the fan-out parent's placeholder
