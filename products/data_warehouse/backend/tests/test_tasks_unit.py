@@ -58,6 +58,7 @@ def test_sync_task_resolves_and_pushes_to_control_plane(
     with _patch_membership(_membership()):
         sync_team_earliest_event_date(TEAM_ID)
 
+    _mock_org_id.assert_called_once_with(TEAM_ID)
     mock_update.assert_called_once_with(ORGANIZATION_ID, TEAM_ID, expected)
 
 
