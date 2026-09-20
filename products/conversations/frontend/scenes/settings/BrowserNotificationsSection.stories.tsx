@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/react'
+import clsx from 'clsx'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
@@ -11,8 +12,14 @@ const meta: Meta<typeof BrowserNotificationsSection> = {
     component: BrowserNotificationsSection,
     parameters: { layout: 'padded', viewMode: 'story' },
     decorators: [
-        (Story) => (
-            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
+        (Story, { parameters }) => (
+            <LemonCard
+                hoverEffect={false}
+                className={clsx(
+                    'flex flex-col gap-y-2 max-w-[800px] px-4 py-3',
+                    parameters.narrow && 'w-130 max-w-full'
+                )}
+            >
                 <Story />
             </LemonCard>
         ),
@@ -41,13 +48,7 @@ export const PermissionDenied: Story = {
 
 export const PermissionDeniedNarrow: Story = {
     ...PermissionDenied,
-    decorators: [
-        (Story) => (
-            <div className="w-130 max-w-full">
-                <Story />
-            </div>
-        ),
-    ],
+    parameters: { narrow: true },
 }
 
 export const PermissionDefault: Story = {
