@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.pad
     PADDLE_BASE_URL,
     PaddlePermissionError,
     PaddleResumeConfig,
+    PaddleUnreachableError,
     _format_paddle_datetime_query_value,
     _get_paddle_session,
     paddle_source,
@@ -283,9 +284,10 @@ class TestValidateCredentials:
         assert validate_credentials("key") is False
 
     @mock.patch(PADDLE_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session) -> None:
+    def test_transport_failure_is_not_a_rejected_key(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
+        with pytest.raises(PaddleUnreachableError):
+            validate_credentials("key")
 
 
 class TestSourceValidateCredentials:
@@ -312,6 +314,16 @@ class TestSourceValidateCredentials:
         # not carry the probed endpoint name the permission error reports.
         assert "reconnect" in message
         assert "Missing permissions" not in message
+
+    @mock.patch(PADDLE_SESSION_PATCH)
+    def test_unreachable_paddle_does_not_blame_the_key(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        valid, message = self._validate()
+
+        # Paddle never judged the key, so telling the customer to replace it would send them
+        # rotating a key that works.
+        assert valid is False
+        assert message == KEY_CHECK_FAILED_ERROR
 
     @mock.patch(f"{SOURCE_MODULE}.validate_paddle_credentials", side_effect=RuntimeError("probe blew up"))
     @mock.patch(f"{SOURCE_MODULE}.capture_exception")

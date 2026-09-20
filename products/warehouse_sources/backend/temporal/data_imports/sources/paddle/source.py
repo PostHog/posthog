@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PaddlePermissionError,
     PaddleResumeConfig,
+    PaddleUnreachableError,
     paddle_source,
     validate_credentials as validate_paddle_credentials,
 )
@@ -110,10 +111,12 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
             return False, INVALID_API_KEY_ERROR
         except PaddlePermissionError:
             return False, MISSING_PERMISSIONS_ERROR
+        except PaddleUnreachableError:
+            return False, KEY_CHECK_FAILED_ERROR
         except Exception as e:
-            # The probe names the endpoint it could not read and the transport error carries the
-            # request URL, neither of which helps the person filling in the form. Capture them so
-            # the detail stays available for debugging, and show fixed guidance instead.
+            # The probe names the endpoint it could not read, which does not help the person
+            # filling in the form. Capture the exception so the detail stays available for
+            # debugging, and show fixed guidance instead.
             capture_exception(e)
             return False, KEY_CHECK_FAILED_ERROR
 
