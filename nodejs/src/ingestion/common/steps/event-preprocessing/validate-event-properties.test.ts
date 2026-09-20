@@ -105,6 +105,100 @@ describe('createValidateEventPropertiesStep', () => {
 
             expect(result).toEqual(ok(input))
         })
+
+        // A non-string $group_key is caller-controlled and reaches String()/.toString() downstream,
+        // which throws for a poisoned value ({ toString: null }) and crashes the consumer. Reject early.
+        it.each<{ desc: string; groupKey: unknown; receivedType: string }>([
+            { desc: 'a plain object', groupKey: { foo: 'bar' }, receivedType: 'object' },
+            { desc: 'a poisoned object ({ toString: null })', groupKey: { toString: null }, receivedType: 'object' },
+            { desc: 'an array', groupKey: ['a', 'b'], receivedType: 'array' },
+            { desc: 'a number', groupKey: 42, receivedType: 'number' },
+        ])(
+            'should drop $groupidentify with an invalid_group_key warning when $group_key is $desc',
+            async ({ groupKey, receivedType }) => {
+                const input = {
+                    event: createTestPipelineEvent({
+                        event: '$groupidentify',
+                        distinct_id: 'user123',
+                        team_id: 1,
+                        properties: { $group_key: groupKey as any },
+                    }),
+                }
+
+                const result = await step(input)
+
+                expect(result).toEqual(
+                    drop(
+                        'invalid_group_key',
+                        [],
+                        [
+                            {
+                                type: 'invalid_group_key',
+                                details: {
+                                    eventUuid: '123e4567-e89b-12d3-a456-426614174000',
+                                    event: '$groupidentify',
+                                    distinctId: 'user123',
+                                    receivedType,
+                                },
+                            },
+                        ]
+                    )
+                )
+            }
+        )
+
+        it.each<{ desc: string; groupType: unknown; receivedType: string }>([
+            { desc: 'a poisoned object ({ toString: null })', groupType: { toString: null }, receivedType: 'object' },
+            { desc: 'an array', groupType: ['a'], receivedType: 'array' },
+            { desc: 'a number', groupType: 7, receivedType: 'number' },
+        ])(
+            'should drop $groupidentify with an invalid_group_type warning when $group_type is $desc',
+            async ({ groupType, receivedType }) => {
+                const input = {
+                    event: createTestPipelineEvent({
+                        event: '$groupidentify',
+                        distinct_id: 'user123',
+                        team_id: 1,
+                        properties: { $group_key: 'org::5', $group_type: groupType as any },
+                    }),
+                }
+
+                const result = await step(input)
+
+                expect(result).toEqual(
+                    drop(
+                        'invalid_group_type',
+                        [],
+                        [
+                            {
+                                type: 'invalid_group_type',
+                                details: {
+                                    eventUuid: '123e4567-e89b-12d3-a456-426614174000',
+                                    event: '$groupidentify',
+                                    distinctId: 'user123',
+                                    receivedType,
+                                },
+                            },
+                        ]
+                    )
+                )
+            }
+        )
+
+        it('should allow $groupidentify with valid string $group_key and $group_type', async () => {
+            const input = {
+                event: createTestPipelineEvent({
+                    event: '$groupidentify',
+                    distinct_id: 'user123',
+                    team_id: 1,
+                    properties: { $group_key: 'org::5', $group_type: 'organization' },
+                }),
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(ok(input))
+        })
     })
 
     describe('other event types', () => {
