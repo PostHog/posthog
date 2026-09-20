@@ -18,11 +18,6 @@ Hence the explicit separation between the data and view layers.
 - Think data first: get [your mental model of the data flowing through the app](https://acco.io/i-escaped-node) right, and then everything else will be simpler.
 - Be practical, yet remember that you are balancing speed of delivery with ease of maintainability. If you have to choose: code should be easier to understand than it was to write.
 
-#### Frame rate measurements
-
-The app does not collect continuous frame rate measurements during SDK startup, including in debug mode.
-Use the browser performance profiler to inspect frame timing during a performance investigation.
-
 #### Do-s & Don't-s
 
 - General
