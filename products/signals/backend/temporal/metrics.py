@@ -78,6 +78,16 @@ def increment_dropped(stage: str, reason: str, count: int = 1) -> None:
     ).add(count)
 
 
+def increment_missing_batch() -> None:
+    """Count a signal batch skipped because its object is no longer in storage."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter().create_counter(
+        "signals_missing_batches_total",
+        "Signal batches skipped because their object was no longer in object storage",
+    ).add(1)
+
+
 def increment_report_completed(result: str) -> None:
     """Count report completions by result (ready/failed/not_actionable/pending_input)."""
     if not _in_temporal_context():

@@ -182,6 +182,8 @@ class ReadSignalsFromS3Output:
     """Activity output: the deserialized signals."""
 
     signals: list["EmitSignalInputs"]
+    # Default so results recorded before the field existed still decode on replay.
+    missing: bool = False
 
 
 @dataclass
