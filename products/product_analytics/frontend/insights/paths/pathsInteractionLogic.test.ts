@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { delay } from 'lib/utils/async'
+
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps } from '~/types'
 
@@ -150,19 +152,47 @@ describe('pathsInteractionLogic', () => {
         })
     })
 
-    describe('cardHovered', () => {
-        it('tracks card hover state independently', () => {
-            logic.actions.setCardHovered(true)
-            expect(logic.values.cardHovered).toBe(true)
+    describe('card hover', () => {
+        it('highlights the hovered node and opens only that card popover', () => {
+            logic.actions.setNodes(buildTestNodes(), 720)
+            logic.actions.hoverCard(1)
 
-            logic.actions.setCardHovered(false)
-            expect(logic.values.cardHovered).toBe(false)
+            expect(logic.values.cardHovered).toBe(true)
+            expect(logic.values.hoverTarget).toEqual({ type: 'node', nodeIndex: 1 })
+            expect(logic.values.cardPopoverIndex).toBe(1)
         })
 
-        it('is reset by clearHover', () => {
-            logic.actions.setCardHovered(true)
-            logic.actions.clearHover()
+        it('keeps the popover open when the pointer crosses onto it', async () => {
+            logic.actions.setNodes(buildTestNodes(), 720)
+            logic.actions.hoverCard(1)
+            // The popover is portaled, so entering it leaves the card first
+            logic.actions.unhoverCard()
+            logic.actions.hoverCard(1)
+
+            await delay(60)
+
+            expect(logic.values.cardPopoverIndex).toBe(1)
+            expect(logic.values.hoverTarget).toEqual({ type: 'node', nodeIndex: 1 })
+        })
+
+        it('closes the popover once the pointer has left for good', async () => {
+            logic.actions.setNodes(buildTestNodes(), 720)
+            logic.actions.hoverCard(1)
+            logic.actions.unhoverCard()
+
+            // The SVG handlers are live again right away, so a hover that lands there is not lost
             expect(logic.values.cardHovered).toBe(false)
+
+            await expectLogic(logic).toDispatchActions(['clearHover'])
+            expect(logic.values.cardPopoverIndex).toBeNull()
+        })
+
+        it('closes the popover when the hover moves to the SVG', () => {
+            logic.actions.setNodes(buildTestNodes(), 720)
+            logic.actions.hoverCard(1)
+            logic.actions.hoverLink(0, 1, 0)
+
+            expect(logic.values.cardPopoverIndex).toBeNull()
         })
     })
 
@@ -183,6 +213,26 @@ describe('pathsInteractionLogic', () => {
             const afterCards = logic.values.resolvedNodeCards
             expect(afterCards.find((n) => n.index === 3)?.visible).toBe(true)
             expect(afterCards.find((n) => n.index === 3)?.active).toBe(true)
+        })
+
+        it('keeps card positions fixed when hover reveals a card in the same layer', () => {
+            const nodes = buildTestNodes()
+            // Nodes 2 and 3 share a layer. Node 3 is too short to show its card until it is
+            // hovered, and its card would sit above the card of node 2.
+            nodes[2] = { ...nodes[2], y0: 10, y1: 70 }
+            nodes[3] = { ...nodes[3], y0: 0, y1: 15 }
+            logic.actions.setNodes(nodes, 720)
+
+            const topOfCard2 = (): number | undefined =>
+                logic.values.resolvedNodeCards.find((n) => n.index === 2)?.resolvedTop
+            const before = topOfCard2()
+            expect(before).toBe(40) // its own natural top, with no room made for node 3
+
+            // Hovering node 1 reveals node 3, which is in its forward chain
+            logic.actions.hoverNode(1)
+
+            expect(logic.values.resolvedNodeCards.find((n) => n.index === 3)?.visible).toBe(true)
+            expect(topOfCard2()).toBe(before)
         })
 
         it('deactivates all nodes when hover is cleared', () => {

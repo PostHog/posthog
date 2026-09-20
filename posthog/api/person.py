@@ -20,7 +20,7 @@ from drf_spectacular.utils import (
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
@@ -74,6 +74,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateTh
 from posthog.renderers import SafeJSONRenderer
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
+from posthog.tasks.delete_persons import queue_person_deletion
 from posthog.tasks.split_person import split_person
 from posthog.utils import (
     format_query_params_absolute_url,
@@ -279,7 +280,12 @@ class PersonBulkDeleteRequestSerializer(serializers.Serializer):
 class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     persons_found = serializers.IntegerField(help_text="Number of persons matched by the provided IDs or distinct IDs.")
     persons_deleted = serializers.IntegerField(
-        help_text="Number of person records deleted from the database. 0 if keep_person was true."
+        help_text="Number of person records deleted from the database during this request. "
+        "0 if keep_person was true or if the deletion was queued (see persons_queued_for_deletion)."
+    )
+    persons_queued_for_deletion = serializers.IntegerField(
+        help_text="Number of persons queued for deletion in the background. Their person records and "
+        "distinct IDs are removed shortly after the request completes. 0 if keep_person was true."
     )
     events_queued_for_deletion = serializers.BooleanField(
         help_text="Whether event deletion was requested for the matched persons. "
@@ -292,8 +298,29 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     deletion_errors = serializers.ListField(
         child=serializers.DictField(),
         required=False,
-        help_text="Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists.",
+        help_text="Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' "
+        "and 'step', the deletion step that failed for that person. Failures are reported here rather than as an "
+        "error status, so a 202 with entries means those persons were not deleted and the request should be "
+        "retried for them, except entries whose step is 'log_activity': that person was deleted, but the "
+        "activity log entry was not written. "
+        "Always empty when the deletion was queued (see persons_queued_for_deletion). "
+        "Contact support if this persists.",
     )
+
+
+class PersonDeletionFailed(APIException):
+    status_code = 503
+    default_code = "person_deletion_failed"
+    default_detail = "Couldn't delete this person. Try again, and if it keeps happening contact support."
+
+
+def _no_person_deleted(summary: dict[str, Any]) -> bool:
+    """True when persons matched, a delete was attempted, and none of them left the database.
+
+    A ``log_activity`` failure never triggers this: the person is gone by then, and a retry would
+    only find nothing to delete.
+    """
+    return summary["persons_found"] > 0 and summary["persons_deleted"] == 0 and bool(summary["deletion_errors"])
 
 
 class PersonSplitRequestSerializer(serializers.Serializer):
@@ -834,14 +861,23 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         try:
             person = self.get_object()
-            # Convert query params to request data format expected by bulk_delete
-            self._bulk_delete_persons(
+            # Convert query params to request data format expected by bulk_delete. This path stays
+            # synchronous under the queued-deletion flag: the app deletes one person here and reloads
+            # the list at once, so the person has to be gone when the response returns.
+            summary = self._bulk_delete_persons(
                 request=request,
                 ids=[str(person.uuid)],
                 delete_events="delete_events" in request.GET,
                 delete_recordings="delete_recordings" in request.GET,
                 keep_person="keep_person" in request.GET,
+                allow_queued=False,
             )
+            if _no_person_deleted(summary):
+                step = summary["deletion_errors"][0]["step"]
+                raise PersonDeletionFailed(
+                    f"Couldn't delete this person. The {step} step failed. "
+                    "Try again, and if it keeps happening contact support."
+                )
             return response.Response(status=202)
 
         except Person.DoesNotExist:
@@ -855,6 +891,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+
+        Person records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.
         """
 
         delete_events = bool(request.data.get("delete_events"))
@@ -880,6 +918,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_events: bool = False,
         delete_recordings: bool = False,
         keep_person: bool = False,
+        allow_queued: bool = True,
     ) -> dict[str, Any]:
         if distinct_ids and ids:
             raise ValidationError("You must provide either distinct_ids or ids, not both")
@@ -889,6 +928,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("You can only pass 1000 ids in one call")
         if not distinct_ids and not ids:
             raise ValidationError("You need to specify either distinct_ids or ids")
+
+        if allow_queued and settings.PERSON_BULK_DELETE_ASYNC:
+            return self._queue_bulk_delete_persons(
+                request,
+                distinct_ids=distinct_ids,
+                ids=ids,
+                delete_events=delete_events,
+                delete_recordings=delete_recordings,
+                keep_person=keep_person,
+            )
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
         if not keep_person or delete_recordings:
@@ -909,7 +958,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queue_ai_training_deletion=False,
             )
             persons_deleted = result.deleted_count
-            errors = [{"person_uuid": str(u)} for u in result.errors]
+            errors = [
+                {"person_uuid": str(failure.person_uuid), "step": failure.step.value}
+                for failure in result.failures
+                if failure.person_uuid is not None
+            ]
 
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))
@@ -921,9 +974,48 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return {
             "persons_found": len(persons),
             "persons_deleted": persons_deleted,
+            "persons_queued_for_deletion": 0,
             "events_queued_for_deletion": delete_events and len(persons) > 0,
             "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
             "deletion_errors": errors,
+        }
+
+    def _queue_bulk_delete_persons(
+        self,
+        request: request.Request,
+        *,
+        distinct_ids: builtins.list[str] | None,
+        ids: builtins.list[str] | None,
+        delete_events: bool,
+        delete_recordings: bool,
+        keep_person: bool,
+    ) -> dict[str, Any]:
+        """Resolve persons without their distinct IDs and hand every distinct-ID-dependent step to Celery."""
+        actor = cast(User, request.user)
+        persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids, with_distinct_ids=False)
+        # A requested distinct ID with no person row can still own replay sessions. The task covers
+        # every distinct ID of each resolved person, so only those unmatched IDs are handed over.
+        matched = {distinct_id for person in persons for distinct_id in person.distinct_ids}
+        unmatched = [distinct_id for distinct_id in distinct_ids or [] if distinct_id not in matched]
+        if delete_events:
+            queue_person_event_deletion(self.team_id, persons, actor=actor)
+        persons_queued = queue_person_deletion(
+            self.team_id,
+            persons,
+            delete_profile=not keep_person,
+            delete_recordings=delete_recordings,
+            actor=actor,
+            request=request,
+            organization_id=self.organization.id,
+            unmatched_distinct_ids=unmatched,
+        )
+        return {
+            "persons_found": len(persons),
+            "persons_deleted": 0,
+            "persons_queued_for_deletion": persons_queued if not keep_person else 0,
+            "events_queued_for_deletion": delete_events and len(persons) > 0,
+            "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
+            "deletion_errors": [],
         }
 
     @extend_schema(

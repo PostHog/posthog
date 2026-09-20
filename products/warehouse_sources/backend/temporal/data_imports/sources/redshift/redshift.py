@@ -15,7 +15,7 @@ import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import date
+from datetime import UTC, date, datetime, timezone
 from typing import Any, Literal, LiteralString, Optional, TypeVar, cast
 
 import psycopg
@@ -24,6 +24,7 @@ import structlog
 from psycopg import pq, sql
 from psycopg.adapt import Loader
 from psycopg.pq import TransactionStatus
+from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -91,6 +92,8 @@ __all__ = [
     "RedshiftColumn",
     "RedshiftImplementation",
     "SafeDateLoader",
+    "SafeTimestampLoader",
+    "SafeTimestamptzLoader",
     "filter_redshift_incremental_fields",
 ]
 
@@ -376,6 +379,57 @@ class SafeDateLoader(Loader):
             return date.min
 
         return date(year, month, day)
+
+
+def _clamp_out_of_range_timestamp(data, *, tzinfo: timezone | None) -> datetime:
+    """Map a Redshift timestamp value outside Python's datetime range onto datetime.min/max.
+
+    Redshift's timestamp range spans 4713 BC to 294276 AD, far wider than Python's datetime
+    (year 1 to 9999). We pick the boundary by sign so values 'before year 1' (BC dates,
+    '-infinity', negative years) clamp low and everything else clamps high, mirroring
+    `SafeDateLoader`. `tzinfo` keeps the result aware/naive to match the column's Arrow type.
+    """
+    s = bytes(data).decode("utf-8", "replace").strip().lower()
+    if s == "-infinity" or s.startswith("-") or "bc" in s:
+        return datetime.min.replace(tzinfo=tzinfo)
+    return datetime.max.replace(tzinfo=tzinfo)
+
+
+class SafeTimestampLoader(TimestampLoader):
+    """Load Redshift timestamps, handling values beyond Python's datetime range.
+
+    psycopg's default loader raises `DataError` on timestamps outside Python's datetime
+    range (BC dates, 'infinity'/'-infinity'), which aborts the whole table sync. We defer
+    to the default loader for in-range values and clamp the rest, mirroring `SafeDateLoader`.
+    `timestamp` columns map to a naive Arrow type, so the clamp stays naive.
+    """
+
+    # psycopg short-circuits SQL NULL before the loader, so `data` is never None in practice;
+    # the guard mirrors SafeDateLoader's defensive parity, hence the widened return + override ignore.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=None)
+
+
+class SafeTimestamptzLoader(TimestamptzLoader):
+    """`timestamptz` counterpart of `SafeTimestampLoader` (see its docstring).
+
+    `timestamptz` columns map to a UTC-aware Arrow type, so the clamp is made tz-aware to
+    avoid mixing naive and aware datetimes in the same Arrow column.
+    """
+
+    # See SafeTimestampLoader.load for why the override is widened/ignored.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=UTC)
 
 
 def _redshift_select_clause(
@@ -955,6 +1009,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             }
             with psycopg.connect(**connect_kwargs) as conn:
                 conn.adapters.register_loader("date", SafeDateLoader)
+                conn.adapters.register_loader("timestamp", SafeTimestampLoader)
+                conn.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
                 yield conn
 
     # ------------------------------------------------------------------

@@ -800,7 +800,9 @@ export interface experimentLogicActions {
     openSecondarySharedMetricModal: (sharedMetricId: number | null) => {
         sharedMetricId: number | null
     } // modalsLogic
-    loadTags: () => any // tagsModel
+    loadTags: () => {
+        value: true
+    } // tagsModel
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     addSharedMetricsToExperiment: (
         sharedMetricIds: SharedMetric['id'][],

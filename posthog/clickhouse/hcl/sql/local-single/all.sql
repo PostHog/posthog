@@ -475,7 +475,7 @@ CREATE TABLE posthog.kafka_flag_evaluations (
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
   inserted_at DateTime64(6, 'UTC')
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_max_block_size = 10000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 10000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
 CREATE TABLE posthog.kafka_groups (
   group_type_index UInt8,
   group_key String,
@@ -1461,6 +1461,7 @@ CREATE TABLE posthog.metrics2 (
   INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
   PROJECTION projection_series_activity (SELECT
   team_id,
   service_name,
@@ -2760,13 +2761,14 @@ CREATE TABLE posthog.sharded_raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool),
   INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+  INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
   INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
   INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
   INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
@@ -4109,7 +4111,7 @@ CREATE TABLE posthog.writable_raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
@@ -6923,7 +6925,7 @@ CREATE TABLE posthog.raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
@@ -7558,7 +7560,7 @@ CREATE VIEW posthog.raw_sessions_v3_v AS SELECT
   uniqExactMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
-  groupUniqArrayMapMerge(flag_values) AS flag_values,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
   groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,

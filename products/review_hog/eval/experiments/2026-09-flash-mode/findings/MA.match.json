@@ -1,0 +1,57 @@
+{
+    "MA1": {
+        "cluster": 6,
+        "confidence": "high",
+        "reason": "Pipeline allegedly bypasses bot and draft checks solely from self_driving without verifying PR shape, matching cluster 6 rather than cluster 35's misleading draft sentence."
+    },
+    "MA2": {
+        "cluster": 18,
+        "confidence": "high",
+        "reason": "The connected capability check omits provider=github while the initial inbox task requires it, exactly the has_reviewable_repo_config filter mismatch in cluster 18."
+    },
+    "MA3": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "The finding targets bool(context.get(self_driving_review)) accepting truthy non-booleans instead of a strict True check in review_local.py, exactly cluster 3."
+    },
+    "MA4": {
+        "cluster": 74,
+        "confidence": "medium",
+        "reason": "The ownership block retains negative author-team membership beside self-driving no-signal guidance, matching cluster 74 through a hosted-path anchor rather than the registry's local-path anchors."
+    },
+    "MA5": {
+        "cluster": 9,
+        "confidence": "high",
+        "reason": "Repeated TaskRun saves publish jobs that fetch GitHub before deduplication, matching cluster 9's pre-deduplication get_pr cost rather than cluster 42's duplicate ReviewRun race."
+    },
+    "MA6": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Despite its documentation anchor, the claim is that process_inbox_pr_review stamps caller-supplied provenance without positive PR-to-run linkage or bot verification, exactly cluster 2."
+    },
+    "MA7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "The initial inbox task grants the carve-out from an unverified PR URL and task linkage, matching cluster 2 rather than cluster 63's fork-safety precondition in the tasks facade."
+    },
+    "MA8": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "A swallowed broker publication failure permanently loses the initial review without durable retry state, matching cluster 58 rather than cluster 54's claim that publication errors escape into the save path."
+    },
+    "MA9": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "find_task_run selects an unscoped result before the run.team_id recheck, allowing another team's result to hide a valid run, which is the lookup-scoping root cause in cluster 39."
+    },
+    "MA10": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims a missing composite ReviewRun head-deduplication index; cluster 42 concerns a concurrency race on this query, while clusters 23 and 43 concern indexes on different lookups."
+    },
+    "MA11": {
+        "cluster": 42,
+        "confidence": "high",
+        "reason": "Two receiver tasks allegedly both pass the missing-head check and create duplicate runs without a PullRequest lock, exactly cluster 42 rather than cluster 36's receiver-versus-webhook duplication."
+    }
+}

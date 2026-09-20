@@ -97,7 +97,9 @@ describe('dashboardsLogic', () => {
         initKeaTests()
 
         dashboardsModel.mount()
-        await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+        await expectLogic(dashboardsModel, () => dashboardsModel.actions.loadDashboardsIfNeeded()).toDispatchActions([
+            'loadDashboardsSuccess',
+        ])
         sceneLogic({ scenes }).mount()
 
         logic = dashboardsLogic({ tabId: '1' })

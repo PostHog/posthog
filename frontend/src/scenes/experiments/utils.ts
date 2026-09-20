@@ -26,6 +26,7 @@ import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
+    isExperimentExposureNode,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
@@ -305,20 +306,41 @@ export const DATA_WAREHOUSE_UNLINKABLE_REASON =
     'This metric is measured entirely in the data warehouse, which has no session events to match recordings on.'
 
 /**
+ * Why a metric cannot narrow a recordings list, as a value telemetry can count. The prose the
+ * viewer reads is derived from this, so a copy change can never shift what a report measures.
+ */
+export type ExperimentMetricUnlinkableCode = 'server_side_events' | 'retention' | 'data_warehouse'
+
+/**
  * Why a metric can't narrow a recordings list, or null when it can. A metric is unlinkable when
  * every one of its sources is a never-session-linked event, or when it yields no session filter at
  * all (a retention metric, or one measured only in the data warehouse). Either way its filter could
  * only match zero sessions. Pass an empty `unlinkableEventNames` while the linkability check loads,
  * which fails open, the posture every linkability consumer shares.
  */
-export function getMetricUnlinkableReason(metric: ExperimentMetric, unlinkableEventNames: Set<string>): string | null {
+export function getMetricUnlinkableCode(
+    metric: ExperimentMetric,
+    unlinkableEventNames: Set<string>
+): ExperimentMetricUnlinkableCode | null {
     const filters = getMetricSessionFilters(metric)
     if (filters.length === 0) {
-        return isExperimentRetentionMetric(metric) ? RETENTION_UNLINKABLE_REASON : DATA_WAREHOUSE_UNLINKABLE_REASON
+        return isExperimentRetentionMetric(metric) ? 'retention' : 'data_warehouse'
     }
     return filters.every((filter) => isUnlinkableEventFilter(filter, unlinkableEventNames))
-        ? METRIC_UNLINKABLE_REASON
+        ? 'server_side_events'
         : null
+}
+
+const METRIC_UNLINKABLE_REASONS: Record<ExperimentMetricUnlinkableCode, string> = {
+    server_side_events: METRIC_UNLINKABLE_REASON,
+    retention: RETENTION_UNLINKABLE_REASON,
+    data_warehouse: DATA_WAREHOUSE_UNLINKABLE_REASON,
+}
+
+/** The prose for `getMetricUnlinkableCode`, as the tab's own metric dropdown reads it. */
+export function getMetricUnlinkableReason(metric: ExperimentMetric, unlinkableEventNames: Set<string>): string | null {
+    const code = getMetricUnlinkableCode(metric, unlinkableEventNames)
+    return code === null ? null : METRIC_UNLINKABLE_REASONS[code]
 }
 
 /**
@@ -859,7 +881,9 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
 
     const source: ExperimentMetricSource | null = match(metric)
         .when(isExperimentRatioMetric, (ratioMetric) => ratioMetric.numerator)
-        .when(isExperimentRetentionMetric, (retentionMetric) => retentionMetric.start_event)
+        .when(isExperimentRetentionMetric, (retentionMetric) =>
+            isExperimentExposureNode(retentionMetric.start_event) ? null : retentionMetric.start_event
+        )
         .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
         .otherwise(() => null)
 

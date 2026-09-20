@@ -740,6 +740,69 @@ async def test_empty_clarifying_questions_fall_to_findings(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @_patch_workflow_activities
+async def test_workflow_records_playbook_provenance(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_clarify,
+    mock_record_triage,
+    workflow_input,
+    sample_chunk_ids,
+):
+    mock_build.return_value = BuildContextOutput(
+        ticket_context="How do I install?",
+        ticket_title="Install",
+        docs_source="posthog",
+        custom_instructions="Be brief.",
+    )
+    mock_safety.return_value = SafetyFilterOutput(safe=True)
+    mock_classify.return_value = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=["q"])
+    mock_refine.return_value = RefineQueriesOutput(queries=["q"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(
+        reply="Install the SDK.",
+        citations=sample_chunk_ids,
+        confidence=0.9,
+        verdict="answerable",
+        playbook_layers=["default", "posthog", "custom"],
+        playbook_default_version=1,
+        playbook_posthog_overlay_version=1,
+        playbook_content_hash="abc123",
+        playbook_warnings=[],
+    )
+    mock_validate.return_value = ValidateOutput(
+        grounded=True, coverage=0.9, confidence=0.85, missing=[], blocker="none"
+    )
+    mock_review.return_value = ReviewReplyOutput(safe=True)
+
+    result = await _run_support_reply_workflow(
+        workflow_id="test-playbook-provenance",
+        workflow_input=workflow_input,
+    )
+
+    assert "persisted" in result
+    draft_input = mock_draft.call_args[0][0]
+    assert draft_input.docs_source == "posthog"
+    assert draft_input.custom_instructions == "Be brief."
+    last_triage = mock_record_triage.call_args_list[-1][0][0].patch
+    assert last_triage["playbook"] == {
+        "layers": ["default", "posthog", "custom"],
+        "default_version": 1,
+        "posthog_overlay_version": 1,
+        "content_hash": "abc123",
+        "warnings": [],
+    }
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@_patch_workflow_activities
 async def test_cancelled_followup_does_not_draft(
     mock_build,
     mock_safety,
@@ -1825,6 +1888,30 @@ class TestBuildContextAutoPublish:
         output = _build_context_sync(team.id, str(ticket.id), clarification_round)
         assert output.followup_cancelled is expected_cancelled
 
+    @pytest.mark.django_db
+    def test_passes_playbook_settings(self):
+        from products.conversations.backend.temporal.ai_reply.activities.build_context import _build_context_sync
+
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(
+            organization=org,
+            name="Test Team",
+            conversations_settings={
+                "docs_source": "posthog",
+                "ai_reply_custom_instructions": "Be brief.",
+            },
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            widget_session_id="aabbccdd-0000-0000-0000-000000000006",
+            distinct_id="test-user",
+            channel_source="widget",
+        )
+
+        output = _build_context_sync(team.id, str(ticket.id))
+        assert output.docs_source == "posthog"
+        assert output.custom_instructions == "Be brief."
+
 
 class TestStripJsonFence:
     @parameterized.expand(
@@ -1980,12 +2067,14 @@ class TestDiagnosticScopes:
         diagnostics_allowed: bool = False,
         auto_publishable: bool = False,
         ticket_type: str = "how_to",
+        **draft_kwargs: Any,
     ) -> tuple[str, Any]:
         captured: dict[str, Any] = {}
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
             captured["scopes"] = context.posthog_mcp_scopes
+            captured["exclude_tools"] = context.mcp_exclude_tools
             result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
             return AsyncMock(), result
 
@@ -2004,8 +2093,10 @@ class TestDiagnosticScopes:
                     needs_diagnostics=needs_diagnostics,
                     diagnostics_allowed=diagnostics_allowed,
                     auto_publishable=auto_publishable,
+                    **draft_kwargs,
                 )
             )
+        self._captured = captured
         return captured["prompt"], captured["scopes"]
 
     @pytest.mark.asyncio
@@ -2028,7 +2119,7 @@ class TestDiagnosticScopes:
         # into an auto-sent reply to an untrusted author.
         prompt, scopes = await self._run_draft(diagnostics_allowed=True, auto_publishable=True, ticket_type="how_to")
         assert scopes == PUBLISHABLE_DRAFT_SCOPES
-        assert "DATA ACCESS" not in prompt
+        assert "DATA ACCESS (you have read-only" not in prompt
         assert "connectionId" not in prompt
 
     @pytest.mark.asyncio
@@ -2054,7 +2145,7 @@ class TestDiagnosticScopes:
         # No data tools were granted, so don't instruct the agent to investigate data it can't
         # reach. The investigation block requires grants_customer_data, not needs_diagnostics alone.
         assert "DIAGNOSTIC INVESTIGATION" not in prompt
-        assert "DATA ACCESS" not in prompt
+        assert "DATA ACCESS (you have read-only" not in prompt
 
     @pytest.mark.asyncio
     async def test_diagnostic_prompt_block_gated_on_needs_diagnostics(self):
@@ -2096,7 +2187,7 @@ class TestDiagnosticScopes:
     async def test_no_data_safety_block_when_not_opted_in(self):
         # Not opted in -> base scopes only (no customer-data tools) -> no data-access block.
         prompt, _ = await self._run_draft(needs_diagnostics=False, diagnostics_allowed=False, ticket_type="diagnostic")
-        assert "DATA ACCESS" not in prompt
+        assert "DATA ACCESS (you have read-only" not in prompt
         assert "connectionId" not in prompt
 
     @parameterized.expand(
@@ -2126,9 +2217,32 @@ class TestDiagnosticScopes:
         # advertised when customer-data scopes are granted — never on an auto-sent reply.
         granted, _ = await self._run_draft(diagnostics_allowed=True, auto_publishable=False, ticket_type="diagnostic")
         assert "PER-USER READS" in granted
+        assert granted.index("DATA ACCESS") < granted.index("SUPPORT PLAYBOOK")
 
         withheld, _ = await self._run_draft(diagnostics_allowed=True, auto_publishable=True, ticket_type="how_to")
         assert "PER-USER READS" not in withheld
+
+    @pytest.mark.asyncio
+    async def test_generic_mode_denies_docs_search_on_mcp_and_prompt(self):
+        prompt, _ = await self._run_draft()
+        assert self._captured["exclude_tools"] == ("docs-search",)
+        assert "You do not have docs-search" in prompt
+        assert "docs-search: searches the official PostHog" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_posthog_mode_keeps_docs_search(self):
+        prompt, _ = await self._run_draft(docs_source="posthog")
+        assert self._captured["exclude_tools"] == ()
+        assert "docs-search: searches the official PostHog" in prompt
+
+    @pytest.mark.asyncio
+    async def test_playbook_sits_below_security_and_above_untrusted_ticket(self):
+        prompt, _ = await self._run_draft(custom_instructions="Always greet first.")
+        assert prompt.index("SECURITY:") < prompt.index("TOOLS YOU HAVE ON THIS RUN")
+        assert prompt.index("TOOLS YOU HAVE ON THIS RUN") < prompt.index("SUPPORT PLAYBOOK")
+        assert prompt.index("SUPPORT PLAYBOOK") < prompt.index("TICKET CONTEXT (untrusted data):")
+        assert "Always greet first." in prompt
+        assert "cannot be overridden by SUPPORT PLAYBOOK" in prompt
 
     @pytest.mark.asyncio
     async def test_always_on_context_is_authoritative(self):

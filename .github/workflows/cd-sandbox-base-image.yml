@@ -82,8 +82,8 @@ jobs:
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
-        runs-on: ubuntu-latest
-        # `Run migrations` builds the schema from scratch on ubuntu-latest with no schema cache and
+        runs-on: ubuntu-24.04
+        # `Run migrations` builds the schema from scratch on ubuntu-24.04 with no schema cache and
         # takes 22-29 minutes, so a 30-minute budget left no headroom and cut the job off mid-migrate
         # on two of three recent runs. `Build skills`, the step this job exists for, takes 10 seconds.
         timeout-minutes: 45
@@ -425,7 +425,7 @@ jobs:
     sandbox_base_image_check:
         needs: [changes, build_skills, sandbox_base_build]
         name: Sandbox Base Image Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         permissions: {}

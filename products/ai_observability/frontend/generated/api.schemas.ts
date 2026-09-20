@@ -3116,12 +3116,29 @@ export interface LLMPromptVersionSummaryApi {
     readonly labels: readonly string[]
 }
 
+export interface LLMPromptReferencedByApi {
+    /** Prompt whose latest or labeled version references this prompt. */
+    name: string
+    /**
+     * Label of this prompt the reference follows, or null when it pins a version.
+     * @nullable
+     */
+    label: string | null
+    /**
+     * Version of this prompt the reference pins, or null when it follows a label.
+     * @nullable
+     */
+    version: number | null
+}
+
 export interface LLMPromptResolveResponseApi {
     prompt: LLMPromptApi
     versions: LLMPromptVersionSummaryApi[]
     has_more: boolean
     /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
     labels: LLMPromptLabelApi[]
+    /** Prompts whose latest or labeled version references this prompt, with the label or version each reference uses. Empty when nothing references this prompt. At most 100 entries, ordered by prompt name. */
+    referenced_by: LLMPromptReferencedByApi[]
 }
 
 /**

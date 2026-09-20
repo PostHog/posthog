@@ -16,7 +16,9 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
 @posthoganalytics.scoped()
 @close_db_connections
 def dispatch_issue_reopened_alert_activity(inputs: IssueReopenedWorkflowInputs) -> None:
-    dispatch_issue_lifecycle_alert(inputs, event="$error_tracking_issue_reopened")
+    dispatch_issue_lifecycle_alert(
+        inputs, event="$error_tracking_issue_reopened", exception_timestamp=inputs.event_timestamp
+    )
 
 
 @activity.defn

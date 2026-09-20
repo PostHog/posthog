@@ -207,6 +207,7 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: trigger.filters,
                 filterGlobals,
+                caller: 'build_hogflow_invocations',
             })
 
             // Add any generated metrics and logs to our collections. These are queued straight by the
@@ -342,6 +343,7 @@ export class HogFlowExecutorService {
             fn: hogFlow,
             filters: { bytecode: hogFlow.conversion.bytecode, properties: hogFlow.conversion.filters },
             filterGlobals: invocation.filterGlobals,
+            caller: 'hogflow_conversion',
         })
         if (!filterResult.match) {
             return null
@@ -460,12 +462,14 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,
                 filterGlobals: invocation.filterGlobals,
+                caller: 'hogflow_exit_condition',
             })
             triggerMatch = filterResult.match
         }
         if (hogFlow.conversion?.filters?.length && person) {
             if (hogFlow.conversion.bytecode?.length) {
                 const filterResult = await filterFunctionInstrumented({
+                    caller: 'hogflow_exit_condition',
                     fn: hogFlow,
                     filters: {
                         bytecode: hogFlow.conversion.bytecode || [],

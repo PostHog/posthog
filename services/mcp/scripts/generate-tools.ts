@@ -1004,12 +1004,18 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     const noteLiteral = config.agent_note ? JSON.stringify(config.agent_note) : null
     const noted = (expr: string): string => (noteLiteral ? `withAgentNote(${expr}, ${noteLiteral})` : expr)
     const informationalWrapper = config.response?.informational_wrapper
+    // The text projection wraps last, so it can name the `_posthogUrl` each row picked up from enrichment.
+    const textInclude = config.response?.text_include
+    const projected = (expr: string): string =>
+        textInclude?.length ? `withTextProjection(${expr}, [${textInclude.map((f) => `'${f}'`).join(', ')}])` : expr
     const wrapped = (expr: string): string => {
         const notedExpression = noted(expr)
         const purposeArgument = informationalWrapper?.purpose ? `, ${JSON.stringify(informationalWrapper.purpose)}` : ''
-        return informationalWrapper
-            ? `withInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
-            : notedExpression
+        return projected(
+            informationalWrapper
+                ? `withInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
+                : notedExpression
+        )
     }
 
     // Joiner between url_prefix and the enrich_url prefix: append `/` for path-segment enrichments,
@@ -1316,6 +1322,7 @@ function generateToolCode(
                 [
                     ...responseFilter.helperImports,
                     config.response?.informational_wrapper && 'withInformationalResponse',
+                    config.response?.text_include?.length && 'withTextProjection',
                 ].filter((value): value is string => !!value)
             ),
         }
@@ -1352,6 +1359,7 @@ const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultTy
             [
                 ...responseFilter.helperImports,
                 config.response?.informational_wrapper && 'withInformationalResponse',
+                config.response?.text_include?.length && 'withTextProjection',
             ].filter((value): value is string => !!value)
         ),
     }
@@ -1658,6 +1666,7 @@ ${handlerBody}    },
             [
                 ...responseFilter.helperImports,
                 config.response?.informational_wrapper && 'withInformationalResponse',
+                config.response?.text_include?.length && 'withTextProjection',
             ].filter((value): value is string => !!value)
         ),
     }
