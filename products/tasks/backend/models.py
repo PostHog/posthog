@@ -41,7 +41,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, PR_LOOP_ENABLED_STATE_KEY
+from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, GITHUB_PR_URL_PREFIX, PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
@@ -2355,6 +2355,15 @@ class TaskRun(models.Model):
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
             models.Index(fields=["created_at"], name="task_run_created_at_idx"),
+            # The same period scan, narrowed to runs that shipped a GitHub PR. A prefix match
+            # cannot use `task_run_output_pr_url_idx`, so on `task_run_created_at_idx` alone
+            # Postgres detoasts every run's `output` in the window to test it. Carrying the
+            # test as the index predicate answers it from the index instead.
+            models.Index(
+                fields=["created_at"],
+                name="task_run_github_pr_run_idx",
+                condition=models.Q(output__pr_url__startswith=GITHUB_PR_URL_PREFIX),
+            ),
             models.Index(fields=["task", "-created_at", "-id"], name="task_run_task_created_idx"),
             models.Index(
                 fields=["team", "stage", "task"],

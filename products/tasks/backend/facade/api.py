@@ -69,6 +69,7 @@ from products.tasks.backend.constants import (
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
+    GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PR_LOOP_ENABLED_STATE_KEY,
@@ -2896,7 +2897,7 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
         # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
         # must not import signals internals.
-        if not new_pr_url.startswith("https://github.com/"):
+        if not new_pr_url.startswith(GITHUB_PR_URL_PREFIX):
             return
         organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
         if organization_id is None:

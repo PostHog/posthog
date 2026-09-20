@@ -13,6 +13,12 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+# Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
+# ``task_run_github_pr_run_idx`` is a partial index on exactly this prefix test, and Postgres only
+# skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the
+# prefix must use this constant rather than a literal of their own.
+GITHUB_PR_URL_PREFIX = "https://github.com/"
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
 WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
