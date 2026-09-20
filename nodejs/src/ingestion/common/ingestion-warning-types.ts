@@ -86,6 +86,11 @@ export const INGESTION_WARNING_TYPES = {
     invalid_ai_token_property: { category: 'event', severity: 'warning' },
     invalid_group_set: { category: 'event', severity: 'error' },
     invalid_process_person_profile: { category: 'event', severity: 'warning' },
+    // $session_id present but not a valid UUID. The event still ingests, but its session id is
+    // dropped from session analytics (the v3 sessions table and the $session_id_uuid materialized
+    // column keep only valid-UUID ids). Worker-produced, and distinct from the capture-produced
+    // replay `invalid_session_id`, which rejects the recording outright.
+    invalid_event_session_id: { category: 'event', severity: 'warning' },
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
 
