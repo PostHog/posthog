@@ -14,6 +14,14 @@ The expansion count must not delay the scoped results or keep the aggregate reve
 
 The legacy implementation separates these requests in `infiniteListLogic.ts`; the rebuilt implementation uses independent resources in `hooks/useGroupList.ts`. Keep this behavior consistent across both implementations.
 
+## Element breakdowns
+
+Trends and funnels offer element text, tag name, and href in the Elements category and suggested filters.
+These breakdowns use values from the autocapture element chain.
+Text and tag name use the first matching value in the chain. Href uses the first href.
+CSS selectors remain available as property filters, but not as breakdowns.
+Other insight types exclude element breakdown suggestions.
+
 ## Typing and rendering
 
 The legacy picker debounces API searches for 500 ms after the last keystroke, including while the initial response is loading.

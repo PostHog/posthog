@@ -68,8 +68,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
-        it('sets breakdown for autocapture elements', async () => {
-            logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
+        it.each([true, false])('sets breakdown for autocapture elements with isTrends=%s', async (isTrends) => {
+            logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {}, isTrends, isFunnels: !isTrends }))
             logic.mount()
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.Elements, undefined)
 
@@ -77,14 +77,11 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 logic.actions.addBreakdown('tag_name', group)
             }).toFinishListeners()
 
-            expect(updateBreakdownFilter).toHaveBeenCalledWith({
-                breakdowns: [
-                    {
-                        property: 'tag_name',
-                        type: 'element',
-                    },
-                ],
-            })
+            expect(updateBreakdownFilter).toHaveBeenCalledWith(
+                isTrends
+                    ? { breakdowns: [{ property: 'tag_name', type: 'element' }] }
+                    : { breakdown: 'tag_name', breakdown_type: 'element' }
+            )
         })
 
         it('sets breakdown for cohorts', async () => {

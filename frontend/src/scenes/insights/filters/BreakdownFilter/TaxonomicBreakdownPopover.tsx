@@ -41,6 +41,7 @@ export const TaxonomicBreakdownPopover = ({
         hasOnlyDataWarehouseSeries,
         dataWarehouseSeriesTableNames,
         isTrends,
+        isFunnels,
     } = useValues(insightVizDataLogic(insightProps))
     const { databaseLoading } = useValues(databaseTableListLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -86,9 +87,7 @@ export const TaxonomicBreakdownPopover = ({
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
             TaxonomicFilterGroupType.EventMetadata,
-            // Element breakdowns read the autocapture elements chain, which only trends knows
-            // how to break down. Funnels raise for breakdown types outside their own list.
-            ...(isTrends ? [TaxonomicFilterGroupType.Elements] : []),
+            ...(isTrends || isFunnels ? [TaxonomicFilterGroupType.Elements] : []),
             ...groupsTaxonomicTypes,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
             ...(includeSessions ? [TaxonomicFilterGroupType.SessionProperties] : []),
@@ -100,11 +99,10 @@ export const TaxonomicBreakdownPopover = ({
 
     // A selector filter is a regex over the whole elements chain, so no per-event breakdown
     // value can agree with it. Hide it in breakdowns only; property filters still offer it.
-    // Outside trends, element breakdowns are not supported at all, so hide every element
-    // property, including the suggested rows, or the click applies a breakdown the backend
-    // then rejects.
+    // Hide element suggestions for insight types that cannot use element breakdowns.
     const excludedElementBreakdownProperties = {
-        [TaxonomicFilterGroupType.Elements]: isTrends ? ['selector'] : ['selector', 'text', 'href', 'tag_name'],
+        [TaxonomicFilterGroupType.Elements]:
+            isTrends || isFunnels ? ['selector'] : ['selector', 'text', 'href', 'tag_name'],
     }
 
     return (
