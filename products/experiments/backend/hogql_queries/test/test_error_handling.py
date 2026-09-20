@@ -15,6 +15,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import CHQueryErrorNotAnAggregate
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 
 from products.experiments.backend.hogql_queries.error_handling import (
     ERROR_TYPE_TO_CODE,
@@ -94,14 +95,12 @@ class TestExperimentErrorHandling(BaseTest):
         # Verify error code is set correctly
         # In DRF, the code is stored in the ErrorDetail object, not directly on the exception
         self.assertIsInstance(detail_list[0], ErrorDetail)
-        self.assertEqual(detail_list[0].code, "memory_limit_exceeded")
+        self.assertEqual(detail_list[0].code, ClickHouseQueryMemoryLimitExceeded.default_code)
 
-        # Verify exception was captured with correct properties
-        mock_capture.assert_called_once()
-        call_args = mock_capture.call_args
-        self.assertIsInstance(call_args[0][0], ClickHouseQueryMemoryLimitExceeded)
-        self.assertEqual(call_args[1]["additional_properties"]["experiment_id"], 123)
-        self.assertEqual(call_args[1]["additional_properties"]["query_runner"], "Mock")
+        # Handled and reported: the user has the message, so error tracking is left out of it,
+        # and the marker keeps the query boundaries above from capturing the conversion either.
+        mock_capture.assert_not_called()
+        self.assertTrue(captured_elsewhere(context.exception))
 
     @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
     def test_decorator_captures_query_runner_name(self, mock_capture):
@@ -109,7 +108,7 @@ class TestExperimentErrorHandling(BaseTest):
 
         @experiment_error_handler
         def failing_method(self):
-            raise ClickHouseQueryMemoryLimitExceeded()
+            raise RuntimeError("kaboom")
 
         class ExperimentExposuresQueryRunner:
             def __init__(self):
@@ -119,7 +118,7 @@ class TestExperimentErrorHandling(BaseTest):
 
         runner = ExperimentExposuresQueryRunner()
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(RuntimeError):
             failing_method(runner)
 
         mock_capture.assert_called_once()
@@ -141,11 +140,13 @@ class TestExperimentErrorHandling(BaseTest):
         mock_self.user_facing = False
 
         # Should re-raise the original exception
-        with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
+        with self.assertRaises(ClickHouseQueryMemoryLimitExceeded) as context:
             failing_method(mock_self)
 
-        # Should still capture for internal tracking
-        mock_capture.assert_called_once()
+        # The recalculation worker stores the failure and emits its own terminal event, so the
+        # raw error travels marked rather than captured.
+        mock_capture.assert_not_called()
+        self.assertTrue(captured_elsewhere(context.exception))
 
     @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
     def test_decorator_converts_not_an_aggregate_without_capture(self, mock_capture):
@@ -196,7 +197,7 @@ class TestExperimentErrorHandling(BaseTest):
     def test_error_type_to_code_mapping(self):
         """Test that ClickHouseQueryMemoryLimitExceeded has a code mapping."""
         self.assertIn(ClickHouseQueryMemoryLimitExceeded, ERROR_TYPE_TO_CODE)
-        self.assertEqual(ERROR_TYPE_TO_CODE[ClickHouseQueryMemoryLimitExceeded], "memory_limit_exceeded")
+        self.assertEqual(ERROR_TYPE_TO_CODE[ClickHouseQueryMemoryLimitExceeded], "clickhouse_memory_limit_exceeded")
 
     @parameterized.expand(
         [
