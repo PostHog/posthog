@@ -1,4 +1,6 @@
+from collections.abc import Sequence
 from functools import cached_property
+from typing import Any
 
 from django.db.models import Count, QuerySet
 
@@ -180,6 +182,12 @@ class PublicHogFunctionTemplateViewSet(
 
         return [template_id for template_id, _ in templates]
 
+    def _serialize_in_order(self, queryset: QuerySet, template_ids: Sequence[str]) -> Any:
+        templates = {template.template_id: template for template in queryset.filter(template_id__in=template_ids)}
+        ordered = [templates[template_id] for template_id in template_ids if template_id in templates]
+
+        return self.get_serializer(ordered, many=True).data
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -208,9 +216,6 @@ class PublicHogFunctionTemplateViewSet(
 
         page_template_ids = self.paginate_queryset(ordered_template_ids)
         if page_template_ids is None:
-            return Response(self.get_serializer(queryset, many=True).data)
+            return Response(self._serialize_in_order(queryset, ordered_template_ids))
 
-        templates = {template.template_id: template for template in queryset.filter(template_id__in=page_template_ids)}
-        page = [templates[template_id] for template_id in page_template_ids if template_id in templates]
-
-        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return self.get_paginated_response(self._serialize_in_order(queryset, page_template_ids))
