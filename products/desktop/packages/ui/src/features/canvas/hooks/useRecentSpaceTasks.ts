@@ -6,6 +6,7 @@ import {
   type ChannelPresence,
   liveUuidsFromTasks,
   NO_LIVE_UUIDS,
+  type PresenceWindows,
   presenceByChannel,
 } from "@posthog/core/canvas/presence";
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
@@ -411,7 +412,15 @@ function samePresence(a: ChannelPresence, b: ChannelPresence): boolean {
  * don't change, so a memoized space row only re-renders when its own presence
  * does.
  */
-export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
+export function useSpacePresence(
+  /**
+   * Widen `recentWindowMs` to ask a different question of the same page: the
+   * default windows answer "who is here now", and an infinite one answers "who
+   * works here at all", which is what a browse page wants. Live dots come from
+   * the live window either way, so they mean the same thing in both.
+   */
+  windows: PresenceWindows = {},
+): ReadonlyMap<string, ChannelPresence> {
   const client = useOptionalAuthenticatedClient();
   const archivedTaskIds = useArchivedTaskIds();
   const { data } = useQuery({
@@ -442,7 +451,11 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
   return useMemo(() => {
     if (!data) return NO_PRESENCE;
     const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
-    const fresh = presenceByChannel(live, { now, limit: SPACE_PRESENCE_LIMIT });
+    const fresh = presenceByChannel(live, {
+      now,
+      limit: SPACE_PRESENCE_LIMIT,
+      ...windows,
+    });
     const stable = new Map<string, ChannelPresence>();
     for (const [channelId, next] of fresh) {
       const prev = cache.current.get(channelId);
@@ -451,5 +464,5 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
       stable.set(channelId, kept);
     }
     return stable;
-  }, [data, archivedTaskIds, now]);
+  }, [data, archivedTaskIds, now, windows]);
 }

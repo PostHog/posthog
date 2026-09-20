@@ -14,7 +14,9 @@ export function NewSessionHeading({
   disabled?: boolean;
 }) {
   return (
-    <div className="mb-2 flex flex-col font-semibold text-[26px] leading-tight tracking-tight">
+    // The gap below has to beat the gap between the headline's own two lines,
+    // or the controls under it read as a third line of the sentence.
+    <div className="mb-5 flex flex-col font-semibold text-[26px] leading-tight tracking-tight">
       <span>Start a new session</span>
       <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-muted-foreground">
         in

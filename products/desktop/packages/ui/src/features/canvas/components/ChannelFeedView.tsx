@@ -48,6 +48,7 @@ import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTask
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { TaskTabIcon } from "@posthog/ui/features/browser-tabs/TaskTabIcon";
+import { ActivityPresenceAvatar } from "@posthog/ui/features/canvas/components/ChannelItemPresence";
 import {
   type FeedEntry,
   type FeedKindFilter,
@@ -1315,11 +1316,14 @@ const FeedLogRow = memo(function FeedLogRow({
           {task.title || "Untitled task"}
         </button>
         <TaskStatusBadge display={statusDisplay} />
-        {starter && (
-          <span className="shrink-0" title={userDisplayName(starter)}>
-            <UserAvatar user={starter} size="xs" />
-          </span>
-        )}
+        {/* The face wears the session's own presence: a pulsing dot while it
+            is running, so the log says who is working now and not only who
+            opened it. */}
+        <ActivityPresenceAvatar
+          user={starter}
+          label="on this session"
+          activityAt={task.last_activity_at ?? task.updated_at}
+        />
         {/* The menu rides over the row's end rather than holding a lane open
             across every row that is not under the pointer. */}
         <span className="w-8 shrink-0 text-right text-muted-foreground text-xs tabular-nums transition-opacity group-hover:opacity-0">
@@ -1440,12 +1444,52 @@ function FeedRowSkeleton({ wide }: { wide?: boolean }) {
   );
 }
 
+/** One loading row of the log, shaped like `FeedLogRow` rather than a card. */
+function FeedLogRowSkeleton({ width }: { width: string }) {
+  return (
+    <div className="flex h-8 w-full max-w-[900px] items-center gap-2 px-2">
+      <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+      <Skeleton className={cn("h-3.5", width)} />
+      <Skeleton className="ml-auto h-4 w-14 shrink-0 rounded-full" />
+      <Skeleton className="size-4 shrink-0 rounded-full" />
+      <Skeleton className="h-3 w-6 shrink-0" />
+    </div>
+  );
+}
+
+/**
+ * The loading log: day labels and one-line rows, because that is what lands
+ * here. The card stack below is the message feed's shape, and showing it in
+ * the log meant the page rearranged itself the moment the rows arrived.
+ */
+function FeedLogSkeleton() {
+  const widths = ["w-2/5", "w-3/5", "w-1/3", "w-1/2", "w-2/5", "w-1/4"];
+  return (
+    <div aria-hidden className="flex flex-col">
+      {[0, 1].map((group) => (
+        <div
+          key={group}
+          className={cn("flex flex-col", group === 1 && "opacity-50")}
+        >
+          <div className="w-full max-w-[900px] px-2 pt-3 pb-0.5">
+            <Skeleton className="h-2.5 w-14" />
+          </div>
+          {widths.slice(group * 3, group * 3 + 3).map((width) => (
+            <FeedLogRowSkeleton key={width} width={width} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * The loading feed: a faded stack of card skeletons under a separator-shaped
  * bar. Each card fainter than the one above, so the stack reads as content
  * arriving rather than a wall of grey.
  */
-function FeedSkeleton() {
+function FeedSkeleton({ compact }: { compact: boolean }) {
+  if (compact) return <FeedLogSkeleton />;
   return (
     <div aria-hidden className="flex flex-col">
       <div className="mx-auto flex w-full max-w-[660px] items-center gap-3 pt-5 pb-2">
@@ -1513,6 +1557,7 @@ export function ChannelFeedView({
   reports,
   onOpenReport,
   showKindFilter = true,
+  aside,
   reportFilters,
   onReportFiltersChange,
   isLoading,
@@ -1534,6 +1579,8 @@ export function ChannelFeedView({
   /** Off for single-kind feeds (a `type:report` saved feed), where the
    * sessions/reports tabs would only offer empty views. */
   showKindFilter?: boolean;
+  /** A column that rides beside the log inside the same scroller. */
+  aside?: ReactNode;
   /** When provided with its setter, the Reports tab shows the same funnel
    * menu as the sidebar Reports list. The caller owns the state and filters
    * the `reports` prop with it. */
@@ -1716,15 +1763,26 @@ export function ChannelFeedView({
     return (
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy="true">
         <output className="sr-only">Loading tasks</output>
-        <div
-          className={cn(
-            "w-full",
-            compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+        <div className="flex w-full items-stretch">
+          <div
+            className={cn(
+              "min-w-0 flex-1",
+              compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+            )}
+          >
+            {intro && (
+              <div className="mx-auto w-full max-w-[660px]">{intro}</div>
+            )}
+            {composerBlock}
+            <FeedSkeleton compact={compact} />
+          </div>
+          {/* Mounted while loading too: a column that arrives after the rows
+              moves the log sideways just as it becomes readable. */}
+          {aside && (
+            <div className="w-[276px] shrink-0 border-border border-l">
+              {aside}
+            </div>
           )}
-        >
-          {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
-          {composerBlock}
-          <FeedSkeleton />
         </div>
       </div>
     );
@@ -1810,16 +1868,25 @@ export function ChannelFeedView({
 
   return (
     <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto">
-      <div
-        className={cn(
-          "w-full",
-          compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+      {/* The log and whatever rides beside it share one scroller: a column of
+          standing facts is part of the page, not a second place to scroll. */}
+      <div className="flex w-full items-stretch">
+        <div
+          className={cn(
+            "min-w-0 flex-1",
+            compact ? "px-6 pt-5 pb-10" : "mx-auto px-4 pt-4 pb-10",
+          )}
+        >
+          {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
+          {composerBlock}
+          {kindFilterBlock}
+          {rows.length === 0 ? kindEmptyNote : rows}
+        </div>
+        {aside && (
+          <div className="w-[276px] shrink-0 border-border border-l">
+            {aside}
+          </div>
         )}
-      >
-        {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
-        {composerBlock}
-        {kindFilterBlock}
-        {rows.length === 0 ? kindEmptyNote : rows}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { cn } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { writeCanvasDragData } from "@posthog/ui/features/canvas/canvasDrag";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
+import { RowPresence } from "@posthog/ui/features/canvas/components/ChannelItemPresence";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
   TaskRowContextMenu,
@@ -33,6 +34,7 @@ export function WorkItemRow({
   spaceName,
   channelId,
   isActive,
+  currentUserUuid,
   onOpen,
 }: {
   item: ChannelItemModel;
@@ -42,6 +44,8 @@ export function WorkItemRow({
   /** Travels with a dragged canvas, which is filed to a space. */
   channelId: string | undefined;
   isActive: boolean;
+  /** So a face can say "you" rather than name you to yourself. */
+  currentUserUuid: string | undefined;
   onOpen: () => void;
 }) {
   // No PR lookup: that is a query into git per row, and this list spans every
@@ -110,6 +114,9 @@ export function WorkItemRow({
               </span>
             )}
           </span>
+          {/* Who is here, ahead of the age: presence is the row's most
+              time-sensitive fact, and a quiet row shows none of it. */}
+          <RowPresence item={item} currentUserUuid={currentUserUuid} />
           <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/button:opacity-100 group-data-selected/button:opacity-100">
             {formatRelativeTimeShort(item.ts)}
           </span>

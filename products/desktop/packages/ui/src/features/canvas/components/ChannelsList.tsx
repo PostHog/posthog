@@ -756,7 +756,7 @@ function SpaceTaskRows({
 
 // The channel actions and their dialogs. Single source of truth so the dropdown
 // and context menus stay in lockstep.
-function useChannelActions(channel: Channel): {
+export function useChannelActions(channel: Channel): {
   actions: ChannelActionItem[];
   autoArchiveOpen: boolean;
   setAutoArchiveOpen: (open: boolean) => void;
@@ -984,7 +984,7 @@ function useChannelActions(channel: Channel): {
 // Renders the shared channel actions into either menu primitive. Branching by
 // `kind` (rather than a union-typed component) keeps the item/separator props
 // type-checked against each primitive.
-function ChannelActionItems({
+export function ChannelActionItems({
   actions,
   kind,
 }: {
@@ -1031,7 +1031,7 @@ function ChannelActionItems({
 
 // Hover-revealed "..." menu on a channel header. Presentation only — the action
 // list comes from `useChannelActions`, so it matches the right-click menu.
-function ChannelMenu({
+export function ChannelMenu({
   channelName,
   actions,
   open,

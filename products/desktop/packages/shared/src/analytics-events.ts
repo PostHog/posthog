@@ -342,7 +342,7 @@ export interface ProjectMenuActionProperties {
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
-  group_by: "repository" | "date";
+  group_by: "repository" | "date" | "space";
   sort_by: "updated" | "created" | "alpha";
   surface: TaskListSurface;
 }

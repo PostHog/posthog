@@ -2,7 +2,7 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   CaretUpIcon,
-  DotsThreeIcon,
+  ListMagnifyingGlassIcon,
   PlusIcon,
 } from "@phosphor-icons/react";
 import {
@@ -14,15 +14,12 @@ import {
   hasActiveChannelItemFilters,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
+import type { ChannelPresence } from "@posthog/core/canvas/presence";
 import {
   Autocomplete,
   AutocompleteList,
   Button,
   cn,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   MenuLabel,
   Skeleton,
   Tabs,
@@ -40,7 +37,9 @@ import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/Channe
 import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
+import { SpaceRowControls } from "@posthog/ui/features/canvas/components/SpaceRowControls";
 import type { TaskRowMenuProps } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { WorkItemRow } from "@posthog/ui/features/canvas/components/work/WorkItemRow";
 import { WorkRowSurface } from "@posthog/ui/features/canvas/components/work/WorkRowSurface";
@@ -50,6 +49,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useDashboardMutations } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
+import { useSpacePresence } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { useRecentWorkItems } from "@posthog/ui/features/canvas/hooks/useRecentWorkItems";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
@@ -66,7 +66,13 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useRouterState } from "@tanstack/react-router";
-import { Fragment, type ReactNode, useMemo, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 
 const RECENT_COLLAPSED_COUNT = 5;
 
@@ -142,48 +148,65 @@ function SpaceRow({
   channel,
   isActive,
   unread,
+  presence,
 }: {
   channel: Channel;
   isActive: boolean;
   unread: boolean;
+  /** Who has been working in this space, and which of them right now. */
+  presence: ChannelPresence | undefined;
 }) {
+  const people = presence?.people ?? [];
   return (
-    <WorkRowSurface
-      optionValue={channel.id}
-      data-selected={isActive || undefined}
-      onClick={() => {
-        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-          action_type: "nav_click",
-          surface: "sidebar",
-          channel_id: channel.id,
-          nav_target: "space",
-        });
-        navigateToChannel(channel.id);
-      }}
-    >
-      {/* A hash on shared spaces, so every name starts a glyph's width in and
-          the lock on the personal row lines up with them. */}
-      <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-        {channelGlyph(channel.name, {
-          size: 13,
-          space: false,
-          personal: channel.channelType === "personal",
-          private: channel.channelType === "private",
-        })}
-      </span>
-      <span
-        className={cn("min-w-0 flex-1 truncate", unread && "font-semibold")}
+    // `group/chan` is what the shared controls fade against, and `relative` is
+    // what they position to: they overlay the row's own right edge rather than
+    // taking a lane that shortens every name.
+    <div className="group/chan group relative">
+      <WorkRowSurface
+        optionValue={channel.id}
+        data-selected={isActive || undefined}
+        onClick={() => {
+          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+            action_type: "nav_click",
+            surface: "sidebar",
+            channel_id: channel.id,
+            nav_target: "space",
+          });
+          navigateToChannel(channel.id);
+        }}
       >
-        {channel.name}
-      </span>
-      {unread && !isActive && (
+        {/* A hash on shared spaces, so every name starts a glyph's width in and
+          the lock on the personal row lines up with them. */}
+        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+          {channelGlyph(channel.name, {
+            size: 13,
+            space: false,
+            personal: channel.channelType === "personal",
+            private: channel.channelType === "private",
+          })}
+        </span>
         <span
-          role="img"
-          aria-label="Unread"
-          className="size-1.5 shrink-0 rounded-full bg-primary"
-        />
+          className={cn("min-w-0 flex-1 truncate", unread && "font-semibold")}
+        >
+          {channel.name}
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 group-hover/chan:mr-11">
+          {people.length > 0 && (
+            <PresenceAvatars people={people} liveUuids={presence?.liveUuids} />
+          )}
+          {unread && !isActive && (
+            <span
+              role="img"
+              aria-label="Unread"
+              className="size-1.5 shrink-0 rounded-full bg-primary"
+            />
+          )}
+        </span>
+      </WorkRowSurface>
+      {channel.channelType !== "personal" && (
+        <SpaceRowControls channel={channel} />
       )}
-    </WorkRowSurface>
+    </div>
   );
 }
 
@@ -265,11 +288,34 @@ export function WorkColumn() {
     );
     return sortChannelItems(unpinned, sort);
   }, [items, kind, query, filters, me, sort]);
+  const spaceNameById = useMemo(
+    () => new Map(channels.map((channel) => [channel.id, channel.name])),
+    [channels],
+  );
+  const channelByKey = useMemo(
+    () => new Map(items.map(({ item, channelId }) => [item.key, channelId])),
+    [items],
+  );
+  const spaceOf = useCallback(
+    (item: ChannelItemModel) => {
+      const channelId = channelByKey.get(item.key);
+      const label = channelId ? spaceNameById.get(channelId) : undefined;
+      return channelId && label ? { key: channelId, label } : null;
+    },
+    [channelByKey, spaceNameById],
+  );
   // The same sections a space's own list draws: the pins, then whatever the
-  // Group by choice says — days, or repositories.
+  // Group by choice says — days, repositories, or the spaces Recent spans.
   const sections = useMemo(
-    () => groupChannelItems(matchingItems, sort, new Date(dayStart), grouping),
-    [matchingItems, sort, dayStart, grouping],
+    () =>
+      groupChannelItems(
+        matchingItems,
+        sort,
+        new Date(dayStart),
+        grouping,
+        spaceOf,
+      ),
+    [matchingItems, sort, dayStart, grouping, spaceOf],
   );
   // #me leads, then the starred spaces in the list's own (name) order.
   const starredSpaces = useMemo(() => {
@@ -282,13 +328,13 @@ export function WorkColumn() {
       : starred;
   }, [channels, needle]);
 
+  // One project-wide query for every starred row's faces, the same one the
+  // legacy space list used: presence here is who has been working in a space,
+  // not a membership list.
+  const presenceBySpace = useSpacePresence();
   const { togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
   const { setPinned: setCanvasPinned } = useDashboardMutations();
-  const channelByKey = useMemo(
-    () => new Map(items.map(({ item, channelId }) => [item.key, channelId])),
-    [items],
-  );
   const actions = useMemo<ChannelItemActions>(
     () => ({
       open: (item: ChannelItemModel) => {
@@ -365,7 +411,7 @@ export function WorkColumn() {
 
   const spaceNameFor = (item: ChannelItemModel): string | undefined => {
     const channelId = channelByKey.get(item.key);
-    return channels.find((channel) => channel.id === channelId)?.name;
+    return channelId ? spaceNameById.get(channelId) : undefined;
   };
 
   const menuFor = (item: ChannelItemModel): TaskRowMenuProps => ({
@@ -456,6 +502,11 @@ export function WorkColumn() {
                 sources={sources}
                 showCreatedBy
                 showRunFilters={kind === "task"}
+                groupings={
+                  kind === "task"
+                    ? ["date", "space", "repository"]
+                    : ["date", "space"]
+                }
                 active={hasActiveChannelItemFilters(filters)}
               />
             </div>
@@ -505,6 +556,7 @@ export function WorkColumn() {
                         menu={menuFor(item)}
                         spaceName={spaceNameFor(item)}
                         channelId={channelByKey.get(item.key)}
+                        currentUserUuid={meUuid ?? undefined}
                       />
                     ))}
                   </Fragment>
@@ -545,30 +597,11 @@ export function WorkColumn() {
                   >
                     <PlusIcon size={14} />
                   </IconAction>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button
-                          variant="default"
-                          size="icon-sm"
-                          aria-label="Space options"
-                          className="text-muted-foreground"
-                        >
-                          <DotsThreeIcon size={16} weight="bold" />
-                        </Button>
-                      }
-                    />
-                    {/* Only what the + does not already do. */}
-                    <DropdownMenuContent
-                      align="end"
-                      side="bottom"
-                      className="w-fit"
-                    >
-                      <DropdownMenuItem onClick={navigateToSpaces}>
-                        Browse spaces…
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {/* A menu of one item is a click in the way of the thing it
+                      does, so browsing is its own button. */}
+                  <IconAction label="Browse spaces…" onClick={navigateToSpaces}>
+                    <ListMagnifyingGlassIcon size={14} />
+                  </IconAction>
                 </div>
               }
             />
@@ -580,6 +613,7 @@ export function WorkColumn() {
                     channel={channel}
                     isActive={channel.id === activeChannelId}
                     unread={isChannelUnread(channel.id)}
+                    presence={presenceBySpace.get(channel.id)}
                   />
                 ))}
                 {starredSpaces.length <= 1 && needle === "" && (

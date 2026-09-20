@@ -269,7 +269,7 @@ export function channelItemSortEvent(
 }
 
 /** What the list's section headers stand for. */
-export type ChannelItemGrouping = "date" | "repository";
+export type ChannelItemGrouping = "date" | "repository" | "space";
 
 /** Days, because when something happened is what a session list is scanned by. */
 export const DEFAULT_CHANNEL_ITEM_GROUPING: ChannelItemGrouping = "date";
@@ -410,6 +410,12 @@ export function groupChannelItems(
   sort: ChannelItemSort,
   now: Date = new Date(),
   grouping: ChannelItemGrouping = DEFAULT_CHANNEL_ITEM_GROUPING,
+  /**
+   * The space a row belongs to, for the space grouping. A row does not carry
+   * its space — a space's own list has only one — so the surface that spans
+   * several supplies the answer.
+   */
+  spaceOf?: (item: ChannelItemModel) => ChannelItemGroupKey | null,
 ): ChannelItemSection[] {
   const sections: ChannelItemSection[] = [];
 
@@ -422,6 +428,10 @@ export function groupChannelItems(
   if (rest.length === 0) return sections;
   if (grouping === "repository") {
     sections.push(...repositorySections(rest));
+    return sections;
+  }
+  if (grouping === "space" && spaceOf) {
+    sections.push(...spaceSections(rest, spaceOf));
     return sections;
   }
   if (sort === "alpha") {
@@ -445,8 +455,44 @@ export function groupChannelItems(
   return sections;
 }
 
+/** A group's stable key and the heading it draws. */
+export interface ChannelItemGroupKey {
+  key: string;
+  label: string;
+}
+
 /** The repository a row belongs under, or null where it names none. */
 const NO_REPOSITORY_KEY = "repo:none";
+
+const NO_SPACE_KEY = "space:none";
+
+/**
+ * One section per space, in the order the sorted list first reaches each one,
+ * so a space-grouped list still opens on the most recent work. Rows whose
+ * space could not be resolved run together at the end, as the unnamed
+ * repositories do.
+ */
+function spaceSections(
+  items: readonly ChannelItemModel[],
+  spaceOf: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+): ChannelItemSection[] {
+  const bySpace = new Map<string, ChannelItemSection>();
+  for (const item of items) {
+    const space = spaceOf(item);
+    const key = space ? `space:${space.key}` : NO_SPACE_KEY;
+    const label = space?.label ?? "No space";
+    const open = bySpace.get(key);
+    if (open) {
+      open.items.push(item);
+      continue;
+    }
+    bySpace.set(key, { key, label, items: [item] });
+  }
+
+  const sections = [...bySpace.values()];
+  const unnamed = sections.filter((s) => s.key === NO_SPACE_KEY);
+  return [...sections.filter((s) => s.key !== NO_SPACE_KEY), ...unnamed];
+}
 
 /**
  * One section per repository, in the order the sorted list first reaches each

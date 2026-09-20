@@ -6,6 +6,7 @@ import { cn, MenuLabel, Skeleton } from "@posthog/quill";
 import { readPrUrls } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { feedDayLabel } from "@posthog/ui/features/canvas/components/ChannelFeedView";
+import { SideColumnHeading } from "@posthog/ui/features/canvas/components/work/SideColumnHeading";
 import { getPrVisualIcon } from "@posthog/ui/features/git-interaction/prIcon";
 import {
   type PrStateDetails,
@@ -13,7 +14,6 @@ import {
   usePrTitles,
 } from "@posthog/ui/features/git-interaction/usePrDetails";
 import { usePrChecks } from "@posthog/ui/features/pr-review/usePrChecks";
-import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { useMemo } from "react";
@@ -166,17 +166,14 @@ export function SpacePullRequestsColumn({
   }, [sources, details]);
 
   return (
-    <aside
-      className={cn(
-        "flex min-h-0 w-[276px] shrink-0 flex-col border-border border-l",
-        className,
-      )}
+    // No scroller of its own: the column is part of the page beside the log,
+    // and a second scrollbar next to the first is two places to be lost in.
+    <section
+      className={cn("flex flex-col", className)}
       aria-label="Pull requests"
     >
-      <ChromeBar>
-        <h2 className="font-bold text-base">Pull requests</h2>
-      </ChromeBar>
-      <div className="scroll-mask-8 min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
+      <SideColumnHeading>Pull requests</SideColumnHeading>
+      <div className="px-1.5 pb-3">
         {isLoading && sources.length === 0 ? (
           <div className="flex flex-col gap-2 px-2 py-2">
             <Skeleton className="h-3.5 w-16" />
@@ -203,6 +200,6 @@ export function SpacePullRequestsColumn({
           ))
         )}
       </div>
-    </aside>
+    </section>
   );
 }

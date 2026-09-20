@@ -181,11 +181,13 @@ export function SpaceActivitySkeleton() {
             <Skeleton key={i} className="h-7 w-full max-w-[900px]" />
           ))}
         </div>
-        <div className="flex w-[276px] shrink-0 flex-col gap-2 border-border border-l px-3 pt-3">
-          <Skeleton className="h-5 w-32" />
-          {Array.from({ length: 4 }).map((_, i) => (
+        {/* The column's heading is a small label, not a title: a tall bar
+            here and a short one in the real column is a visible step. */}
+        <div className="flex w-[276px] shrink-0 flex-col gap-1 border-border border-l px-3.5 pt-4">
+          <Skeleton className="h-2.5 w-24" />
+          {Array.from({ length: 5 }).map((_, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton row
-            <Skeleton key={i} className="h-7 w-full" />
+            <Skeleton key={i} className="h-6 w-full" />
           ))}
         </div>
       </div>

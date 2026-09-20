@@ -19,6 +19,7 @@ import {
 } from "@posthog/ui/features/canvas/components/ChannelIntro";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { ThreadSidebar } from "@posthog/ui/features/canvas/components/ThreadSidebar";
+import { SpacePinnedSection } from "@posthog/ui/features/canvas/components/work/SpacePinnedSection";
 import { SpacePullRequestsColumn } from "@posthog/ui/features/canvas/components/work/SpacePullRequestsColumn";
 import { CONTEXT_MD_TASK_TITLE_PREFIX } from "@posthog/ui/features/canvas/contextPrompt";
 import {
@@ -248,6 +249,12 @@ export function WebsiteChannelHome({
     [channelId],
   );
 
+  // A thread opened from a row takes the right slot; the standing facts step
+  // aside for it rather than stacking under it.
+  const showsThreadDock =
+    (!spacesLayout || isWork) &&
+    !!threadTaskId &&
+    threadTaskId !== inheritedThreadTaskId;
   const threadTask = threadTaskId
     ? tasks.find((t) => t.id === threadTaskId)
     : undefined;
@@ -357,12 +364,20 @@ export function WebsiteChannelHome({
           // One log: everything that happened here, in order. Nothing to pick
           // between.
           showKindFilter={!isWork}
+          aside={
+            isWork && !showsThreadDock ? (
+              // The space's standing facts, beside the log and inside its
+              // scroller: what it keeps pinned, then what it has shipped.
+              <>
+                <SpacePinnedSection channelId={channelId} tasks={tasks} />
+                <SpacePullRequestsColumn tasks={tasks} isLoading={isLoading} />
+              </>
+            ) : undefined
+          }
         />
       </div>
 
-      {(!spacesLayout || isWork) &&
-      threadTaskId &&
-      threadTaskId !== inheritedThreadTaskId ? (
+      {showsThreadDock ? (
         <ThreadSidebar
           taskId={threadTaskId}
           channelId={channelId}
@@ -370,9 +385,6 @@ export function WebsiteChannelHome({
           onClose={() => closeThread(channelId)}
           onOpenFull={() => handleOpenFull(threadTaskId)}
         />
-      ) : isWork ? (
-        // The right slot is the pull requests until a row opens its dock there.
-        <SpacePullRequestsColumn tasks={tasks} isLoading={isLoading} />
       ) : null}
 
       {channelName && (

@@ -63,10 +63,16 @@ const ENVIRONMENT_OPTIONS: readonly Option<EnvironmentFilter>[] = [
   { value: "cloud", label: "Cloud" },
 ];
 
-const GROUPING_OPTIONS: readonly Option<ChannelItemGrouping>[] = [
-  { value: "date", label: "Date" },
-  { value: "repository", label: "Repository" },
+const DEFAULT_GROUPINGS: readonly ChannelItemGrouping[] = [
+  "date",
+  "repository",
 ];
+
+const GROUPING_LABELS: Record<ChannelItemGrouping, string> = {
+  date: "Date",
+  repository: "Repository",
+  space: "Space",
+};
 
 const SORT_OPTIONS: readonly Option<ChannelItemSort>[] = [
   { value: "recent", label: "Recent activity" },
@@ -159,6 +165,7 @@ export function ChannelFilterMenu({
   sort,
   onSortChange,
   grouping,
+  groupings,
   onGroupingChange,
   onEditAppearance,
   sources,
@@ -185,6 +192,11 @@ export function ChannelFilterMenu({
   /** What the list's section headers stand for. */
   grouping: ChannelItemGrouping;
   onGroupingChange: (grouping: ChannelItemGrouping) => void;
+  /**
+   * What this list can be grouped by. A space's own list offers the default
+   * pair; Recent spans every space, so it offers the space too.
+   */
+  groupings?: readonly ChannelItemGrouping[];
   /** Opens the list's appearance dialog, which the list itself renders. */
   onEditAppearance: () => void;
   /** `origin_product` keys present in the list. */
@@ -196,6 +208,10 @@ export function ChannelFilterMenu({
   /** A filter is narrowing the list, so the button says so. */
   active: boolean;
 }) {
+  const groupingOptions: Option<ChannelItemGrouping>[] = (
+    groupings ?? (showRunFilters ? DEFAULT_GROUPINGS : [])
+  ).map((value) => ({ value, label: GROUPING_LABELS[value] }));
+
   const sourceOptions: Option<string>[] = [
     { value: ANY_SOURCE, label: "Any source" },
     ...sources.map((source) => ({
@@ -232,11 +248,12 @@ export function ChannelFilterMenu({
         sideOffset={6}
         className="min-w-fit"
       >
-        {/* A canvas has no repository, so the canvas tab cannot group by repository. */}
-        {showRunFilters && (
+        {/* A canvas has no repository, so a canvas list is left with nothing to
+            group by unless the surface spans several spaces. */}
+        {groupingOptions.length > 1 && (
           <FilterSubmenu
             label="Group by"
-            options={GROUPING_OPTIONS}
+            options={groupingOptions}
             value={grouping}
             onChange={onGroupingChange}
           />

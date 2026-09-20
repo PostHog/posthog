@@ -1,5 +1,4 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
-import { presenceTier } from "@posthog/core/canvas/presence";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -17,12 +16,11 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
-import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { writeCanvasDragData } from "@posthog/ui/features/canvas/canvasDrag";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
+import { RowPresence } from "@posthog/ui/features/canvas/components/ChannelItemPresence";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
-import { PresenceAvatar } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import {
   type TaskRowBulkMenu,
   TaskRowContextMenu,
@@ -31,7 +29,6 @@ import {
 import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
-import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
@@ -51,7 +48,6 @@ import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
-import { useNow } from "@posthog/ui/hooks/useNow";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import {
   type DragEvent,
@@ -161,85 +157,6 @@ function CanvasBadgeStack({
 }
 
 /** The person a row is attributed to, as a face can draw them. */
-function rowAuthor(
-  item: ChannelItemModel,
-): { user: AvatarPerson; label: string } | null {
-  if (item.authorUser) {
-    return { user: item.authorUser, label: userDisplayName(item.authorUser) };
-  }
-  if (item.kind === "task") return null;
-  const name = item.authorName;
-  if (!name && !item.authorUuid) return null;
-  const [first, ...rest] = (name ?? "").split(/\s+/).filter(Boolean);
-  return {
-    user: {
-      uuid: item.authorUuid,
-      first_name: first ?? null,
-      last_name: rest.join(" ") || null,
-    },
-    label: name ?? "Unknown",
-  };
-}
-
-/**
- * The face of whoever is working on a row, shown only while the item is live or
- * recently active — a quiet row stays clean.
- *
- * Idle is decided here, once, off the clock: an item's activity time is fixed,
- * so a row that is idle now stays idle until its item changes, and re-rendering
- * it every minute would buy nothing. Only a row with a face to fade subscribes.
- */
-function RowPresence({
-  item,
-  currentUserUuid,
-}: {
-  item: ChannelItemModel;
-  currentUserUuid?: string;
-}) {
-  const author = rowAuthor(item);
-  if (!author) return null;
-  if (presenceTier(item.ts, Date.now()) === "idle") return null;
-  return (
-    <ActiveRowPresence
-      item={item}
-      author={author}
-      isCurrentUser={author.user.uuid === currentUserUuid}
-    />
-  );
-}
-
-/**
- * Subscribed to the clock rather than reading it once: the row is memoized on
- * its item, which a poll returning the same rows leaves untouched, so nothing
- * else would re-render it as the live window closes and the recent one ends.
- */
-function ActiveRowPresence({
-  item,
-  author,
-  isCurrentUser,
-}: {
-  item: ChannelItemModel;
-  author: NonNullable<ReturnType<typeof rowAuthor>>;
-  isCurrentUser: boolean;
-}) {
-  const tier = presenceTier(item.ts, useNow());
-  if (tier === "idle") return null;
-  return (
-    <PresenceAvatar
-      user={author.user}
-      tier={tier}
-      label={
-        isCurrentUser && tier === "live"
-          ? "You are working on this"
-          : isCurrentUser
-            ? "You were here recently"
-            : tier === "live"
-              ? `${author.label} is working on this`
-              : `${author.label} was here recently`
-      }
-    />
-  );
-}
 
 /**
  * A row's leading mark, always the task-list state vocabulary. Canvases have no

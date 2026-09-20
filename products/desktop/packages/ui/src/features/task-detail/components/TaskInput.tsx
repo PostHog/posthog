@@ -1435,7 +1435,14 @@ export function TaskInput({
                 // Note: this is NOT tied to `editorIsEmpty` — the input keeps its
                 // position as the user types so the box doesn't jump down when the
                 // suggestions fade out (and back in when the prompt is cleared).
-                top: suggestions && suggestions.length > 0 ? "38%" : "50%",
+                // A headline makes the block taller, so it starts higher:
+                // anchored at the same point it left a screen's worth of empty
+                // dots above the first thing to read.
+                top: heading
+                  ? "34%"
+                  : suggestions && suggestions.length > 0
+                    ? "38%"
+                    : "50%",
                 transform: "translate(-50%, -50%)",
               }}
               className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"

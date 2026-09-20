@@ -20,7 +20,9 @@ import {
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { CanvasPreviewFrame } from "@posthog/ui/features/canvas/components/CanvasPreviewFrame";
+import { ActivityPresenceAvatar } from "@posthog/ui/features/canvas/components/ChannelItemPresence";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { useCanvasTemplates } from "@posthog/ui/features/canvas/hooks/useCanvasTemplates";
@@ -152,6 +154,20 @@ export function WebsiteDashboardsIndex({
   );
 }
 
+/** A canvas carries its author as a name and a uuid, which is enough for a face. */
+function canvasAuthor(summary: DashboardRecord): AvatarPerson | null {
+  if (summary.createdByUser) return summary.createdByUser;
+  if (!summary.createdBy && !summary.createdByUuid) return null;
+  const [first, ...rest] = (summary.createdBy ?? "")
+    .split(/\s+/)
+    .filter(Boolean);
+  return {
+    uuid: summary.createdByUuid,
+    first_name: first ?? null,
+    last_name: rest.join(" ") || null,
+  };
+}
+
 const DashboardCard = memo(function DashboardCard({
   channelId,
   summary,
@@ -197,6 +213,13 @@ const DashboardCard = memo(function DashboardCard({
               <Text size="sm" weight="medium" className="min-w-0 truncate">
                 {summary.name}
               </Text>
+              {/* Whose canvas, and whether they are in it now: the same mark
+                  the session rows wear, from the same activity clock. */}
+              <ActivityPresenceAvatar
+                user={canvasAuthor(summary)}
+                label="on this canvas"
+                activityAt={summary.updatedAt}
+              />
               {!compactMeta && <Badge>{templateLabel}</Badge>}
             </div>
             {compactMeta ? (
