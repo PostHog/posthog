@@ -34,7 +34,6 @@ from products.replay_vision.backend.temporal.events_tool import events_tool
 from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_VERIFICATION_OUTCOMES
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_MAX_OUTPUT_TOKENS,
-    MediaResponse,
     MissionStep,
     SignalFinding,
     SignalsResponse,
@@ -87,8 +86,7 @@ class _Resp:
 
 class _FakeModels:
     def __init__(self, responses: list[_Resp]) -> None:
-        # Every full mission ends with the best-effort media turn, which no test is about.
-        self._it = iter([*responses, _Resp(text=MediaResponse(thumbnail_t=1).model_dump_json())])
+        self._it = iter(responses)
         self.calls: list[dict[str, Any]] = []
 
     async def generate_content(self, **kwargs: Any) -> _Resp:
@@ -438,7 +436,7 @@ async def test_signal_timestamps_use_recording_duration(
         )
     assert cast(MonitorOutput, outcome.finalized).verdict == "yes"
     assert outcome.signals == ([] if expected_end is None else [signal.model_copy(update={"end_time": expected_end})])
-    assert len(client.models.calls) == 2 + len(end_times)
+    assert len(client.models.calls) == 1 + len(end_times)
 
 
 @pytest.mark.asyncio
@@ -854,7 +852,7 @@ class TestVerifyPositives:
     async def test_verify_draws_are_blind_core_only_turns_over_the_live_cache(self) -> None:
         run = await self._scan(mode="enforce", answers=["yes", "no"], emits_signals=True)
         assert run.calls == [
-            {"steps": ["core", "signals", "media"], "cache_name": "caches/abc"},
+            {"steps": ["core", "signals"], "cache_name": "caches/abc"},
             {"steps": ["core_verify_2"], "cache_name": "caches/abc"},
             "delete_cache",
         ]

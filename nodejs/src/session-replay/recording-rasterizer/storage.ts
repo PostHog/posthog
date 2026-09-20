@@ -137,6 +137,20 @@ export async function downloadFromS3(bucket: string, key: string, localPath: str
         if (err instanceof RasterizationError) {
             throw err
         }
+        const undecodable = undecodableResponse(err)
+        if (undecodable) {
+            // An egress proxy answering HTML surfaces as a parser error, with the real reason in the body.
+            log.warn(
+                { bucket, key, status: undecodable.status, response_body: undecodable.body },
+                'S3 download returned an unreadable response'
+            )
+            throw new RasterizationError(
+                `S3 download failed: the object store returned an unreadable (non-XML) response (status ${undecodable.status ?? 'unknown'})`,
+                true,
+                'S3_DOWNLOAD_UNDECODABLE_RESPONSE',
+                err
+            )
+        }
         const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
         log.warn({ bucket, key, status, err: (err as Error)?.message }, 'S3 download failed')
         // Only a missing object is permanent; a 403 is the credential-refresh race the upload path allows for.

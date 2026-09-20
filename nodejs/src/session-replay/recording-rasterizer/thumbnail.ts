@@ -4,6 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { promisify } from 'util'
 
+import { toFiniteNumber } from './capture/config'
 import { RasterizationError } from './errors'
 import { createLogger } from './logger'
 import { downloadFromS3, uploadToS3 } from './storage'
@@ -32,6 +33,8 @@ function parseS3Uri(uri: string): { bucket: string; key: string } {
  */
 export async function extractThumbnail(input: ExtractThumbnailInput): Promise<ExtractThumbnailOutput> {
     const source = parseS3Uri(input.source_s3_uri)
+    // Before the download: `-ss NaN` burns both attempts, each pulling the whole MP4 first.
+    const videoTimeS = Math.max(0, toFiniteNumber(input.video_time_s, 'video_time_s'))
     const workDir = await fs.mkdtemp(path.join(process.env.VIDEO_WORK_DIR || os.tmpdir(), 'thumb-'))
     const sourcePath = path.join(workDir, 'source.mp4')
     const outputPath = path.join(workDir, 'thumbnail.png')
@@ -51,7 +54,7 @@ export async function extractThumbnail(input: ExtractThumbnailInput): Promise<Ex
             '-loglevel',
             'error',
             '-ss',
-            String(Math.max(0, input.video_time_s)),
+            String(videoTimeS),
             '-i',
             sourcePath,
             '-frames:v',

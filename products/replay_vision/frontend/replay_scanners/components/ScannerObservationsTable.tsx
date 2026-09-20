@@ -141,7 +141,10 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             key: 'thumbnail',
             width: 96,
             render: (_, obs) => (
-                <Link to={observationDetailUrl(obs.id, observationDetailLinkParams)}>
+                <Link
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                    aria-label={`Open the observation for session ${obs.session_id}`}
+                >
                     <ObservationThumbnail observation={obs} className="w-20" />
                 </Link>
             ),

@@ -4,6 +4,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 
 from django.conf import settings
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -138,6 +140,29 @@ class TestObservationMedia(BaseTest):
         assert media.asset_id == prepared.media_asset_id
         assert (media.asset.content_location or "").startswith("replay-vision/media/")
 
+    def test_an_observation_deleted_mid_render_expires_the_asset_with_its_location(self) -> None:
+        prepared = self._prepare()
+        observation_id = self.observation.id
+        self.observation.delete()
+
+        async_to_sync(finalize_observation_thumbnail_activity)(
+            FinalizeObservationThumbnailInputs(
+                team_id=self.team.id,
+                observation_id=observation_id,
+                media_asset_id=prepared.media_asset_id,
+                video_start_ms=prepared.video_start_ms,
+                rec_start_ms=prepared.rec_start_ms,
+                result=ExtractThumbnailActivityOutput(
+                    s3_uri=f"s3://{settings.OBJECT_STORAGE_BUCKET}/replay-vision/media/team-{self.team.id}/{observation_id}/x.png",
+                    file_size_bytes=4096,
+                ),
+            )
+        )
+
+        asset = ExportedAsset.objects_including_ttl_deleted.get(pk=prepared.media_asset_id)
+        assert asset.expires_after is not None
+        assert (asset.content_location or "").startswith("replay-vision/media/")
+
 
 class TestObservationMediaExpiry(BaseTest):
     def setUp(self) -> None:
@@ -188,10 +213,49 @@ class TestObservationMediaExpiry(BaseTest):
         ]
     )
     def test_media_is_expired_when_its_observation_goes_away(self, _name: str, delete) -> None:
-        delete(self)
+        # The expiry rides the transaction, and a TestCase never commits on its own.
+        with self.captureOnCommitCallbacks(execute=True):
+            delete(self)
 
         assert self._expires_after() <= timezone.now()
         assert ExportedAsset.objects_including_ttl_deleted.filter(pk=self.asset.pk).exists()
+
+    def test_a_cascade_expires_every_asset_in_one_statement(self) -> None:
+        for _ in range(4):
+            observation = ReplayObservation.objects.create(
+                scanner=self.scanner,
+                team=self.team,
+                session_id=f"s-{uuid7()}",
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_snapshot=snapshot_for(self.scanner),
+                triggered_by=ObservationTrigger.SCHEDULE,
+            )
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"observation_id": str(observation.id)},
+                expires_after=timezone.now() + timedelta(days=90),
+                is_system=True,
+            )
+            ReplayObservationMedia.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                observation=observation,
+                asset=asset,
+                kind=ReplayObservationMedia.Kind.THUMBNAIL,
+                position=0,
+                video_start_ms=1000,
+            )
+
+        # The list fills as the block exits, so the callbacks run after it, under the query capture.
+        with self.captureOnCommitCallbacks() as callbacks:
+            self.scanner.delete()
+        with CaptureQueriesContext(connection) as queries:
+            for callback in callbacks:
+                callback()
+
+        assert [q for q in queries.captured_queries if "posthog_exportedasset" in q["sql"].lower()] != []
+        assert len([q for q in queries.captured_queries if "UPDATE" in q["sql"]]) == 1
 
     def test_the_sweeps_own_delete_is_not_undone(self) -> None:
         self.asset.delete()

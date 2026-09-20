@@ -36,3 +36,10 @@ export const FrameAsAPlayTarget: StoryFn = () => (
 
 // What an observation scanned before this shipped looks like, until a backfill gives it a frame.
 export const NoFrameYet: StoryFn = () => <ObservationThumbnail observation={withoutFrame} className="w-80" />
+
+export const FrameFailsToLoad: StoryFn = () => <ObservationThumbnail observation={withFrame} className="w-80" />
+FrameFailsToLoad.decorators = [
+    mswDecorator({
+        get: { '/api/projects/:team_id/vision/observations/:id/thumbnail/': () => [500, {}] },
+    }),
+]

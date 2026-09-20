@@ -5,9 +5,9 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { getVisionObservationsThumbnailRetrieveUrl } from 'products/replay_vision/frontend/generated/api'
 import type { ReplayVisionScannerFindingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { observationThumbnailUrl } from './observationThumbnailUrl'
 import { RecordingPreview } from './RecordingPreview'
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -57,7 +57,9 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
                 sessionId={extra.session_id}
                 seekTime={findingSeekTime(extra.recording_start_time, extra.start_time)}
                 thumbnailSrc={
-                    currentTeamId !== null ? observationThumbnailUrl(currentTeamId, extra.observation_id) : undefined
+                    currentTeamId !== null
+                        ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), extra.observation_id)
+                        : undefined
                 }
                 alt={`Recording preview for ${extra.scanner_name}`}
             />
