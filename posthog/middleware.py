@@ -14,7 +14,6 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
-from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import (
     connection,
@@ -51,6 +50,7 @@ from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER, activity_storage, client_from_header
+from posthog.models.organization import get_organization_session_age
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
@@ -1000,7 +1000,7 @@ class SessionAgeMiddleware:
             org_id = request.user.current_organization_id
             session_age = None
             if org_id:
-                session_age = cache.get(f"org_session_age:{org_id}")
+                session_age = get_organization_session_age(org_id)
 
             if session_age is None:
                 session_age = settings.SESSION_COOKIE_AGE
