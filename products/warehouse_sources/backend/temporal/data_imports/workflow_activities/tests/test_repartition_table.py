@@ -615,11 +615,7 @@ class TestKilledAttemptRetry:
         mock_capture_event: MagicMock,
         _mock_capture_exception: MagicMock,
     ) -> None:
-        # An attempt hard-killed by its worker records no outcome, so the cap can only be spent by
-        # earlier syncs and only the checkpoint says how far they got. A marker that predates the
-        # `attempt_rows` stamp records no starting count, so it can claim no progress. A rewrite converging one worker
-        # death per sync must not be abandoned at the cap, because giving up discards the checkpoint
-        # and stamps the cooldown, which leaves a nearly rewritten table on its old layout.
+        # A hard-killed attempt records no outcome; only its checkpoint can prove progress.
         schema = _schema(
             name="public.deals",
             s3_folder_name="deals",
@@ -644,8 +640,6 @@ class TestKilledAttemptRetry:
         if expect_resume:
             mock_repartition.assert_awaited_once()
             assert "warehouse_repartition_failed" not in emitted
-            # The count is reset before this run charges its own attempt, so the cap now measures
-            # the attempts since the rewrite last moved.
             assert schema.set_repartition_pending.call_args_list[0].args[0]["attempts"] == 0
             schema.clear_repartition_rewrite.assert_not_called()
         else:
