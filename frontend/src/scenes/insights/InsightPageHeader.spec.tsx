@@ -5,9 +5,10 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { Node } from '~/queries/schema/schema-general'
+import { InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, InsightShortId, QueryBasedInsightModel, ItemMode } from '~/types'
 
@@ -200,11 +201,9 @@ describe('InsightPageHeader', () => {
     })
 
     describe('unsaved view-mode edits carried into edit mode', () => {
-        // router.actions.push is spied on (not just observed) so the click's navigation never actually
-        // runs: insightSceneLogic's real urlToAction/upgradeQuery chain needs a fuller boot (a real
-        // router.actions.push from a cold initKeaTests(), as insightSceneLogic.test.ts does) than this
-        // header-focused harness sets up via setSceneState. What's under test here is only the URL
-        // InsightPageHeader builds, which is exactly the code this fix changed.
+        // Spying on router.actions.push (rather than asserting post-navigation state) keeps this
+        // test at the level of the code the fix actually changed, without booting the fuller
+        // router/upgradeQuery chain insightSceneLogic.test.ts already covers.
         let pushSpy: jest.SpyInstance
 
         beforeEach(() => {
@@ -215,15 +214,19 @@ describe('InsightPageHeader', () => {
             pushSpy.mockRestore()
         })
 
-        it('includes the current query in the edit URL when it differs from the saved insight (#103374)', () => {
-            const savedQuery = {
-                kind: 'InsightVizNode',
+        function makeTrendsQuery(compare: boolean): InsightVizNode {
+            return {
+                kind: NodeKind.InsightVizNode,
                 source: {
-                    kind: 'TrendsQuery',
-                    series: [{ kind: 'EventsNode', event: '$pageview' }],
-                    compareFilter: { compare: false },
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    compareFilter: { compare },
                 },
-            } as unknown as Node
+            } as InsightVizNode
+        }
+
+        it('includes the current query in the edit URL when it differs from the saved insight', () => {
+            const savedQuery = makeTrendsQuery(false)
             const insight = makeInsight({ query: savedQuery })
             renderHeader({ insightMode: ItemMode.View, dashboardItemId: SAVED_INSIGHT_ID, insight })
 
@@ -232,10 +235,7 @@ describe('InsightPageHeader', () => {
             const dataLogic = insightDataLogic.findMounted({ dashboardItemId: SAVED_INSIGHT_ID, doNotLoad: true })
             expect(dataLogic).not.toBeNull()
 
-            const modifiedQuery = {
-                ...savedQuery,
-                source: { ...(savedQuery as any).source, compareFilter: { compare: true } },
-            } as unknown as Node
+            const modifiedQuery = makeTrendsQuery(true)
             act(() => {
                 dataLogic!.actions.setQuery(modifiedQuery)
             })
@@ -247,23 +247,18 @@ describe('InsightPageHeader', () => {
             expect(pushedUrl).toContain(`#q=${encodeURIComponent(JSON.stringify(modifiedQuery))}`)
         })
 
-        it('does not add a query hash param when there is nothing unsaved to carry over', () => {
-            const savedQuery = {
-                kind: 'InsightVizNode',
-                source: {
-                    kind: 'TrendsQuery',
-                    series: [{ kind: 'EventsNode', event: '$pageview' }],
-                    compareFilter: { compare: false },
-                },
-            } as unknown as Node
+        it('pushes the same edit URL as before when there is nothing unsaved to carry over', () => {
+            const savedQuery = makeTrendsQuery(false)
             const insight = makeInsight({ query: savedQuery })
             renderHeader({ insightMode: ItemMode.View, dashboardItemId: SAVED_INSIGHT_ID, insight })
 
             fireEvent.click(queryByAttr('insight-edit-button')!)
 
+            // No #q= means the editor falls back to loading the saved insight's own query, same as
+            // it always has — this asserts the URL is byte-for-byte what insightEdit() alone builds,
+            // so the saved query can't have been dropped by this change.
             expect(pushSpy).toHaveBeenCalledTimes(1)
-            const pushedUrl = pushSpy.mock.calls[0][0] as string
-            expect(pushedUrl).not.toContain('#q=')
+            expect(pushSpy.mock.calls[0][0]).toEqual(urls.insightEdit(SAVED_INSIGHT_ID))
         })
     })
 
