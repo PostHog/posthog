@@ -6,14 +6,16 @@ BATCH_SIZE = 1000
 # Targets and statuses that predate their content keys resolve the way the readers used to
 # resolve a missing key: generation, and completed. The metrics mirror merges with content
 # winning, the way the reader used to merge the two, because the oldest rows hold a mirror
-# that predates the content key and can be a different shape.
+# that predates the content key and can be a different shape. Both sides must be objects,
+# because `||` wraps a non-object into an array instead of merging, which the reader then
+# discards.
 BACKFILL_BATCH = """
     UPDATE llm_analytics_evaluationreportrun
     SET title = COALESCE(content ->> 'title', ''),
         evaluation_target = COALESCE(NULLIF(content ->> 'evaluation_target', ''), 'generation'),
         generation_status = COALESCE(NULLIF(content ->> 'generation_status', ''), 'completed'),
         metadata = CASE
-            WHEN jsonb_typeof(content -> 'metrics') = 'object'
+            WHEN jsonb_typeof(content -> 'metrics') = 'object' AND jsonb_typeof(metadata) = 'object'
             THEN metadata || (content -> 'metrics')
             ELSE metadata
         END

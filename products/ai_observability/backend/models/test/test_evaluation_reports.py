@@ -308,10 +308,20 @@ class TestBackfillReportRunIndexColumns(BaseTest):
             period_end=now - dt.timedelta(days=3),
         )
 
+        # `metadata` is an unconstrained JSON field, so a non-object value must survive untouched.
+        scalar_mirror = EvaluationReportRun.objects.create(
+            report=report,
+            content={"title": "Scalar mirror", "metrics": {"total_runs": 3}},
+            metadata=5,
+            period_start=now - dt.timedelta(days=6),
+            period_end=now - dt.timedelta(days=5),
+        )
+
         self._run_backfill()
         legacy.refresh_from_db()
         tagged.refresh_from_db()
         partial.refresh_from_db()
+        scalar_mirror.refresh_from_db()
 
         self.assertEqual(
             (legacy.title, legacy.evaluation_target, legacy.generation_status), ("Legacy", "generation", "completed")
@@ -323,3 +333,5 @@ class TestBackfillReportRunIndexColumns(BaseTest):
         )
         self.assertEqual(tagged.metadata, {"total_runs": 7})
         self.assertEqual(partial.metadata, {"total_runs": 9, "legacy_key": "kept"})
+        self.assertEqual(scalar_mirror.metadata, 5)
+        self.assertEqual(scalar_mirror.evaluation_target, "generation")
