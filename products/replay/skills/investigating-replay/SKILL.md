@@ -193,9 +193,17 @@ a scanner can only observe a given session once.
 
    `scanner_result.model_output` holds `title`, `summary`, `intent`, `outcome`,
    `friction_points` and `keywords` — done, no new scan needed.
-   A row with a terminal non-success `status` (`failed` or `ineligible`) explains
-   itself in `summary_line`; retrieve it as well when you need the full
-   `error_reason`.
+
+   A summarizer row that is not `succeeded` still rules out a scan. A scanner
+   observes a session only once, so `vision-scanners-scan-session` hands back the
+   existing observation instead of a fresh result:
+
+   - `pending` or `running` — a scan is already in flight. Poll it as in step 4.
+   - `failed` or `ineligible` — retrieve the row and tell the user why it produced
+     nothing. That scanner cannot scan the session again; only a different
+     summarizer scanner can.
+
+   Go on to step 2 only when no summarizer scanner has observed the session.
 
 2. **Find a summarizer scanner** if none exists yet:
 
