@@ -14,11 +14,11 @@ import {
     InsightEmptyState,
     InsightErrorState,
     InsightLoadingState,
-    InsightQueuedState,
     InsightRefreshDataHint,
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { InsightQueuedState } from 'scenes/insights/EmptyStates/InsightQueuedState'
 import {
     SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
     isPropertyValueMath,

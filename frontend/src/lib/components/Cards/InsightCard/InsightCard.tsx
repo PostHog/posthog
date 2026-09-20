@@ -19,10 +19,10 @@ import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import {
     InsightErrorState,
     InsightLoadingState,
-    InsightQueuedState,
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { InsightQueuedState } from 'scenes/insights/EmptyStates/InsightQueuedState'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 

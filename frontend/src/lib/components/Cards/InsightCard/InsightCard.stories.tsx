@@ -2,7 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { TileFilters } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    DashboardPlacement,
+    DashboardTile,
+    InsightColor,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -101,13 +108,13 @@ export const RefreshingTiles: Story = {
         } as unknown as QueryBasedInsightModel
 
         return (
-            <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
+            <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]">
                 <InsightCardComponent
                     insight={pendingInsight}
                     loadingQueued
                     rename={() => {}}
                     duplicate={() => {}}
-                    placement="Dashboard"
+                    placement={DashboardPlacement.Dashboard}
                 />
                 <InsightCardComponent
                     insight={runningInsight}
@@ -116,10 +123,17 @@ export const RefreshingTiles: Story = {
                     loadingStartedAt={new Date(Date.now() - 65000)}
                     rename={() => {}}
                     duplicate={() => {}}
-                    placement="Dashboard"
+                    placement={DashboardPlacement.Dashboard}
                 />
             </div>
         )
+    },
+    parameters: {
+        // Both tiles are loading on purpose, so their spinners never go away.
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="insight-queued-state"]',
+        },
     },
 }
 
