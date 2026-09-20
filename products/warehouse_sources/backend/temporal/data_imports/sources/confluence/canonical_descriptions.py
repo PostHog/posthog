@@ -133,4 +133,89 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "version": "Version metadata for the comment.",
         },
     },
+    "page_versions": {
+        "description": "One entry of a page's edit history: who saved a version of the page, when, and why.",
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-version/",
+        "columns": {
+            "pageId": "ID of the page this version belongs to.",
+            "number": "The version number.",
+            "createdAt": "Date and time the version was created.",
+            "message": "Message the author left with this version.",
+            "minorEdit": "Whether the version was saved as a minor edit, which sends no notifications.",
+            "authorId": "Account ID of the user who created this version.",
+            "page": "Summary of the page the version belongs to, including its title and status.",
+        },
+    },
+    "blogpost_versions": {
+        "description": "One entry of a blog post's edit history: who saved a version of the post, when, and why.",
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-version/",
+        "columns": {
+            "blogpostId": "ID of the blog post this version belongs to.",
+            "number": "The version number.",
+            "createdAt": "Date and time the version was created.",
+            "message": "Message the author left with this version.",
+            "minorEdit": "Whether the version was saved as a minor edit, which sends no notifications.",
+            "authorId": "Account ID of the user who created this version.",
+            "blogpost": "Summary of the blog post the version belongs to, including its title and status.",
+        },
+    },
+    "users": {
+        "description": (
+            "A user of the Confluence site. Resolves the account IDs that pages, blog posts, comments and "
+            "versions refer to. The directory listing returns at most 10,000 users."
+        ),
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-user/",
+        "columns": {
+            "accountId": "The account ID that uniquely identifies the user across all Atlassian products.",
+            "accountType": "Type of account, for example atlassian for a person or app for a bot user.",
+            "type": "Whether the user is known, unknown or anonymous.",
+            "email": "Email address of the user. Empty when the user's privacy settings hide it.",
+            "publicName": "Public name or nickname of the user. Always set.",
+            "displayName": "Display name of the user. Matches publicName when privacy settings hide the real name.",
+            "timeZone": "Time zone of the user. Empty when the user's privacy settings hide it.",
+            "profilePicture": "Links and dimensions of the user's profile picture.",
+            "isExternalCollaborator": "Whether the user is a guest rather than a licensed member of the site.",
+        },
+    },
+    "groups": {
+        "description": "A user group on the Confluence site, used to grant permissions to sets of people.",
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-group/",
+        "columns": {
+            "id": "Unique identifier for the group.",
+            "name": "Name of the group.",
+            "type": "Object type, always group.",
+            "usageType": "Whether the collection of users is used as a group or as a team.",
+            "managedBy": "Who manages the group: admins, an external directory, its members, or nobody.",
+        },
+    },
+    "group_members": {
+        "description": "The membership junction between groups and users: one row per user per group.",
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-group/",
+        "columns": {
+            "groupId": "ID of the group the user belongs to.",
+            "accountId": "The account ID that uniquely identifies the member.",
+            "accountType": "Type of account, for example atlassian for a person or app for a bot user.",
+            "email": "Email address of the member. Empty when the user's privacy settings hide it.",
+            "publicName": "Public name or nickname of the member.",
+            "displayName": "Display name of the member.",
+        },
+    },
+    "page_views": {
+        "description": "The total number of times a page has been viewed.",
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-analytics/",
+        "columns": {
+            "pageId": "ID of the page the count belongs to.",
+            "id": "The content ID the API reported the count for.",
+            "count": "Total number of views for the page.",
+        },
+    },
+    "page_viewers": {
+        "description": "The number of distinct people who have viewed a page.",
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-analytics/",
+        "columns": {
+            "pageId": "ID of the page the count belongs to.",
+            "id": "The content ID the API reported the count for.",
+            "count": "Total number of distinct viewers for the page.",
+        },
+    },
 }

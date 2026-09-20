@@ -29,8 +29,17 @@ CONFLUENCE_SESSION_PATCH = (
 
 def _response(results: list[dict[str, Any]], next_path: str | None = None) -> Response:
     body: dict[str, Any] = {"results": results, "_links": {"next": next_path} if next_path else {}}
+    return _raw_response(body)
+
+
+def _v1_response(results: list[dict[str, Any]], start: int = 0, limit: int = 200) -> Response:
+    """A v1 collection page, which echoes back the window the site actually applied."""
+    return _raw_response({"results": results, "start": start, "limit": limit, "size": len(results)})
+
+
+def _raw_response(body: Any, status_code: int = 200) -> Response:
     resp = Response()
-    resp.status_code = 200
+    resp.status_code = status_code
     resp._content = json.dumps(body).encode()
     return resp
 
@@ -153,7 +162,7 @@ class TestConfluenceSource:
         response = _source(endpoint, _make_manager())
         config = CONFLUENCE_ENDPOINTS[endpoint]
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == config.primary_keys
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]
@@ -184,7 +193,7 @@ class TestPagination:
         assert [r["id"] for r in rows] == ["1", "2", "3"]
         # First request hits the base path with the page limit; params carry limit only.
         assert snapshots[0]["url"] == "https://acme.atlassian.net/wiki/api/v2/pages"
-        assert snapshots[0]["params"]["limit"] == CONFLUENCE_ENDPOINTS["pages"].limit
+        assert snapshots[0]["params"]["limit"] == CONFLUENCE_ENDPOINTS["pages"].page_size
         # State saved once, after the first page (which has a next cursor), pointing at the
         # relative next link resolved to an absolute site URL.
         manager.save_state.assert_called_once()
@@ -239,3 +248,130 @@ class TestPagination:
         assert rows == []
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
+
+
+class TestV1Pagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_the_window_the_site_applied_not_the_one_requested(self, MockSession: mock.MagicMock) -> None:
+        # The site caps the page at 50 even though the source asks for 200. Treating the short
+        # page as the last one would silently truncate the table at 50 rows.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _v1_response([{"id": str(i)} for i in range(50)], start=0, limit=50),
+                _v1_response([{"id": "50"}], start=50, limit=50),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("groups", manager))
+
+        assert len(rows) == 51
+        assert snapshots[0]["params"]["start"] == 0
+        assert snapshots[1]["params"]["start"] == 50
+        assert manager.save_state.call_args.args[0] == ConfluenceResumeConfig(offset=50)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_v1_response([{"id": "g"}], start=400, limit=200)])
+
+        _rows(_source("groups", _make_manager(ConfluenceResumeConfig(offset=400))))
+
+        assert snapshots[0]["params"]["start"] == 400
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_users_are_read_out_of_the_search_results(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _v1_response(
+                    [
+                        {"entityType": "user", "title": "Ada", "user": {"accountId": "a1", "publicName": "Ada"}},
+                        {"entityType": "user", "title": "Bo", "user": {"accountId": "b2", "publicName": "Bo"}},
+                    ],
+                    limit=200,
+                )
+            ],
+        )
+
+        rows = _rows(_source("users", _make_manager()))
+
+        assert [row["accountId"] for row in rows] == ["a1", "b2"]
+        assert snapshots[0]["url"] == "https://acme.atlassian.net/wiki/rest/api/search/user"
+        assert snapshots[0]["params"]["cql"] == "type=user"
+
+
+class TestFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_versions_fan_out_per_page_and_carry_the_page_id(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "100"}, {"id": "200"}], next_path=None),
+                _response([{"number": 1, "authorId": "a"}, {"number": 2, "authorId": "b"}], next_path=None),
+                _response([{"number": 1, "authorId": "c"}], next_path=None),
+            ],
+        )
+
+        rows = _rows(_source("page_versions", _make_manager()))
+
+        assert [(row["pageId"], row["number"]) for row in rows] == [("100", 1), ("100", 2), ("200", 1)]
+        assert snapshots[1]["url"] == "https://acme.atlassian.net/wiki/api/v2/pages/100/versions"
+        assert snapshots[2]["url"] == "https://acme.atlassian.net/wiki/api/v2/pages/200/versions"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_group_members_carry_the_group_id(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _v1_response([{"id": "grp-1", "name": "confluence-users"}], limit=200),
+                _v1_response([{"accountId": "a1"}, {"accountId": "b2"}], limit=200),
+            ],
+        )
+
+        rows = _rows(_source("group_members", _make_manager()))
+
+        assert [(row["groupId"], row["accountId"]) for row in rows] == [("grp-1", "a1"), ("grp-1", "b2")]
+        assert snapshots[1]["url"] == "https://acme.atlassian.net/wiki/rest/api/group/grp-1/membersByGroupId"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_views_yield_one_row_per_page_from_a_bare_object(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "100"}, {"id": "200"}], next_path=None),
+                _raw_response({"id": 100, "count": 42}),
+                _raw_response({"id": 200, "count": 7}),
+            ],
+        )
+
+        rows = _rows(_source("page_views", _make_manager()))
+
+        assert [(row["pageId"], row["count"]) for row in rows] == [("100", 42), ("200", 7)]
+        assert snapshots[1]["url"] == "https://acme.atlassian.net/wiki/rest/api/analytics/content/100/views"
+        # The page listing still asks for full pages, but the analytics endpoint takes no
+        # page-size param, so none is sent to it.
+        assert snapshots[0]["params"]["limit"] == CONFLUENCE_ENDPOINTS["pages"].page_size
+        assert "limit" not in snapshots[1]["params"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_trashed_since_the_listing_is_skipped(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "100"}, {"id": "200"}], next_path=None),
+                _raw_response({"message": "not found"}, status_code=404),
+                _raw_response({"id": 200, "count": 7}),
+            ],
+        )
+
+        rows = _rows(_source("page_viewers", _make_manager()))
+
+        assert [(row["pageId"], row["count"]) for row in rows] == [("200", 7)]

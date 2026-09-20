@@ -1965,14 +1965,14 @@ Note: Source exposes 2 static endpoints (settings.py CONFIGCAT_ENDPOINTS = produ
 
 ## Confluence — gaps
 
-Today (8): `attachments`, `blogposts`, `footer_comments`, `inline_comments`, `labels`, `pages`, `spaces`, `tasks`
+Today (15): `attachments`, `blogpost_versions`, `blogposts`, `footer_comments`, `group_members`, `groups`, `inline_comments`, `labels`, `page_versions`, `page_viewers`, `page_views`, `pages`, `spaces`, `tasks`, `users`
 
 Diffed against: <https://dac-static.atlassian.com/cloud/confluence/openapi-v2.v3.json>
 
-- [ ] `GET /wiki/rest/api/user, /user/bulk, /search/user (v1)` — user lookup table; pages, blogposts and comments all carry authorId/ownerId with no way to resolve them today (high)
-- [ ] `GET /wiki/rest/api/analytics/content/{contentId}/views and /viewers (v1)` — page view and unique-viewer counts - the headline content metric for a wiki (high)
-- [ ] `GET /pages/{id}/versions and /blogposts/{id}/versions` — edit history per page: who changed what and when, the basis of contribution analysis (high)
-- [ ] `GET /wiki/rest/api/group and /group/{groupId}/membersByGroupId (v1)` — group definitions plus the group->user membership junction (medium)
+- [x] `GET /wiki/rest/api/user, /user/bulk, /search/user (v1)` — user lookup table; pages, blogposts and comments all carry authorId/ownerId with no way to resolve them today (high)
+- [x] `GET /wiki/rest/api/analytics/content/{contentId}/views and /viewers (v1)` — page view and unique-viewer counts - the headline content metric for a wiki (high)
+- [x] `GET /pages/{id}/versions and /blogposts/{id}/versions` — edit history per page: who changed what and when, the basis of contribution analysis (high)
+- [x] `GET /wiki/rest/api/group and /group/{groupId}/membersByGroupId (v1)` — group definitions plus the group->user membership junction (medium)
 - [ ] `GET /custom-content` — the fourth listable content type in v2, entirely unsynced (medium)
 - [ ] `GET /spaces/{id}/permissions, /spaces/{id}/role-assignments, /space-roles` — who can do what in each space - access review and least-privilege reporting (medium)
 - [ ] `GET /wiki/rest/api/audit (v1)` — admin audit record stream: permission and configuration changes over time (medium)
@@ -1980,7 +1980,7 @@ Diffed against: <https://dac-static.atlassian.com/cloud/confluence/openapi-v2.v3
 - [ ] `GET /whiteboards/{id}, /databases/{id}, /embeds/{id}, /folders/{id} (+ /descendants)` — the remaining v2 content types; reachable only via space/page descendant walks (low)
 - [ ] `GET /classification-levels and /pages/{id}/classification-level` — data classification lookup for governance reporting (low)
 
-Note: Diffed against the v2 spec above; the users, groups, analytics and audit gaps come from the v1 spec at https://dac-static.atlassian.com/cloud/confluence/swagger.v3.json, since v2 has no user/analytics endpoints. Content types whiteboards/databases/embeds/folders exist in v2 only as fetch-by-id plus ancestors/descendants - there is no top-level list - so they are harder than the rest.
+Note: Diffed against the v2 spec above; the users, groups, analytics and audit gaps come from the v1 spec at https://dac-static.atlassian.com/cloud/confluence/swagger.v3.json, since v2 has no user/analytics endpoints. `users` is built from `/search/user?cql=type=user` (the only listable user endpoint; `/user` and `/user/bulk` are point lookups by accountId). The analytics counts fan out from `pages`; blog post counts are not synced. Content types whiteboards/databases/embeds/folders exist in v2 only as fetch-by-id plus ancestors/descendants - there is no top-level list - so they are harder than the rest.
 
 ## ConfluentCloud — gaps
 

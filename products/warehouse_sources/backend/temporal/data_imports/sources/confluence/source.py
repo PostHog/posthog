@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ConfluenceSource(ResumableSource[ConfluenceSourceConfig, ConfluenceResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    # The content tables run on v2. Users, groups and content analytics have no v2 equivalent, so
+    # those tables call v1 paths; the pin still tracks the content API, which is what versions.
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.atlassian.com/cloud/confluence/rest/v2/"
