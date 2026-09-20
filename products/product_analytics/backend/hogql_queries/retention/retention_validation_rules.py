@@ -2,7 +2,7 @@ from typing import Protocol, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import AggregationType, EntityType, RetentionQuery
+from posthog.schema import AggregationType, BreakdownType, EntityType, RetentionQuery
 
 from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.database.database import Database
@@ -48,6 +48,22 @@ class DisallowCumulativeWith24HourWindows:
         retention_filter = context.query.retentionFilter
         if retention_filter.timeWindowMode == "24_hour_windows" and retention_filter.cumulative:
             raise ValidationError("Cumulative retention is not supported for 24 hour windows.", code=self.code)
+
+
+class DisallowElementBreakdowns:
+    code = "retention_element_breakdowns_unsupported"
+
+    def validate(self, context: QueryValidationContext[RetentionQuery]) -> None:
+        breakdown_filter = context.query.breakdownFilter
+        if breakdown_filter is None:
+            return
+        if breakdown_filter.breakdown_type == BreakdownType.ELEMENT or any(
+            breakdown.type == BreakdownType.ELEMENT for breakdown in breakdown_filter.breakdowns or []
+        ):
+            raise ValidationError(
+                "Element breakdowns are not supported for retention insights. Use an event or person property instead.",
+                code=self.code,
+            )
 
 
 class DisallowBreakdownsWithDataWarehouse24HourWindows:

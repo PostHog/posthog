@@ -1266,7 +1266,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         breakdown_type: BreakdownType | MultipleBreakdownType | None,
         breakdown_group_type_index: int | None = None,
     ):
-        if breakdown_type == "hogql" or breakdown_type == "cohort" or breakdown_type == "session":
+        if breakdown_type in ("hogql", "cohort", "session", "element"):
             return False
 
         if breakdown_type == "person":

@@ -4388,10 +4388,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["count"], 1)
 
     def test_breakdown_by_element_property(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="text",
+            property_type="Boolean",
+            type=PropertyDefinition.Type.EVENT,
+        )
         # One button and one link, each nested in a div, so the chains hold more than one
         # element and the innermost pick is exercised. The button appears twice.
         button_chain = (
-            'button.btn-primary:nth-child="1"nth-of-type="1"text="Sign up";div.container:nth-child="0"nth-of-type="0"'
+            'button.btn-primary:nth-child="1"nth-of-type="1"text="1";div.container:nth-child="0"nth-of-type="0"'
         )
         link_chain = 'a.nav-link:href="/pricing"nth-child="2"nth-of-type="1"text="Pricing";div.container:nth-child="0"nth-of-type="0"'
         self._create_event(
@@ -4427,7 +4433,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             for breakdown, expected in [
-                ("text", [("Sign up", 2), ("Pricing", 1)]),
+                ("text", [("1", 2), ("Pricing", 1)]),
                 ("tag_name", [("button", 2), ("a", 1)]),
                 # the null bucket sorts after every valued series, whatever the counts
                 ("href", [("/pricing", 1), (BREAKDOWN_NULL_STRING_LABEL, 3)]),

@@ -563,8 +563,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             const breakdownType = isBreakdownType(propertyFilterType) ? propertyFilterType : undefined
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
-            const isHistogramable =
-                !!values.getPropertyDefinition(breakdown, propertyDefinitionType)?.is_numerical && props.isTrends
+            const propertyDefinition =
+                breakdownType === 'element' ? null : values.getPropertyDefinition(breakdown, propertyDefinitionType)
+            const isHistogramable = !!propertyDefinition?.is_numerical && props.isTrends
 
             if (!props.updateBreakdownFilter) {
                 return
@@ -583,9 +584,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
 
             // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
             // For now, it is safe to fall back to `breakdown` instead of the property definition.
-            const isNormalizeable = isURLNormalizeable(
-                values.getPropertyDefinition(breakdown, propertyDefinitionType)?.name || (breakdown as string)
-            )
+            const isNormalizeable = isURLNormalizeable(propertyDefinition?.name || (breakdown as string))
 
             const { breakdownFilter } = values
 
@@ -732,8 +731,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             const breakdownValue = newBreakdown.value
 
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
-            const isHistogramable =
-                !!values.getPropertyDefinition(breakdownValue, propertyDefinitionType)?.is_numerical && props.isTrends
+            const propertyDefinition =
+                breakdownType === 'element'
+                    ? null
+                    : values.getPropertyDefinition(breakdownValue, propertyDefinitionType)
+            const isHistogramable = !!propertyDefinition?.is_numerical && props.isTrends
 
             if (
                 !props.updateBreakdownFilter ||
@@ -755,9 +757,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
 
             // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
             // For now, it is safe to fall back to `breakdown` instead of the property definition.
-            const isNormalizeable = isURLNormalizeable(
-                values.getPropertyDefinition(breakdownValue, propertyDefinitionType)?.name || (breakdownValue as string)
-            )
+            const isNormalizeable = isURLNormalizeable(propertyDefinition?.name || (breakdownValue as string))
 
             if (
                 values.isMultipleBreakdownsEnabled &&

@@ -1,12 +1,15 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     AggregationType,
     BreakdownFilter,
+    BreakdownType,
     DateRange,
     EntityType,
     RetentionFilter,
@@ -26,10 +29,26 @@ from products.product_analytics.backend.hogql_queries.retention.retention_valida
     MAX_RETENTION_RESPONSE_CELLS,
     DisallowBreakdownsWithDataWarehouse24HourWindows,
     DisallowCumulativeWith24HourWindows,
+    DisallowElementBreakdowns,
     DisallowGroupAggregationWithDataWarehouse24HourWindows,
     DisallowPropertyAggregationWith24HourWindows,
     RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
 )
+
+
+class TestElementBreakdownValidation(SimpleTestCase):
+    def test_disallow_element_breakdowns(self) -> None:
+        query = RetentionQuery(
+            retentionFilter=RetentionFilter(),
+            breakdownFilter=BreakdownFilter(breakdown="text", breakdown_type=BreakdownType.ELEMENT),
+        )
+        context = QueryValidationContext(query=query, team=MagicMock(), user=None, runner=MagicMock())
+
+        with self.assertRaises(ValidationError) as error:
+            DisallowElementBreakdowns().validate(context)
+
+        self.assertIn("Element breakdowns are not supported for retention insights.", str(error.exception))
+        self.assertEqual(error.exception.get_codes(), [DisallowElementBreakdowns.code])
 
 
 class TestRetentionValidationRules(BaseTest):
