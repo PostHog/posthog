@@ -599,6 +599,30 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["identifier"], "user1@example.com")
 
+    def test_opt_outs_pagination_is_stable_with_tied_timestamps(self):
+        recipients = [
+            MessageRecipientPreference.objects.create(
+                team=self.team,
+                identifier=f"user{index}@example.com",
+                preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+            )
+            for index in range(5)
+        ]
+        # updated_at is auto_now, so the rows only tie when the timestamp is written directly
+        MessageRecipientPreference.objects.filter(team=self.team).update(updated_at="2020-01-01T00:00:00Z")
+        expected = [recipient.identifier for recipient in sorted(recipients, key=lambda row: row.id, reverse=True)]
+
+        seen = []
+        for page in (1, 2, 3):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+                {"page": page, "page_size": 2},
+            )
+            self.assertEqual(response.status_code, 200)
+            seen.extend(item["identifier"] for item in response.json()["results"])
+
+        self.assertEqual(seen, expected)
+
     def test_opt_outs_search_filters_by_identifier(self):
         for identifier in ["alice@example.com", "bob@example.com", "Alice.Smith@other.io"]:
             MessageRecipientPreference.objects.create(
