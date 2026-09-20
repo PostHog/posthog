@@ -61,6 +61,7 @@ from products.experiments.backend.flag_cleanup import build_cleanup_prompt, clea
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -658,6 +659,27 @@ class ExperimentService:
         if len(rendered) > cls._ERROR_VALUE_MAX_LEN:
             return rendered[: cls._ERROR_VALUE_MAX_LEN] + "...(truncated)"
         return rendered
+
+    @classmethod
+    def resolve_effective_exposure_event(
+        cls,
+        exposure_criteria: ExperimentExposureCriteria | dict | None,
+        team: Team,
+        start_date: datetime | None,
+    ) -> str | None:
+        """The single event the exposures come from, or None when no single event applies.
+
+        Resolved through the same helper the exposure and results queries use, so the answer
+        cannot drift from the event they read.
+        """
+        params = get_exposure_config_params_for_builder(exposure_criteria, team, start_date)
+        if params.activation_config is not None:
+            # Activation mode counts an activation event that follows a flag exposure, so no
+            # single event describes the exposures.
+            return None
+        if not isinstance(params.exposure_config, ExperimentEventExposureConfig):
+            return None
+        return params.exposure_config.event or None
 
     @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
