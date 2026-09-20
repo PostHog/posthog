@@ -773,10 +773,8 @@ async def advance_source_incremental_cursor(
 ) -> None:
     """Persist the watermark a source reports for itself, once the run's data is durable.
 
-    A source whose cursor is a position in the origin's change log cannot have that cursor derived
-    from the rows it returned: the maximum over the rows always trails the log position, and on an
-    origin table that stops changing it never moves at all. Read at the end of extraction, so a run
-    that fails part-way re-reads from the stored watermark instead.
+    Read at the end of extraction, so a run that fails part-way re-reads from the stored watermark
+    instead.
     """
     if not schema.should_use_incremental_field or resource.incremental_field_last_value_provider is None:
         return

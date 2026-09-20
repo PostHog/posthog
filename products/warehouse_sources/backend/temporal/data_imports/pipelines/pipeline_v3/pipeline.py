@@ -611,9 +611,8 @@ class PipelineV3(Generic[ResumableData]):
             # no batches the load consumer is never notified. Without this a v3 schema whose
             # source stays quiet could never satisfy `_fast_return_eligible`.
             await self._stamp_full_run()
-            # A source-reported cursor is the one thing a zero-batch run still has to persist:
-            # a quiet origin table returns no rows but does move the cursor forward, and with no
-            # batches there is no export signal to promote a staged value, so write it directly.
+            # With no batches there is no export signal to promote a staged value, so a
+            # source-reported cursor has to be written directly here.
             await advance_source_incremental_cursor(
                 self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: "
             )
