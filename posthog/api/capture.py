@@ -626,14 +626,20 @@ def _submit_batch_chunk(
                     {"error": "invalid_json", "error_description": "could not parse 200 body"},
                 )
 
-            results_map: dict[str, Any] = body.get("results", {})
+            results_map = body.get("results", {}) if isinstance(body, dict) else None
+            if not isinstance(results_map, dict):
+                # Raising here would lose this chunk's uuids; _finalize marks them unaccounted.
+                return _finalize(
+                    resp.status_code,
+                    {"error": "invalid_response", "error_description": "200 body is not a results object"},
+                )
 
             retry_uuids: list[str] = []
             for uid in list(uuid_to_event.keys()):
                 if uid in aggregated:
                     continue
                 entry = results_map.get(uid)
-                if entry is None:
+                if not isinstance(entry, dict):
                     continue
                 clamped = entry.get("result", "ok")
                 if clamped not in _KNOWN_RESULT_STATUSES:

@@ -757,6 +757,21 @@ class TestCaptureBatchInternal(SimpleTestCase):
         assert result.error["error"] == "invalid_json"
         assert not result.succeeded()
 
+    @parameterized.expand([("array_body", ["ok"]), ("results_not_object", {"results": ["ok"]})])
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_wrong_shaped_200_body_leaves_every_uuid_unaccounted(
+        self, _name: str, body: Any, mock_session_fn: MagicMock
+    ) -> None:
+        uid = str(uuid4())
+        InstallV1Spy(mock_session_fn, [MockResponse(status_code=200, body=body)])
+
+        result = capture_batch_internal(events=[_make_event(event_uuid=uid)], token="tok", event_source="badshape")
+
+        assert result.error is not None
+        assert result.error["error"] == "invalid_response"
+        assert result.unaccounted == [uid]
+        assert result.request_failures[0].event_count == 1
+
     @patch("posthog.api.capture.time.sleep")
     @patch("posthog.api.capture.internal_requests_session")
     def test_retry_without_retry_after_header(self, mock_session_fn: MagicMock, mock_sleep: MagicMock) -> None:
