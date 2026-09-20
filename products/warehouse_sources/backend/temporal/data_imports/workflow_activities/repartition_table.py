@@ -821,8 +821,8 @@ def _last_attempt_advanced_rewrite(schema: ExternalDataSchema, pending: dict[str
 
 
 def _clear_attempts_after_progress(
-    schema: ExternalDataSchema, pending: dict[str, Any], logger: FilteringBoundLogger
-) -> dict[str, Any]:
+    schema: ExternalDataSchema, pending: dict[str, Any] | None, logger: FilteringBoundLogger
+) -> dict[str, Any] | None:
     """Reset the failure count for a rewrite that is still advancing; return the marker now in force.
 
     Resets rather than refunds, the same way `_handle_budget_exceeded` treats an attempt that
@@ -830,6 +830,8 @@ def _clear_attempts_after_progress(
     spent count in place, so the rewrite still runs this time and the next run re-reads the cap,
     because bookkeeping must never block it.
     """
+    if pending is None:
+        return None
     marker = {**pending, "attempts": 0}
     try:
         schema.set_repartition_pending(marker)

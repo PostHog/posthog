@@ -584,7 +584,11 @@ class TestKilledAttemptRetry:
             schema.set_repartition_claim.assert_called_once()
 
     @parameterized.expand(
-        [("checkpoint_advanced", 488925, 301744, True), ("checkpoint_stood_still", 488925, 488925, False)]
+        [
+            ("checkpoint_advanced", 488925, 301744, True),
+            ("checkpoint_stood_still", 488925, 488925, False),
+            ("no_recorded_start", 488925, None, False),
+        ]
     )
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.capture_repartition_event")
@@ -599,7 +603,7 @@ class TestKilledAttemptRetry:
         self,
         _name: str,
         checkpoint_rows: int,
-        started_from: int,
+        started_from: int | None,
         expect_resume: bool,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
@@ -612,7 +616,8 @@ class TestKilledAttemptRetry:
         _mock_capture_exception: MagicMock,
     ) -> None:
         # An attempt hard-killed by its worker records no outcome, so the cap can only be spent by
-        # earlier syncs and only the checkpoint says how far they got. A rewrite converging one worker
+        # earlier syncs and only the checkpoint says how far they got. A marker that predates the
+        # `attempt_rows` stamp records no starting count, so it can claim no progress. A rewrite converging one worker
         # death per sync must not be abandoned at the cap, because giving up discards the checkpoint
         # and stamps the cooldown, which leaves a nearly rewritten table on its old layout.
         schema = _schema(
