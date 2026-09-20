@@ -1435,16 +1435,13 @@ const FeedLogRow = memo(function FeedLogRow({
           {task.title || "Untitled task"}
         </button>
         <TaskStatusBadge display={statusDisplay} />
-        {/* The face wears the session's own presence: a pulsing dot while it
-            is running, so the log says who is working now and not only who
-            opened it. */}
+
         <ActivityPresenceAvatar
           user={starter}
           label="on this session"
           activityAt={task.last_activity_at ?? task.updated_at}
         />
-        {/* The menu rides over the row's end rather than holding a lane open
-            across every row that is not under the pointer. */}
+
         <span className="w-8 shrink-0 text-right text-muted-foreground text-xs tabular-nums transition-opacity group-hover:opacity-0">
           {formatRelativeTimeShort(task.updated_at)}
         </span>
@@ -1957,8 +1954,7 @@ export function ChannelFeedView({
             {composerBlock}
             <FeedSkeleton compact={listRows} />
           </div>
-          {/* Mounted while loading too: a column that arrives after the rows
-              moves the log sideways just as it becomes readable. */}
+
           {aside && (
             <div className="w-[276px] shrink-0 border-border border-l">
               {aside}
@@ -1992,13 +1988,10 @@ export function ChannelFeedView({
           )}
         >
           {composerBlock}
-          {/* The controls stay visible while they are what emptied the list,
-              so the user can widen back out of it. */}
+
           {controls}
           {kindFilterBlock}
-          {/* A filter that matched nothing is not an empty space: the welcome
-              would tell someone with a hundred sessions that they have none.
-              It says so, and offers the way back. */}
+
           {narrowed
             ? noResults
             : activeKindFilter === "all"
@@ -2104,8 +2097,6 @@ export function ChannelFeedView({
 
   return (
     <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto">
-      {/* The log and whatever rides beside it share one scroller: a column of
-          standing facts is part of the page, not a second place to scroll. */}
       <div className="flex w-full items-stretch">
         <div
           className={cn(
@@ -2117,8 +2108,7 @@ export function ChannelFeedView({
           {composerBlock}
           {controls}
           {kindFilterBlock}
-          {/* Dimmed, not replaced: the rows on screen are still the answer to
-              the last question, and swapping them for grey would lose it. */}
+
           <div
             className={cn(
               "transition-opacity duration-150",
@@ -2126,9 +2116,7 @@ export function ChannelFeedView({
             )}
           >
             {rows.length === 0 ? (narrowed ? noResults : kindEmptyNote) : rows}
-            {/* The log grows as it is reached rather than all at once: a
-                space with hundreds of rows spent half a second building the
-                ones nobody had scrolled to yet. */}
+
             {visibleCount < entries.length && (
               <div ref={moreRef} className="h-8" aria-hidden />
             )}

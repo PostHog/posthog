@@ -98,7 +98,7 @@ function SpaceRow({ channel }: { channel: Channel }) {
         personal,
         private: channel.channelType === "private",
       })}
-      {/* One hash: the glyph draws it, so the name must not. */}
+
       <Text size="sm" weight="medium" className="min-w-0 shrink-0 truncate">
         {channel.name}
       </Text>
@@ -107,8 +107,6 @@ function SpaceRow({ channel }: { channel: Channel }) {
       </Text>
       {people.length > 0 && (
         <span className="flex shrink-0 items-center gap-1">
-          {/* No live dots and no crown: the question is who has worked here,
-              not who is at their desk or who opened the space. */}
           <PresenceAvatars
             people={people.slice(0, FACES_PER_ROW)}
             className="shrink-0"

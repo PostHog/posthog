@@ -94,8 +94,7 @@ export function WorkItemRow({
               </span>
             )}
           </span>
-          {/* Who is here, ahead of the age: presence is the row's most
-              time-sensitive fact, and a quiet row shows none of it. */}
+
           <RowPresence item={item} currentUserUuid={currentUserUuid} />
           <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/button:opacity-100 group-data-selected/button:opacity-100">
             {formatRelativeTimeShort(item.ts)}

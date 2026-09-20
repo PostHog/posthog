@@ -20,8 +20,6 @@ export function NewSessionHeading({
           onChange={onChangeSpace}
           disabled={disabled}
         />
-        {/* "in <space> space" names the thing; with nothing picked the trailing
-            noun would read "in choose a space space". */}
         {channelId ? "space" : null}
       </span>
     </div>

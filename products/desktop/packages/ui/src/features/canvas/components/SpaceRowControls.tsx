@@ -93,7 +93,7 @@ export function SpaceRowControls({ channel }: { channel: Channel }) {
           />
         </ButtonGroup>
       </div>
-      {/* One modal for both the dropdown and context-menu "Rename" actions. */}
+
       {renameMounted && (
         <RenameChannelModal
           channel={channel}

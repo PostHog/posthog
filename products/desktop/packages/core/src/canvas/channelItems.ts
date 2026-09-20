@@ -461,7 +461,6 @@ export interface ChannelItemGroupKey {
   label: string;
 }
 
-/** The repository a row belongs under, or null where it names none. */
 function keyedSections(
   items: readonly ChannelItemModel[],
   resolve: (item: ChannelItemModel) => ChannelItemGroupKey | null,
@@ -517,11 +516,3 @@ function spaceSections(
     NO_SPACE,
   );
 }
-
-/**
- * One section per repository, in the order the sorted list first reaches each
- * one — so a repository-grouped list still opens on the most recent work rather
- * than on whichever repository sorts first alphabetically. Sessions with no
- * repository are a run of their own at the end, where they don't interrupt the
- * named ones.
- */

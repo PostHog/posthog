@@ -253,8 +253,6 @@ export function ChannelFilterMenu({
         sideOffset={6}
         className="min-w-fit"
       >
-        {/* A canvas has no repository, so a canvas list is left with nothing to
-            group by unless the surface spans several spaces. */}
         {groupingOptions.length > 1 && (
           <FilterSubmenu
             label="Group by"
@@ -270,8 +268,7 @@ export function ChannelFilterMenu({
           onChange={onSortChange}
         />
         <DropdownMenuSeparator />
-        {/* Only where the list holds both: a canvas list narrowed to canvases
-            is a control that can only turn itself off. */}
+
         {showKindFilter && (
           <FilterSubmenu
             label="Type"
@@ -321,8 +318,7 @@ export function ChannelFilterMenu({
             />
           </>
         )}
-        {/* The editor shapes the sidebar's rows, so only a list drawn that
-            way offers it; a canvas has no configurable second row either. */}
+
         {showRunFilters && onEditAppearance && (
           <>
             <DropdownMenuSeparator />

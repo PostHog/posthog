@@ -207,8 +207,7 @@ const DashboardCard = memo(function DashboardCard({
               <Text size="sm" weight="medium" className="min-w-0 truncate">
                 {summary.name}
               </Text>
-              {/* Whose canvas, and whether they are in it now: the same mark
-                  the session rows wear, from the same activity clock. */}
+
               <ActivityPresenceAvatar
                 user={canvasAuthor(summary)}
                 label="on this canvas"

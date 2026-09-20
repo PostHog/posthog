@@ -92,8 +92,6 @@ function SectionHeading({
   const Caret = expanded ? CaretDownIcon : CaretRightIcon;
   return (
     <div className="flex items-center gap-1">
-      {/* The caret rides with the label rather than at the far right: this
-          heading carries a control of its own there, and the two collide. */}
       <MenuLabel
         render={<button type="button" />}
         aria-expanded={expanded}
@@ -164,8 +162,6 @@ function SpaceRow({
           navigateToChannel(channel.id);
         }}
       >
-        {/* A hash on shared spaces, so every name starts a glyph's width in and
-          the lock on the personal row lines up with them. */}
         <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
           {channelGlyph(channel.name, {
             size: 13,
@@ -417,8 +413,6 @@ export function WorkColumn() {
           />
           {recentOpen && (
             <div className="flex items-center gap-1 px-1 pt-0.5 pb-1.5">
-              {/* Beside the list it narrows, rather than over the whole
-                  column: it has never searched the spaces below it. */}
               <SidebarSearchInput
                 ref={searchRef}
                 query={query}
@@ -531,8 +525,7 @@ export function WorkColumn() {
                   >
                     <PlusIcon size={14} />
                   </IconAction>
-                  {/* A menu of one item is a click in the way of the thing it
-                      does, so browsing is its own button. */}
+
                   <IconAction label="Browse spaces…" onClick={navigateToSpaces}>
                     <ListMagnifyingGlassIcon size={14} />
                   </IconAction>
