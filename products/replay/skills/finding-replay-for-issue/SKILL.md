@@ -24,6 +24,7 @@ or duplicate occurrences. This skill picks the most useful one.
 | `posthog:query-session-recordings-list` | Fetch recording metadata for candidate sessions            |
 | `posthog:session-recording-get`         | Get full details for the selected recording                |
 | `posthog:vision-observations-list`      | Check for an existing Replay Vision AI summary             |
+| `posthog:vision-observations-retrieve`  | Read one observation in full (`scanner_result`)            |
 | `posthog:vision-scanners-list`          | Find summarizer scanners (`scanner_type=summarizer`)       |
 | `posthog:vision-scanners-scan-session`  | Run a summarizer scanner on the recording (optional, slow) |
 
@@ -132,9 +133,16 @@ If the user wants a narrative summary without watching, use Replay Vision —
    }
    ```
 
-   If an observation has `scanner_snapshot.scanner_type` `summarizer` and
-   `status` `succeeded`, read `scanner_result.model_output` (`title`, `summary`,
-   `intent`, `outcome`, `friction_points`, `keywords`) — done.
+   A row carries only the observation `id`, `session_id`, `status`, `scanner_id`,
+   `summary_line` and the recording URL. Pick a row whose `status` is `succeeded`
+   and whose `scanner_id` belongs to a summarizer scanner — cross-check the ids
+   against `vision-scanners-list` with `scanner_type=summarizer` when more than one
+   scanner has observed the session. Then read that row in full with
+   `vision-observations-retrieve` (`{ "id": "<observation_id>" }`), where
+   `scanner_result.model_output` holds `title`, `summary`, `intent`, `outcome`,
+   `friction_points` and `keywords` — done. A row with a terminal non-success
+   `status` explains itself in `summary_line`; retrieve it as well when you need
+   the full `error_reason`.
 
 2. **Find a summarizer scanner** if none exists:
 
@@ -158,7 +166,8 @@ If the user wants a narrative summary without watching, use Replay Vision —
    }
    ```
 
-4. **Retrieve** by polling `vision-observations-list` until `succeeded`.
+4. **Retrieve** by polling `vision-observations-list` until `succeeded`, then
+   call `vision-observations-retrieve` with that observation `id`.
 
 ## Tips
 
