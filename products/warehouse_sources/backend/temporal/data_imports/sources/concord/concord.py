@@ -33,7 +33,7 @@ class ConcordRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ConcordResumeConfig:
     # Page index to fetch on resume (page-number pagination). 0-based, matching Concord.
     page: Optional[int] = None

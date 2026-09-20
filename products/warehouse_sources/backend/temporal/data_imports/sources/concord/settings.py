@@ -34,7 +34,7 @@ AGREEMENT_STATUSES = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class ConcordEndpointConfig:
     name: str
     path: str  # may contain a `{organization_id}` placeholder
