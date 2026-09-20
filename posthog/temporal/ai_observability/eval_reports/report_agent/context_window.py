@@ -27,9 +27,6 @@ MAX_PROMPT_TOKENS = 120_000
 # The ceiling for one tool result. Every bounded tool fits well inside this, so only the
 # tools that return raw event payloads are ever cut.
 MAX_TOOL_RESULT_TOKENS = 30_000
-# The floor a tool result keeps when the whole turn has to be squeezed into the budget.
-# Below this the result says too little for the agent to act on.
-MIN_TOOL_RESULT_TOKENS = 500
 # count_tokens_approximately defaults to 4 characters per token, which undercounts the
 # UUID-dense JSON these tools return. Counting against a denser ratio keeps the estimate
 # on the safe side of the real tokenizer.
@@ -83,13 +80,22 @@ def _shrink_tool_results(messages: list[AnyMessage], budget: int) -> list[AnyMes
     One turn can carry several parallel tool calls whose results together outgrow the
     budget. Dropping any of them would leave the model unable to answer, so every result
     gives up the same share of its length instead.
+
+    The share has no floor. A wide enough fan-out leaves each result too short to act on,
+    but a floor applied to every result would put the prompt back over the cap, which is
+    the failure this module exists to prevent. What the share cannot cover is the messages
+    around the results: a request whose own tool calls fill the budget stays over it,
+    because the only way under would be to drop the call the model is waiting on.
     """
     results = [message for message in messages if isinstance(message, ToolMessage)]
     if not results:
         return messages
 
     others = [message for message in messages if not isinstance(message, ToolMessage)]
-    share = max(MIN_TOOL_RESULT_TOKENS, (budget - _token_count(others)) // len(results))
+    # The counter charges each result for its role and tool call id on top of its content,
+    # so the share pays for those envelopes before it divides what is left.
+    envelopes = sum(_token_count([message.model_copy(update={"content": ""})]) for message in results)
+    share = max(0, (budget - _token_count(others) - envelopes) // len(results))
     return [_truncated_to(message, share) if isinstance(message, ToolMessage) else message for message in messages]
 
 

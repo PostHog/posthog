@@ -1,6 +1,8 @@
 from django.test import SimpleTestCase
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages.utils import count_tokens_approximately
+from parameterized import parameterized
 
 from posthog.temporal.ai_observability.eval_reports.report_agent.context_window import (
     CHARS_PER_TOKEN,
@@ -22,8 +24,8 @@ def _turn(index: int, payload: str, parallel_calls: int = 1) -> list:
     ]
 
 
-def _prompt_chars(messages: list) -> int:
-    return sum(len(str(message.content)) for message in messages)
+def _prompt_tokens(messages: list) -> int:
+    return count_tokens_approximately(messages, chars_per_token=CHARS_PER_TOKEN)
 
 
 class TestTrimAgentMessages(SimpleTestCase):
@@ -54,21 +56,24 @@ class TestTrimAgentMessages(SimpleTestCase):
 
         trimmed = trim_agent_messages({"messages": messages})["llm_input_messages"]
 
-        self.assertLessEqual(_prompt_chars(trimmed) / CHARS_PER_TOKEN, MAX_PROMPT_TOKENS)
+        self.assertLessEqual(_prompt_tokens(trimmed), MAX_PROMPT_TOKENS)
         self.assertIs(trimmed[0], messages[0])
         self.assertIs(trimmed[-1], messages[-1])
 
-    def test_one_turn_larger_than_the_budget_keeps_every_result_and_still_fits(self):
+    # A wide fan-out is what a per-result floor cannot survive: the floor times the number
+    # of results puts the prompt back over the cap it exists to hold.
+    @parameterized.expand([("narrow", 8), ("wide", 300)])
+    def test_one_turn_larger_than_the_budget_keeps_every_result_and_still_fits(self, _name, parallel_calls):
         payload = "x" * int(MAX_TOOL_RESULT_TOKENS * CHARS_PER_TOKEN)
         messages = [
             HumanMessage(content="Please generate the evaluation report."),
-            *_turn(0, payload, parallel_calls=8),
+            *_turn(0, payload, parallel_calls=parallel_calls),
         ]
 
         trimmed = trim_agent_messages({"messages": messages})["llm_input_messages"]
 
         self.assertEqual(len(trimmed), len(messages))
-        self.assertLessEqual(_prompt_chars(trimmed) / CHARS_PER_TOKEN, MAX_PROMPT_TOKENS)
+        self.assertLessEqual(_prompt_tokens(trimmed), MAX_PROMPT_TOKENS)
 
     def test_trim_never_leaves_a_tool_result_without_its_request(self):
         payload = "x" * int(MAX_TOOL_RESULT_TOKENS * CHARS_PER_TOKEN)
