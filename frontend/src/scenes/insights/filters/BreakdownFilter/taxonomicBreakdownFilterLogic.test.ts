@@ -69,8 +69,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
-        it('sets breakdown for autocapture elements', async () => {
-            logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
+        it.each([true, false])('sets breakdown for autocapture elements with isTrends=%s', async (isTrends) => {
+            logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {}, isTrends, isFunnels: !isTrends }))
             logic.mount()
             propertyDefinitionsModel.actions.updatePropertyDefinitions({
                 'event/text': {
@@ -87,14 +87,11 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 logic.actions.addBreakdown('text', group)
             }).toFinishListeners()
 
-            expect(updateBreakdownFilter).toHaveBeenCalledWith({
-                breakdowns: [
-                    {
-                        property: 'text',
-                        type: 'element',
-                    },
-                ],
-            })
+            expect(updateBreakdownFilter).toHaveBeenCalledWith(
+                isTrends
+                    ? { breakdowns: [{ property: 'text', type: 'element' }] }
+                    : { breakdown: 'text', breakdown_type: 'element' }
+            )
         })
 
         it('sets breakdown for cohorts', async () => {

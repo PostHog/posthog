@@ -4258,6 +4258,57 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0][1]["breakdown_value"], ["test'123"])
         self.assertEqual(results[0][1]["count"], 1)
 
+    @parameterized.expand(
+        [
+            ("text", {"Continue": [2, 1], "Details": [1, 1], "": [2, 1]}),
+            ("tag_name", {"button": [2, 1], "a": [1, 1], "": [2, 1]}),
+            ("href", {"/details": [1, 1], "": [4, 2]}),
+        ]
+    )
+    def test_breakdown_by_element_property(self, breakdown: str, expected: dict[str, list[int]]) -> None:
+        button_chain = 'button:nth-child="1"nth-of-type="1"text="Continue";div:text="Container"'
+        link_chain = 'a:href="/details"nth-child="2"nth-of-type="1"text="Details";div:text="Container"'
+        for index, (elements_chain, converts) in enumerate(
+            [
+                (button_chain, True),
+                (button_chain, False),
+                (link_chain, True),
+                ('div:nth-child="0"nth-of-type="0"', True),
+                ("", False),
+            ]
+        ):
+            distinct_id = f"element-user-{index}"
+            _create_person(team=self.team, distinct_ids=[distinct_id])
+            _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id=distinct_id,
+                timestamp="2024-03-22T12:00:00Z",
+                elements_chain=elements_chain,
+            )
+            if converts:
+                _create_event(
+                    team=self.team,
+                    event="completed",
+                    distinct_id=distinct_id,
+                    timestamp="2024-03-22T12:01:00Z",
+                )
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="$autocapture"), EventsNode(event="completed")],
+            dateRange=DateRange(date_from="2024-03-22", date_to="2024-03-22"),
+            breakdownFilter=BreakdownFilter(breakdown=breakdown, breakdown_type=BreakdownType.ELEMENT),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(
+            {
+                steps[0]["breakdown_value"][0] if steps[0]["breakdown_value"] else "": [step["count"] for step in steps]
+                for steps in results
+            },
+            expected,
+        )
+
     def test_funnel_query_with_event_metadata_breakdown(self):
         _create_person(
             distinct_ids=[f"user_1"],

@@ -25,7 +25,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, element_property_key_to_breakdown_expr, property_to_expr
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
@@ -476,6 +476,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "session":
             return get_breakdown_expr(breakdown, "session")
+        elif breakdownType == "element":
+            assert isinstance(breakdown, list)
+            return ast.Array(exprs=[element_property_key_to_breakdown_expr(str(value)) for value in breakdown])
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
             exprs = [strip_user_aliases(parse_expr(str(value))) for value in breakdown]
