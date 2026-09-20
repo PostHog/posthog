@@ -55,7 +55,7 @@ class CoreEvent(UUIDModel):
     class Meta:
         verbose_name = "Core Event"
         verbose_name_plural = "Core Events"
-        ordering = ["created_at"]
+        ordering = ["created_at", "id"]
 
     def __str__(self) -> str:
         return f"{self.name} ({self.team_id})"
