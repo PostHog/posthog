@@ -307,8 +307,8 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         workflow_id = query.validated_data["workflow_id"]
         skill_id = query.validated_data.get("skill_id") or None
 
-        # The generator is `async def`, so only ASGI can consume it. 204 is the same "no stream" answer
-        # the killswitch above gives, which EventSource treats as a clean close.
+        # 204 is the same "no stream" answer the killswitch above gives, which EventSource
+        # treats as a clean close.
         if not sse_streaming_supported():
             return HttpResponse(status=204)
 

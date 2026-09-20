@@ -371,11 +371,9 @@ def sse_streaming_response(
 def sse_streaming_supported() -> bool:
     """Whether this process can serve an SSE view whose body is an ``async def`` generator.
 
-    Only ASGI can. WSGI has no event loop to drive an async iterator. Django's fallback
-    for one buffers the whole stream into a list before it sends a byte, which pins a
-    blocking thread and delivers nothing until the stream closes.
-
-    Degrade on WSGI, do not raise. Return an empty ``204``, so the client stops reading
-    and takes its own fallback path instead of seeing a ``500`` on every poll.
+    Only ASGI can. Django's WSGI fallback for an async iterator buffers the whole stream
+    into a list before it sends a byte, which pins a blocking thread and delivers nothing
+    until the stream closes. So degrade on WSGI, do not raise: return an empty ``204``, and
+    let the client take its own fallback path instead of seeing a ``500`` on every poll.
     """
     return settings.SERVER_GATEWAY_INTERFACE == "ASGI"

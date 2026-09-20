@@ -1538,8 +1538,8 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller
         can't read. The stream self-terminates once the observation reaches a terminal state.
         """
-        # The generator is `async def`, so only ASGI can consume it. An empty 204 on WSGI leaves the
-        # bar on its time-based fallback, which is what the client already does when no stream arrives.
+        # Ahead of get_object() so a WSGI poll costs no DB read. The 204 leaves the bar on its
+        # time-based fallback, which is what the client already does when no stream arrives.
         if not sse_streaming_supported():
             return HttpResponse(status=status.HTTP_204_NO_CONTENT)
         observation = self.get_object()
