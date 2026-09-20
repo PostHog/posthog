@@ -1704,22 +1704,22 @@ Note: Headless API (https://api.coassemble.com/api/v1/headless). Docs sections a
 
 ## Coda — gaps
 
-Today (3): `docs`, `rows`, `tables`
+Today (7): `columns`, `doc_analytics`, `docs`, `folders`, `page_analytics`, `rows`, `tables`
 
 Diffed against: <https://coda.io/apis/v1/openapi.json>
 
-- [ ] `/docs/{docId}/tables/{tableIdOrName}/columns` — Column definitions (name, type, formula) that resolve the column IDs used as keys in every synced row - without it rows are unreadable (high)
-- [ ] `/analytics/docs and /analytics/docs/summary` — Per-doc usage analytics (views, active users) - the headline metric for measuring doc adoption across a workspace (high)
+- [x] `/docs/{docId}/tables/{tableIdOrName}/columns` — Column definitions (name, type, formula) that resolve the column IDs used as keys in every synced row - without it rows are unreadable (high)
+- [x] `/analytics/docs` — Per-doc usage analytics (views, active users) - the headline metric for measuring doc adoption across a workspace (high). `/analytics/docs/summary` skipped: it returns a single scalar (`totalSessions`) with no id or grain, not a table.
 - [ ] `/workspaces/{workspaceId}/users` — Workspace member lookup that resolves the owner/creator IDs on docs (medium)
 - [ ] `/docs/{docId}/pages` — Page hierarchy per doc - the structural dimension for content inventory and for joining page analytics (medium)
-- [ ] `/analytics/docs/{docId}/pages` — Page-level view analytics, one grain below doc analytics (medium)
-- [ ] `/folders` — Folder lookup resolving the folder reference each doc carries (medium)
+- [x] `/analytics/docs/{docId}/pages` — Page-level view analytics, one grain below doc analytics (medium)
+- [x] `/folders` — Folder lookup resolving the folder reference each doc carries (medium)
 - [ ] `/docs/{docId}/acl/permissions` — Who a doc is shared with - needed for access and governance reporting over the docs table (low)
 - [ ] `/workspaces/{workspaceId}/roles` — Role lookup that segments workspace users by license/role type (low)
 - [ ] `/docs/{docId}/controls and /docs/{docId}/formulas` — Remaining doc object types, completing the content inventory alongside tables and pages (low)
 - [ ] `/analytics/packs and /analytics/packs/summary` — Pack install and usage analytics, relevant only to workspaces that publish packs (low)
 
-Note: Coda has been rebranded to Superhuman Docs, but the OpenAPI spec is still served at https://coda.io/apis/v1/openapi.json (v1.6.0). The synced rows table returns cells keyed by column ID, which makes the missing columns endpoint a hard blocker rather than a nicety.
+Note: Coda has been rebranded to Superhuman Docs, but the OpenAPI spec is still served at https://coda.io/apis/v1/openapi.json (v1.6.0). The synced rows table returns cells keyed by column ID; the columns table now resolves those ids to names, types, and formulas.
 
 ## Codacy — **thin**
 
@@ -1883,7 +1883,7 @@ Note: docs.coingecko.com/reference/\* pages are client-rendered and unparseable 
 
 ## CoinMarketCap — gaps
 
-Today (9): `categories`, `cryptocurrency_info`, `cryptocurrency_map`, `exchange_map`, `fiat_map`, `global_metrics_quotes_historical`, `listings_latest`, `ohlcv_historical`, `quotes_historical`
+Today (13): `categories`, `cryptocurrency_info`, `cryptocurrency_map`, `exchange_info`, `exchange_listings_latest`, `exchange_map`, `exchange_quotes_historical`, `fiat_map`, `global_metrics_quotes_historical`, `listings_historical`, `listings_latest`, `ohlcv_historical`, `quotes_historical`
 
 Diffed against: <https://pro.coinmarketcap.com/api/documentation/pro-api-reference/cryptocurrency.md>
 
@@ -1891,16 +1891,16 @@ Diffed against: <https://pro.coinmarketcap.com/api/documentation/pro-api-referen
 - [x] `GET /v2/cryptocurrency/ohlcv/historical` — daily OHLCV candles, required for any price or return analysis (high)
 - [x] `GET /v1/global-metrics/quotes/historical` — total market cap, BTC dominance and altcoin market cap over time - CMC's headline market metric (high)
 - [x] `GET /v2/cryptocurrency/info` — coin metadata (tags, platform, category, urls) that resolves the ids in the cryptocurrency_map we already sync (high)
-- [ ] `GET /v1/exchange/listings/latest` — ranked exchanges with volume and liquidity; exchange_map alone carries no metrics (high)
-- [ ] `GET /v1/exchange/info` — exchange metadata lookup resolving the ids in the synced exchange_map (medium)
-- [ ] `GET /v1/cryptocurrency/listings/historical` — historical ranked snapshots, letting you reconstruct rank changes without polling listings/latest (medium)
+- [x] `GET /v1/exchange/listings/latest` — ranked exchanges with volume and liquidity; exchange_map alone carries no metrics (high)
+- [x] `GET /v1/exchange/info` — exchange metadata lookup resolving the ids in the synced exchange_map (medium)
+- [x] `GET /v1/cryptocurrency/listings/historical` — historical ranked snapshots, letting you reconstruct rank changes without polling listings/latest (medium)
 - [ ] `GET /v2/cryptocurrency/market-pairs/latest` — per-coin market pairs and where volume actually trades (medium)
 - [ ] `GET /v1/exchange/market-pairs/latest` — per-exchange market pairs; joins exchanges to cryptocurrencies (medium)
-- [ ] `GET /v1/exchange/quotes/historical` — historical exchange volume for venue share analysis (medium)
+- [x] `GET /v1/exchange/quotes/historical` — historical exchange volume for venue share analysis (medium)
 - [ ] `GET /v1/cryptocurrency/category` — coin membership per category - the categories table we sync lists categories but not their constituents (medium)
 - [ ] `GET /v3/fear-and-greed/historical` — CMC's proprietary sentiment index over time, a commonly requested signal (medium)
 
-Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but every page is served as markdown by appending .md, and pro.coinmarketcap.com/llms.txt indexes the whole reference by family (Cryptocurrency 19, Exchange 7, Global Metrics 6, DEX/Token 16, Holder 5, Derivatives 3, RWA 7, CMC Index 4...). The cryptocurrency and global-metrics historical families are now covered; the exchange historical family is not. The DEX (Token/Pool/Holder/OHLCV) and Real World Assets families are also entirely uncovered but are treated as separate products rather than enumerated here.
+Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but every page is served as markdown by appending .md, and pro.coinmarketcap.com/llms.txt indexes the whole reference by family (Cryptocurrency 19, Exchange 7, Global Metrics 6, DEX/Token 16, Holder 5, Derivatives 3, RWA 7, CMC Index 4...). The cryptocurrency and global-metrics historical families are now covered, as is the exchange family apart from market pairs, assets and proof-of-reserves. The DEX (Token/Pool/Holder/OHLCV) and Real World Assets families are also entirely uncovered but are treated as separate products rather than enumerated here.
 
 ## Commercetools — gaps
 
@@ -2030,10 +2030,10 @@ Today (11): `companies`, `contact_types`, `customer_sources`, `leads`, `loss_rea
 
 Diffed against: <https://developer.copper.com/index.html>
 
-- [ ] `POST /v1/activities/search` — the CRM interaction log (calls, emails, notes, status changes) - the main analytical event stream, entirely unsynced (high)
-- [ ] `GET /v1/pipeline_stages (and /v1/pipelines/{id}/stages)` — stage lookup; opportunities carry pipeline_stage_id and pipelines is already synced, so funnel analysis is blocked on this one table (high)
-- [ ] `GET /v1/lead_statuses` — status lookup; every lead row carries status_id with nothing to resolve it against (high)
-- [ ] `GET /v1/activity_types (and /v1/custom_activity_types)` — lookup resolving activity_type on activity rows; also needed to separate user activity from system activity (high)
+- [x] `POST /v1/activities/search` — the CRM interaction log (calls, emails, notes, status changes) - the main analytical event stream, entirely unsynced (high)
+- [x] `GET /v1/pipeline_stages (and /v1/pipelines/{id}/stages)` — stage lookup; opportunities carry pipeline_stage_id and pipelines is already synced, so funnel analysis is blocked on this one table (high)
+- [x] `GET /v1/lead_statuses` — status lookup; every lead row carries status_id with nothing to resolve it against (high)
+- [x] `GET /v1/activity_types (and /v1/custom_activity_types)` — lookup resolving activity_type on activity rows; also needed to separate user activity from system activity (high)
 - [ ] `GET /v1/custom_field_definitions` — resolves custom_field_definition_id, which appears on companies, people, leads, opportunities and projects (high)
 - [ ] `GET /v1/tags` — tag lookup for segmenting every record type (medium)
 - [ ] `GET /v1/related_items (view all records related to an entity)` — cross-object relationship junction linking companies, people, opportunities and projects (medium)
