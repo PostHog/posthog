@@ -172,9 +172,10 @@ If the user wants a narrative summary without watching, use Replay Vision —
    }
    ```
 
-4. **Retrieve** by polling `vision-observations-list` until the new row reaches
-   `succeeded`, then call `vision-observations-retrieve` with its `id` to read
-   `scanner_result.model_output`.
+4. **Retrieve** by polling `vision-observations-list` until the row whose
+   `scanner_id` is the scanner you just ran reaches `succeeded` — other scanners
+   have rows on the same session. Call `vision-observations-retrieve` with that
+   row's `id` to read `scanner_result.model_output`.
 
 ## Tips
 

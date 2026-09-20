@@ -220,8 +220,9 @@ a scanner can only observe a given session once.
    ```
 
 4. **Retrieve the result** by polling `vision-observations-list` (step 1) until
-   the new observation reaches `succeeded`, then call
-   `vision-observations-retrieve` with its `id` to read the result.
+   the row whose `scanner_id` is the scanner you just ran reaches `succeeded` —
+   other scanners have rows on the same session. Call
+   `vision-observations-retrieve` with that row's `id` to read the result.
 
 ### No summarizer scanner? Run a temporary one
 
@@ -259,8 +260,9 @@ with a throwaway scanner — but **ask the user's permission before creating any
    }
    ```
 
-   Poll `vision-observations-list` until the observation reaches `succeeded`, then
-   read `scanner_result.model_output` from `vision-observations-retrieve`.
+   Poll `vision-observations-list` until the row whose `scanner_id` is the new
+   scanner reaches `succeeded`, then read `scanner_result.model_output` from
+   `vision-observations-retrieve`.
 
 4. **Ask whether to keep or delete the scanner.** Once you have the observation,
    ask the user if they want to keep the temporary scanner or delete it with
