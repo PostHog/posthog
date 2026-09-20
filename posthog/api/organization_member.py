@@ -329,7 +329,7 @@ class OrganizationMemberViewSet(
         instance = cast(OrganizationMembership, self.get_object())
         return Response({"github_login": instance.user.get_github_login()})
 
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], required_scopes=["organization_member:read"])
     def scoped_api_keys(self, request, *args, **kwargs):
         instance = self.get_object()
         api_keys_data = instance.get_scoped_api_keys()

@@ -350,6 +350,16 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["has_keys_active_last_week"], False)
         self.assertEqual(response_data["keys"], [])
 
+    @parameterized.expand(["github_login", "scoped_api_keys"])
+    def test_member_detail_action_accepts_scoped_personal_api_key(self, url_path: str):
+        value = self.create_personal_api_key_with_scopes(["organization_member:read"])
+
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/members/{self.user.uuid}/{url_path}/",
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("posthoganalytics.capture")
     @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
