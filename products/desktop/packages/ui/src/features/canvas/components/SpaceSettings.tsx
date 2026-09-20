@@ -40,8 +40,6 @@ export function SpaceSettings({ channelId }: { channelId: string }) {
     () => <ChannelHeader channelId={channelId} page="settings" />,
     [channelId],
   );
-  // The tabbed space page names the tab; the breadcrumb and title would say it
-  // twice more.
   useSetHeaderContent(header, !workLayout);
   const isPrivate = channel?.channelType === "private";
   const { members } = useChannelMembers(isPrivate ? channelId : null);
@@ -60,8 +58,6 @@ export function SpaceSettings({ channelId }: { channelId: string }) {
   return (
     <div className="h-full overflow-y-auto">
       {workLayout ? (
-        // One quiet line at the tabs' own inset, rather than a page header with
-        // an empty title row where the tab strip already named the page.
         <div className="flex h-11 shrink-0 items-center border-border border-b px-6">
           <Text size="xs" variant="muted">
             Repositories and who can see this space. Changes save as you make

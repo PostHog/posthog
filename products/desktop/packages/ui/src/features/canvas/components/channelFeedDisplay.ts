@@ -52,7 +52,6 @@ export function mergeFeedEntries(
   tasks: Task[],
   systemMessages: ChannelFeedSystemMessage[],
   reports: SignalReport[] = [],
-  /** The space's canvases, interleaved with everything else by date. */
   canvases: readonly DashboardRecord[] = [],
 ): FeedEntry[] {
   const merged: FeedEntry[] = [
@@ -95,26 +94,12 @@ export function mergeFeedEntries(
   return merged;
 }
 
-/** One run of the log under a heading. `label` is null for an undivided list. */
 export interface FeedSection {
-  /** Stable across renders and unique per section. */
   key: string;
   label: string | null;
   entries: FeedEntry[];
 }
 
-/**
- * The log, cut into the sections its grouping asks for.
- *
- * Sections are keyed, not run-detected. Only a date grouping arrives already
- * sorted into runs; grouping by repository or by type over an activity-sorted
- * list reaches the same group again and again, and a run-based reading emitted
- * a fresh heading each time — the same repository listed twice with rows split
- * between them.
- *
- * The order is the order the list first reaches each section, so whatever you
- * touched most recently still leads.
- */
 export function buildFeedSections(
   entries: readonly FeedEntry[],
   {
@@ -122,7 +107,6 @@ export function buildFeedSections(
     keyOf,
   }: {
     labelOf: (entry: FeedEntry) => string | null;
-    /** Defaults to the label; pass one when two sections can share a label. */
     keyOf?: (entry: FeedEntry) => string;
   },
 ): FeedSection[] {

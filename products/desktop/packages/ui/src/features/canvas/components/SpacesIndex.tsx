@@ -26,7 +26,7 @@ import {
   type Channel,
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useSpaceParticipants } from "@posthog/ui/features/canvas/hooks/useSpaceParticipants";
+import { useSpaceOverview } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
@@ -34,15 +34,8 @@ import { track } from "@posthog/ui/shell/analytics";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-/**
- * The star, as a control rather than a mark. This page is where a space is
- * found, and starring it is what puts it in the Work column — so the star has
- * to be the thing you click, not a badge saying someone already did.
- */
 function StarToggle({ channel }: { channel: Channel }) {
   const { isStarred, toggleStar } = useChannelStarToggle(channel);
-  // "Star" rather than "add to the Work column": the section above is called
-  // Starred, and a control should be named after what it does.
   const label = isStarred ? "Unstar space" : "Star space";
   return (
     <Tooltip>
@@ -52,9 +45,6 @@ function StarToggle({ channel }: { channel: Channel }) {
             variant="default"
             size="icon-sm"
             aria-label={label}
-            // A starred row keeps its star; an unstarred one shows a faint one
-            // that firms up under the pointer. Hiding it outright would leave
-            // the page with no visible way to do the thing it is for.
             className={cn(
               "shrink-0",
               isStarred
@@ -62,7 +52,6 @@ function StarToggle({ channel }: { channel: Channel }) {
                 : "text-muted-foreground/40 group-hover/space:text-muted-foreground",
             )}
             onClick={(event) => {
-              // The row is a link; starring is not a way into the space.
               event.preventDefault();
               event.stopPropagation();
               track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -82,22 +71,18 @@ function StarToggle({ channel }: { channel: Channel }) {
   );
 }
 
-/** Faces drawn before the rest become a count. */
 const FACES_PER_ROW = 3;
 
-/**
- * A row, not a card. A space here is a name, what it is wired to and what you
- * have going on in it; a box drawn around that spent a whole screen on fifteen
- * of them.
- */
+const PEOPLE_PER_SPACE = 12;
+
 function SpaceRow({ channel }: { channel: Channel }) {
-  // Only rows you can see ask who is in them: a request per row is a storm for
-  // a list most of which you scroll straight past.
   const [ref, inView] = useInView<HTMLAnchorElement>({
     rootMargin: "300px 0px",
     once: true,
   });
-  const { people } = useSpaceParticipants(channel.id, { enabled: inView });
+  const { people } = useSpaceOverview(channel.id, null, PEOPLE_PER_SPACE, {
+    enabled: inView,
+  });
   const personal = channel.channelType === "personal";
   const repositories = channel.repositories.join(", ");
 
@@ -186,8 +171,7 @@ function SectionLabel({
 }
 
 /**
- * The `/spaces` page: every space in the project, where you find the ones you
- * work in and star them into the Work column, and where you make a new one.
+ * The `/spaces` page: every space in the project, and a way to make one.
  *
  * A page rather than a redirect to the first space. The rail can put you here,
  * and a destination you cannot rest on is one the rail cannot return you to.
@@ -204,8 +188,6 @@ export function SpacesIndex() {
       : channels;
     const personal = shown.filter((c) => c.channelType === "personal");
     return {
-      // #me leads, as it does in the Work column: it is the one space that is
-      // yours rather than one you chose to follow.
       starred: [
         ...personal,
         ...shown.filter((c) => c.starred && c.channelType !== "personal"),
@@ -215,9 +197,6 @@ export function SpacesIndex() {
   }, [channels, needle]);
   const noMatches = starred.length === 0 && rest.length === 0;
 
-  // The title goes into the shell's own header bar, so this page wears the
-  // typography and inset every other screen does rather than a heading of its
-  // own invention.
   useSetHeaderContent(
     useMemo(
       () => (

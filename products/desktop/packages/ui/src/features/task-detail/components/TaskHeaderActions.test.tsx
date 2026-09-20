@@ -58,7 +58,6 @@ vi.mock("./TaskOverflowMenu", () => ({
 vi.mock("@posthog/ui/features/diff-stats/DiffStatsBadge", () => ({
   DiffStatsBadge: () => null,
 }));
-// Needs an authenticated client, so a TRPC provider these renders don't set up.
 vi.mock("./TaskAnalysisButton", () => ({
   TaskAnalysisButton: () => null,
 }));

@@ -44,8 +44,6 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
   const workLayout = useWorkLayout();
 
   // Surface the channel breadcrumb in the shared header, same as the other
-  // channel scenes ("# channel / New session"). Under the Work layout the
-  // headline names the space instead.
   useSetHeaderContent(
     useMemo(
       () => (

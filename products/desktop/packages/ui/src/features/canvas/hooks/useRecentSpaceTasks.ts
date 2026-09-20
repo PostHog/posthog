@@ -320,12 +320,13 @@ export function useSpaceOverview(
   spaceId: string,
   createdBy: UserBasic | null,
   peopleLimit: number,
+  { enabled = true }: { enabled?: boolean } = {},
 ): SpaceOverview {
   const client = useOptionalAuthenticatedClient();
   const archivedTaskIds = useArchivedTaskIds();
   const { data } = useQuery({
     ...spaceTaskPageQuery(client, spaceId),
-    enabled: !!client,
+    enabled: enabled && !!client,
   });
   // A dependency, not `Date.now()` inline: the query keeps `data` referentially
   // equal across polls that return the same rows, so without the clock in the
@@ -413,12 +414,6 @@ function samePresence(a: ChannelPresence, b: ChannelPresence): boolean {
  * does.
  */
 export function useSpacePresence(
-  /**
-   * Widen `recentWindowMs` to ask a different question of the same page: the
-   * default windows answer "who is here now", and an infinite one answers "who
-   * works here at all", which is what a browse page wants. Live dots come from
-   * the live window either way, so they mean the same thing in both.
-   */
   windows: PresenceWindows = {},
 ): ReadonlyMap<string, ChannelPresence> {
   const client = useOptionalAuthenticatedClient();

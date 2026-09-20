@@ -16,7 +16,6 @@ import {
   useSpaceActivityViewStore,
 } from "@posthog/ui/features/canvas/stores/spaceActivityViewStore";
 
-/** A space's log is one space, so it groups by day or by repository, never by space. */
 const GROUPINGS = ["date", "repository"] as const;
 
 const VIEWS: {
@@ -28,16 +27,9 @@ const VIEWS: {
   { value: "cards", label: "Cards", Icon: CardsThreeIcon },
 ];
 
-/**
- * The log's controls: how a row is drawn, and which rows are drawn.
- *
- * The filter menu is the one the space lists use, so a status or a source
- * means the same thing here as it does in the column beside it.
- */
 export function SpaceActivityControls({
   sources,
 }: {
-  /** `origin_product` keys present in the log, for the Source filter. */
   sources: readonly string[];
 }) {
   const view = useSpaceActivityViewStore((s) => s.view);

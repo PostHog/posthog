@@ -37,8 +37,6 @@ export function useRailSurface(): RailSurface {
   const inTriage = useRouterState({
     select: (state) => isInboxTriagePath(state.location.pathname),
   });
-  // The Work column stands beside every destination that folded into Work, and
-  // the notification center can open over any of them.
   const workSidebar =
     workLayout && (railPaneFoldsIntoWork(pane) || workActivityOpen);
 

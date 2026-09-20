@@ -41,7 +41,6 @@ const CI_LABEL = {
   pending: "CI running",
 } as const;
 
-/** Failing beats running beats passing: the column answers "anything wrong?". */
 function ciTone(
   checks: { bucket: string }[] | null | undefined,
 ): keyof typeof CI_DOT_CLASS | null {
@@ -53,16 +52,10 @@ function ciTone(
   return "pass";
 }
 
-/** A PR still open is the only one whose CI is worth a request. */
 function isLive(details: PrStateDetails | undefined): boolean {
   return !!details && !details.merged && details.state !== "closed";
 }
 
-/**
- * One pull request on one line: lifecycle glyph, number, title, CI, age. Its
- * state, CI detail and the session behind it live in the hover card the feed's
- * PR chips already open. Click opens GitHub.
- */
 function PullRequestLine({
   entry,
   title,
@@ -84,8 +77,6 @@ function PullRequestLine({
   return (
     <button
       type="button"
-      // The row says everything the card said; the title it truncates is the
-      // one thing left, and that is what the native tooltip is for.
       title={title ?? entry.task.title}
       className="flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left font-medium text-[12px] text-muted-foreground leading-snug transition-colors hover:bg-fill-hover hover:text-foreground"
       onClick={() => openExternalUrl(entry.url)}
@@ -115,18 +106,12 @@ function PullRequestLine({
   );
 }
 
-/**
- * The pull requests of a space, beside its feed: every PR a session here
- * opened, newest day first, so the column reads in the same order as the log
- * next to it.
- */
 export function SpacePullRequestsColumn({
   tasks,
   isLoading = false,
   className,
 }: {
   tasks: Task[];
-  /** The feed behind it has not answered yet, so there is nothing to claim. */
   isLoading?: boolean;
   className?: string;
 }) {
@@ -149,7 +134,6 @@ export function SpacePullRequestsColumn({
     return out;
   }, [tasks]);
   const urls = useMemo(() => sources.map((entry) => entry.url), [sources]);
-  // One batched lookup for the column, so a row is a render and not a request.
   const details = usePrDetailsMap(urls);
   const titles = usePrTitles(urls);
   const days = useMemo<PullRequestDay[]>(() => {
@@ -166,8 +150,6 @@ export function SpacePullRequestsColumn({
   }, [sources, details]);
 
   return (
-    // No scroller of its own: the column is part of the page beside the log,
-    // and a second scrollbar next to the first is two places to be lost in.
     <section
       className={cn("flex flex-col", className)}
       aria-label="Pull requests"

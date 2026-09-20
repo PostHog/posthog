@@ -16,15 +16,9 @@ export const RECENT_WORK_CAP = 50;
 
 export interface RecentWorkItem {
   item: ChannelItemModel;
-  /** The space the item is filed to, for its route. Unfiled sessions have none. */
   channelId: string | undefined;
 }
 
-/**
- * What you touched most recently across every space: your own sessions and the
- * canvases you opened or created, one list, newest activity first. A view
- * counts as activity, so opening something brings it to the top.
- */
 export function useRecentWorkItems(): {
   items: RecentWorkItem[];
   isLoading: boolean;

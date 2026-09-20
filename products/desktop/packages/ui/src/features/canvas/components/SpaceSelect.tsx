@@ -36,13 +36,8 @@ export function SpaceSelect({
   disabled = false,
   variant = "chip",
 }: {
-  /** Empty when no space is chosen yet: the headline then asks for one. */
   value: string;
   onChange: (channelId: string) => void;
-  /**
-   * `headline`: the trigger is the space's name in the headline's own type,
-   * for "Start a new session in [space] space".
-   */
   variant?: "chip" | "headline";
   /**
    * Held shut while a task is being created. Retargeting mid-submit navigates

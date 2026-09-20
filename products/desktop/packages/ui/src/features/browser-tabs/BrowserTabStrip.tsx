@@ -102,7 +102,6 @@ import { useTabsSnapshot } from "./useBrowserTabs";
 import { useGoToTab } from "./useGoToTab";
 import { useOpenBrowserTab } from "./useOpenBrowserTab";
 
-/** Where the Work layout lands a fresh tab: a new session, never a blank page. */
 const NEW_SESSION_TAB_HREF = "/new";
 
 /**
@@ -160,8 +159,6 @@ function BrowserTabStripImpl() {
   const router = useRouter();
   const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const openBrowserTab = useOpenBrowserTab();
-  // Under the Work layout a new tab is always a new session: no blank tab, no
-  // home tab.
   const workLayout = useWorkLayout();
   const defaultTabHref = workLayout ? NEW_SESSION_TAB_HREF : DEFAULT_TAB_HREF;
   const params = useParams({ strict: false }) as {
@@ -656,13 +653,9 @@ function BrowserTabStripImpl() {
           pinned,
         };
       }
-      // Under the Work layout a fresh tab is a new session, so it says so
-      // rather than describing the tab it happens to be in.
       if (workLayout && hrefPath(t.href ?? "") === NEW_SESSION_TAB_HREF) {
         return {
           id: t.id,
-          // Always: a tab that lands back on /new has nothing else to be
-          // named, and the stored title is whatever it showed before.
           label: "New session",
           icon: <PlusIcon size={13} />,
           channelName: null,

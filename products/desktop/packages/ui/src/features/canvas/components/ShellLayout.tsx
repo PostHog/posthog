@@ -387,8 +387,6 @@ export function ShellLayout() {
   const isDashboardDetail = Boolean(toolbarDashboardId);
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
-  // Under the Work layout the grid is a tab with its own first row, so the
-  // chrome toolbar would only repeat it.
   const isDashboardsGrid =
     !workLayout && Boolean(channelId) && pathname === `${base}/canvases`;
 

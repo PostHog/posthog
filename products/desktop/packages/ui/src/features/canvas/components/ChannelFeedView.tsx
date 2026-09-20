@@ -1237,17 +1237,6 @@ function FeedRow({
   );
 }
 
-/**
- * One feed entry as a single line, for the Work layout's Activity tab: state
- * glyph, title, PR badge, who started it, age. The description is one click
- * away in the dock, so the row carries facts and nothing to read. Same data
- * hooks as the card, minus the thread poll: the row has no comment count to
- * show.
- */
-/**
- * A canvas in the log. It sits between the sessions of the day it was last
- * touched rather than in a pile of its own, which is the point of one list.
- */
 const CanvasFeedRow = memo(function CanvasFeedRow({
   canvas,
   channelId,
@@ -1260,9 +1249,6 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
   const open = () => navigateToChannelDashboard(channelId, canvas.id);
   const author = canvasFeedAuthor(canvas);
   if (!listRow) {
-    // The same card a session gets: title and age on one line, what it is
-    // under them, whose it is in the corner. A card of a different shape in
-    // the same column reads as a different kind of thing.
     return (
       <Card
         size="sm"
@@ -1323,7 +1309,7 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
       </span>
       <span className="min-w-0 flex-1 truncate font-medium">{canvas.name}</span>
       <ActivityPresenceAvatar
-        user={canvasFeedAuthor(canvas)}
+        user={author}
         label="on this canvas"
         activityAt={canvas.updatedAt}
       />
@@ -1334,7 +1320,6 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
   );
 });
 
-/** A canvas carries its author as a name and a uuid, enough to draw a face. */
 function canvasFeedAuthor(canvas: DashboardRecord): AvatarPerson | null {
   if (canvas.createdByUser) return canvas.createdByUser;
   if (!canvas.createdBy && !canvas.createdByUuid) return null;
@@ -1348,26 +1333,18 @@ function canvasFeedAuthor(canvas: DashboardRecord): AvatarPerson | null {
   };
 }
 
-/**
- * How many rows the log draws before it waits to be scrolled. A space's whole
- * history is a few hundred rows of real components, and building all of them
- * to show the first dozen is what made changing the view feel stuck.
- */
 const FEED_PAGE = 30;
 
-/** Shared, so a log with no canvases hands the merge the same array each time. */
 const NO_CANVASES: readonly DashboardRecord[] = [];
 
 const NO_ITEMS: readonly ChannelItemModel[] = [];
 
-/** The key a feed entry has in the item list, or null if it has none. */
 function entryKey(entry: FeedEntry): string | null {
   if (entry.kind === "task") return `task:${entry.task.id}`;
   if (entry.kind === "canvas") return `canvas:${entry.canvas.id}`;
   return null;
 }
 
-/** No signed-in user, so "Created by me" matches nothing rather than crashing. */
 const NOBODY = { uuid: null };
 
 const FeedLogRow = memo(function FeedLogRow({
@@ -1541,8 +1518,6 @@ function SystemFeedRow({ message }: { message: ChannelFeedSystemMessage }) {
 const DAY_MS = 86_400_000;
 
 // "Today" / "Yesterday" / "Aug 8" (with the year once it differs) for the
-// feed's day separators. Exported so anything standing beside the feed dates
-// its own rows the same way.
 export function feedDayLabel(iso: string, now: Date): string {
   const date = new Date(iso);
   const startOfDay = (d: Date) =>
@@ -1586,7 +1561,6 @@ function FeedRowSkeleton({ wide }: { wide?: boolean }) {
   );
 }
 
-/** One loading row of the log, shaped like `FeedLogRow` rather than a card. */
 function FeedLogRowSkeleton({ width }: { width: string }) {
   return (
     <div className="flex h-8 w-full max-w-[900px] items-center gap-2 px-2">
@@ -1599,11 +1573,6 @@ function FeedLogRowSkeleton({ width }: { width: string }) {
   );
 }
 
-/**
- * The loading log: day labels and one-line rows, because that is what lands
- * here. The card stack below is the message feed's shape, and showing it in
- * the log meant the page rearranged itself the moment the rows arrived.
- */
 function FeedLogSkeleton() {
   const widths = ["w-2/5", "w-3/5", "w-1/3", "w-1/2", "w-2/5", "w-1/4"];
   return (
@@ -1658,13 +1627,10 @@ function DaySeparator({
   compact = false,
 }: {
   label: string;
-  /** A log's day label: a quiet heading over the rows, not a rule across them. */
   compact?: boolean;
 }) {
   if (compact) {
     return (
-      // Sticky, so the day you are reading is still named once its heading
-      // has scrolled past.
       <div className="sticky top-0 z-10 w-full max-w-[900px] bg-gray-1 px-2 pt-3 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
         {label}
       </div>
@@ -1733,7 +1699,6 @@ export function ChannelFeedView({
   /** Off for single-kind feeds (a `type:report` saved feed), where the
    * sessions/reports tabs would only offer empty views. */
   showKindFilter?: boolean;
-  /** A column that rides beside the log inside the same scroller. */
   aside?: ReactNode;
   /** When provided with its setter, the Reports tab shows the same funnel
    * menu as the sidebar Reports list. The caller owns the state and filters
@@ -1752,31 +1717,14 @@ export function ChannelFeedView({
   composer?: ReactNode;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
-  /** One-line rows instead of cards: the Work layout's Activity tab. */
   compact?: boolean;
-  /** The space's canvases, interleaved into the log by date. */
   canvases?: readonly DashboardRecord[];
-  /**
-   * The space's sessions and canvases as one list, in the vocabulary the
-   * filters are written in. Built by the caller, which has the host and the
-   * auth context; the log only narrows and orders it.
-   */
   spaceItems?: readonly ChannelItemModel[];
-  /** Who "me" is, for the Created by filter. */
   me?: ChannelItemOwner;
-  /** The log's own controls, drawn above the rows. */
   controls?: ReactNode;
-  /** A new shape is being built; the rows on screen are the previous one. */
   rebuilding?: boolean;
-  /** Widens the log back out from an empty result. */
   onClearFilters?: () => void;
-  /**
-   * How a row is drawn. Separate from `compact`, which is the page's frame:
-   * switching between cards and lines is a choice about rows, and should not
-   * move the column, the composer or the pane's padding under the reader.
-   */
   rowStyle?: "cards" | "list";
-  /** Narrows which sessions the log shows; undefined leaves it whole. */
   filters?: ChannelItemFilters;
   sort?: ChannelItemSort;
   grouping?: ChannelItemGrouping;
@@ -1799,10 +1747,7 @@ export function ChannelFeedView({
   const activeKindFilter =
     kindFilter.channelId === channelId ? kindFilter.value : "all";
 
-  // The log's sessions, in the list vocabulary the filters are written in, so
-  // a status or a source narrows the same set of rows it does everywhere else.
   const narrowed = filters ? hasActiveChannelItemFilters(filters) : false;
-  // `key` is "task:<id>" or "canvas:<id>", so one set answers for both kinds.
   const allowedKeys = useMemo(() => {
     if (!filters || !narrowed) return null;
     const kept = filterChannelItems(spaceItems, {
@@ -1825,9 +1770,7 @@ export function ChannelFeedView({
       canvases ?? NO_CANVASES,
     ).filter((entry) => feedEntryMatchesKind(entry, activeKindFilter));
     const kept = allowedKeys
-      ? // A narrowed log asks about sessions and canvases, so the rows that
-        // are neither step out rather than survive every filter by default.
-        merged.filter((entry) => {
+      ? merged.filter((entry) => {
           const key = entryKey(entry);
           return key !== null && allowedKeys.has(key);
         })
@@ -1887,8 +1830,6 @@ export function ChannelFeedView({
   useEffect(() => {
     if (moreInView) setVisibleCount((count) => count + FEED_PAGE);
   }, [moreInView]);
-  // A new question starts at the top: the count is about how far the reader
-  // has gone through one answer, not a running total across all of them.
   useEffect(() => {
     setVisibleCount(FEED_PAGE);
   }, []);
@@ -1910,9 +1851,6 @@ export function ChannelFeedView({
     prevPendingRef.current = latestPendingId;
   }, [latestPendingId]);
 
-  // Compact is the Work layout's Activity tab: its content starts at the tab
-  // strip's own inset rather than centring in the pane, so moving between tabs
-  // never shifts the left edge.
   const listRows = rowStyle ? rowStyle === "list" : compact;
   const columnClass = compact
     ? "w-full max-w-[900px]"
@@ -1921,8 +1859,6 @@ export function ChannelFeedView({
     <div
       className={cn(
         columnClass,
-        // A rule and some room under the composer: what follows is the log,
-        // not more of the box.
         compact ? "mb-1 border-border border-b pb-4" : "mb-2",
       )}
     >
@@ -1938,8 +1874,6 @@ export function ChannelFeedView({
       className={cn(
         "flex items-center gap-1",
         columnClass,
-        // A rule and some room under the composer: the filter belongs to the
-        // log below it, not to the box above.
         compact ? "mt-4 border-border border-t pt-2" : "pt-1",
       )}
     >
@@ -2031,9 +1965,6 @@ export function ChannelFeedView({
     );
   }
 
-  // A filter that matched nothing is not an empty space: the welcome would
-  // tell someone with a hundred sessions that they have none. It says what
-  // happened, and offers the way back.
   const noResults = (
     <div className="flex w-full max-w-[900px] flex-col items-start gap-2 pt-6">
       <p className="text-[13px] text-muted-foreground">
@@ -2089,9 +2020,6 @@ export function ChannelFeedView({
       rows.push(<PendingFeedRow key={p.id} pending={p} />);
     }
   }
-  // When a row moved, which is the day it files under. Under "recent
-  // activity" that is not the day it was opened: a week-old session sorted to
-  // the top would otherwise sit under a heading a week down the log.
   const activityIso = (entry: FeedEntry): string => {
     if (sort === "created") return entry.createdAt;
     if (entry.kind === "canvas") {
@@ -2101,7 +2029,6 @@ export function ChannelFeedView({
     return ts ? new Date(ts).toISOString() : entry.createdAt;
   };
   const sectionLabel = (entry: FeedEntry): string | null => {
-    // Alphabetical is one run with nothing to divide it.
     if (sort === "alpha") return null;
     if (grouping === "repository") {
       return entry.kind === "task"
@@ -2110,8 +2037,6 @@ export function ChannelFeedView({
     }
     return feedDayLabel(activityIso(entry), now);
   };
-  // A day's key is its date, not its label: two Septembers a year apart both
-  // read "SEP 18", and keying on the label would fold them together.
   const sectionKey = (entry: FeedEntry): string =>
     grouping === "date"
       ? `day:${activityIso(entry).slice(0, 10)}`

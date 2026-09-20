@@ -7,27 +7,9 @@ import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
-/**
- * The width the artifact is laid out at before it is scaled down. A canvas is
- * authored for a pane, so rendering it at a card's width would reflow it into
- * something the card is not a picture of.
- */
 const LAYOUT_WIDTH = 1200;
 const LAYOUT_HEIGHT = 820;
 
-/**
- * A canvas's published output, shrunk to fit a card.
- *
- * It is the real artifact on the real bridge, because a canvas that asks the
- * host for its data draws its own "could not load" panel when nothing answers,
- * and a card of that is worse than no card. Two things the bridge will not do
- * from here: ask the reader to approve a connector, or start an agent. A
- * preview is a picture, and a picture may not interrupt.
- *
- * Only mounts once the card is near the viewport: each one is a real render of
- * a real app, and a grid of them all booting at once is what the placeholder
- * this replaced was standing in for.
- */
 export function CanvasPreviewFrame({
   dashboardId,
   className,
@@ -36,9 +18,6 @@ export function CanvasPreviewFrame({
   className?: string;
 }) {
   const [ref, inView] = useInView<HTMLDivElement>({ rootMargin: "400px 0px" });
-  // `scale()` takes a number, so the factor is measured rather than written in
-  // container units: dividing a length by a number yields a length, which the
-  // property rejects, leaving the artifact at full size inside the card.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   const attach = useCallback(

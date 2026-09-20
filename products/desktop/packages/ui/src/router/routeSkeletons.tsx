@@ -141,15 +141,6 @@ export function AppPageSkeleton() {
   );
 }
 
-/**
- * The Work layout's space pages: the tab strip, then the shape of the tab
- * being opened. Every one starts at the strip's own inset, so the skeleton
- * lands where the content will.
- *
- * `useWorkLayout` is the one hook these may call — a flag read, no data — and
- * it is what keeps a flag-off user from seeing a silhouette of a layout they
- * do not have.
- */
 function SpaceTabsFrame({ children }: { children: ReactElement }) {
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
@@ -164,7 +155,6 @@ function SpaceTabsFrame({ children }: { children: ReactElement }) {
   );
 }
 
-/** A space's Activity tab: composer, a rule, then one-line rows under a day. */
 export function SpaceActivitySkeleton() {
   return (
     <SpaceTabsFrame>
@@ -195,7 +185,6 @@ export function SpaceActivitySkeleton() {
   );
 }
 
-/** A space's Context tab: the chrome line, then goals and knowledge. */
 export function SpaceContextSkeleton() {
   return (
     <SpaceTabsFrame>
@@ -217,7 +206,6 @@ export function SpaceContextSkeleton() {
   );
 }
 
-/** A space's Canvases tab: the count line, then the card grid. */
 export function SpaceCanvasesSkeleton() {
   return (
     <SpaceTabsFrame>
@@ -238,7 +226,6 @@ export function SpaceCanvasesSkeleton() {
   );
 }
 
-/** A space's Settings tab: the description line, then its sections. */
 export function SpaceSettingsSkeleton() {
   return (
     <SpaceTabsFrame>
@@ -261,10 +248,6 @@ export function SpaceSettingsSkeleton() {
   );
 }
 
-/**
- * The skeleton a space route paints: the tabbed one where that layout is on,
- * and the list silhouette the page had before it where it is not.
- */
 export function spaceRouteSkeleton(
   tabbed: () => ReactElement,
 ): () => ReactElement {

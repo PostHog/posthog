@@ -81,11 +81,6 @@ export function WebsiteChannelHome({
   variant = "feed",
 }: {
   channelId: string;
-  /**
-   * `work`: the Work layout's Activity tab. One-line rows, the space's pull
-   * requests in a column beside the feed, and a row opens the thread dock in
-   * that column's slot instead of leaving the tab.
-   */
   variant?: "feed" | "work";
 }) {
   const spacesLayout = useChannelsLayout();
@@ -106,13 +101,7 @@ export function WebsiteChannelHome({
   const channelContext = instructions?.content;
 
   const { tasks, isLoading: isLoadingFeed } = useChannelFeed(channelId);
-  // The log is sessions and canvases together, so a day holds whatever
-  // happened in the space that day. Already cached: the Canvases tab and the
-  // pinned block read the same query.
   const { dashboards: spaceCanvases } = useDashboards(channelId);
-  // The space as one list, sessions and canvases together, in the vocabulary
-  // the filters are written in. Built here because this is where the host and
-  // the auth context are; the log only narrows and orders it.
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds } = usePinnedTasks();
   const sessionFacts = useChannelSessionFacts();
@@ -150,27 +139,18 @@ export function WebsiteChannelHome({
       () => <ChannelHeader channelId={channelId} page="home" />,
       [channelId],
     ),
-    // The tabbed space page names the tab.
     !isWork,
   );
-  // Reports join the log so the kind filter has something to switch between.
   const { reports } = useChannelReports(
     { kind: "channel", channelId },
     DEFAULT_CHANNEL_REPORTS_FILTERS,
     { enabled: isWork },
   );
 
-  // How the log is drawn and narrowed. Its own state, so a filter set here
-  // does not reach into the Work column beside it.
   const activityView = useSpaceActivityViewStore((s) => s.view);
   const activityFilters = useSpaceActivityViewStore((s) => s.filters);
   const activitySort = useSpaceActivityViewStore((s) => s.sort);
   const activityGrouping = useSpaceActivityViewStore((s) => s.grouping);
-  // The controls answer the click; the log catches up. Rebuilding a few
-  // hundred rows is around half a second of work, and doing it urgently meant
-  // the button did not even take its pressed state until the rows landed.
-  // Deferred, the press is instant and the rebuild happens off the critical
-  // path, with the old rows readable until it is done.
   const shownView = useDeferredValue(activityView);
   const shownFilters = useDeferredValue(activityFilters);
   const shownSort = useDeferredValue(activitySort);
@@ -180,7 +160,6 @@ export function WebsiteChannelHome({
     shownFilters !== activityFilters ||
     shownSort !== activitySort ||
     shownGrouping !== activityGrouping;
-  // What the Source filter can offer: the origins actually present in the log.
   const activitySources = useMemo(() => {
     const seen = new Set<string>();
     for (const task of tasks) {
@@ -325,8 +304,6 @@ export function WebsiteChannelHome({
     [channelId],
   );
 
-  // A thread opened from a row takes the right slot; the standing facts step
-  // aside for it rather than stacking under it.
   const showsThreadDock =
     (!spacesLayout || isWork) &&
     !!threadTaskId &&
@@ -361,8 +338,6 @@ export function WebsiteChannelHome({
     (s) => !!s.dismissedByChannel[channelId],
   );
   const dismissIntro = useChannelIntroStore((s) => s.dismissIntro);
-  // The Activity tab sits under a strip that already names the space, so the
-  // intro's title would say it twice; its context.md card lives on Context.
   const intro =
     !isWork && !isPersonal && !introDismissed && channelName && channel ? (
       <ChannelIntro
@@ -375,9 +350,6 @@ export function WebsiteChannelHome({
     ) : undefined;
 
   const emptyState = (
-    // In the Work layout the log is a column with a left edge, so the empty
-    // state keeps that edge and that measure. Centred in the whole pane, it
-    // sat under a composer it did not line up with.
     <div
       className={cn(
         "flex w-full flex-col gap-6",
@@ -485,13 +457,9 @@ export function WebsiteChannelHome({
           grouping={isWork ? shownGrouping : undefined}
           reports={isWork ? reports : undefined}
           onOpenReport={isWork ? handleOpenReport : undefined}
-          // One log: everything that happened here, in order. Nothing to pick
-          // between.
           showKindFilter={!isWork}
           aside={
             isWork && !showsThreadDock ? (
-              // The space's standing facts, beside the log and inside its
-              // scroller: what it keeps pinned, then what it has shipped.
               <>
                 <SpacePinnedSection channelId={channelId} tasks={tasks} />
                 <SpacePullRequestsColumn tasks={tasks} isLoading={isLoading} />

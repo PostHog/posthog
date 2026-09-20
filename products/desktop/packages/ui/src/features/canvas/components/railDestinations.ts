@@ -1,7 +1,7 @@
 import {
   BellIcon,
   BookOpenTextIcon,
-  CookingPotIcon,
+  ChatsCircleIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
@@ -262,27 +262,16 @@ export function visibleRailDestinations(
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
 }
 
-/**
- * Show the Work column. Called on its own only from inside Work's own
- * territory, where the column is beside what you are already reading.
- */
 export function showWorkColumn(): void {
   useSidebarStore.getState().setOpen(true);
 }
 
-/**
- * Work replaces Home, Spaces, Canvases and Loops. It keeps the Spaces pane so
- * every route those destinations owned still lights it.
- */
 const WORK_DESTINATION: RailDestination = {
   pane: "spaces",
   label: "Work",
   analyticsId: "spaces",
-  Icon: CookingPotIcon,
+  Icon: ChatsCircleIcon,
   href: "/spaces",
-  // Reached from outside Work — Self-driving, the Command Center — there is
-  // nothing to show the column beside, so the pick goes somewhere. The rail
-  // restores where Work last was and falls back to this.
   onPick: () => {
     showWorkColumn();
     navigateToSpaces();

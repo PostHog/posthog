@@ -187,7 +187,6 @@ function RailPaneBody({
   sidebarVisible: boolean;
   pendingTabSwitch: boolean;
 }): ReactElement {
-  // The notification center opens over whatever column the destination owns.
   if (workLayout && workActivityOpen) {
     return <WorkActivityColumn className="min-h-0 flex-1" />;
   }

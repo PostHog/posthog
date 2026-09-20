@@ -200,13 +200,8 @@ export function ChannelFilterMenu({
   /** What the list's section headers stand for. */
   grouping: ChannelItemGrouping;
   onGroupingChange: (grouping: ChannelItemGrouping) => void;
-  /**
-   * What this list can be grouped by. A space's own list offers the default
-   * pair; Recent spans every space, so it offers the space too.
-   */
   groupings?: readonly ChannelItemGrouping[];
   /** Opens the list's appearance dialog, which the list itself renders. */
-  /** Opens the sidebar row appearance editor. Omit where it changes nothing. */
   onEditAppearance?: () => void;
   /** `origin_product` keys present in the list. */
   sources: readonly string[];
@@ -214,7 +209,6 @@ export function ChannelFilterMenu({
   showCreatedBy: boolean;
   /** False on the canvases tab: a canvas has no run to ask these about. */
   showRunFilters: boolean;
-  /** True where one list holds sessions and canvases together. */
   showKindFilter?: boolean;
   /** A filter is narrowing the list, so the button says so. */
   active: boolean;

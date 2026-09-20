@@ -24,11 +24,6 @@ export const LOOPS_FLAG = featureFlagKeys.LOOPS_FLAG;
 /** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
 export const LOOPS_HOG_FLOWS_FLAG = featureFlagKeys.LOOPS_HOG_FLOWS_FLAG;
 export const DESKTOP_HOME_FLAG = featureFlagKeys.DESKTOP_HOME_FLAG;
-/**
- * Gates the Work layout: one Work rail entry with a fixed Recent + Spaces
- * column, tabbed space pages, a notification-center Activity column, and a new
- * tab always opening a new session. Requires the spaces layout.
- */
 export const DESKTOP_WORK_LAYOUT_FLAG =
   featureFlagKeys.DESKTOP_WORK_LAYOUT_FLAG;
 export const SAVED_SEARCHES_RAIL_FLAG =

@@ -15,7 +15,6 @@ export const Route = createFileRoute("/_shell/spaces/$channelId/")({
 
 function ChannelHomeRoute() {
   const { channelId } = Route.useParams();
-  // Under the Work layout a space opens on Activity, its first tab.
   if (useWorkLayout()) {
     return (
       <SpaceTabbedPage channelId={channelId} tab="activity">

@@ -212,11 +212,6 @@ interface TaskInputProps {
    * picker can hold shut mid-submit, like every other chip in the row.
    */
   spaceSelector?: (props: { disabled: boolean }) => ReactNode;
-  /**
-   * A headline above the composer. With one, the selector row stops hanging
-   * above the box and flows between the headline and the box instead, so the
-   * three read top to bottom.
-   */
   heading?: ReactNode;
 }
 
@@ -1435,9 +1430,6 @@ export function TaskInput({
                 // Note: this is NOT tied to `editorIsEmpty` — the input keeps its
                 // position as the user types so the box doesn't jump down when the
                 // suggestions fade out (and back in when the prompt is cleared).
-                // A headline makes the block taller, so it starts higher:
-                // anchored at the same point it left a screen's worth of empty
-                // dots above the first thing to read.
                 top: heading
                   ? "34%"
                   : suggestions && suggestions.length > 0

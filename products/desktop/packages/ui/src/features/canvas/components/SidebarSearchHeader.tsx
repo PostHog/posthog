@@ -73,13 +73,6 @@ export function SidebarSearchHeader({
   );
 }
 
-/**
- * The list's search box. Split out of the header because a column can put it
- * where the thing it searches is, rather than over the whole column.
- *
- * It is the list's Autocomplete input: it holds the focus the arrow keys walk
- * from, so there is one per list and it must stay inside the Autocomplete.
- */
 export const SidebarSearchInput = forwardRef<
   HTMLInputElement,
   {

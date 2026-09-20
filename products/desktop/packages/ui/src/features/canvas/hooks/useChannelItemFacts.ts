@@ -48,7 +48,6 @@ function channelItemFacts(
  */
 export function useChannelItemMetadata(
   item: ChannelItemModel,
-  /** Which space it is filed to, where the list crosses more than one. */
   spaceName?: string,
 ): ReactNode | undefined {
   const fields = useSidebarStore((state) => state.listItemMetadataFields);

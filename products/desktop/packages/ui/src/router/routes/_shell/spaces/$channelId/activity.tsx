@@ -8,9 +8,6 @@ import {
 } from "@posthog/ui/router/routeSkeletons";
 import { createFileRoute } from "@tanstack/react-router";
 
-// The space's feed and pull requests. Under the Work layout this is the
-// Activity tab; without it the feed is the space's index and this route only
-// mirrors it.
 export const Route = createFileRoute("/_shell/spaces/$channelId/activity")({
   component: ChannelActivityRoute,
   ...withRouteSkeleton(spaceRouteSkeleton(SpaceActivitySkeleton)),

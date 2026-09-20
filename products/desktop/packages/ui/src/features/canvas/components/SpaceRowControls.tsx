@@ -28,16 +28,6 @@ import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useState } from "react";
 
-/**
- * The two controls a space row carries: start a session in it, and everything
- * else behind a menu. Shared, because the Work column and the legacy channels
- * list are two lists of the same row and a space must offer the same actions
- * from either.
- *
- * The dialogs the menu opens live here too — rename, delete and auto-archive
- * are the menu's own follow-ups, and a caller should not have to mount three
- * of them to get a menu.
- */
 export function SpaceRowControls({ channel }: { channel: Channel }) {
   const spacesLayout = useChannelsLayout();
   const noun = spacesLayout ? "space" : "channel";

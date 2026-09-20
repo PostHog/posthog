@@ -78,11 +78,6 @@ import {
 
 const RECENT_COLLAPSED_COUNT = 5;
 
-/**
- * A section's heading. The label's left edge is the line every row beneath it
- * lines up to, so the caret sits at the far end rather than pushing the label
- * in — the same shape the space list's headings take.
- */
 function SectionHeading({
   label,
   expanded,
@@ -117,12 +112,10 @@ function IconAction({
   label,
   onClick,
   children,
-  active = false,
 }: {
   label: string;
   onClick: () => void;
   children: ReactNode;
-  active?: boolean;
 }) {
   return (
     <Tooltip>
@@ -132,9 +125,8 @@ function IconAction({
             variant="default"
             size="icon-sm"
             aria-label={label}
-            data-selected={active || undefined}
             onClick={onClick}
-            className="text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+            className="text-muted-foreground"
           >
             {children}
           </Button>
@@ -145,7 +137,6 @@ function IconAction({
   );
 }
 
-/** One space. Same row as a Recent item, so the two lists share a rhythm. */
 function SpaceRow({
   channel,
   isActive,
@@ -155,14 +146,10 @@ function SpaceRow({
   channel: Channel;
   isActive: boolean;
   unread: boolean;
-  /** Who has been working in this space, and which of them right now. */
   presence: ChannelPresence | undefined;
 }) {
   const people = presence?.people ?? [];
   return (
-    // `group/chan` is what the shared controls fade against, and `relative` is
-    // what they position to: they overlay the row's own right edge rather than
-    // taking a lane that shortens every name.
     <div className="group/chan group relative">
       <WorkRowSurface
         optionValue={channel.id}
@@ -212,24 +199,10 @@ function SpaceRow({
   );
 }
 
-/**
- * The Work column: what you touched recently, then the spaces you starred, in
- * a column that never changes shape. Entering a space or a session does not
- * swap it for another pane; the active row just moves.
- *
- * Like the space list and the activity feed it is one permanently open inline
- * Autocomplete: the search box is the column's only focus holder, and ↑/↓/⏎
- * walk every row it is showing.
- */
 export function WorkColumn() {
   const [query, setQuery] = useState("");
-  // Two separate things: whether the section is open at all (the caret), and
-  // whether it is showing everything or its first few (the count button).
   const [recentOpen, setRecentOpen] = useState(true);
-  // Which half of Recent is on screen, the way a space's list switches.
   const [appearanceOpen, setAppearanceOpen] = useState(false);
-  // ⌘⇧S focuses whichever list's search is on screen; the box holds the ref
-  // that request lands on.
   const searchRef = useRef<HTMLInputElement | null>(null);
   const focusRequest = useSidebarSearchStore((state) => state.focusRequest);
   useEffect(() => {
@@ -243,7 +216,6 @@ export function WorkColumn() {
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [spacesExpanded, setSpacesExpanded] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
-  const [_scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
 
   const { items, isLoading } = useRecentWorkItems();
   const { channels } = useChannels();
@@ -256,14 +228,11 @@ export function WorkColumn() {
     const task = pathname.match(/\/tasks\/([^/]+)$/);
     return task ? `task:${task[1]}` : null;
   }, [pathname]);
-  // The space is only "where you are" while a page of it is on screen.
   const activeChannelId = pathname.startsWith("/spaces/")
     ? currentChannelId
     : null;
 
   const needle = query.trim().toLowerCase();
-  // The same controls, reading the same store, as a space's own session list:
-  // a choice made in one list is the choice in the other.
   const filters = useSidebarStore((state) => state.channelItemFilters);
   const setFilters = useSidebarStore((state) => state.setChannelItemFilters);
   const sort = useSidebarStore((state) => state.channelItemSort);
@@ -289,14 +258,8 @@ export function WorkColumn() {
     [items],
   );
   const matchingItems = useMemo(() => {
-    // Sessions and canvases in one list. They sort together by activity, so a
-    // day holds whatever you touched that day rather than all of one kind and
-    // then all of the other.
     const all = items.map((entry) => entry.item);
     const filtered = filterChannelItems(all, { query, filters, me });
-    // Recent crosses every space, and every space's pins at the top of one
-    // list is a pile nobody asked for. The Pinned filter still finds them;
-    // they just sit under the day they were last touched.
     const unpinned = filtered.map((item) =>
       item.pinned ? { ...item, pinned: false } : item,
     );
@@ -318,8 +281,6 @@ export function WorkColumn() {
     },
     [channelByKey, spaceNameById],
   );
-  // The same sections a space's own list draws: the pins, then whatever the
-  // Group by choice says — days, repositories, or the spaces Recent spans.
   const sections = useMemo(
     () =>
       groupChannelItems(
@@ -331,8 +292,6 @@ export function WorkColumn() {
       ),
     [matchingItems, sort, dayStart, grouping, spaceOf],
   );
-  // #me leads, then the starred spaces in the list's own (name) order. The
-  // search box sits in Recent and narrows Recent; the spaces stay whole.
   const starredSpaces = useMemo(
     () => [
       ...channels.filter((c) => c.channelType === "personal"),
@@ -341,9 +300,6 @@ export function WorkColumn() {
     [channels],
   );
 
-  // One project-wide query for every starred row's faces, the same one the
-  // legacy space list used: presence here is who has been working in a space,
-  // not a membership list.
   const presenceBySpace = useSpacePresence();
   const { togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
@@ -392,15 +348,8 @@ export function WorkColumn() {
     [archiveTask, channelByKey, setCanvasPinned, togglePin],
   );
 
-  // A search is the user asking for everything that matches, so it opens the
-  // list rather than making them expand it first.
-  // The column answers the click; the rows catch up. Expanding turns five rows
-  // into every row you have touched, which is enough work that doing it
-  // urgently left the caret frozen until the list had been built.
   const showAllRecent = useDeferredValue(recentExpanded || needle !== "");
   const recentRebuilding = showAllRecent !== (recentExpanded || needle !== "");
-  // The cap is on rows, not on sections: a section is cut where the cap falls
-  // and the ones past it drop, so a collapsed list reads like the open one.
   const shownSections = useMemo(() => {
     if (showAllRecent) return sections;
     const out: typeof sections = [];
@@ -426,10 +375,8 @@ export function WorkColumn() {
     [shownItems, starredSpaces],
   );
 
-  const spaceNameFor = (item: ChannelItemModel): string | undefined => {
-    const channelId = channelByKey.get(item.key);
-    return channelId ? spaceNameById.get(channelId) : undefined;
-  };
+  const spaceNameFor = (item: ChannelItemModel): string | undefined =>
+    spaceOf(item)?.label;
 
   const menuFor = (item: ChannelItemModel): TaskRowMenuProps => ({
     kind: item.kind,
@@ -445,8 +392,6 @@ export function WorkColumn() {
   return (
     <Autocomplete<string>
       inline
-      // Pinned open: this list is the pane itself, and a closed combobox stops
-      // answering the arrow keys.
       open
       items={optionValues}
       filter={null}
@@ -464,15 +409,11 @@ export function WorkColumn() {
         <ChromeBar>
           <h2 className="font-bold text-base">Work</h2>
         </ChromeBar>
-        <AutocompleteList
-          ref={setScrollRoot}
-          className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !px-2 !pt-2 !pb-2 min-h-0 flex-1 scroll-py-8 flex-col gap-px overflow-y-auto"
-        >
+        <AutocompleteList className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !px-2 !pt-2 !pb-2 min-h-0 flex-1 scroll-py-8 flex-col gap-px overflow-y-auto">
           <SectionHeading
             label="Recent"
             expanded={recentOpen}
             onToggle={() => setRecentOpen((value) => !value)}
-            trailing={null}
           />
           {recentOpen && (
             <div className="flex items-center gap-1 px-1 pt-0.5 pb-1.5">
@@ -499,9 +440,6 @@ export function WorkColumn() {
                 onEditAppearance={() => setAppearanceOpen(true)}
                 sources={sources}
                 showCreatedBy
-                // A canvas has no run, so a run filter narrows the list to
-                // the sessions that answer it — which is what asking about a
-                // status means.
                 showRunFilters
                 showKindFilter
                 groupings={["date", "space", "repository"]}
@@ -532,11 +470,6 @@ export function WorkColumn() {
                 {shownSections.map((section, index) => (
                   <Fragment key={section.key}>
                     {section.label && (
-                      // A day sits at the rows' own left edge, so the list has
-                      // one margin rather than two. A hairline above it is
-                      // what separates the groups; the label itself stays
-                      // sentence case, which is what keeps it from reading as
-                      // another section heading.
                       <div
                         className={cn(
                           "px-2 pb-1 font-medium text-[11px] text-muted-foreground",

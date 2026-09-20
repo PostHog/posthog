@@ -45,10 +45,6 @@ export function WebsiteDashboardsIndex({
   variant = "page",
 }: {
   channelId: string;
-  /**
-   * `work`: the Canvases tab of the Work layout. One header line (count, new
-   * canvas), pinned canvases first as their own group, pin in the card menu.
-   */
   variant?: "page" | "work";
 }) {
   const { dashboards, isLoading } = useDashboards(channelId);
@@ -154,7 +150,6 @@ export function WebsiteDashboardsIndex({
   );
 }
 
-/** A canvas carries its author as a name and a uuid, which is enough for a face. */
 function canvasAuthor(summary: DashboardRecord): AvatarPerson | null {
   if (summary.createdByUser) return summary.createdByUser;
   if (!summary.createdBy && !summary.createdByUuid) return null;
@@ -179,7 +174,6 @@ const DashboardCard = memo(function DashboardCard({
   summary: DashboardRecord;
   templateLabel: string;
   canPin?: boolean;
-  /** The Canvases tab: one meta line under the name instead of three. */
   compactMeta?: boolean;
 }) {
   // Inside its delete-undo window the card stays in the grid (Undo puts it
@@ -223,8 +217,6 @@ const DashboardCard = memo(function DashboardCard({
               {!compactMeta && <Badge>{templateLabel}</Badge>}
             </div>
             {compactMeta ? (
-              // One line: what kind, when it moved, whose it is. Three stacked
-              // lines of metadata out-measured the name they belong to.
               <Text size="xxs" variant="muted" className="truncate">
                 {templateLabel} · updated{" "}
                 {formatRelativeTimeShort(summary.updatedAt)}
@@ -256,11 +248,6 @@ const DashboardCard = memo(function DashboardCard({
   );
 });
 
-/**
- * The card's preview: the canvas's own published output, scaled into the
- * frame. It had been a placeholder since the rendered output moved into a
- * build artifact and nothing was wired back up to it.
- */
 function PreviewFrame({ dashboardId }: { dashboardId: string }) {
   return (
     <div className="relative h-44 overflow-hidden border-border border-b bg-muted">
@@ -278,7 +265,6 @@ function DashboardCardMenu({
   id: string;
   name: string;
   channelId: string;
-  /** Present where the menu offers pinning; the grid's own tab does. */
   pinned?: boolean;
 }) {
   const [open, setOpen] = useState(false);

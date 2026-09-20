@@ -21,13 +21,6 @@ import {
 } from "@posthog/ui/primitives/OverflowTickerText";
 import { type DragEvent, useCallback } from "react";
 
-/**
- * One line in the Work column's Recent list: what state it is in, what it is
- * called, and — once the pointer is on it — when you last touched it.
- *
- * The marks are the session list's own (`taskDot`), so a row here and the same
- * session in its space say the same thing about it.
- */
 export function WorkItemRow({
   item,
   menu,
@@ -39,26 +32,15 @@ export function WorkItemRow({
 }: {
   item: ChannelItemModel;
   menu: TaskRowMenuProps;
-  /** The list crosses every space, so a row can say which one it is in. */
   spaceName: string | undefined;
-  /** Travels with a dragged canvas, which is filed to a space. */
   channelId: string | undefined;
   isActive: boolean;
-  /** So a face can say "you" rather than name you to yourself. */
   currentUserUuid: string | undefined;
   onOpen: () => void;
 }) {
-  // No PR lookup: that is a query into git per row, and this list spans every
-  // space the viewer has.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
-  // Whatever the list appearance settings ask each row to carry.
   const subtitle = useChannelItemMetadata(item, spaceName);
-  // The session lists' own overflow behaviour: a name too long to fit tickers
-  // under the pointer rather than stopping at an ellipsis nobody can read past.
   const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
-  // A row is a thing you can drop into a tile or the command centre, and it
-  // carries the same payload the space lists' rows do — the drop targets read
-  // one format, so a row writing another is simply not droppable.
   const handleDragStart = useCallback(
     (event: DragEvent<HTMLElement>) => {
       if (item.kind === "canvas") {
@@ -70,8 +52,6 @@ export function WorkItemRow({
         return;
       }
       writeTaskDragData(event.dataTransfer, item.id);
-      // Both: a tile asks for `copy` and the pinned run asks for `move`, and a
-      // source permitting only one resolves the other pairing to no drop.
       event.dataTransfer.effectAllowed = "copyMove";
     },
     [channelId, item.id, item.kind, item.title],

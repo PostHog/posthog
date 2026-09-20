@@ -113,7 +113,6 @@ export function taskMetadataSegments(
   >,
   creatorName: string | undefined,
   fields: readonly ListItemMetadataField[],
-  /** Only a list that crosses spaces has one to name. */
   spaceName?: string,
 ): ListItemMetadataSegment[] {
   return listItemMetadataSegments(

@@ -1,9 +1,5 @@
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 
-/**
- * The new session page's headline: what you are doing, and where. The space
- * is the only interactive part, in the headline's own type.
- */
 export function NewSessionHeading({
   channelId,
   onChangeSpace,
@@ -14,8 +10,6 @@ export function NewSessionHeading({
   disabled?: boolean;
 }) {
   return (
-    // The gap below has to beat the gap between the headline's own two lines,
-    // or the controls under it read as a third line of the sentence.
     <div className="mb-5 flex flex-col font-semibold text-[26px] leading-tight tracking-tight">
       <span>Start a new session</span>
       <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-muted-foreground">

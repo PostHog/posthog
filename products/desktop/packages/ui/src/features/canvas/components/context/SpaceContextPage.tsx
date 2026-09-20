@@ -37,8 +37,6 @@ import { KnowledgeList } from "./KnowledgeList";
 import { MarkdownFileDialog } from "./MarkdownFileDialog";
 
 const COLUMN = "mx-auto w-full max-w-[1100px] px-8";
-// Under the tab strip the content spans the pane at the tabs' own inset, so a
-// section's action lands at the same right edge as the page's own.
 const TAB_COLUMN = "w-full px-6";
 
 interface SpaceContextPageProps {
@@ -46,7 +44,6 @@ interface SpaceContextPageProps {
   channelName: string;
   store: ContextDocumentStore;
   wikiPath: string | null;
-  /** The page sits under a tab strip that already says "Context". */
   hideTitle?: boolean;
   onOpenInWiki?: () => void;
 }
@@ -126,7 +123,6 @@ export function SpaceContextPage({
     );
   };
 
-  // Everything under the page's chrome, shared by both header shapes.
   const body = (
     <>
       {store.isLoading ? <LoadingState className="flex-1" /> : null}
@@ -246,9 +242,6 @@ export function SpaceContextPage({
     </>
   );
 
-  // Under a tab strip that already says "Context" there is no title to stack
-  // under, so the page's one line of chrome carries the purpose on the left and
-  // the actions on the right rather than a header block with an empty row in it.
   if (hideTitle) {
     return (
       <div className="flex h-full flex-col overflow-hidden">

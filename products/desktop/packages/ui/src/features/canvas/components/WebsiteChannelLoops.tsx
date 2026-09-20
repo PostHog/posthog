@@ -107,7 +107,6 @@ function SpaceAttachedLoops({
       () => <ChannelHeader channelId={channelId} page="loops" />,
       [channelId],
     ),
-    // The tabbed space page names the tab.
     !workLayout,
   );
 

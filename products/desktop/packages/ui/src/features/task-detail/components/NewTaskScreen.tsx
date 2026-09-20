@@ -12,9 +12,7 @@ import { useRouterState } from "@tanstack/react-router";
 /**
  * The unscoped new-task screen, wired to the router's prefill. Two routes reach
  * it: `/new`, and `/` for anyone without the spaces layout, whose landing
- * screen this has always been. Under the Work layout it is what every new tab
- * opens on, headed by a space picker: choosing one moves to that space's own
- * new-session route.
+ * screen this has always been.
  */
 export function NewTaskScreen() {
   const view = useAppView();
@@ -24,7 +22,6 @@ export function NewTaskScreen() {
     select: (state) => state.location.state.tabId,
   });
   const sessionId = getTaskInputSessionId(tabId);
-  // Nothing to name in the chrome bar: the headline is the page's title.
   useSetHeaderContent(null, workLayout);
 
   if (!tabId) return null;

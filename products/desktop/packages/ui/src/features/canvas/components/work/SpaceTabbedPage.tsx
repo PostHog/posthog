@@ -37,8 +37,6 @@ export type SpaceTab =
   | "loops"
   | "settings";
 
-// Activity leads and owns the space's root: what happened here is what you
-// came for, and context is what you check.
 const TABS: readonly { key: SpaceTab; label: string; segment: string }[] = [
   { key: "activity", label: "Activity", segment: "" },
   { key: "context", label: "Context", segment: "/context" },
@@ -80,18 +78,8 @@ function SpaceStar({ channel }: { channel: Channel }) {
   );
 }
 
-/**
- * The inset every space tab's content starts at, so moving between tabs never
- * shifts the left edge under the reader.
- */
 export const SPACE_TAB_INSET = "px-6";
 
-/**
- * The fixed part of every space page under the Work layout: the space's name
- * in the app's own chrome bar — the same bar every other screen titles itself
- * in — and the tab strip under it. Identical on all five tabs, so only the
- * underline and the body change as you move between them.
- */
 export function SpaceTabbedPage({
   channelId,
   tab,
@@ -107,32 +95,21 @@ export function SpaceTabbedPage({
   const channel = channels.find((c) => c.id === channelId);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   useMarkChannelSeen(channelId);
-  // Both halves of the Context tab's read, held open for as long as the space
-  // is. That tab's own lookups refetch on mount, so without a copy here the
-  // first visit paints a spinner while two requests go out in sequence.
   const contextLayerEnabled = useContextLayerFlag();
   const contextPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
   useContextWikiPage(contextPage.data?.path ?? "");
   const tabs = loopsEnabled ? TABS : TABS.filter((t) => t.key !== "loops");
   const base = `/spaces/${channelId}`;
 
-  // Warm every sibling's route the moment the space opens. There are four of
-  // them and each is split into its own chunk, so without this the first visit
-  // to a tab pays for a fetch before it can paint.
   useEffect(() => {
     for (const entry of tabs) {
       void router.preloadRoute({ to: `${base}${entry.segment}` });
     }
   }, [base, router, tabs]);
 
-  // The space's name goes where every other screen puts its title, rather than
-  // into a header of this page's own invention.
   useSetHeaderContent(
     useMemo(
       () => (
-        // Only this page's own title: the bar insets for a leading control,
-        // and this page wants its name over its tab strip. Widening the bar
-        // itself would move every other screen's title with it.
         <div className="flex min-w-0 items-center gap-1.5 pl-5">
           <span className="shrink-0 text-muted-foreground">
             {channelGlyph(channel?.name, {
@@ -175,7 +152,6 @@ export function SpaceTabbedPage({
               <TabsTrigger
                 key={entry.key}
                 value={entry.key}
-                // Belt and braces for a tab added while the page is open.
                 onPointerEnter={() => {
                   void router.preloadRoute({
                     to: `${base}${entry.segment}`,

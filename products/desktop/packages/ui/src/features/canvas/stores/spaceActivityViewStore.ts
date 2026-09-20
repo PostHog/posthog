@@ -8,17 +8,8 @@ import {
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-/** How the space's log draws a row: one line, or the card it has always been. */
 export type SpaceActivityView = "list" | "cards";
 
-/**
- * How a space's Activity tab is shown. Its own state rather than the Work
- * column's: the column is every space at once and the tab is one space, so a
- * repository filter that makes sense in one is noise in the other.
- *
- * Grouping here has no space option for the same reason — every row in a
- * space's log is in that space.
- */
 interface SpaceActivityViewState {
   view: SpaceActivityView;
   filters: ChannelItemFilters;

@@ -16,7 +16,6 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
     () => <ChannelHeader channelId={channelId} page="context" />,
     [channelId],
   );
-  // The tabbed space page names the tab; the breadcrumb would say it twice.
   useSetHeaderContent(headerContent, !workLayout);
 
   return (

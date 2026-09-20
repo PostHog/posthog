@@ -261,19 +261,11 @@ function NavRailImpl() {
         return;
       }
       if (workLayout) {
-        // Work shows its column and Activity opens the notification center;
-        // neither moves the tab you are in.
         if (destination.pane === "activity") {
           toggleWorkActivity();
           return;
         }
-        // Every other destination stands the notification column down first:
-        // it covers the column they are asking for, so leaving it up is a
-        // click that appears to do nothing.
         closeWorkActivity();
-        // Work only withholds navigation while you are already inside it,
-        // where the column sits beside what you are reading. From anywhere
-        // else the pick has to travel, or the click does nothing at all.
         if (destination.pane === "spaces" && railPaneFoldsIntoWork(railPane)) {
           showWorkColumn();
           return;
@@ -315,8 +307,6 @@ function NavRailImpl() {
     const onClick = pick(destination);
 
     if (pane === "activity") {
-      // The bell keeps its peek: hovering shows the feed, clicking opens the
-      // column, and the card stands down once that column is on screen.
       return (
         <ActivityNavItem
           key={pane}

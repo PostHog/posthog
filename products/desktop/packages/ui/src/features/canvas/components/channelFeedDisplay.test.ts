@@ -12,9 +12,6 @@ function task(id: string, repository: string | null): FeedEntry {
 
 describe("buildFeedSections", () => {
   it("gives a group one section however often the list returns to it", () => {
-    // An activity-sorted log reaches the same repository again and again. Run
-    // detection emitted a heading each time, so one repository appeared twice
-    // with its rows split between the copies.
     const sections = buildFeedSections(
       [
         task("a", "posthog/posthog"),

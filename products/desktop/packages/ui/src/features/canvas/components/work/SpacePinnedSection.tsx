@@ -7,23 +7,13 @@ import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
 import { useMemo } from "react";
 
-/** How many pinned rows the block keeps before it would own the column. */
 const MAX_ROWS = 8;
 
-/**
- * The sessions a space keeps at hand.
- *
- * Pinning survived the Work layout but its shelf did not — the space's own
- * list, where a Pinned group sat above the days, is gone. Canvases are not
- * here: the Canvases tab already leads with the pinned ones, and a second copy
- * would be two places to unpin from.
- */
 export function SpacePinnedSection({
   channelId,
   tasks,
 }: {
   channelId: string;
-  /** The space's feed, already loaded by the tab around this. */
   tasks: Task[];
 }) {
   const { pinnedTaskIds } = usePinnedTasks();

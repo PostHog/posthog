@@ -236,13 +236,11 @@ export type EnvironmentFilter = "any" | ChannelItemEnvironment;
 export type SourceFilter = string;
 export type ChannelItemSort = "recent" | "created" | "alpha";
 
-/** A list that holds both kinds can be narrowed to one of them. */
 export type KindFilter = "any" | "task" | "canvas";
 
 export const ANY_SOURCE = "any";
 
 export interface ChannelItemFilters {
-  /** Which kind of thing the list shows: both, sessions only, canvases only. */
   kind: KindFilter;
   createdBy: CreatedByFilter;
   attention: AttentionFilter;
@@ -418,11 +416,6 @@ export function groupChannelItems(
   sort: ChannelItemSort,
   now: Date = new Date(),
   grouping: ChannelItemGrouping = DEFAULT_CHANNEL_ITEM_GROUPING,
-  /**
-   * The space a row belongs to, for the space grouping. A row does not carry
-   * its space — a space's own list has only one — so the surface that spans
-   * several supplies the answer.
-   */
   spaceOf?: (item: ChannelItemModel) => ChannelItemGroupKey | null,
 ): ChannelItemSection[] {
   const sections: ChannelItemSection[] = [];
@@ -463,43 +456,66 @@ export function groupChannelItems(
   return sections;
 }
 
-/** A group's stable key and the heading it draws. */
 export interface ChannelItemGroupKey {
   key: string;
   label: string;
 }
 
 /** The repository a row belongs under, or null where it names none. */
-const NO_REPOSITORY_KEY = "repo:none";
-
-const NO_SPACE_KEY = "space:none";
-
-/**
- * One section per space, in the order the sorted list first reaches each one,
- * so a space-grouped list still opens on the most recent work. Rows whose
- * space could not be resolved run together at the end, as the unnamed
- * repositories do.
- */
-function spaceSections(
+function keyedSections(
   items: readonly ChannelItemModel[],
-  spaceOf: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+  resolve: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+  fallback: ChannelItemGroupKey,
 ): ChannelItemSection[] {
-  const bySpace = new Map<string, ChannelItemSection>();
+  const byKey = new Map<string, ChannelItemSection>();
   for (const item of items) {
-    const space = spaceOf(item);
-    const key = space ? `space:${space.key}` : NO_SPACE_KEY;
-    const label = space?.label ?? "No space";
-    const open = bySpace.get(key);
+    const group = resolve(item) ?? fallback;
+    const open = byKey.get(group.key);
     if (open) {
       open.items.push(item);
       continue;
     }
-    bySpace.set(key, { key, label, items: [item] });
+    byKey.set(group.key, { key: group.key, label: group.label, items: [item] });
   }
+  const sections = [...byKey.values()];
+  return [
+    ...sections.filter((s) => s.key !== fallback.key),
+    ...sections.filter((s) => s.key === fallback.key),
+  ];
+}
 
-  const sections = [...bySpace.values()];
-  const unnamed = sections.filter((s) => s.key === NO_SPACE_KEY);
-  return [...sections.filter((s) => s.key !== NO_SPACE_KEY), ...unnamed];
+const NO_REPOSITORY: ChannelItemGroupKey = {
+  key: "repo:none",
+  label: "No repository",
+};
+
+const NO_SPACE: ChannelItemGroupKey = { key: "space:none", label: "No space" };
+
+function repositorySections(
+  items: readonly ChannelItemModel[],
+): ChannelItemSection[] {
+  return keyedSections(
+    items,
+    (item) =>
+      item.repository
+        ? { key: `repo:${item.repository.key}`, label: item.repository.label }
+        : null,
+    NO_REPOSITORY,
+  );
+}
+
+function spaceSections(
+  items: readonly ChannelItemModel[],
+  spaceOf: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+): ChannelItemSection[] {
+  return keyedSections(
+    items,
+    (item) => {
+      const space = spaceOf(item);
+      return space ? { key: `space:${space.key}`, label: space.label } : null;
+    },
+    NO_SPACE,
+  );
 }
 
 /**
@@ -509,24 +525,3 @@ function spaceSections(
  * repository are a run of their own at the end, where they don't interrupt the
  * named ones.
  */
-function repositorySections(
-  items: readonly ChannelItemModel[],
-): ChannelItemSection[] {
-  const byRepo = new Map<string, ChannelItemSection>();
-  for (const item of items) {
-    const key = item.repository
-      ? `repo:${item.repository.key}`
-      : NO_REPOSITORY_KEY;
-    const label = item.repository?.label ?? "No repository";
-    const open = byRepo.get(key);
-    if (open) {
-      open.items.push(item);
-      continue;
-    }
-    byRepo.set(key, { key, label, items: [item] });
-  }
-
-  const sections = [...byRepo.values()];
-  const unnamed = sections.filter((s) => s.key === NO_REPOSITORY_KEY);
-  return [...sections.filter((s) => s.key !== NO_REPOSITORY_KEY), ...unnamed];
-}
