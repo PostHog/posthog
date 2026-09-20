@@ -10,6 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     CHART_WINDOW_DAYS,
     COINGECKO_ENDPOINTS,
     DEFAULT_HISTORY_DAYS,
+    EXCHANGE_RATES_ENDPOINT,
+    GLOBAL_CHART_DAYS_OPTIONS,
+    GLOBAL_MARKET_CAP_CHART_ENDPOINT,
     MARKET_CHART_ENDPOINT,
     MAX_COINS,
     MINIMUM_START_DATE,
@@ -69,6 +72,9 @@ _RATE_LIMIT_RESPONSE_ACTIONS: list[ResponseAction] = [
 
 # Column each of the three parallel series in a market chart response lands in.
 _MARKET_CHART_SERIES = {"prices": "price", "market_caps": "market_cap", "total_volumes": "total_volume"}
+
+# The global market cap chart answers with two parallel series already named as we want the columns.
+_GLOBAL_CHART_SERIES = {"market_cap": "market_cap", "volume": "volume"}
 
 _OHLC_COLUMNS = ("open", "high", "low", "close")
 
@@ -229,28 +235,61 @@ def _ticker_row(row: dict[str, Any], coin_id: str) -> dict[str, Any]:
     return ticker
 
 
-def _market_chart_rows(page: list[Any], coin_id: str) -> list[dict[str, Any]]:
-    """Zip the three parallel ``[timestamp, value]`` series into one row per timestamp.
+def _single_object_body(page: list[Any], expected: str) -> dict[str, Any]:
+    """These endpoints answer with a single object, which the client hands over as a one-item page.
+    Anything else is a changed response shape rather than a row."""
+    if len(page) == 1 and isinstance(page[0], dict):
+        return page[0]
+    raise ValueError(f"Required {expected}. The API response shape may have changed.")
 
-    ``/coins/{id}/market_chart/range`` answers with a single object, which the client hands over as
-    a one-item page."""
-    body = page[0] if len(page) == 1 and isinstance(page[0], dict) else None
-    if body is None:
-        raise ValueError(
-            "Required a market chart object carrying price, market cap and volume series. "
-            "The API response shape may have changed."
-        )
 
+def _zip_series(body: dict[str, Any], series: dict[str, str], base: dict[str, Any]) -> list[dict[str, Any]]:
+    """Zip parallel ``[timestamp, value]`` series into one row per timestamp, ordered ascending."""
     rows: dict[datetime, dict[str, Any]] = {}
-    for key, column in _MARKET_CHART_SERIES.items():
+    for key, column in series.items():
         for point in body.get(key) or []:
             if not isinstance(point, list) or len(point) < 2:
                 continue
             timestamp = _from_millis(point[0])
             if timestamp is None:
                 continue
-            rows.setdefault(timestamp, {"coin_id": coin_id, "timestamp": timestamp})[column] = point[1]
+            rows.setdefault(timestamp, {**base, "timestamp": timestamp})[column] = point[1]
     return [rows[timestamp] for timestamp in sorted(rows)]
+
+
+def _market_chart_rows(page: list[Any], coin_id: str) -> list[dict[str, Any]]:
+    body = _single_object_body(page, "a market chart object carrying price, market cap and volume series")
+    return _zip_series(body, _MARKET_CHART_SERIES, {"coin_id": coin_id})
+
+
+def _global_market_cap_chart_rows(page: list[Any]) -> list[dict[str, Any]]:
+    body = _single_object_body(page, "a global market cap chart object carrying market cap and volume series")
+    return _zip_series(body, _GLOBAL_CHART_SERIES, {})
+
+
+def _exchange_rate_rows(page: list[Any]) -> list[dict[str, Any]]:
+    """Flatten the ``rates`` object, which is keyed by currency code rather than being a row list,
+    into a row per currency with the code as its id."""
+    body = _single_object_body(page, "an exchange rates object keyed by currency code")
+    return [{"id": code, **rate} for code, rate in body.items() if isinstance(rate, dict)]
+
+
+def _global_chart_days(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> str:
+    """Pick the smallest `days` window that still covers everything since the watermark.
+
+    The endpoint takes no from/to range, so the window is how far back an incremental run reads.
+    The day holding the watermark is re-read rather than skipped: it was still moving when it first
+    landed, and merge dedupes the overlap.
+    """
+    last_value = _coerce_date(db_incremental_field_last_value) if should_use_incremental_field else None
+    if last_value is None:
+        return "max"
+
+    days_since = (datetime.now(UTC).date() - last_value).days + 1
+    for option in GLOBAL_CHART_DAYS_OPTIONS:
+        if option != "max" and days_since <= int(option):
+            return option
+    return "max"
 
 
 def _ohlc_rows(page: list[Any], coin_id: str) -> list[dict[str, Any]]:
@@ -271,6 +310,13 @@ def _ohlc_rows(page: list[Any], coin_id: str) -> list[dict[str, Any]]:
 _CHART_ROW_BUILDERS: dict[str, Callable[[list[Any], str], list[dict[str, Any]]]] = {
     MARKET_CHART_ENDPOINT: _market_chart_rows,
     OHLC_ENDPOINT: _ohlc_rows,
+}
+
+# Top-level endpoints whose body is a single object rather than a row list, keyed to the builder
+# that reshapes it. Membership also routes them away from the declarative top-level path.
+_TOP_LEVEL_ROW_BUILDERS: dict[str, Callable[[list[Any]], list[dict[str, Any]]]] = {
+    GLOBAL_MARKET_CAP_CHART_ENDPOINT: _global_market_cap_chart_rows,
+    EXCHANGE_RATES_ENDPOINT: _exchange_rate_rows,
 }
 
 
@@ -314,20 +360,22 @@ def _ticker_pages(
             yield [_ticker_row(row, coin_id) for row in page]
 
 
-def _fetch_window(
+def _fetch_single_page(
     client: RESTClient,
-    config: CoinGeckoEndpointConfig,
-    coin_id: str,
+    path: str,
     params: dict[str, Any],
+    data_selector: Optional[str],
     hooks: Optional[dict[str, Any]],
+    data_selector_required: bool = False,
 ) -> list[Any]:
-    # A window is one request, so the paginator yields at most one page. Walked with a loop rather
-    # than next(): a StopIteration escaping into the calling generator surfaces as a RuntimeError.
+    # One request, so the paginator yields at most one page. Walked with a loop rather than next():
+    # a StopIteration escaping into the calling generator surfaces as a RuntimeError.
     for page in client.paginate(
-        path=config.path.format(coin_id=coin_id),
+        path=path,
         params=params,
         paginator=SinglePagePaginator(),
-        data_selector=config.data_selector,
+        data_selector=data_selector,
+        data_selector_required=data_selector_required,
         hooks=hooks,
     ):
         return page
@@ -380,7 +428,8 @@ def _chart_pages(
         # A window is one daily point per coin per day, so it stays small enough to hold.
         window_rows: list[dict[str, Any]] = []
         for coin_id in coins:
-            window_rows.extend(build_rows(_fetch_window(client, config, coin_id, params, hooks), coin_id))
+            page = _fetch_single_page(client, config.path.format(coin_id=coin_id), params, config.data_selector, hooks)
+            window_rows.extend(build_rows(page, coin_id))
 
         if window_rows:
             yield window_rows
@@ -431,6 +480,56 @@ def _per_coin_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[config.date_field],
+        sort_mode="asc",
+    )
+
+
+def _reshaped_pages(
+    client: RESTClient,
+    config: CoinGeckoEndpointConfig,
+    params: dict[str, Any],
+    build_rows: Callable[[list[Any]], list[dict[str, Any]]],
+) -> Iterator[list[dict[str, Any]]]:
+    hooks = create_response_hooks(_RATE_LIMIT_RESPONSE_ACTIONS, resource_name=config.name)
+    page = _fetch_single_page(client, config.path, params, config.data_selector, hooks, data_selector_required=True)
+    rows = build_rows(page)
+    if rows:
+        yield rows
+
+
+def _reshaped_top_level_source(
+    plan: str,
+    api_key: str,
+    config: CoinGeckoEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> SourceResponse:
+    client = _rest_client(plan, api_key)
+    build_rows = _TOP_LEVEL_ROW_BUILDERS[config.name]
+    params: dict[str, Any] = dict(config.extra_params)
+
+    if config.date_field is None:
+        return SourceResponse(
+            name=config.name,
+            items=lambda: _reshaped_pages(client, config, params, build_rows),
+            primary_keys=config.primary_keys,
+            # A rate snapshot carries no stable created_at to partition on.
+            partition_count=None,
+            partition_size=None,
+        )
+
+    # The endpoint takes a relative `days` window instead of a from/to range, so an incremental run
+    # narrows that window rather than moving a cursor.
+    params["days"] = _global_chart_days(should_use_incremental_field, db_incremental_field_last_value)
+    return SourceResponse(
+        name=config.name,
+        items=lambda: _reshaped_pages(client, config, params, build_rows),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -525,6 +624,15 @@ def coingecko_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = COINGECKO_ENDPOINTS[endpoint]
+
+    if config.name in _TOP_LEVEL_ROW_BUILDERS:
+        return _reshaped_top_level_source(
+            plan=plan,
+            api_key=api_key,
+            config=config,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
 
     if config.per_coin:
         return _per_coin_source(
