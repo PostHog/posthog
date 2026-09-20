@@ -6,13 +6,11 @@ import { LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@post
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -462,11 +460,10 @@ export function AIObservabilityScene(): JSX.Element {
 }
 
 function AIObservabilitySceneContent(): JSX.Element {
-    const { activeTab, featureFlags } = useValues(aiObservabilitySharedLogic)
+    const { activeTab } = useValues(aiObservabilitySharedLogic)
     const { searchParams } = useValues(router)
 
     const { push } = useActions(router)
-    const selfDrivingEnabled = Boolean(featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING])
 
     // Tab switching shortcuts
     useShortcut({
@@ -488,49 +485,27 @@ function AIObservabilitySceneContent(): JSX.Element {
     useShortcut({
         name: 'AIObservabilityTab3',
         keybind: [keyBinds.tab3],
-        intent: selfDrivingEnabled ? 'Go to Self-driving' : 'Go to Generations',
+        intent: 'Go to Self-driving',
         interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilitySelfDriving() : urls.aiObservabilityGenerations(),
-                    searchParams
-                ).url
-            ),
+        callback: () => push(combineUrl(urls.aiObservabilitySelfDriving(), searchParams).url),
         scope: Scene.AIObservability,
     })
     useShortcut({
         name: 'AIObservabilityTab4',
         keybind: [keyBinds.tab4],
-        intent: selfDrivingEnabled ? 'Go to Generations' : 'Go to Users',
+        intent: 'Go to Generations',
         interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilityGenerations() : urls.aiObservabilityUsers(),
-                    searchParams
-                ).url
-            ),
+        callback: () => push(combineUrl(urls.aiObservabilityGenerations(), searchParams).url),
         scope: Scene.AIObservability,
     })
     useShortcut({
         name: 'AIObservabilityTab5',
         keybind: [keyBinds.tab5],
-        intent: selfDrivingEnabled ? 'Go to Sessions' : 'Go to Errors',
+        intent: 'Go to Sessions',
         interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilitySessions() : urls.aiObservabilityErrors(),
-                    searchParams
-                ).url
-            ),
+        callback: () => push(combineUrl(urls.aiObservabilitySessions(), searchParams).url),
         scope: Scene.AIObservability,
     })
-
-    if (activeTab === 'self-driving' && !selfDrivingEnabled) {
-        return <NotFound object="page" />
-    }
 
     const tabs: LemonTab<string>[] = [
         {
@@ -548,6 +523,20 @@ function AIObservabilitySceneContent(): JSX.Element {
             'data-attr': 'traces-tab',
         },
         {
+            key: 'self-driving',
+            label: (
+                <>
+                    Self-driving{' '}
+                    <LemonTag type="completion" size="small" className="ml-1">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            content: <AIObservabilitySelfDriving />,
+            link: combineUrl(urls.aiObservabilitySelfDriving(), searchParams).url,
+            'data-attr': 'self-driving-tab',
+        },
+        {
             key: 'generations',
             label: 'Generations',
             content: <AIObservabilityGenerations />,
@@ -562,23 +551,6 @@ function AIObservabilitySceneContent(): JSX.Element {
             'data-attr': 'users-tab',
         },
     ]
-
-    if (selfDrivingEnabled) {
-        tabs.splice(2, 0, {
-            key: 'self-driving',
-            label: (
-                <>
-                    Self-driving{' '}
-                    <LemonTag type="completion" size="small" className="ml-1">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            content: <AIObservabilitySelfDriving />,
-            link: combineUrl(urls.aiObservabilitySelfDriving(), searchParams).url,
-            'data-attr': 'self-driving-tab',
-        })
-    }
 
     tabs.push({
         key: 'errors',
