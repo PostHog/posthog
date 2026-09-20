@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from typing import Any, cast, get_args
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
+from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 
 import requests
@@ -33,7 +33,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.streaming import sse_streaming_response
+from posthog.api.streaming import sse_streaming_response, sse_streaming_supported
 from posthog.event_usage import report_user_action
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1538,8 +1538,9 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller
         can't read. The stream self-terminates once the observation reaches a terminal state.
         """
-        # The generator is `async def` — WSGI can't consume an async iterator, so fail loudly there.
-        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("observation progress stream requires ASGI.")
+        # The generator is `async def`, so only ASGI can consume it. An empty 204 on WSGI leaves the
+        # bar on its time-based fallback, which is what the client already does when no stream arrives.
+        if not sse_streaming_supported():
+            return HttpResponse(status=status.HTTP_204_NO_CONTENT)
         observation = self.get_object()
         return sse_streaming_response(stream_observation_progress(observation), endpoint="replay_vision_observation")

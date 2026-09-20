@@ -9,7 +9,6 @@ import time
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
-from django.conf import settings
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 
@@ -24,7 +23,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.streaming import sse_streaming_response
+from posthog.api.streaming import sse_streaming_response, sse_streaming_supported
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
@@ -308,9 +307,10 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         workflow_id = query.validated_data["workflow_id"]
         skill_id = query.validated_data.get("skill_id") or None
 
-        # The generator is `async def` — WSGI can't consume an async iterator.
-        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("wizard_sessions.stream requires ASGI.")
+        # The generator is `async def`, so only ASGI can consume it. 204 is the same "no stream" answer
+        # the killswitch above gives, which EventSource treats as a clean close.
+        if not sse_streaming_supported():
+            return HttpResponse(status=204)
 
         generator = _wizard_session_event_stream(
             team_id=self.team_id,

@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -409,6 +411,13 @@ class TestWizardSessionViewSet(APIBaseTest):
     def test_stream_killswitch_returns_204(self, _mock_feature_enabled):
         # When the killswitch flag is on, the endpoint short-circuits with a 204
         # before any stream work — a 204 tells EventSource to stop reconnecting.
+        response = self.client.get(f"{self._url()}stream/?workflow_id=onboarding")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    @override_settings(SERVER_GATEWAY_INTERFACE="WSGI")
+    def test_stream_returns_204_on_wsgi(self):
+        # WSGI can't consume the async generator behind the stream. Degrade to the killswitch's
+        # "no stream" answer instead of a 500 on every poll.
         response = self.client.get(f"{self._url()}stream/?workflow_id=onboarding")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
