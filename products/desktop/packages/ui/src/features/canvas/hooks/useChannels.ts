@@ -1,3 +1,4 @@
+import { isGeneralChannel } from "@posthog/core/canvas/channelName";
 import type { TaskChannel, UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { channelMembersQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelMembers";
@@ -29,6 +30,19 @@ export interface Channel {
   autoArchiveAfterDays?: number | null;
   /** Who made the space, where the backend knows. */
   createdBy: UserBasic | null;
+}
+
+/**
+ * The team's provisioned #general space, which the backend refuses to rename or
+ * delete. Goes through the shared identity rule rather than reading
+ * `systemRole` directly, so a server that predates the field still answers.
+ */
+export function isGeneralSpace(channel: Channel): boolean {
+  return isGeneralChannel({
+    system_role: channel.systemRole,
+    channel_type: channel.channelType,
+    name: channel.name,
+  });
 }
 
 const NO_REPOSITORIES: string[] = [];

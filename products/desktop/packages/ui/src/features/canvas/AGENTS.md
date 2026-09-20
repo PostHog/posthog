@@ -122,6 +122,8 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Recognition of a full channel object goes through `isPersonalChannel`/`isGeneralChannel`
   (`@posthog/core/canvas/channelName`), which check `system_role` first and fall back to
   `channel_type`/name for a server that predates the field — never the name alone.
+  The camelCase `Channel` from `useChannels` has `isGeneralSpace` beside it, which adapts to the same rule.
+  A surface that gates on `systemRole === "general"` itself fails open on a server that predates the field, which is how the row menu offered a Delete on #general that the API refuses.
 - **The lock follows what a space is, not what it is called.** `channelGlyph`
   takes a `personal` flag; a caller holding the channel object should pass
   `isPersonalChannel(channel)` rather than `channelType === "personal"` directly, and the
