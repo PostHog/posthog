@@ -25,7 +25,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from social_core.backends.base import BaseAuth
-from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter, AuthStateForbidden, AuthStateMissing
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -2366,6 +2366,18 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 "/complete/saml/",
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
+            ),
+            (
+                "oauth_state_missing",
+                "/complete/google-oauth2/",
+                AuthStateMissing(_social_auth_backend()),
+                "/login?error_code=oauth_state_lost",
+            ),
+            (
+                "oauth_state_forbidden",
+                "/complete/google-oauth2/",
+                AuthStateForbidden(_social_auth_backend()),
+                "/login?error_code=oauth_state_lost",
             ),
         ]
     )
