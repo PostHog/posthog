@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({
     channels: mocks.channels,
