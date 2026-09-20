@@ -65,6 +65,7 @@ from products.feature_flags.backend.api.feature_flag import (
     FeatureFlagSerializer,
     FeatureFlagStatusResponseSerializer,
     _flag_write_source,
+    feature_flag_list_ordering,
     parse_created_by_ids,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -7209,6 +7210,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert web_flags.issubset(matched_keys), f"Expected {web_flags} in {matched_keys}"
         assert "mobile-analytics" not in matched_keys
 
+    def test_flags_created_together_paginate_without_loss_or_repeats(self):
+        keys = [f"tied-flag-{index}" for index in range(6)]
+        for key in keys:
+            FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key)
+        # Bulk creation gives flags the same `created_at`, so the sort has nothing unique to
+        # order the tied rows by.
+        FeatureFlag.objects.filter(key__in=keys).update(created_at=now())
+
+        seen: list[str] = []
+        for offset in range(0, 6, 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/feature_flags/?order=-created_at&limit=2&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            seen.extend(result["key"] for result in response.json()["results"])
+
+        # The tie-break puts the newest flag first, so every page is disjoint and the walk is
+        # complete. Without it Postgres may return a tied row on two pages, or on none.
+        assert seen == list(reversed(keys))
+
     def test_get_flags_with_search_exact_api_case(self):
         """Test the exact case from the user's API call: web%20ana should match web-analytics."""
         # Create the exact flag mentioned by the user
@@ -12118,6 +12139,21 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         # Only 1 from the initial set, none from the no-op update
         entries = self._get_eval_context_activity_entries(flag.id)
         self.assertEqual(len(entries), 1)
+
+
+class TestFeatureFlagListOrdering(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("default", None, ("-created_at", "-id")),
+            ("descending", "-created_at", ("-created_at", "-id")),
+            ("ascending", "key", ("key", "id")),
+            ("already_unique", "-id", ("-id",)),
+        ]
+    )
+    def test_ordering_carries_a_direction_consistent_tiebreak(
+        self, _name: str, order: str | None, expected: tuple[str, ...]
+    ):
+        assert feature_flag_list_ordering(order) == expected
 
 
 class TestFeatureFlagStatusResponseSerializer(SimpleTestCase):

@@ -3273,6 +3273,20 @@ def apply_encrypted_payload_response_form(request: Any, feature_flag_data: dict)
     filters["payloads"] = get_decrypted_flag_payloads_protected(request, filters["payloads"])
 
 
+def feature_flag_list_ordering(order: str | None) -> tuple[str, ...]:
+    """Build the list ordering, with `id` appended so the sort is total.
+
+    Every column the list sorts on can tie: flags created in bulk share a `created_at`, and the
+    rest are mutable. On a tie Postgres may order the rows differently per query, so paging over
+    the collection can return a flag twice or skip it. The tie-break follows the primary key's
+    direction, to keep the sort reading the same way round.
+    """
+    primary = order or "-created_at"
+    if primary.lstrip("-") in ("id", "pk"):
+        return (primary,)
+    return (primary, "-id" if primary.startswith("-") else "id")
+
+
 class FlagLifecycleWriteRequest(ServiceRequest):
     """The request a flag lifecycle action hands to the flag facade.
 
@@ -3498,11 +3512,7 @@ class FeatureFlagViewSet(
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-created_at")
+        queryset = queryset.order_by(*feature_flag_list_ordering(self.request.GET.get("order", None)))
 
         return queryset.select_related("created_by", "last_modified_by")
 
