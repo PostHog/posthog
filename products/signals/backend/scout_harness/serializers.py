@@ -1859,7 +1859,12 @@ class ExternalDataSourceEntrySerializer(serializers.Serializer):
     """One row in `inventory.external_data_sources`."""
 
     source_type = serializers.CharField(help_text="Warehouse source type (e.g. `Stripe`, `Postgres`, `BigQuery`).")
-    status = serializers.CharField(help_text="Current sync status (`Running`, `Failed`, `Paused`, etc.).")
+    status = serializers.CharField(
+        help_text=(
+            "Current sync status (`Running`, `Failed`, `Paused`, `Completed`, etc.), rolled up from "
+            "the source's schemas. This is the same value `external-data-sources-list` reports."
+        )
+    )
     prefix = serializers.CharField(allow_blank=True, help_text="Schema prefix used by this source, if any.")
     created_at = serializers.CharField(
         allow_null=True,
@@ -1870,7 +1875,8 @@ class ExternalDataSourceEntrySerializer(serializers.Serializer):
         help_text=(
             "ISO-8601 timestamp of the most recent completed sync job, or null if this source has "
             "never completed a sync. Use this to tell a healthy source apart from one stuck in "
-            "`Running` that has imported zero rows — `status` alone conflates the two."
+            "`Running` that has imported zero rows — `status` says a sync is in progress, not that "
+            "one ever finished."
         ),
     )
     latest_error = serializers.CharField(

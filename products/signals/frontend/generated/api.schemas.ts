@@ -3508,7 +3508,7 @@ export interface IntegrationEntryApi {
 export interface ExternalDataSourceEntryApi {
     /** Warehouse source type (e.g. `Stripe`, `Postgres`, `BigQuery`). */
     source_type: string
-    /** Current sync status (`Running`, `Failed`, `Paused`, etc.). */
+    /** Current sync status (`Running`, `Failed`, `Paused`, `Completed`, etc.), rolled up from the source's schemas. This is the same value `external-data-sources-list` reports. */
     status: string
     /** Schema prefix used by this source, if any. */
     prefix: string
@@ -3518,7 +3518,7 @@ export interface ExternalDataSourceEntryApi {
      */
     created_at: string | null
     /**
-     * ISO-8601 timestamp of the most recent completed sync job, or null if this source has never completed a sync. Use this to tell a healthy source apart from one stuck in `Running` that has imported zero rows — `status` alone conflates the two.
+     * ISO-8601 timestamp of the most recent completed sync job, or null if this source has never completed a sync. Use this to tell a healthy source apart from one stuck in `Running` that has imported zero rows — `status` says a sync is in progress, not that one ever finished.
      * @nullable
      */
     last_run_at: string | null

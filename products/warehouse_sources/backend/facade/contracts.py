@@ -89,8 +89,10 @@ class ExternalDataSource:
 class ExternalDataSourceHealth:
     """A source's sync health: how it is configured, plus its newest completed run and error.
 
-    `status` alone conflates "sync in progress" with "never succeeded", so a consumer needs
-    `last_run_at` to tell a healthy source from one that has never synced.
+    `status` is rolled up from the source's schemas, the same way the source list and detail
+    endpoints derive it, so the two cannot disagree about one source. It still says nothing about
+    how long a sync has been running, so a consumer needs `last_run_at` to tell a healthy source
+    from one that has never synced.
     """
 
     source_type: str
@@ -99,6 +101,18 @@ class ExternalDataSourceHealth:
     created_at: datetime
     last_run_at: datetime | None
     latest_error: str | None
+
+
+@dataclass(frozen=True)
+class SchemaSyncState:
+    """The part of one schema that decides its source's rolled-up status.
+
+    Input to ``derive_source_status``: every consumer that reports a source's health maps its
+    own schema rows onto this, so they all roll the same decision up the same way.
+    """
+
+    status: str | None
+    should_sync: bool
 
 
 # --- Schema ---

@@ -16,6 +16,9 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
+    ExternalDataSourceSerializers,
+)
 
 
 class TestWarehouseSourcesFacade(BaseTest):
@@ -82,6 +85,53 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert [r.source_type for r in results] == ["Postgres"]
         assert results[0].last_run_at == newest.created_at
         assert results[0].latest_error == "permission denied for table users"
+
+    @parameterized.expand(
+        [
+            ("all_schemas_completed", [(ExternalDataSchema.Status.COMPLETED, True)], "Completed"),
+            (
+                "one_schema_failed",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.FAILED, True)],
+                "Failed",
+            ),
+            (
+                "failed_schema_not_syncing",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.FAILED, False)],
+                "Completed",
+            ),
+            (
+                "one_schema_still_running",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.RUNNING, True)],
+                "Running",
+            ),
+            ("no_schema_state_yet", [(None, True)], "Running"),
+        ]
+    )
+    def test_list_source_health_status_matches_the_source_endpoint(
+        self, _name: str, schemas: list[tuple[str | None, bool]], expected: str
+    ) -> None:
+        # The stale source column says `Running` for the lifetime of the source, so a status read
+        # from it disagrees with what the source list and detail endpoints report.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="Stripe",
+        )
+        for index, (status, should_sync) in enumerate(schemas):
+            ExternalDataSchema.objects.create(
+                team_id=self.team.pk,
+                source=source,
+                name=f"table_{index}",
+                should_sync=should_sync,
+                status=status,
+            )
+
+        health = {r.source_type: r for r in api.list_source_health(self.team.pk)}
+
+        assert health["Stripe"].status == expected
+        assert health["Stripe"].status == ExternalDataSourceSerializers().get_status(source)
 
     def test_list_revenue_sources_maps_settings_schemas_and_tables(self) -> None:
         other_source = ExternalDataSource.objects.create(

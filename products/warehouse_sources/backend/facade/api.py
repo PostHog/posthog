@@ -22,7 +22,7 @@ from collections.abc import Collection
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.models.util import (
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
+from products.warehouse_sources.backend.source_status import derive_source_status
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from . import contracts
@@ -85,6 +86,8 @@ __all__ = [
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
+    # shared status roll-up, so every consumer reports one status per source
+    "derive_source_status",
     # framework-free helper transforms
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
@@ -262,10 +265,11 @@ def list_sources(
 
 
 def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:
-    """Live sources with the timestamp of their newest completed run and their newest schema error.
+    """Live sources with their rolled-up status, newest completed run, and newest schema error.
 
-    One correlated probe per source for each of the two lookups, so the cost tracks the number
-    of sources rather than the length of the team's job history.
+    One correlated probe per source for each of the two source-level lookups, so the cost tracks
+    the number of sources rather than the length of the team's job history, plus one flat query
+    for the schema states the status rolls up from.
     """
     # Newest schema-level error across the source's non-deleted schemas. Ordered by most
     # recently updated so a consumer sees the freshest failure.
@@ -274,16 +278,42 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
         .order_by("-updated_at")
         .values("latest_error")[:1]
     )
-    rows = (
+    rows = list(
         _ExternalDataSource.objects.filter(team_id=team_id, deleted=False)
         .annotate(
             last_run_at=latest_completed_job_subquery(team_id, "created_at"),
             latest_error=latest_error,
         )
         .order_by("source_type", "id")
-        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
+        .values("id", "source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
     )
-    return [contracts.ExternalDataSourceHealth(**row) for row in rows]
+    active_schemas = _active_schema_states({row["id"] for row in rows})
+    return [
+        contracts.ExternalDataSourceHealth(
+            source_type=row["source_type"],
+            status=derive_source_status(active_schemas[row["id"]], fallback=row["status"]),
+            prefix=row["prefix"],
+            created_at=row["created_at"],
+            last_run_at=row["last_run_at"],
+            latest_error=row["latest_error"],
+        )
+        for row in rows
+    ]
+
+
+def _active_schema_states(source_ids: Collection[UUID]) -> dict[UUID, list[contracts.SchemaSyncState]]:
+    """Per source, the non-deleted schemas that either sync or carry an error.
+
+    Read for every source at once rather than per source, and down to the two columns the status
+    roll-up reads, because a large project can hold tens of thousands of schemas.
+    """
+    states: dict[UUID, list[contracts.SchemaSyncState]] = {source_id: [] for source_id in source_ids}
+    rows = _ExternalDataSchema.objects.filter(
+        Q(should_sync=True) | Q(latest_error__isnull=False), source_id__in=source_ids, deleted=False
+    ).values_list("source_id", "status", "should_sync")
+    for source_id, status, should_sync in rows:
+        states[source_id].append(contracts.SchemaSyncState(status=status, should_sync=should_sync))
+    return states
 
 
 def _revenue_source_queryset(

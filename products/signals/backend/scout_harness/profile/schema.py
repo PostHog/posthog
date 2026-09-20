@@ -50,8 +50,9 @@ class ExternalDataSourceEntry(_Section):
     status: str
     prefix: str
     created_at: str | None
-    # `last_run_at` (most recent completed sync) and `latest_error` disambiguate a source stuck
-    # in `Running` that has never synced from a healthy one — `status` alone conflates them.
+    # `status` is the schema roll-up the source list and detail endpoints report, not the
+    # deprecated source column. `last_run_at` (most recent completed sync) and `latest_error`
+    # separate a source stuck in `Running` that has never synced from a healthy one.
     last_run_at: str | None
     latest_error: str | None
 

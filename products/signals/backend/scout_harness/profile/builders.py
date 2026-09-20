@@ -74,8 +74,9 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
-# redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v14"
+# redaction stop being served, as does a correction to what an existing key reports, so a
+# cached row cannot keep serving the old answer for the rest of its TTL.
+INVENTORY_SOURCE_VERSION = "v15"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -229,14 +230,12 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     """Connected warehouse sources (Stripe, Postgres, BigQuery, etc.).
 
     Excludes soft-deleted rows. `status` and `prefix` give the agent enough context to
-    spot a recently-added source without exposing credentials. `last_run_at` and
-    `latest_error` are what let a scout tell a healthy source apart from one stuck in
-    `Running`: source-level `status` conflates "sync in progress" with "never succeeded",
-    so a source that has never completed a sync reads as `Running` just like a healthy one.
-    `last_run_at` is the timestamp of the most recent completed sync job (null = never
-    synced); `latest_error` surfaces the newest schema-level error, if any. Both mirror the
-    semantics of the `external-data-sources-list` API so a scout can spot a dead source from
-    the profile alone without a follow-up list call.
+    spot a recently-added source without exposing credentials. `last_run_at` is the timestamp
+    of the most recent completed sync job (null = never synced); `latest_error` surfaces the
+    newest schema-level error, if any. All three mirror the semantics of the
+    `external-data-sources-list` API so a scout can spot a dead source from the profile alone
+    without a follow-up list call, and so the two never report a different status for the same
+    source.
     """
     return [
         {
