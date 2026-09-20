@@ -230,7 +230,7 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
 
-        it('should drop a cookieless event if the team has cookieless disabled', async () => {
+        it('should drop a cookieless event and warn if the team has cookieless disabled', async () => {
             await infra.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
@@ -239,7 +239,13 @@ describe('IngestionConsumer', () => {
             )
             await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
-            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+            const warnings = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_ingestion_warnings_test')
+            expect(warnings).toHaveLength(1)
+            expect(warnings[0].value).toMatchObject({
+                type: 'cookieless_team_disabled',
+                team_id: team.id,
+            })
         })
 
         it('should not blend person properties from 2 different cookieless users', async () => {

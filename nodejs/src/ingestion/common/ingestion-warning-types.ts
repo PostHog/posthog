@@ -89,7 +89,9 @@ export const INGESTION_WARNING_TYPES = {
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
 
-    // Cookieless mode — events missing the data required to compute a cookieless distinct id
+    // Cookieless mode — events that cannot get a cookieless distinct id, because the project
+    // has cookieless tracking turned off or because data the hash needs is missing
+    cookieless_team_disabled: { category: 'event', severity: 'error' },
     cookieless_missing_timestamp: { category: 'event', severity: 'error' },
     cookieless_timestamp_out_of_range: { category: 'event', severity: 'error' },
     cookieless_missing_user_agent: { category: 'event', severity: 'error' },
