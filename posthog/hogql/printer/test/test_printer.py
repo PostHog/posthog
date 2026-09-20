@@ -2640,6 +2640,11 @@ class TestPrinter(BaseTest):
                 "select event, distinct_id from events order by event WITH FILL FROM 0 TO 10 INTERPOLATE (distinct_id)",
                 "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 INTERPOLATE (`events.distinct_id`)",
             ],
+            [
+                "nullable_date_bounds",
+                "select timestamp from events order by timestamp WITH FILL FROM toDate('2024-01-01') TO toDate('2024-02-01') STEP toIntervalDay(1)",
+                "WITH FILL FROM assumeNotNull(toDateOrNull(%(hogql_val_2)s)) TO assumeNotNull(toDateOrNull(%(hogql_val_3)s)) STEP toIntervalDay(1)",
+            ],
         ]
     )
     def test_select_order_by_with_fill(self, _name: str, query: str, expected_fragment: str):

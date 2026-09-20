@@ -770,7 +770,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     472: ErrorCodeMeta("READONLY_SETTING"),
     473: ErrorCodeMeta("DEADLOCK_AVOIDED"),
     474: ErrorCodeMeta("INVALID_TEMPLATE_FORMAT"),
-    475: ErrorCodeMeta("INVALID_WITH_FILL_EXPRESSION"),
+    475: ErrorCodeMeta("INVALID_WITH_FILL_EXPRESSION", user_safe=True),
     476: ErrorCodeMeta("WITH_TIES_WITHOUT_ORDER_BY", user_safe=True),
     477: ErrorCodeMeta("INVALID_USAGE_OF_INPUT"),
     478: ErrorCodeMeta("UNKNOWN_POLICY"),

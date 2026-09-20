@@ -879,12 +879,18 @@ class BasePrinter(Visitor[str]):
     def visit_with_fill_expr(self, node: ast.WithFillExpr):
         parts = ["WITH FILL"]
         if node.from_value is not None:
-            parts.append(f"FROM {self.visit(node.from_value)}")
+            parts.append(f"FROM {self._print_with_fill_bound(node.from_value)}")
         if node.to_value is not None:
-            parts.append(f"TO {self.visit(node.to_value)}")
+            parts.append(f"TO {self._print_with_fill_bound(node.to_value)}")
         if node.step_value is not None:
-            parts.append(f"STEP {self.visit(node.step_value)}")
+            parts.append(f"STEP {self._print_with_fill_bound(node.step_value)}")
         return " ".join(parts)
+
+    def _print_with_fill_bound(self, node: ast.Expr) -> str:
+        # ClickHouse rejects a Nullable WITH FILL bound with code 475, and HogQL prints `toDate(<string>)`
+        # as `toDateOrNull`, so an ordinary date bound arrives Nullable.
+        printed = self.visit(node)
+        return f"assumeNotNull({printed})" if self._is_nullable(node) else printed
 
     def visit_interpolate_expr(self, node: ast.InterpolateExpr):
         if node.value is not None:
