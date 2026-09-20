@@ -704,7 +704,7 @@ with their titles.
         """,
         tags=["AI observability"],
     )
-    @action(detail=False, methods=["post"], url_path="batch_check")
+    @action(detail=False, methods=["post"], url_path="batch_check", required_scopes=["llm_analytics:read"])
     @llma_track_latency("llma_summarize_batch_check")
     @monitor(feature=None, endpoint="llma_summarize_batch_check", method="POST")
     def batch_check(self, request: Request, **kwargs) -> Response:

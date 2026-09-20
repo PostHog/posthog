@@ -410,6 +410,30 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("trace_ids", str(response.data).lower())
 
+    @parameterized.expand(
+        [
+            ("read_scope", "llm_analytics:read", status.HTTP_200_OK),
+            ("write_scope", "llm_analytics:write", status.HTTP_200_OK),
+            ("wrong_scope", "feature_flag:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_batch_check_accepts_a_personal_api_key(self, _name, scope, expected_status):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        key_value = self.create_personal_api_key_with_scopes([scope])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/",
+            {"trace_ids": ["trace1"], "mode": "minimal"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertIn("llm_analytics:read", str(response.data["detail"]))
+
     def test_summarization_denied_when_ai_consent_not_approved(self):
         """Should return 403 when AI data processing is not approved."""
         self.organization.is_ai_data_processing_approved = False
