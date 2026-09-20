@@ -9,6 +9,10 @@ import { dateFromToText } from 'lib/utils/dateFilters'
 
 import { CompareFilter as CompareFilterType } from '~/queries/schema/schema-general'
 
+/** Shared `disableReason` for callers that turn off comparison once the date range is "All time". */
+export const COMPARE_ALL_TIME_DISABLED_REASON =
+    "All time starts at your first event, so there's no earlier period to compare to. Pick a date range to compare."
+
 type CompareFilterProps = {
     allowCustomComparison?: boolean
     compareFilter?: CompareFilterType | null
