@@ -2,6 +2,7 @@ import { type FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import type { TeamPublicType, TeamType } from '~/types'
 
 import type { ProductSetupStatus } from './types'
 
@@ -24,6 +25,12 @@ export interface ProductSetupProbe {
     /** Any of these existing (without `hasDataEvents`) means instrumented but no traffic yet. */
     waitingEvents?: string[]
     /**
+     * When this team setting is on, the product is instrumented even with no matching
+     * event definition, so the probe answers `waiting-for-data` rather than claiming
+     * the project still needs setup.
+     */
+    waitingTeamOptIn?: ProbeTeamOptIn
+    /**
      * Ignore definitions whose last ingested occurrence is older than this many
      * days, so a product that stopped sending long ago reads as needing setup
      * again. Definitions that were never stamped (`last_seen_at` null) count as
@@ -36,6 +43,11 @@ export interface ProductSetupProbe {
     featureFlag?: FeatureFlagKey
 }
 
+/** Any boolean team setting, so a probe reads one without a second declaration here. */
+export type ProbeTeamOptIn = {
+    [K in keyof TeamType]-?: NonNullable<TeamType[K]> extends boolean ? K : never
+}[keyof TeamType]
+
 /** The slice of an event definition a probe needs to answer. */
 export interface ProbeEventDefinition {
     name: string
@@ -44,7 +56,8 @@ export interface ProbeEventDefinition {
 
 export function statusFromProbeDefinitions(
     probe: ProductSetupProbe,
-    definitions: ProbeEventDefinition[]
+    definitions: ProbeEventDefinition[],
+    team?: TeamPublicType | TeamType | null
 ): ProductSetupStatus {
     const freshNames = new Set(
         definitions
@@ -64,6 +77,10 @@ export function statusFromProbeDefinitions(
     }
 
     if (probe.waitingEvents?.some((event) => freshNames.has(event))) {
+        return 'waiting-for-data'
+    }
+
+    if (probe.waitingTeamOptIn && team?.[probe.waitingTeamOptIn]) {
         return 'waiting-for-data'
     }
 

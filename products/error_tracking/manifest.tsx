@@ -55,11 +55,12 @@ export const manifest: ProductManifest = {
             configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
     },
     // Boot-time approximation of errorTrackingSetupLogic: a $exception definition
-    // existing means issues exist. The in-scene check stays the source of truth
-    // (it also reads the autocapture opt-in for the waiting state).
+    // existing means issues exist, and the autocapture opt-in means the SDK will send
+    // one on its own. The in-scene check stays the source of truth.
     setupProbe: {
         productKey: ProductKey.ERROR_TRACKING,
         hasDataEvents: ['$exception'],
+        waitingTeamOptIn: 'autocapture_exceptions_opt_in',
     },
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,

@@ -46,7 +46,11 @@ describe('WebAnalyticsErrorTrackingTile', () => {
         cleanup()
     })
 
-    const mountWithSetupStatus = (autocaptureOptIn: boolean, setupStatus: ProductSetupStatus | null): void => {
+    const mountWithSetupStatus = (
+        autocaptureOptIn: boolean,
+        setupStatus: ProductSetupStatus | null,
+        skipped: boolean = false
+    ): void => {
         teamLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
@@ -56,6 +60,12 @@ describe('WebAnalyticsErrorTrackingTile', () => {
         setup.mount()
         if (setupStatus) {
             setup.actions.setDetectedStatus(setupStatus)
+        }
+        // Set either way: the skip is persisted, so leaving it unset would leak into the next case.
+        if (skipped) {
+            setup.actions.skipEmptyState()
+        } else {
+            setup.actions.unskipEmptyState()
         }
     }
 
@@ -77,6 +87,14 @@ describe('WebAnalyticsErrorTrackingTile', () => {
             autocaptureOptIn: false,
             setupStatus: 'needs-setup' as const,
             expected: 'Error tracking is not set up',
+            expectsSetupButton: true,
+        },
+        {
+            name: 'the generic copy once the setup screen has been dismissed, instead of pitching it again',
+            autocaptureOptIn: false,
+            setupStatus: 'needs-setup' as const,
+            skipped: true,
+            expected: 'There are no matching events for this query',
         },
         {
             name: 'the generic copy while setup detection has not answered',
@@ -84,10 +102,16 @@ describe('WebAnalyticsErrorTrackingTile', () => {
             setupStatus: null,
             expected: 'There are no matching events for this query',
         },
-    ])('reads an empty table as $name', async ({ autocaptureOptIn, setupStatus, expected }) => {
-        mountWithSetupStatus(autocaptureOptIn, setupStatus)
-        render(<WebAnalyticsErrorTrackingTile tile={tile} />)
+    ])(
+        'reads an empty table as $name',
+        async ({ autocaptureOptIn, setupStatus, skipped, expected, expectsSetupButton }) => {
+            mountWithSetupStatus(autocaptureOptIn, setupStatus, skipped)
+            render(<WebAnalyticsErrorTrackingTile tile={tile} />)
 
-        await waitFor(() => expect(screen.getByText(expected)).toBeInTheDocument())
-    })
+            await waitFor(() => expect(screen.getByText(expected)).toBeInTheDocument())
+            // The button is what costs the reader a trip: it leads back to the scene the setup
+            // pitch belongs to, so it must appear only alongside that pitch.
+            expect(screen.queryByText('Set up error tracking')).toEqual(expectsSetupButton ? expect.anything() : null)
+        }
+    )
 })

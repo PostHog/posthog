@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { statusFromProbeDefinitions, type ProbeEventDefinition, type ProductSetupProbe } from './setupProbes'
@@ -20,6 +22,26 @@ describe('statusFromProbeDefinitions', () => {
         [[], 'needs-setup'],
     ] as const)('maps definitions %j to %s', (definitions, expected) => {
         expect(statusFromProbeDefinitions(probe, definitions.map(fresh))).toBe(expected)
+    })
+
+    // The error tracking probe rides on this: autocapture being on means the SDK will
+    // send an exception on its own, so a project with no `$exception` definition yet must
+    // not be told to set the product up all over again.
+    it.each([
+        [true, 'waiting-for-data'],
+        [false, 'needs-setup'],
+    ] as const)('with waitingTeamOptIn, an opt-in of %s maps to %s', (optIn, expected) => {
+        const optInProbe: ProductSetupProbe = {
+            productKey: ProductKey.ERROR_TRACKING,
+            hasDataEvents: ['$exception'],
+            waitingTeamOptIn: 'autocapture_exceptions_opt_in',
+        }
+        expect(
+            statusFromProbeDefinitions(optInProbe, [], {
+                ...MOCK_DEFAULT_TEAM,
+                autocapture_exceptions_opt_in: optIn,
+            })
+        ).toBe(expected)
     })
 
     it('never reports waiting-for-data for probes without waitingEvents', () => {

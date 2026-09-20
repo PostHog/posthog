@@ -85,7 +85,7 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { status: errorTrackingStatus } = useValues(
+    const { status: errorTrackingStatus, skipped: errorTrackingSkipped } = useValues(
         productSetupStatusLogic({ productKey: ProductKey.ERROR_TRACKING })
     )
     const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
@@ -111,7 +111,9 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
                 emptyStateDetail: 'Keep up the great work!',
             }
         }
-        if (errorTrackingStatus === 'needs-setup') {
+        // Someone who dismissed the setup screen on the error tracking scene has already
+        // answered this pitch. Repeating it here sends them back to the scene they left.
+        if (errorTrackingStatus === 'needs-setup' && !errorTrackingSkipped) {
             return {
                 ...baseContext,
                 emptyStateIcon: <HedgehogPanic className="w-32 mb-2" />,
@@ -138,7 +140,7 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
         // Detection is still loading, or it failed. Neither answer is safe to act on, so the
         // generic copy stands: it promises nothing about whether errors are being reported.
         return baseContext
-    }, [errorsAreReported, errorTrackingStatus, to, crossSellToErrorTracking])
+    }, [errorsAreReported, errorTrackingStatus, errorTrackingSkipped, to, crossSellToErrorTracking])
 
     const viewAllButton = (
         <LemonButton to={to} icon={<IconOpenInNew />} onClick={crossSellToErrorTracking} size="small" type="secondary">
