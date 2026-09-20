@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -51,7 +53,7 @@ SEARCH_INCREMENTAL_PARAMS = {
 ACTIVITY_INCREMENTAL_PARAMS = {ACTIVITY_DATE: "minimum_activity_date"}
 
 
-@dataclass
+@frozen
 class CopperEndpointConfig:
     name: str
     path: str
@@ -62,6 +64,9 @@ class CopperEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Maps each advertised incremental field to the search body's inclusive minimum-date param.
     incremental_params: dict[str, str] = field(default_factory=dict)
+    # Search param capping the window at the sync's start time, for endpoints whose incremental
+    # field the customer can edit.
+    incremental_ceiling_param: str | None = None
     # Stable creation timestamp used for partitioning (never `date_modified`).
     partition_keys: list[str] | None = None
     partition_mode: PartitionMode | None = None
@@ -111,8 +116,9 @@ COPPER_ENDPOINTS: dict[str, CopperEndpointConfig] = {
     "tasks": _searchable("tasks", "/tasks/search"),
     # Activities: the CRM interaction log. Same page-based search, but it takes no sort params and
     # answers newest-first, and the only server-side filter is on `activity_date`. That date is
-    # user-editable, so an activity backdated below the watermark won't reappear on an incremental
-    # sync — a full refresh is the way to pick those up.
+    # user-editable, so the window is capped at the sync's start time: one activity dated years
+    # ahead would otherwise become the watermark and hide every later activity behind it. An
+    # activity backdated below the watermark still needs a full refresh to appear.
     "activities": CopperEndpointConfig(
         name="activities",
         path="/activities/search",
@@ -120,6 +126,7 @@ COPPER_ENDPOINTS: dict[str, CopperEndpointConfig] = {
         paginated=True,
         incremental_fields=INCREMENTAL_FIELDS_ACTIVITY_DATE,
         incremental_params=ACTIVITY_INCREMENTAL_PARAMS,
+        incremental_ceiling_param="maximum_activity_date",
         partition_keys=[DATE_CREATED],
         partition_mode="datetime",
         partition_format="week",

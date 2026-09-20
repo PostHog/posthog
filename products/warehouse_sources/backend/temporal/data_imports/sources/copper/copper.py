@@ -116,6 +116,11 @@ def _build_search_body(
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"page_size": page_size}
 
+    if config.incremental_ceiling_param is not None:
+        # Applied on every sync, not just incremental ones, so a future-dated row can never enter
+        # the table and become the watermark.
+        body[config.incremental_ceiling_param] = int(datetime.now(UTC).timestamp())
+
     min_param = config.incremental_params.get(incremental_field or "") if should_use_incremental_field else None
     if min_param is not None:
         if config.sortable:

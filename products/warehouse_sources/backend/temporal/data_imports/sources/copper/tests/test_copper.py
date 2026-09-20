@@ -230,7 +230,32 @@ class TestSearchBody:
 
         _rows(_source("activities", _make_manager(), should_use_incremental_field=False))
 
-        assert bodies[0] == {"page_size": COPPER_DEFAULT_PAGE_SIZE, "page_number": 1}
+        assert "minimum_activity_date" not in bodies[0]
+        assert bodies[0]["page_size"] == COPPER_DEFAULT_PAGE_SIZE
+
+    @parameterized.expand([("incremental", True), ("full_refresh", False)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_activities_cap_the_window_at_the_sync_start(
+        self, _name: str, should_use_incremental_field: bool, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_response([])])
+
+        before = int(datetime.now(UTC).timestamp())
+        _rows(
+            _source(
+                "activities",
+                _make_manager(),
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=1700000000,
+                incremental_field="activity_date",
+            )
+        )
+        after = int(datetime.now(UTC).timestamp())
+
+        # `activity_date` is customer-editable, so a row dated far ahead would otherwise become the
+        # watermark and hide every later activity behind it.
+        assert before <= bodies[0]["maximum_activity_date"] <= after
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_sorts_by_created_for_searchable(self, MockSession) -> None:
