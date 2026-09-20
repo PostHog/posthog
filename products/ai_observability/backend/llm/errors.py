@@ -66,6 +66,21 @@ class ContextWindowExceededError(LLMError):
     """Raised when the prompt exceeds the model's context window."""
 
 
+class ProviderRequestInvalidError(LLMError):
+    """Raised when the provider rejects the request itself, and no narrower branch fits.
+
+    The provider answers a 400 that is not a context-window or quota problem: an unsupported
+    parameter, a malformed tool schema, or a model that the chat completions endpoint cannot
+    serve. The same request always gets the same answer, so callers must treat it as terminal
+    rather than retry it. `detail` carries the provider's own sentence, which is the only
+    actionable part of the failure.
+    """
+
+    def __init__(self, detail: str | None = None):
+        self.detail = detail
+        super().__init__(detail or "The model provider rejected this request")
+
+
 _CONTEXT_WINDOW_ERROR_MARKERS = (
     "context_length_exceeded",
     "maximum context length",
@@ -119,9 +134,10 @@ def user_facing_error_message(error: Exception | None) -> str:
     explanation the user gets. Raw SDK output leaks provider internals without naming a next
     step, so every branch here says what to do instead.
 
-    A failure with no branch keeps the provider's own reason. Most of those are 400s the request
-    itself caused — an unsupported parameter, a malformed tool schema — where "try again" is
-    advice that cannot work and the provider's sentence is the only actionable thing we have.
+    A rejected request keeps the provider's own reason. Those are 400s the request itself caused
+    — an unsupported parameter, a malformed tool schema, a model the endpoint cannot serve —
+    where "try again" is advice that cannot work and the provider's sentence is the only
+    actionable thing we have.
     """
     if isinstance(error, ModelNotFoundError):
         return f"Model '{error.model}' is not available. Pick a different model and try again."
@@ -141,6 +157,10 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "The provider is rate limiting this key. Wait a moment, then try again."
     if isinstance(error, ContextWindowExceededError):
         return "This conversation is too long for the model's context window. Shorten it, then try again."
+    if isinstance(error, ProviderRequestInvalidError):
+        if error.detail:
+            return f"The model provider rejected this request: {error.detail}"
+        return "The model provider rejected this request. Pick a different model, then try again."
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, StructuredOutputParseError):

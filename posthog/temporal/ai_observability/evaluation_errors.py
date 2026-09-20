@@ -98,6 +98,13 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         status_reason=EvaluationStatusReason.MODEL_NOT_FOUND,
         disables_evaluation=True,
     ),
+    "provider_request_invalid": EvaluationErrorSpec(
+        error_type="provider_request_invalid",
+        owner="user",
+        safe_message="The model provider rejected this request. Choose a different model before re-enabling.",
+        status_reason=EvaluationStatusReason.PROVIDER_REQUEST_INVALID,
+        disables_evaluation=True,
+    ),
     "hog_error": EvaluationErrorSpec(
         error_type="hog_error",
         owner="user",
@@ -243,7 +250,10 @@ def truncate_error_detail(message: str | None) -> str | None:
 
 
 def status_reason_detail_for_terminal_user_error(spec: EvaluationErrorSpec, message: str | None) -> str | None:
-    if spec.error_type != "hog_error":
+    # The Hog traceback and the provider's own rejection sentence are the actionable part of those
+    # two failures. Every other spec's safe_message already says what to do, so keeping the raw
+    # text would only leak provider internals.
+    if spec.error_type not in ("hog_error", "provider_request_invalid"):
         return None
     return truncate_error_detail(message)
 

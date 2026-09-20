@@ -26,6 +26,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderRequestInvalidError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -75,14 +76,18 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
     return MagicMock(active_provider_key=key)
 
 
-def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
+def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_raw_messages():
     hog_spec = require_user_error_spec("hog_error")
+    rejected_spec = require_user_error_spec("provider_request_invalid")
     permission_spec = require_user_error_spec("permission_error")
     long_message = "x" * (MAX_STATUS_REASON_DETAIL_LENGTH + 10)
 
     assert status_reason_detail_for_terminal_user_error(permission_spec, "provider denied") is None
     assert status_reason_detail_for_terminal_user_error(hog_spec, long_message) == (
         f"{long_message[: MAX_STATUS_REASON_DETAIL_LENGTH - 3]}..."
+    )
+    assert status_reason_detail_for_terminal_user_error(rejected_spec, "cannot serve chat completions") == (
+        "cannot serve chat completions"
     )
 
 
@@ -1833,13 +1838,14 @@ class TestRunEvaluationWorkflow:
         assert result["verdict"] is None
 
     @pytest.mark.parametrize(
-        "raised_exception, skip_reason, status_reason, provider_key_state",
+        "raised_exception, skip_reason, status_reason, provider_key_state, reasoning_fragment",
         [
             pytest.param(
                 AuthenticationError(),
                 "auth_error",
                 "provider_key_invalid",
                 LLMProviderKey.State.INVALID,
+                "invalid or has been deleted",
                 id="auth_error",
             ),
             pytest.param(
@@ -1847,6 +1853,7 @@ class TestRunEvaluationWorkflow:
                 "permission_error",
                 "provider_key_permission_denied",
                 LLMProviderKey.State.ERROR,
+                "access to this model",
                 id="permission_error",
             ),
             pytest.param(
@@ -1854,6 +1861,7 @@ class TestRunEvaluationWorkflow:
                 "quota_error",
                 "provider_key_quota_exceeded",
                 LLMProviderKey.State.ERROR,
+                "exceeded its quota",
                 id="quota_error",
             ),
             pytest.param(
@@ -1861,6 +1869,7 @@ class TestRunEvaluationWorkflow:
                 "rate_limit",
                 "provider_key_rate_limited",
                 LLMProviderKey.State.ERROR,
+                "rate limited",
                 id="rate_limit",
             ),
             pytest.param(
@@ -1868,7 +1877,16 @@ class TestRunEvaluationWorkflow:
                 "model_not_found",
                 "model_not_found",
                 None,
+                "not found",
                 id="model_not_found",
+            ),
+            pytest.param(
+                ProviderRequestInvalidError("this model cannot be used with the chat completions endpoint"),
+                "provider_request_invalid",
+                "provider_request_invalid",
+                None,
+                "cannot be used with the chat completions endpoint",
+                id="provider_request_invalid",
             ),
         ],
     )
@@ -1879,6 +1897,7 @@ class TestRunEvaluationWorkflow:
         skip_reason: str,
         status_reason: str,
         provider_key_state: str | None,
+        reasoning_fragment: str,
         setup_data,
     ):
         team = setup_data["team"]
@@ -1932,6 +1951,9 @@ class TestRunEvaluationWorkflow:
             assert "provider_key_state" not in result
         else:
             assert result["provider_key_state"] == provider_key_state
+        # The reasoning is the only text the disabled evaluation shows, so it has to name the
+        # cause. For a rejected request that is the provider's own sentence.
+        assert reasoning_fragment in result["reasoning"]
 
 
 class TestExecuteHogEvalActivity:

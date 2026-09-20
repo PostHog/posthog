@@ -23,6 +23,7 @@ export type EvaluationStatusReason =
     | 'provider_key_quota_exceeded'
     | 'provider_key_rate_limited'
     | 'model_not_found'
+    | 'provider_request_invalid'
     | 'hog_error'
 
 export interface ModelConfiguration {

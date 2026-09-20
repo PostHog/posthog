@@ -15,6 +15,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
     terminal_user_error_result_from_application_error,
+    truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
     extract_event_io,
@@ -41,9 +42,11 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderRequestInvalidError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    user_facing_error_message,
 )
 from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 
@@ -419,6 +422,30 @@ def call_llm_judge(
             {"error_type": "model_not_found", "provider": provider, "model": model},
             non_retryable=True,
         )
+    except ProviderRequestInvalidError as e:
+        # The provider rejected the request itself, most often because the configured judge model
+        # cannot serve chat completions. Every retry sends the same request, so end it here and
+        # give the team the provider's reason instead of a burst of identical failures.
+        spec = require_user_error_spec("provider_request_invalid", is_byok=is_byok)
+        message = truncate_error_detail(user_facing_error_message(e)) or spec.safe_message
+        if is_byok:
+            increment_user_errors("provider_request_invalid", provider=provider)
+            return terminal_user_error_result(
+                spec=spec,
+                message=message,
+                allows_na=allows_na,
+                provider=provider,
+                model=model,
+                key_id=key_id,
+                is_byok=True,
+            )
+        increment_errors("provider_request_invalid", provider=provider)
+        raise ApplicationError(
+            message,
+            {"error_type": "provider_request_invalid", "provider": provider, "model": model},
+            non_retryable=True,
+        ) from e
+
     except StructuredOutputParseError as e:
         increment_errors("parse_error", provider=provider)
         raise ApplicationError(

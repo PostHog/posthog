@@ -25,10 +25,12 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderRequestInvalidError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
+    provider_error_detail,
     stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
@@ -232,6 +234,11 @@ class OpenAIAdapter:
             # the quota path so the workflow marks the key errored and stops.
             if getattr(error, "status_code", None) == 402:
                 return QuotaExceededError(str(error))
+            if isinstance(error, openai.BadRequestError):
+                # The request itself is wrong: an unsupported parameter, a malformed tool schema,
+                # or a model the chat completions endpoint cannot serve. The next attempt sends
+                # the same request, so map it terminal and pass the provider's reason on.
+                return ProviderRequestInvalidError(provider_error_detail(error))
         return None
 
     def _complete_with_json_fallback(
