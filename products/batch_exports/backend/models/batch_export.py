@@ -184,6 +184,10 @@ class BatchExportRun(UUIDTModel):
 
     class Meta:
         db_table = "posthog_batchexportrun"
+        indexes = [
+            models.Index(fields=["batch_export", "created_at"], name="be_run_export_created_at_idx"),
+            models.Index(fields=["batch_export", "data_interval_start"], name="be_run_export_interval_idx"),
+        ]
         constraints = [
             models.CheckConstraint(
                 check=(
