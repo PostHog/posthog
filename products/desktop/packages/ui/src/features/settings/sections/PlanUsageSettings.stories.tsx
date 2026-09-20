@@ -43,7 +43,6 @@ const meta: Meta<typeof PlanUsageContent> = {
   ],
   args: {
     billingEnabled: true,
-    cloudComputeEnabled: true,
     billingUrl: "https://app.posthog.com/organization/billing",
     usage,
     usageLoading: false,
@@ -54,12 +53,6 @@ export default meta;
 type Story = StoryObj<typeof PlanUsageContent>;
 
 export const WithComponentBreakdown: Story = {};
-
-export const CloudComputeDisabled: Story = {
-  args: {
-    cloudComputeEnabled: false,
-  },
-};
 
 export const BreakdownAwaitingData: Story = {
   args: {

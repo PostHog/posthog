@@ -13,7 +13,7 @@ import {
   isCodeUsageFreeTier,
 } from "@posthog/core/billing/usageDisplay";
 import type { UsageOutput } from "@posthog/core/usage/schemas";
-import { BILLING_FLAG, CLOUD_COMPUTE_BILLING_FLAG } from "@posthog/shared";
+import { BILLING_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UsageMeter } from "@posthog/ui/features/billing/UsageMeter";
@@ -30,7 +30,6 @@ import { type ReactNode, useEffect, useState } from "react";
 
 export function PlanUsageSettings() {
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
-  const cloudComputeEnabled = useFeatureFlag(CLOUD_COMPUTE_BILLING_FLAG);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const billingUrl = getBillingUrl(cloudRegion);
 
@@ -55,7 +54,6 @@ export function PlanUsageSettings() {
   return (
     <PlanUsageContent
       billingEnabled={billingEnabled}
-      cloudComputeEnabled={cloudComputeEnabled}
       billingUrl={billingUrl}
       usage={usage}
       usageLoading={usageLoading}
@@ -66,7 +64,6 @@ export function PlanUsageSettings() {
 
 interface PlanUsageContentProps {
   billingEnabled: boolean;
-  cloudComputeEnabled: boolean;
   billingUrl: string | null | undefined;
   usage: UsageOutput | null | undefined;
   usageLoading: boolean;
@@ -75,7 +72,6 @@ interface PlanUsageContentProps {
 
 export function PlanUsageContent({
   billingEnabled,
-  cloudComputeEnabled,
   billingUrl,
   usage,
   usageLoading,
@@ -195,9 +191,7 @@ export function PlanUsageContent({
           )}
           {!usageLoading && (
             <Flex direction="column" gap="3">
-              {cloudComputeEnabled && hasUsageMix && (
-                <UsageMix components={components} />
-              )}
+              {hasUsageMix && <UsageMix components={components} />}
               <Text className="text-[12px] text-muted-foreground">
                 Usage reporting may be delayed by 15–20 minutes.
               </Text>

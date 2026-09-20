@@ -8,7 +8,6 @@
   "CHANNELS_LAYOUT_FLAG": "code-spaces-layout",
   "CLAUDE_OWN_SUBSCRIPTION_FLAG": "posthog-code-claude-own-subscription",
   "CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG": "posthog-code-claude-own-subscription-cloud",
-  "CLOUD_COMPUTE_BILLING_FLAG": "posthog-desktop-cloud-compute-billing",
   "CODEX_OWN_SUBSCRIPTION_FLAG": "posthog-code-codex-own-subscription",
   "CONTEXT_LAYER_FLAG": "context-layer",
   "CUSTOM_IMAGES_FEATURE_FLAG": "tasks-modal-vm-sandbox",
