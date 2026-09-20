@@ -6,8 +6,47 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { Link } from 'lib/lemon-ui/Link'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
+
+/**
+ * Usage limits are organization-scoped, so people who hit one often delete or recreate a project
+ * expecting ingestion to resume. Say here that it will not, and name the steps that do work.
+ */
+function UsageLimitDeletionNotice(): JSX.Element | null {
+    const { productsAtOrOverUsageLimit } = useValues(billingLogic)
+
+    if (productsAtOrOverUsageLimit.length === 0) {
+        return null
+    }
+    const isErrorTrackingLimited = productsAtOrOverUsageLimit.some((product) => product.type === 'error_tracking')
+
+    return (
+        <p className="mt-2 p-2 bg-bg-3000 rounded text-sm">
+            <strong>Your organization has reached a usage limit.</strong> Usage counts across the whole organization, so
+            a new project shares the same limit and deleting this one does not give the usage back. To start ingesting
+            again, <Link to={urls.organizationBilling()}>raise or remove the limit</Link>
+            {isErrorTrackingLimited && (
+                <>
+                    , then add a{' '}
+                    <Link
+                        to={urls.settings(
+                            'environment-error-tracking-configuration',
+                            'error-tracking-suppression-rules'
+                        )}
+                    >
+                        suppression rule
+                    </Link>{' '}
+                    so the same errors cannot use the allowance again
+                </>
+            )}
+            .
+        </p>
+    )
+}
 
 export function DeleteProjectModal({
     isOpen,
@@ -66,6 +105,7 @@ export function DeleteProjectModal({
                 <strong>Note:</strong> For projects with lots of data, cleanup may take several hours. We'll send you an
                 email when the process is complete.
             </p>
+            <UsageLimitDeletionNotice />
             <p>
                 Please type <strong>{currentProject ? currentProject.name : "this project's name"}</strong> to confirm.
             </p>
