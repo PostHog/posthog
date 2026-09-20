@@ -323,7 +323,9 @@ def convertkit_source(
         column_hints=resource.column_hints,
         # "asc" endpoints are read in full each sync, so the merge cursor advances to the max
         # incremental value across all pages even though the API guarantees no page order.
-        # "desc" holds the watermark until the sync completes; settings.py says why.
+        # "desc" holds the watermark until the sync completes; settings.py says why. The
+        # earliest-value backfill scrolling that "desc" also enables stays unused, because the
+        # resumable manager checkpoints fan-out progress per parent instead.
         sort_mode=config.sort_mode,
     )
 
