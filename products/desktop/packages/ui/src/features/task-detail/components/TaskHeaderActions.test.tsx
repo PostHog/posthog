@@ -58,9 +58,6 @@ vi.mock("./TaskOverflowMenu", () => ({
 vi.mock("@posthog/ui/features/diff-stats/DiffStatsBadge", () => ({
   DiffStatsBadge: () => null,
 }));
-vi.mock("./TaskAnalysisButton", () => ({
-  TaskAnalysisButton: () => null,
-}));
 // Reads the route, which these renders don't provide. The Code scene's answer
 // is false, and that is the row this test covers.
 vi.mock("@posthog/ui/features/navigation/useReviewInRightPanel", () => ({
