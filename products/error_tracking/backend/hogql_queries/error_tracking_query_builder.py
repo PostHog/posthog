@@ -209,6 +209,15 @@ class ErrorTrackingQueryBuilder:
     # Shape dispatch
     # ---------------------------------------------------------------------
 
+    def _with_volume_bins(self) -> bool:
+        """Both shapes size their bins by dividing the window by the resolution.
+
+        volumeResolution=0 means counts only, so both must drop the bins: the
+        optimized shape fails that division, and the legacy shape wastes work
+        on an empty array.
+        """
+        return self.query.volumeResolution > 0
+
     def _needs_legacy_shape(self) -> bool:
         """Return True if the user-supplied filterGroup contains issue-level
         filters that cannot be cleanly routed to the outer query.
@@ -350,7 +359,7 @@ class ErrorTrackingQueryBuilder:
         # Bucketing by bin_idx here lets the outer query assemble volumeRange
         # from the small post-aggregation set instead of per-event arrayMap.
         group_by: list[ast.Expr] = [ast.Field(chain=["fp_hash"])]
-        if self.query.withAggregations and self.query.volumeResolution > 0:
+        if self.query.withAggregations and self._with_volume_bins():
             group_by.append(ast.Field(chain=["bin_idx"]))
         return ast.SelectQuery(
             select=self._inner_select_expressions(),
@@ -381,9 +390,7 @@ class ErrorTrackingQueryBuilder:
         ]
 
         if self.query.withAggregations:
-            # volumeResolution=0 means counts only: computing bins with it
-            # would divide by zero in ClickHouse.
-            if self.query.volumeResolution > 0:
+            if self._with_volume_bins():
                 exprs.append(
                     ast.Alias(
                         alias="bin_idx",
@@ -582,7 +589,7 @@ class ErrorTrackingQueryBuilder:
                     ),
                 ]
             )
-            if self.query.volumeResolution > 0:
+            if self._with_volume_bins():
                 exprs.append(ast.Alias(alias="volumeRange", expr=_volume_range_expr(self.query.volumeResolution)))
 
         if self.query.withFirstEvent:
@@ -726,12 +733,13 @@ class ErrorTrackingQueryBuilder:
                 ],
             )
             exprs.append(ast.Alias(alias="users", expr=_capped_at_occurrences(users, _occurrences_counted())))
-            exprs.append(
-                ast.Alias(
-                    alias="volumeRange",
-                    expr=select_sparkline_array(self.date_from, self.date_to, self.query.volumeResolution),
+            if self._with_volume_bins():
+                exprs.append(
+                    ast.Alias(
+                        alias="volumeRange",
+                        expr=select_sparkline_array(self.date_from, self.date_to, self.query.volumeResolution),
+                    )
                 )
-            )
 
         # uuid-only here too — the runner attaches the event payloads in a second point lookup.
         if self.query.withFirstEvent:

@@ -1329,14 +1329,36 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
 
+    @parameterized.expand([("optimized", False, 3), ("legacy", True, 1)])
     @time_machine.travel("2020-01-12", tick=False)
-    def test_volume_aggregation_counts_only(self):
+    def test_volume_aggregation_counts_only(self, _name, use_issue_filter, expected_count):
         # Regression test: volumeResolution=0 (counts only) used to build
-        # intDiv(..., 0) bin expressions and fail with an illegal division.
+        # bin expressions that divide by zero. An issue-level filter routes the
+        # query to the legacy shape, so both shapes are covered here.
+        filter_group = (
+            PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            )
+                        ],
+                    )
+                ],
+            )
+            if use_issue_filter
+            else None
+        )
         results = self._calculate(
-            volumeResolution=0, dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11"), withAggregations=True
+            volumeResolution=0,
+            dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11"),
+            withAggregations=True,
+            filterGroup=filter_group,
         )["results"]
-        self.assertEqual(len(results), 3)
+        self.assertEqual(len(results), expected_count)
 
         for result in results:
             aggregations = result["aggregations"]
