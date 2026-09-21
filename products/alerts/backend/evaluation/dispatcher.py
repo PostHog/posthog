@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeKind
 
 from posthog.api.services.query import ExecutionMode
@@ -6,8 +8,14 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
-from products.alerts.backend.evaluation.contract import DetectorExtractor, Extractor, execution_mode_for_alert
+from products.alerts.backend.evaluation.contract import (
+    DetectorExtractor,
+    ExtractionResult,
+    Extractor,
+    execution_mode_for_alert,
+)
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
+from products.alerts.backend.evaluation.episode_decay import hold_refire_within_episode_decay
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.metrics import MetricsExtractor
@@ -42,11 +50,14 @@ def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: ob
     return execution_mode_for_alert(interval, high_frequency=alert.is_high_frequency_interval)
 
 
-def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: object) -> AlertEvaluationResult:
+def _extract_and_score_detector(
+    alert: AlertConfiguration, insight: Insight, query: object
+) -> tuple[ExtractionResult, AlertEvaluationResult]:
     """Route a detector (anomaly) alert to its kind's detector extractor, then score the series.
 
-    Shared by the dispatcher and the detector tests. The registry lookup is the kind gate — an
-    unsupported kind raises rather than silently falling through to the threshold path.
+    Returns the extracted series as well, because the episode-decay hold reads it. The registry
+    lookup is the kind gate — an unsupported kind raises rather than silently falling through to
+    the threshold path.
     """
     detector_config = alert.detector_config
     if not detector_config:
@@ -56,7 +67,13 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
     result = detector_extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
-    return evaluate_with_detector(result, detector_config)
+    return result, evaluate_with_detector(result, detector_config)
+
+
+def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: object) -> AlertEvaluationResult:
+    """The detector score on its own, without the episode-decay hold the dispatcher applies."""
+    _, evaluation = _extract_and_score_detector(alert, insight, query)
+    return evaluation
 
 
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
@@ -64,7 +81,8 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
 
     If ``detector_config`` is set, routes through the anomaly-detector registry (one extractor per
     supported insight kind); each detector extractor shares the ``ComparableSeries`` contract, so the
-    dispatch shape mirrors the threshold path. Otherwise the extractor normalizes the query result into an
+    dispatch shape mirrors the threshold path, and a detector fire then passes
+    ``hold_refire_within_episode_decay``. Otherwise the extractor normalizes the query result into an
     ``ExtractionResult`` and the comparator evaluates it against the threshold.
     """
     insight = alert.insight
@@ -80,7 +98,8 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
             kind = get_from_dict_or_attr(query, "kind")
 
         if alert.detector_config:
-            return check_detector_alert(alert, insight, query)
+            extraction, evaluation = _extract_and_score_detector(alert, insight, query)
+            return hold_refire_within_episode_decay(alert, extraction, evaluation, datetime.now(UTC))
 
         extractor = EXTRACTORS.get(kind)
         if extractor is None:
