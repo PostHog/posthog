@@ -8,19 +8,30 @@ import type { HeatmapCapturePageApi, HeatmapCaptureSettingsApi } from '../../gen
 
 export type HeatmapCaptureMode = 'all' | 'url_allowlist'
 
-export function captureAllowlistPatternToRegex(pattern: string): string {
-    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*')
-    return `^${escaped}$`
+export function urlMatchesCaptureAllowlistPattern(url: string, pattern: string): boolean {
+    const segments = pattern.split('*')
+    if (segments.length === 1) {
+        return url === pattern
+    }
+    const first = segments[0]
+    const last = segments[segments.length - 1]
+    if (url.length < first.length + last.length || !url.startsWith(first) || !url.endsWith(last)) {
+        return false
+    }
+    const end = url.length - last.length
+    let position = first.length
+    for (const segment of segments.slice(1, -1)) {
+        const index = url.indexOf(segment, position)
+        if (index === -1 || index + segment.length > end) {
+            return false
+        }
+        position = index + segment.length
+    }
+    return true
 }
 
 export function isUrlCoveredByAllowlist(url: string, allowlist: string[]): boolean {
-    return allowlist.some((pattern) => {
-        try {
-            return new RegExp(captureAllowlistPatternToRegex(pattern)).test(url)
-        } catch {
-            return false
-        }
-    })
+    return allowlist.some((pattern) => urlMatchesCaptureAllowlistPattern(url, pattern))
 }
 
 export interface HeatmapCaptureSettingsLogicProps {
