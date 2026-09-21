@@ -54,6 +54,18 @@ def _docs_button_block() -> dict[str, Any]:
     }
 
 
+def _feedback_block() -> dict[str, Any]:
+    """The ask for a rating, in the one wording all three messages share.
+
+    Every welcome carries it because the thumbs are the only channel a Slack reader has
+    back to us, and nothing else in the product points at them.
+    """
+    return _section(
+        "*Tell me when I get it wrong*\nHit the thumbs under my replies, or react with :thumbsup: or "
+        ":thumbsdown:. A thumbs down asks what went wrong, and that goes straight to the team building me."
+    )
+
+
 def _home_tab(integration: Integration, label: str = "my Home tab") -> str:
     """``label``, linked to this install's Home tab where there is one to link to.
 
@@ -76,28 +88,28 @@ def build_channel_welcome(integration: Integration) -> tuple[str, list[dict[str,
     """
     blocks: list[dict[str, Any]] = [
         _section(
-            ":wave: I'm PostHog, an AI agent. Mention me with `@PostHog` and I'll answer questions about "
-            "your product data, dig through your codebase, or open a pull request with a fix."
+            ":wave: Hey, I'm PostHog. Tag me with `@PostHog` and I'll dig into your product data, poke "
+            "around your codebase, or open a pull request to fix something."
         ),
-        _bullets("Try one of these", _CHANNEL_EXAMPLES),
+        _bullets("Try asking me", _CHANNEL_EXAMPLES),
         _bullets(
-            "Worth knowing",
+            "A few things worth knowing",
             (
-                "Mention me again in the thread to steer a run that's already going.",
-                "Ask for a specific model: `@PostHog use fable for this one`, or "
+                "Tag me again in the thread while I'm working and I'll pick up what you say.",
+                "Want a different model? Say so: `@PostHog use fable for this one`, or "
                 "`@PostHog run this on opus 5 at high effort`.",
-                "`@PostHog project 12345` points your mentions at a different PostHog project.",
-                "Rate my replies with the thumbs under them, or react with :thumbsup: or :thumbsdown:.",
-                "You can DM me instead of mentioning me here.",
+                "Answering for the wrong project? `@PostHog project 12345` sends your mentions elsewhere.",
+                "You can DM me instead of tagging me here.",
             ),
         ),
+        _feedback_block(),
         context_block(
             "I also unfurl PostHog links shared in this channel. Your default model and thread "
             f"follow-ups live in {_home_tab(integration)}."
         ),
         _docs_button_block(),
     ]
-    return "I'm PostHog. Mention me with @PostHog to get started.", blocks
+    return "Hey, I'm PostHog. Tag me with @PostHog to get started.", blocks
 
 
 def build_team_join_welcome(integration: Integration) -> tuple[str, list[dict[str, Any]]]:
@@ -109,24 +121,24 @@ def build_team_join_welcome(integration: Integration) -> tuple[str, list[dict[st
     """
     blocks: list[dict[str, Any]] = [
         _section(
-            ":wave: Welcome! I'm PostHog, an AI agent your team uses here. Message me, or mention `@PostHog` "
-            "in any channel, and I'll answer questions about your product data or open a pull request in a "
+            ":wave: Hey, welcome! I'm PostHog, an AI agent your team already uses here. Message me, or tag "
+            "`@PostHog` in any channel, and I'll dig into your product data or open a pull request in a "
             "connected repo."
         ),
-        _bullets("Try one of these", _DM_EXAMPLES),
+        _bullets("Try asking me", _DM_EXAMPLES),
         _bullets(
-            "Worth knowing",
+            "A few things worth knowing",
             (
-                "Keep replying in the thread to steer a run that's already going. "
-                "In a channel, mention me in the reply.",
-                "Ask for a specific model: `use fable for this one`.",
-                "Rate my replies with the thumbs under them, or react with :thumbsup: or :thumbsdown:.",
+                "Keep replying in the thread while I'm working and I'll pick up what you say. "
+                "In a channel, tag me in the reply.",
+                "Want a different model? Say so: `use fable for this one`.",
             ),
         ),
+        _feedback_block(),
         context_block(f"Your default model, thread follow-ups and linked accounts live in {_home_tab(integration)}."),
         _docs_button_block(),
     ]
-    return "Welcome! I'm PostHog. Message me to get started.", blocks
+    return "Hey, welcome! I'm PostHog. Message me to get started.", blocks
 
 
 def build_install_welcome(integration: Integration) -> tuple[str, list[dict[str, Any]]]:
@@ -137,26 +149,27 @@ def build_install_welcome(integration: Integration) -> tuple[str, list[dict[str,
     """
     blocks: list[dict[str, Any]] = [
         _section(
-            ":tada: Thanks for installing PostHog! I'm an AI agent: I answer questions about your product "
-            "data, dig through your codebase, and open pull requests in your connected repos."
+            ":tada: Thanks for installing PostHog! I'm an AI agent. I dig into your product data, poke "
+            "around your codebase, and open pull requests in your connected repos."
         ),
         _bullets(
             "Start here",
             (
-                "Invite me to a channel with `/invite @PostHog`, then mention me with a request.",
-                "Or send me a message right here.",
+                "Invite me to a channel with `/invite @PostHog`, then tag me with whatever you need.",
+                "Or just message me right here.",
             ),
         ),
         _bullets(
             "Set it up for the team",
             (
-                "`@PostHog project 12345` points your mentions at a PostHog project. Slack admins can set "
-                "the workspace default with `@PostHog project workspace 12345`.",
-                f"{_home_tab(integration, 'My Home tab')} holds the default AI model, thread follow-ups and "
+                "`@PostHog project 12345` sends your mentions to a particular PostHog project. Slack admins "
+                "can set the default for everyone with `@PostHog project workspace 12345`.",
+                f"{_home_tab(integration, 'My Home tab')} has the default AI model, thread follow-ups and "
                 "the tasks your workspace has started. Connect your GitHub there so pull requests open "
                 "under your own account.",
             ),
         ),
+        _feedback_block(),
         _docs_button_block(),
     ]
-    return "Thanks for installing PostHog! Mention me with @PostHog, or message me here.", blocks
+    return "Thanks for installing PostHog! Tag me with @PostHog, or message me here.", blocks
