@@ -23,7 +23,7 @@ from posthog.api.event_definition_generators.base import EventDefinitionGenerato
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
-from posthog.api.pagination import PrecountedLimitOffsetPagination
+from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.statement_timeout import statement_timeout
@@ -420,7 +420,7 @@ class EventDefinitionViewSet(
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
-    pagination_class = PrecountedLimitOffsetPagination
+    pagination_class = CappedCountLimitOffsetPagination
     queryset = EventDefinition.objects.all()
 
     search_fields = ["name"]
@@ -525,7 +525,7 @@ class EventDefinitionViewSet(
             order_expressions=order_expressions,
         )
 
-        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        paginator = cast(CappedCountLimitOffsetPagination, self.paginator)
         query = EventDefinitionQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
         params["limit"] = query.validated_data["limit"]
@@ -541,7 +541,11 @@ class EventDefinitionViewSet(
         # different row set than the one it bounds.
         with connections[read_db_alias()].cursor() as cursor:
             cursor.execute(count_sql, params)
-            paginator.set_count(cursor.fetchone()[0])
+            definition_count = cursor.fetchone()[0]
+            # Only a count that reached the cap is a lower bound; a filtered large project can be under it.
+            paginator.set_count(
+                definition_count, is_capped=large_project and definition_count >= LARGE_PROJECT_COUNT_CAP
+            )
 
         return event_definition_object_manager.raw(sql, params=params)
 
@@ -560,13 +564,17 @@ class EventDefinitionViewSet(
         return [tag for tag in decoded if isinstance(tag, str)]
 
     def _requested_event_type(self) -> EventDefinitionType:
-        """The `?event_type=` filter. The enum conversion raises on an unknown value, which reads as a 500."""
+        """The `?event_type=` filter. An unknown value raises out of the enum, which reads as a 500."""
         try:
-            return EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
+            event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
         except ValueError:
             raise serializers.ValidationError(
                 {"event_type": f"Not a valid event type. Use one of: {', '.join(EVENT_DEFINITION_LIST_EVENT_TYPES)}."}
             )
+        # Neither ever returned actions, so both resolve to the rows they already gave.
+        if event_type in (EventDefinitionType.ALL, EventDefinitionType.ACTION_EVENT):
+            return EventDefinitionType.EVENT
+        return event_type
 
     def _requested_ordering(self) -> list[tuple[str, Literal["ASC", "DESC"]]]:
         """The `?ordering=` fields this endpoint can serve, in request order. Unknown fields are dropped."""
