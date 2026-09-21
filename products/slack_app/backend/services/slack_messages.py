@@ -880,6 +880,11 @@ def thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> s
     return None
 
 
+def section_block(text: str) -> dict[str, Any]:
+    """One block of mrkdwn body text."""
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+
+
 def context_block(text: str) -> dict[str, Any]:
     """A line of muted supporting text.
 
