@@ -443,7 +443,7 @@ def get_team_defaults(team: Team) -> TeamDefaults:
 def _cache_key(team: Team, section: str, inputs: dict[str, Any]) -> str:
     # Bump the version whenever a cached dataclass changes shape: entries are pickled, so a deploy
     # would otherwise restore instances that miss the new fields.
-    digest = hashlib.sha1(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+    digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
     return f"experiment_setup_context_v1_{team.pk}_{section}_{digest}"
 
 

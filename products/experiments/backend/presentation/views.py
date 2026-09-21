@@ -1511,7 +1511,9 @@ class EnterpriseExperimentsViewSet(
         methods=["POST"],
         detail=False,
         url_path="setup_context",
-        required_scopes=["experiment:read"],
+        # The response carries saved-metric definitions and reuse counts, which the saved-metric
+        # API gates behind its own scope. Object-level filtering does not check token scopes.
+        required_scopes=["experiment:read", "experiment_saved_metric:read"],
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def setup_context(self, request: ValidatedRequest, **kwargs: Any) -> Response:

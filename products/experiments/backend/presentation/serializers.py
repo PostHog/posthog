@@ -2565,7 +2565,10 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
     has_holdout = serializers.BooleanField(help_text="Whether the experiment uses a holdout group.")
     outcome = ExperimentSetupOutcomeSerializer(
         allow_null=True,
-        help_text="From the latest completed result of the first primary metric. Null when no result exists.",
+        help_text=(
+            "From the latest completed result of the first primary metric. Null when no result exists, which is "
+            "also the case for older metric definitions that results are never stored for."
+        ),
     )
 
 
@@ -2629,7 +2632,10 @@ class ExperimentSetupSharedMetricsSerializer(serializers.Serializer):
     )
     metrics = ExperimentSetupSharedMetricSerializer(
         many=True,
-        help_text=("Metrics that match metric_event first, then most reused. Uses by deleted experiments don't count."),
+        help_text=(
+            "Metrics that match metric_event first, then most reused. A use counts when it is on an experiment "
+            "you can open and that is not deleted, so the counts follow your access."
+        ),
     )
 
 

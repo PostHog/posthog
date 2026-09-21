@@ -8940,7 +8940,10 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
     ) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            user=self.user, label="read", secure_value=hash_key_value(token), scopes=["experiment:read"]
+            user=self.user,
+            label="read",
+            secure_value=hash_key_value(token),
+            scopes=["experiment:read", "experiment_saved_metric:read"],
         )
         self.client.logout()
 
@@ -8952,6 +8955,19 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             assert sections["target_surface"] == {"status": "skipped", "data": None}
             assert sections["team_defaults"]["status"] == "ok"
             assert sections["sdk_profile"]["status"] == "ok"
+
+    def test_shared_metrics_need_the_saved_metric_scope(self) -> None:
+        # The response carries saved-metric names, events and reuse counts, which the saved-metric
+        # API gates behind its own scope. An experiment-only key must not reach them here.
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="experiments only", secure_value=hash_key_value(token), scopes=["experiment:read"]
+        )
+        self.client.logout()
+
+        response = self._post({}, flag_on=True, headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == 403, response.content
 
     @parameterized.expand(
         [

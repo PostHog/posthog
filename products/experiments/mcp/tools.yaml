@@ -1157,6 +1157,7 @@ tools:
         enabled: true
         scopes:
             - experiment:read
+            - experiment_saved_metric:read
         annotations:
             readOnly: true
             destructive: false
@@ -1164,8 +1165,9 @@ tools:
         title: Get experiment setup context
         description: >
             Read the facts that decide how to configure a new experiment in this project, in one call. Call it before
-            experiment-create. It returns: the team's experiment defaults; which SDKs send feature flag calls and
-            whether flags are evaluated on the server, locally or from bootstrap; traffic and anonymous share on a
+            experiment-create. It returns: the team's experiment defaults; which SDKs send feature flag calls, how
+            often they evaluate flags locally, and whether one flag is read on both a server and the web; traffic and
+            anonymous share on a
             target surface (pass target_event, and target_url_contains for a page); the baseline of a candidate metric
             (pass metric_event), shaped so you can pass it as baseline_stats to experiment-calculate-running-time; how
             the team's recent experiments were set up and how many got exposures; and the shared metrics the team reuses

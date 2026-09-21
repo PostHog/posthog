@@ -39225,7 +39225,7 @@ export namespace Schemas {
       stats_method: string;
       /** Whether the experiment uses a holdout group. */
       has_holdout: boolean;
-      /** From the latest completed result of the first primary metric. Null when no result exists. */
+      /** From the latest completed result of the first primary metric. Null when no result exists, which is also the case for older metric definitions that results are never stored for. */
       outcome: ExperimentSetupOutcome | null;
     }
 
@@ -39309,7 +39309,7 @@ export namespace Schemas {
       metric_event: string | null;
       /** True when the project has more shared metrics than the event match could read, so a match further down the list may be missing. Matching is capped for cost. */
       metric_event_match_truncated: boolean;
-      /** Metrics that match metric_event first, then most reused. Uses by deleted experiments don't count. */
+      /** Metrics that match metric_event first, then most reused. A use counts when it is on an experiment you can open and that is not deleted, so the counts follow your access. */
       metrics: ExperimentSetupSharedMetric[];
     }
 
