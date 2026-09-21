@@ -148,7 +148,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 sourceProduct: SignalSourceProduct.Github,
                 label: 'GitHub issues',
                 watches: 'Issues filed in GitHub',
-                detail: 'Reads the issues from the GitHub repositories you sync to the warehouse.',
+                detail: 'Reads the issues from the GitHub repositories you sync to the warehouse. Authorizing the GitHub app for your organization does not sync them, so connect GitHub here too.',
                 steerable: true,
             },
             {

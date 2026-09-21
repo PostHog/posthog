@@ -9,6 +9,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, ExternalDataJobStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceProduct, SignalSourceType } from './types'
 
@@ -71,9 +73,11 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 describe('signalSourcesLogic', () => {
     let logic: ReturnType<typeof signalSourcesLogic.build>
     let warehouseSources: ExternalDataSource[]
+    let storedSourceConfigs: any[]
 
     beforeEach(() => {
         warehouseSources = []
+        storedSourceConfigs = []
         useMocks({
             get: {
                 '/api/environments/:team_id/external_data_sources/': () => [
@@ -82,7 +86,12 @@ describe('signalSourcesLogic', () => {
                 ],
                 '/api/projects/:team_id/signals/source_configs/': () => [
                     200,
-                    { results: [], count: 0, next: null, previous: null },
+                    {
+                        results: storedSourceConfigs,
+                        count: storedSourceConfigs.length,
+                        next: null,
+                        previous: null,
+                    },
                 ],
             },
             put: {
@@ -103,8 +112,8 @@ describe('signalSourcesLogic', () => {
 
     // The cached sources list is null right after mount (loadSources is debounced). Reading it
     // directly misread that as "no source connected" and opened the connect form, duplicating an
-    // already-connected source. Enabling must reuse the existing source; only a genuinely empty
-    // account should reach the connect form.
+    // already-connected source. Enabling must read the list itself and reuse the existing source;
+    // only a genuinely empty account should reach the connect form.
     it.each([
         {
             name: 'enables in place when a GitHub source exists but the list has not loaded',
@@ -164,8 +173,10 @@ describe('signalSourcesLogic', () => {
         const sourcesPromise = new Promise<Awaited<ReturnType<typeof api.externalDataSources.list>>>((resolve) => {
             resolveSources = resolve
         })
+        storedSourceConfigs = [githubIssuesConfig]
         const listSources = jest.spyOn(api.externalDataSources, 'list').mockReturnValue(sourcesPromise)
         const updateSourceConfig = jest.spyOn(api.signalSourceConfigs, 'update').mockResolvedValue(githubIssuesConfig)
+        logic.actions.loadSourceConfigsSuccess([])
 
         logic.actions.initiateDataWarehouseSourceToggle('github')
         expect(logic.values.isGithubIssuesToggling).toBe(true)
@@ -182,6 +193,39 @@ describe('signalSourcesLogic', () => {
         expect(updateSourceConfig).not.toHaveBeenCalled()
         expect(logic.values.githubIssuesConfig?.enabled).toBe(true)
         expect(logic.values.isGithubIssuesToggling).toBe(false)
+    })
+
+    // A click used to trust the sources list cached at mount, so a source connected after that read
+    // as "never connected" and the click reopened the connect form on an already-connected source.
+    it('reuses a source connected after the cached list was read', async () => {
+        const listSources = jest
+            .spyOn(api.externalDataSources, 'list')
+            .mockResolvedValue({ results: [githubSource], next: null, previous: null })
+        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig)
+        sourcesDataLogic.findMounted()?.actions.loadSourcesSuccess({ results: [], next: null, previous: null })
+        logic.actions.loadSourceConfigsSuccess([])
+
+        await expectLogic(logic, () => {
+            logic.actions.initiateDataWarehouseSourceToggle('github')
+        }).toFinishAllListeners()
+
+        expect(listSources).toHaveBeenCalled()
+        expect(logic.values.dataSourceSetupSource).toBeNull()
+        expect(createSourceConfig).toHaveBeenCalledTimes(1)
+    })
+
+    // The configs say whether a source is already on. Acting without them either no-ops silently or
+    // creates a second config row, so the click has to report that and reload instead.
+    it('reports and reloads when the source configs have not resolved', async () => {
+        const listSources = jest.spyOn(api.externalDataSources, 'list')
+
+        await expectLogic(logic, () => {
+            logic.actions.initiateDataWarehouseSourceToggle('github')
+        }).toDispatchActions(['initiateDataWarehouseSourceToggle', 'loadSourceConfigs'])
+
+        expect(listSources).not.toHaveBeenCalled()
+        expect(logic.values.isGithubIssuesToggling).toBe(false)
+        expect(logic.values.dataSourceSetupSource).toBeNull()
     })
 
     it('ignores repeated clicks while the source lookup is pending', async () => {

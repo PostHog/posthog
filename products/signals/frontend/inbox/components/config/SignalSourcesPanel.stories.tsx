@@ -37,6 +37,8 @@ interface PanelState {
     hasAnalyticsEvents: boolean
     eventDefinitionsUnavailable: boolean
     sourceConfigsUnavailable: boolean
+    /** The wizard endpoint refuses the list of sources a member can connect (it answers 403). */
+    connectableSourcesUnavailable: boolean
 }
 
 function sourceConfig(
@@ -204,6 +206,8 @@ function PanelHarness(state: PanelState): JSX.Element {
                 200,
                 { count: 0, next: null, previous: null, results: [] },
             ],
+            '/api/environments/:team_id/external_data_sources/wizard': () =>
+                state.connectableSourcesUnavailable ? [403, { detail: 'Permission denied.' }] : [200, {}],
         },
     })
 
@@ -246,6 +250,7 @@ const meta: Meta<typeof PanelHarness> = {
         hasAnalyticsEvents: true,
         eventDefinitionsUnavailable: false,
         sourceConfigsUnavailable: false,
+        connectableSourcesUnavailable: false,
     },
 }
 export default meta
@@ -367,5 +372,22 @@ export const ErrorTrackingExpanded: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Error tracking', { exact: true }))
+    },
+}
+
+/** Connect on a warehouse-backed source with no connectable sources to offer: says so, and retries. */
+export const ConnectableSourcesUnavailable: Story = {
+    args: {
+        connectableSourcesUnavailable: true,
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.click((await within(canvasElement).findAllByText('Connect'))[0])
+    },
+}
+
+/** Connect on a source the wizard does not offer: points at the data warehouse instead of a skeleton. */
+export const ConnectSourceMissing: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click((await within(canvasElement).findAllByText('Connect'))[0])
     },
 }

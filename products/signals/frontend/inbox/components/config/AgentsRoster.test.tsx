@@ -23,11 +23,17 @@ const SCANNERS = Array.from({ length: 10 }, (_, index) => ({
 const EMPTY_LIST = { count: 0, next: null, previous: null, results: [] }
 
 describe('AgentsRoster', () => {
+    let sourceConfigsGate: Promise<void>
+
     beforeEach(() => {
         initKeaTests()
+        sourceConfigsGate = Promise.resolve()
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/source_configs/': () => [200, { results: [] }],
+                '/api/projects/:team_id/signals/source_configs/': async () => {
+                    await sourceConfigsGate
+                    return [200, { results: [] }]
+                },
                 '/api/projects/:team_id/vision/scanners/': () => [
                     200,
                     { count: SCANNERS.length, next: null, previous: null, results: SCANNERS },
@@ -59,5 +65,23 @@ describe('AgentsRoster', () => {
         await userEvent.clear(screen.getByPlaceholderText('Filter scanners'))
         await userEvent.click(await screen.findByText('Show 2 more scanners'))
         expect(await screen.findByText('Scanner 9')).toBeInTheDocument()
+    })
+
+    // A Connect button rendered before the configs resolve cannot tell whether the source is
+    // already on, so the click did nothing and the control read as broken.
+    it('withholds Connect on a warehouse source until the source configs resolve', async () => {
+        let releaseSourceConfigs!: () => void
+        sourceConfigsGate = new Promise<void>((resolve) => {
+            releaseSourceConfigs = resolve
+        })
+
+        render(<AgentsRoster />)
+
+        expect(await screen.findByText('GitHub issues')).toBeInTheDocument()
+        expect(screen.queryByText('Connect')).not.toBeInTheDocument()
+
+        releaseSourceConfigs()
+
+        expect((await screen.findAllByText('Connect')).length).toBeGreaterThan(0)
     })
 })

@@ -1000,18 +1000,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     }),
 
     listeners(({ actions, values }) => {
-        // Cached list is null for a beat after mount (loadSources is debounced), so a toggle click
-        // can beat it and misread it as "no source connected", opening the connect form and
-        // duplicating a source. Fetch once as a fallback; on failure return empty so the caller
+        // The cached list is taken at mount, so a source connected since then reads as "no source
+        // connected" and the caller opens the connect form again, duplicating it. Read the list
+        // fresh on every click; on failure fall back to the cache, then to empty so the caller
         // opens the connect form rather than hanging.
         async function currentWarehouseSources(): Promise<ExternalDataSource[]> {
-            if (values.dataWarehouseSources !== null) {
-                return values.dataWarehouseSources.results
-            }
             try {
                 return (await api.externalDataSources.list()).results
             } catch {
-                return []
+                return values.dataWarehouseSources?.results ?? []
             }
         }
 
@@ -1054,6 +1051,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 ) {
                     return
                 }
+                if (values.sourceConfigs === null) {
+                    // Without the configs we cannot tell whether this source is already on, so
+                    // acting on the click risks a second config row for it.
+                    lemonToast.error('Still loading your signal sources. Try again in a moment.')
+                    actions.loadSourceConfigs()
+                    return
+                }
                 const sourceConfig = getWarehouseSourceConfig(values, source)
                 const desiredEnabled = sourceConfig?.enabled !== true
                 actions.startDataWarehouseSourceToggle(source)
@@ -1072,6 +1076,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     const currentConfig = getWarehouseSourceConfig(values, source)
                     if ((currentConfig?.enabled ?? false) === desiredEnabled) {
+                        // Another tab or an earlier click already moved it, so reload rather than
+                        // leaving the row showing a state the server does not hold.
+                        actions.loadSourceConfigs()
                         return
                     }
                     actions.setDataWarehouseSourceEnabled(source, desiredEnabled)
