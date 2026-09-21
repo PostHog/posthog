@@ -343,6 +343,37 @@ describe('hogFlowEditorTestLogic', () => {
             }).toDispatchActions(['loadSampleGlobals'])
         })
 
+        it('follows the test-account toggle, in the reload and in the query', async () => {
+            // The live trigger folds the team's test-account filters in, so a sample that ignores
+            // the toggle can be an event the trigger would reject.
+            const queryMock = performWideEventsQueryInTwoPhases as jest.Mock
+            queryMock.mockReset()
+            queryMock.mockImplementation(async () => ({ results: [] }))
+
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const flowLogic = workflowLogic({ id: 'test-workflow' })
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+
+            expect(queryMock.mock.calls[0][0].filterTestAccounts).toBe(false)
+            queryMock.mockClear()
+
+            await expectLogic(logic, () => {
+                flowLogic.actions.setWorkflowValue(
+                    'actions',
+                    WORKFLOW_FIXTURE.actions.map((action) =>
+                        action.id === 'trigger_node'
+                            ? { ...action, config: { type: 'event', filters: { filter_test_accounts: true } } }
+                            : action
+                    )
+                )
+            }).toDispatchActions(['loadSampleGlobals'])
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+
+            expect(logic.values.shouldFilterTestAccounts).toBe(true)
+            expect(queryMock.mock.calls[0][0].filterTestAccounts).toBe(true)
+        })
+
         it('keeps the newest sample event when an older query answers last', async () => {
             // Two loads overlap and the first query answers second. The stale answer must be
             // discarded, or the panel shows an event the current filters never asked for.

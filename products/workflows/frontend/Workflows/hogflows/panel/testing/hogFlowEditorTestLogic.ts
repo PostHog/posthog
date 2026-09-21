@@ -163,6 +163,7 @@ export interface hogFlowEditorTestLogicValues {
     sampleGlobals: CyclotronJobInvocationGlobals | null
     sampleGlobalsError: string | null
     sampleGlobalsLoading: boolean
+    shouldFilterTestAccounts: boolean
     shouldLoadSampleGlobals: boolean
     showTestInvocationErrors: boolean
     testInvocation: HogflowTestInvocation
@@ -452,6 +453,135 @@ export interface hogFlowEditorTestLogicMeta {
             groupsEnabled: boolean,
             groupTypes: Map<GroupTypeIndex, GroupType>
         ) => Map<GroupTypeIndex, GroupType>
+        shouldFilterTestAccounts: (
+            triggerAction:
+                | ({
+                      config:
+                          | {
+                                type: 'schedule'
+                            }
+                          | {
+                                filters: {
+                                    all_roles_unassigned?: boolean | undefined
+                                    assigned_to_user_ids?: number[] | undefined
+                                    assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
+                                    audience_type?: 'accounts' | 'persons' | undefined
+                                    properties: any[]
+                                    tag_names?: string[] | undefined
+                                }
+                                type: 'batch'
+                            }
+                          | {
+                                filters: {
+                                    actions?: any[] | undefined
+                                    events?: any[] | undefined
+                                    filter_test_accounts?: boolean | undefined
+                                    properties?: any[] | undefined
+                                }
+                                type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    events: any[]
+                                    properties?: any[] | undefined
+                                    source: 'internal-events'
+                                }
+                                type: 'internal-event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'manual'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'tracking_pixel'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'webhook'
+                            }
+                      created_at?: number | undefined
+                      description: string
+                      filters?:
+                          | {
+                                actions?: any[] | undefined
+                                events?: any[] | undefined
+                                properties?: any[] | undefined
+                            }
+                          | null
+                          | undefined
+                      id: string
+                      name: string
+                      on_error?: 'abort' | 'continue' | null | undefined
+                      output_variable?:
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }[]
+                          | null
+                          | undefined
+                      type: 'trigger'
+                      updated_at?: number | undefined
+                  } & Record<string, unknown>)
+                | null
+        ) => boolean
         matchingFilters: (
             triggerAction:
                 | ({
@@ -746,6 +876,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
+                            filterTestAccounts: values.shouldFilterTestAccounts,
                             select: ['*', 'person', ...groupSelectColumns(values.groupTypesForTest)],
                             after: timeRange,
                             limit: 10,
@@ -918,6 +1049,17 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             (groupsEnabled: boolean, groupTypes: Map<GroupTypeIndex, GroupType>): Map<GroupTypeIndex, GroupType> =>
                 groupsEnabled ? groupTypes : new Map(),
         ],
+        // The trigger honours this at runtime, so the sample has to as well, or the panel offers an
+        // event from a test account that the live trigger would reject.
+        shouldFilterTestAccounts: [
+            (s) => [s.triggerAction],
+            (triggerAction: null | import('../../../workflowLogic').TriggerAction): boolean => {
+                if (!triggerAction || triggerAction.config.type !== 'event') {
+                    return false
+                }
+                return !!triggerAction.config.filters?.filter_test_accounts
+            },
+        ],
         // TODO(workflows): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
         matchingFilters: [
             (s) => [s.triggerAction],
@@ -1080,6 +1222,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
 
     subscriptions(({ actions, values }) => ({
+        shouldFilterTestAccounts: (value, previousValue) => {
+            if (previousValue === undefined || value === previousValue || !values.shouldLoadSampleGlobals) {
+                return
+            }
+            actions.loadSampleGlobals()
+        },
         matchingFilters: (filters, previousFilters) => {
             // The panel renders the pick-an-event-by-name selector only while this is false, so
             // returning here is what leaves a deliberate pick alone.
