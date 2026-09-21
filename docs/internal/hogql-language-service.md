@@ -32,6 +32,15 @@ Django remains authoritative for authentication, team membership, entitlements, 
 resolution. The Go service does not read PostHog permission tables or accept browser-selected identity without an
 authenticated internal request.
 
+Django adds resolver-confirmed `tableAliases` to the same permission-filtered catalog snapshot.
+For example, a catalog can map `demo_postgres_orders` to `postgres.demo.orders` when both names resolve to the same visible warehouse table.
+Aliases from another project or hidden tables are not published.
+If a candidate is hidden or unresolvable, or a canonical name resolves to different metadata, Django abandons the publication and uses the Python path.
+An alias must resolve to the same table object as exactly one exported canonical name; matching physical IDs alone do not establish equivalence.
+An alias candidate that resolves unambiguously to another visible canonical table follows that effective resolver winner.
+Nonrepresentable resolver collisions require a separate catalog contract before they can use the Go service.
+Built-in `posthog.*` namespaces are outside this rollout.
+
 ## Query analysis
 
 `internal/analysis` owns parsed statements, nested scopes, table and CTE bindings, and projected fields for validation and completion.
@@ -280,8 +289,20 @@ fails startup unless dedicated signing keys are configured.
 
 Local and debug environments may use the service directly. Production integration remains behind a server-side
 feature flag and should progress through shadow comparison before serving editor results.
-The Go consumer accepts alias metadata before Django publishes it.
-Deploy this consumer first, then enable alias publication separately; catalogs without aliases continue to work throughout the rollout.
+The Go consumer accepts alias metadata, and Django always publishes resolver-confirmed warehouse aliases.
+Django refreshes cached catalogs with numeric or `legacy-v1` revisions before it uses their responses.
+Each request attempts at most one publication and one retry.
+The retry must return an alias-capable revision, but a concurrent publication for the same team and user can supersede the requested revision.
+If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
+Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
+Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.
+
+For authenticated requests that have the service configured and the feature flag enabled, `hogql.editor_assist.responses` counts the backend that produced the final successful editor response.
+Its bounded attributes are the operation, backend, and routing reason.
+The operation is `autocomplete` or `metadata`, the backend is `language_service` or `python`, and the reason is `served`, `ineligible`, `service_error`, or `invalid_response`.
+The denominator includes enabled requests that are ineligible for the Go service and use Python.
+It excludes disabled requests, requests without a user, and requests that fail before either backend constructs a response.
+The existing PostHog SDK configuration exports this metric in deployed environments; local and test environments can leave the SDK disabled.
 
 The initial rollout keeps ClickHouse execution in Django:
 
