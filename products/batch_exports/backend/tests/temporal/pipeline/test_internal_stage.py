@@ -49,8 +49,10 @@ from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
+    PersonValues,
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
+    insert_person_values_in_clickhouse,
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -813,6 +815,81 @@ async def test_insert_into_stage_activity_for_persons_model(
             model=model,
         )
     assert_exported_rows_match_persons_to_export(records_exported, new_persons_to_export)
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+async def test_insert_into_stage_activity_for_persons_model_with_out_of_order_person_versions(
+    interval,
+    activity_environment,
+    data_interval_start,
+    object_storage_client,
+    data_interval_end,
+    ateam,
+    test_person_properties,
+    clickhouse_client,
+    model: BatchExportModel,
+    truncate_clickhouse_tables,
+):
+    """Export a person whose highest version was ingested before a lower version.
+
+    `version` counts application updates and `_timestamp` records ingestion time, so the two can
+    disagree. A person whose highest version is not its latest ingested row must still reach the
+    export, together with every distinct id behind it.
+    """
+    person_id = uuid.uuid4()
+    latest_version_timestamp = data_interval_start + dt.timedelta(seconds=10)
+    stale_version_timestamp = data_interval_start + dt.timedelta(seconds=20)
+
+    for version, timestamp in ((2, latest_version_timestamp), (1, stale_version_timestamp)):
+        await insert_person_values_in_clickhouse(
+            client=clickhouse_client,
+            persons=[
+                PersonValues(
+                    id=str(person_id),
+                    created_at=data_interval_start.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    team_id=ateam.pk,
+                    properties=test_person_properties,
+                    is_identified=True,
+                    is_deleted=False,
+                    version=version,
+                    _timestamp=timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                )
+            ],
+        )
+
+    person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        person_id=person_id,
+        distinct_id=f"distinct-id-{person_id}",
+        timestamp=latest_version_timestamp,
+    )
+
+    records_exported = await _run_activity(
+        activity_environment=activity_environment,
+        object_storage_client=object_storage_client,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        model=model,
+    )
+
+    assert_exported_rows_match_persons_to_export(
+        records_exported,
+        [
+            PersonToExport(
+                team_id=ateam.pk,
+                person_id=str(person_id),
+                distinct_id=person_distinct_id["distinct_id"],
+                person_version=2,
+                person_distinct_id_version=person_distinct_id["version"],
+                properties=test_person_properties,
+                _timestamp=latest_version_timestamp.replace(tzinfo=None),
+            )
+        ],
+    )
 
 
 _FETCHER_PATH = "products.batch_exports.backend.temporal.pipeline.internal_stage.afetch_last_run_records_completed"

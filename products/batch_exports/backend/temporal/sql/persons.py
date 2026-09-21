@@ -90,7 +90,7 @@ FROM (
         SELECT
             id,
             max(version) AS version,
-            max(_timestamp) AS _timestamp
+            argMax(_timestamp, person.version) AS _timestamp
         FROM
             person
         WHERE
@@ -243,7 +243,7 @@ FROM (
         SELECT
             id,
             max(version) AS version,
-            max(_timestamp) AS _timestamp
+            argMax(_timestamp, person.version) AS _timestamp
         FROM
             person
         WHERE
