@@ -148,6 +148,12 @@ describe('organizationLogic', () => {
                 '/organization/billing',
                 '/organization-pending-deletion',
             ],
+            [
+                'pending deletion keeps the account danger zone',
+                { is_pending_deletion: true },
+                '/settings/user-danger-zone',
+                '/settings/user-danger-zone',
+            ],
         ])('%s', async (_name, organization, pathname, expected) => {
             mountWith(organization)
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])

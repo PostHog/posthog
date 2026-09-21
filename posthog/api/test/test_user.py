@@ -1888,8 +1888,19 @@ class TestUserAPI(APIBaseTest):
             response = self.client.patch("/api/users/@me/", {"organization_name": "new name"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_cannot_delete_user_with_organization_memberships(self):
-        user = self._create_user("activeorgmemberships@posthog.com", password="test")
+    @parameterized.expand(
+        [
+            ("active", False, "Cannot delete user with organization memberships."),
+            (
+                "pending_deletion",
+                True,
+                "An organization you belong to is still being deleted. "
+                "This usually takes a few minutes. Try again when it is done.",
+            ),
+        ]
+    )
+    def test_cannot_delete_user_with_organization_memberships(self, name, is_pending_deletion, expected_detail):
+        user = self._create_user(f"{name}orgmemberships@posthog.com", password="test")
 
         self.client.force_login(user)
 
@@ -1897,8 +1908,12 @@ class TestUserAPI(APIBaseTest):
 
         assert OrganizationMembership.objects.filter(user=user, organization=self.new_org).exists()
 
+        if is_pending_deletion:
+            Organization.objects.filter(members=user).update(is_pending_deletion=True)
+
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["detail"] == expected_detail
 
     @patch("posthoganalytics.capture")
     def test_can_delete_user_with_no_organization_memberships(self, mock_capture):

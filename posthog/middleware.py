@@ -1650,9 +1650,15 @@ class SocialAuthExceptionMiddleware:
 
 # Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
 # organization, which this check never judges. Settling the balance is how a member lifts a
-# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+# deactivation; no payment restores a pending deletion. The account danger zone stays reachable,
+# because deleting the last organization is a step of deleting the account.
+# `organizationLogic` holds the same table.
 ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
-    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
+    "/organization-pending-deletion": (
+        "/organization-pending-deletion",
+        "/signup/",
+        "/settings/user-danger-zone",
+    ),
     "/organization-deactivated": (
         "/organization-deactivated",
         "/signup/",

@@ -2034,6 +2034,12 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
                 "/billing/authorization_status",
                 status.HTTP_302_FOUND,
             ),
+            (
+                "pending_deletion_keeps_account_danger_zone",
+                "is_pending_deletion",
+                "/settings/user-danger-zone",
+                status.HTTP_200_OK,
+            ),
         ]
     )
     def test_blocked_organization_page_access(

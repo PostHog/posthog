@@ -7,16 +7,13 @@ import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag,
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { isNotNil } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { DeleteOrganizationModal } from '../organization/OrganizationDangerZone'
 import { TagList } from './PersonalAPIKeys'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
-import { userDangerZoneLogic } from './userDangerZoneLogic'
-
-const DELETE_CONFIRMATION_TEXT = 'permanently delete data'
+import { DELETE_CONFIRMATION_TEXT, userDangerZoneLogic } from './userDangerZoneLogic'
 
 export function DeleteUserModal({
     isOpen,
@@ -29,11 +26,10 @@ export function DeleteUserModal({
     const { push } = useActions(router)
     const { updateCurrentOrganization, deleteUser } = useActions(userLogic)
     const { userLoading } = useValues(userLogic)
-    const { organizationToDelete, isUserDeletionConfirmed, deletedOrganizationIds } = useValues(userDangerZoneLogic)
+    const { organizationToDelete, blockingOrganizations, hasPendingOrganizationDeletion, deleteAccountDisabledReason } =
+        useValues(userDangerZoneLogic)
     const { leaveOrganization, setOrganizationToDelete, setIsUserDeletionConfirmed } = useActions(userDangerZoneLogic)
-    const organizations = (user?.organizations ?? [])
-        .filter(isNotNil)
-        .filter((org) => !deletedOrganizationIds.includes(org.id))
+    const organizations = blockingOrganizations
     const { keys } = useValues(personalAPIKeysLogic)
     const { loadKeys } = useActions(personalAPIKeysLogic)
 
@@ -57,7 +53,7 @@ export function DeleteUserModal({
                         </LemonButton>
                         <LemonButton
                             type="secondary"
-                            disabled={!isUserDeletionConfirmed}
+                            disabledReason={deleteAccountDisabledReason ?? undefined}
                             loading={userLoading}
                             data-attr="delete-user-ok"
                             status="danger"
@@ -72,7 +68,9 @@ export function DeleteUserModal({
                 {organizations.length > 0 && (
                     <>
                         <p className="text-danger font-semibold">
-                            You must leave or delete all organizations before deleting your account.
+                            {hasPendingOrganizationDeletion
+                                ? 'Deleting an organization runs in the background. You can delete your account once it finishes.'
+                                : 'You must leave or delete all organizations before deleting your account.'}
                         </p>
                         <LemonTable
                             dataSource={organizations}
@@ -87,6 +85,13 @@ export function DeleteUserModal({
                                 {
                                     title: '',
                                     render: function RenderActionButton(_, organization) {
+                                        if (organization.is_pending_deletion) {
+                                            return (
+                                                <div className="flex justify-end items-center py-1">
+                                                    <LemonTag type="warning">Deletion in progress</LemonTag>
+                                                </div>
+                                            )
+                                        }
                                         return (
                                             <div className="flex justify-end items-center gap-2 py-1 text-danger font-semibold">
                                                 {organization.membership_level ===

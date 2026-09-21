@@ -21,7 +21,7 @@ import { userLogic } from './userLogic'
 
 /** Mirrors `ALLOWED_WHILE_BLOCKED` in `posthog/middleware.py`. Change one and change the other. */
 const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
-    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/'],
+    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/', '/settings/user-danger-zone'],
     '/organization-deactivated': [
         '/organization-deactivated',
         '/signup/',
@@ -417,8 +417,8 @@ export const organizationLogic = kea<organizationLogicType>([
             })
 
             // When deleting an org as part of the delete-account flow, skip the
-            // page reload so the user stays in the modal. The org deletion is
-            // async, so a reload would still show the org in the list.
+            // page reload so the user stays in the modal. `userDangerZoneLogic`
+            // refreshes the organization list instead.
             if (redirectPath === urls.settings('user-danger-zone')) {
                 return
             }
