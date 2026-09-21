@@ -39,6 +39,11 @@ def test_assistant_pane_welcome_copy(snapshot):
     assert snapshot == build_assistant_pane_welcome()
 
 
+def test_assistant_pane_welcome_names_no_slash_command():
+    # The pane is a DM, where the slash commands are not reachable.
+    assert "/posthog" not in build_assistant_pane_welcome()
+
+
 def test_assistant_pane_welcome_carries_no_markup_the_container_drops():
     # Posted as `text`, which renders mrkdwn but no blocks, so a link or a block-only
     # construct would reach the reader as literal characters.

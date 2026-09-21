@@ -277,7 +277,7 @@ def build_onboarding_dm(
     interactive = _section(
         "💬 *You can also just talk to me*\nTag `@PostHog` in any channel, or message me here, to dig into your "
         "product data or open a pull request. Name a project to route one question: `@PostHog give me DAU for "
-        "Staging please`. `/posthog` lists my commands."
+        "Staging please`. In a channel, `/posthog` lists my commands."
     )
     blocks: list[dict] = [intro, interactive, {"type": "divider"}]
     blocks += _github_blocks(integration, done=not needs_github)

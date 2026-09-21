@@ -71,7 +71,8 @@ def build_assistant_pane_welcome() -> str:
 
     Plain text and no blocks, because the container takes a ``text`` payload, so none of the
     section and button structure the other two share transfers here. The pane runs the same
-    mention workflow, so the model and project classifiers answer in it as well.
+    mention workflow, so the model and project classifiers answer in it as well. No
+    ``/posthog``: the slash commands are not reachable from a DM.
     """
     return (
         "Hi! I'm PostHog, an AI agent. Ask me about your product data, or tell me what to fix and "
@@ -79,7 +80,7 @@ def build_assistant_pane_welcome() -> str:
         "• Keep replying here while I'm working and I'll pick up what you say.\n"
         "• Want a different model? Say so: `use fable for this one`.\n"
         "• Answering from the wrong project? Name the one you want: `give me DAU for Staging please`.\n"
-        "• `/posthog` lists my commands, and the thumbs under my replies tell me when I get it wrong."
+        "• Hit the thumbs under my replies when I get something wrong."
     )
 
 
@@ -152,8 +153,8 @@ def build_team_join_welcome(integration: Integration) -> tuple[str, list[dict[st
         ),
         _feedback_block(),
         context_block(
-            "`/posthog` lists my commands. Your default model, thread follow-ups and linked accounts "
-            f"live in {_home_tab(integration)}."
+            "In a channel, `/posthog` lists my commands. Your default model, thread follow-ups and "
+            f"linked accounts live in {_home_tab(integration)}."
         ),
         _docs_button_block(),
     ]

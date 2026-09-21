@@ -9,7 +9,7 @@
   I'm an AI agent on autopilot: I watch your product for problems, investigate them myself, and open pull requests to fix them - so issues get handled before they reach your backlog.
   
   💬 *You can also just talk to me*
-  Tag `@PostHog` in any channel, or message me here, to dig into your product data or open a pull request. Name a project to route one question: `@PostHog give me DAU for Staging please`. `/posthog` lists my commands.
+  Tag `@PostHog` in any channel, or message me here, to dig into your product data or open a pull request. Name a project to route one question: `@PostHog give me DAU for Staging please`. In a channel, `/posthog` lists my commands.
   
   ---
   

@@ -5,7 +5,7 @@
   • Keep replying here while I'm working and I'll pick up what you say.
   • Want a different model? Say so: `use fable for this one`.
   • Answering from the wrong project? Name the one you want: `give me DAU for Staging please`.
-  • `/posthog` lists my commands, and the thumbs under my replies tell me when I get it wrong.
+  • Hit the thumbs under my replies when I get something wrong.
   '''
 # ---
 # name: test_welcome_copy[channel]
@@ -53,7 +53,7 @@
   *Tell me when I get it wrong*
   Hit the thumbs under my replies. A thumbs down asks what went wrong, and that goes straight to the team building me. You can also react with :thumbsup: or :thumbsdown:.
   
-  `/posthog` lists my commands. Your default model, thread follow-ups and linked accounts live in <slack://app?team=T_WELCOME&id=A_WELCOME&tab=home|my Home tab>.
+  In a channel, `/posthog` lists my commands. Your default model, thread follow-ups and linked accounts live in <slack://app?team=T_WELCOME&id=A_WELCOME&tab=home|my Home tab>.
   
   [Read the docs](https://posthog.com/docs/slack-app)
   '''
