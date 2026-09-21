@@ -75,6 +75,10 @@ export function coerceTemplateValueForDisplay(value: unknown, templating: 'hog' 
     return String(value)
 }
 
+// An email input renders a preview that takes the height its host gives it, so every wrapper
+// between the host and the preview grows. Inert where the host is sized by its content.
+const isEmailInput = (type: CyclotronJobInputSchemaType['type']): boolean => type === 'email' || type === 'native_email'
+
 const INPUT_TYPE_LIST = [
     'string',
     'number',
@@ -126,6 +130,9 @@ export type CyclotronJobInputsProps = {
     emailSaveIndicator?: ReactNode
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
+    // Classes for the column the inputs are laid out in, so a host with height to spare can let
+    // it grow (the workflow builder's step panel does this for email steps)
+    className?: string
     showSource: boolean
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }
@@ -142,6 +149,7 @@ export function CyclotronJobInputs({
     emailSaveIndicator,
     showSource,
     sampleGlobalsWithInputs,
+    className,
 }: CyclotronJobInputsProps): JSX.Element | null {
     if (!configuration.inputs_schema?.length) {
         return <span className="italic text-secondary">This function does not require any input variables.</span>
@@ -164,7 +172,7 @@ export function CyclotronJobInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    <div className="flex flex-col gap-3">
+                    <div className={clsx('flex flex-col gap-3', className)}>
                         {configuration.inputs_schema
                             ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
                             .map((schema: CyclotronJobInputSchemaType) => {
@@ -977,6 +985,7 @@ function CyclotronJobInputWithSchema({
     return (
         <div
             ref={setNodeRef}
+            className={clsx(isEmailInput(schema.type) && 'flex flex-1 flex-col')}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 transform: CSS.Transform.toString(transform),
@@ -985,7 +994,7 @@ function CyclotronJobInputWithSchema({
         >
             {!editing ? (
                 <LemonField.Pure
-                    className="gap-1"
+                    className={clsx('gap-1', isEmailInput(schema.type) && 'flex-1')}
                     error={error}
                     help={
                         <>

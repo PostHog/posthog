@@ -1487,6 +1487,14 @@ class WatchFeedReasonSerializer(serializers.Serializer):
     signals_count = serializers.IntegerField(
         required=False, allow_null=True, help_text="Signals this observation emitted, for `signal_emitted`."
     )
+    problem_types = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per "
+            "signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped."
+        ),
+    )
     verdict = serializers.CharField(
         required=False, allow_null=True, help_text="The monitor's answer, for `unusual_verdict`."
     )

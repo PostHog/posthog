@@ -2555,13 +2555,12 @@ class QueryScanFindingKind(StrEnum):
     PERSONS_JOIN = "persons_join"
 
 
-class QueryScanFindingReason(StrEnum):
-    IN_OR = "in_or"
-    WRAPPED = "wrapped"
-    NEGATED = "negated"
-    DYNAMIC = "dynamic"
-    NOT_PRUNED = "not_pruned"
-    FILTERS = "filters"
+class QueryScanFixLocation(StrEnum):
+    QUERY = "query"
+    SUBQUERY = "subquery"
+    VIEW = "view"
+    INSIGHT_DATE_RANGE = "insight_date_range"
+    DASHBOARD_DATE_FILTER = "dashboard_date_filter"
 
 
 class QuickFilterContext(StrEnum):
