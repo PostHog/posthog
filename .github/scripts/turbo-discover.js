@@ -9,6 +9,17 @@
 // Products without contract-check are non-isolated: any change in them
 // triggers the full test suite (all products + Django).
 //
+// Lib packages are the other kind of workspace package with a backend:test task:
+// the Python distributions under packages/ (@posthog/owners and the like). They
+// never become matrix entries, because their own tests run in ci-python.yml.
+// They matter here as cascade sources. Each one is a uv distribution, so tach
+// resolves an import of it as third-party and records no edge to it, which means
+// nothing declares who its consumers are. A changed lib's direct consumers come
+// from scanning products/ for its import statements, and the tach map then
+// supplies the product-to-product closure over those consumers. The same scan
+// covers posthog/, ee/ and common/, where an importer has no product id to
+// select, so the only sound answer there is the full suite.
+//
 // Products under SMALL_THRESHOLD duration get grouped into one matrix entry
 // to avoid spinning up a full Docker stack for a handful of tests.
 // Durations come from .test_durations (maintained by pytest-split).
@@ -177,8 +188,14 @@ function parseAffectedTasks(raw) {
     return JSON.parse(raw).data.affectedTasks.items
 }
 
+const PRODUCT_PACKAGE_PREFIX = '@posthog/products-'
+
+function isProductPackage(pkg) {
+    return pkg.startsWith(PRODUCT_PACKAGE_PREFIX)
+}
+
 function packageToProduct(pkg) {
-    return pkg.replace('@posthog/products-', '')
+    return pkg.replace(PRODUCT_PACKAGE_PREFIX, '')
 }
 
 // A product that ships the contract-check script but no turbo.json of its own
@@ -197,11 +214,37 @@ function getIsolatedProducts(contractTasks, repoRoot = process.cwd()) {
 }
 
 function getAffectedTaskProducts(tasks) {
-    return [...new Set(tasks.map((t) => packageToProduct(t.package.name)))].sort()
+    return [
+        ...new Set(
+            tasks
+                .map((t) => t.package.name)
+                .filter(isProductPackage)
+                .map(packageToProduct)
+        ),
+    ].sort()
+}
+
+// The lib packages a diff touched, as { name, directory }. The affected query
+// reports package names only, so the directory comes from the dry-run task list,
+// which carries both. A package present in one list and not the other would mean
+// the two turbo runs disagree, so it throws rather than dropping a cascade source.
+function getAffectedLibPackages(testTasks, affectedTasks) {
+    const directories = new Map(
+        testTasks.filter((t) => !isProductPackage(t.package)).map((t) => [t.package, t.directory])
+    )
+    return [...new Set(affectedTasks.map((t) => t.package.name).filter((name) => !isProductPackage(name)))]
+        .sort()
+        .map((name) => {
+            const directory = directories.get(name)
+            if (!directory) {
+                throw new Error(`affected package '${name}' has no directory in the backend:test task list`)
+            }
+            return { name, directory }
+        })
 }
 
 function getAllProducts(testTasks) {
-    return [...new Set(testTasks.map((t) => packageToProduct(t.package)))].sort()
+    return [...new Set(testTasks.map((t) => t.package).filter(isProductPackage).map(packageToProduct))].sort()
 }
 
 function affectedArgs(taskName) {
@@ -680,6 +723,107 @@ function collectTestFiles(dir) {
 
 function productPrefix(product) {
     return `products/${productToModule(product)}/`
+}
+
+// --- Lib package consumers (import scan) ---
+// The tach map cannot answer who uses a lib package: the package is a uv
+// distribution, so tach resolves `import owners_yaml` as third-party and records
+// no edge to it. The import statements themselves are the only record, and unlike
+// a declared edge they cannot drift from what the code does.
+//
+// Roots that hold no product, so an importer there can only be answered with the
+// full suite.
+const CORE_SCAN_DIRS = ['posthog', 'ee', 'common']
+// Enough core importers to name in the log; the decision needs only the first.
+const CORE_IMPORTER_SAMPLE = 3
+const SKIPPED_SCAN_DIRS = new Set(['__pycache__', 'node_modules', '.venv'])
+
+// The Python module a lib package ships, declared in its package.json rather than
+// derived from the package name: the two names are independent (@posthog/owners
+// ships owners_yaml). A missing or malformed declaration throws rather than
+// returning a guess, because a module name nothing imports scans clean, which
+// reads as "no consumer to test" and skips exactly the products the cascade
+// exists to select. The character check also keeps the name safe to interpolate
+// into the import-scan regex.
+function libImportName(directory) {
+    const manifest = path.join(directory, 'package.json')
+    let declared
+    try {
+        declared = JSON.parse(fs.readFileSync(manifest, 'utf-8')).pythonImportName
+    } catch (e) {
+        throw new Error(`could not read ${manifest} (${e.message})`)
+    }
+    if (typeof declared !== 'string' || !/^[a-z_][a-z0-9_]*$/.test(declared)) {
+        throw new Error(
+            `${manifest} must declare "pythonImportName" as the Python module the package ships, so a change to it can select the products that import it`
+        )
+    }
+    return declared
+}
+
+function collectPythonFiles(dir) {
+    const files = []
+    let entries
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+        return files
+    }
+    for (const entry of entries) {
+        if (SKIPPED_SCAN_DIRS.has(entry.name)) {continue}
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+            files.push(...collectPythonFiles(full))
+        } else if (entry.isFile() && entry.name.endsWith('.py')) {
+            files.push(full)
+        }
+    }
+    return files
+}
+
+// Matches `import <module>` and `from <module> ...`. The anchor at the start of a
+// line keeps mentions in comments, docstrings and other prose out, and the
+// required `.` or whitespace after the name stops owners_yaml from matching
+// owners_yaml_extra. An import under `if TYPE_CHECKING:` still matches, which
+// over-tests rather than missing a consumer.
+function importPatternFor(module) {
+    return new RegExp(`^[ \\t]*(from|import)[ \\t]+${module}([. \\t]|$)`, 'm')
+}
+
+// Products with at least one file importing the module, as product ids.
+function productsImportingModule(module, productsDir = PRODUCTS_DIR) {
+    const importPattern = importPatternFor(module)
+    let entries
+    try {
+        entries = fs.readdirSync(productsDir, { withFileTypes: true })
+    } catch {
+        return []
+    }
+    const consumers = []
+    for (const entry of entries) {
+        if (!entry.isDirectory() || SKIPPED_SCAN_DIRS.has(entry.name)) {continue}
+        const files = collectPythonFiles(path.join(productsDir, entry.name))
+        if (files.some((file) => importPattern.test(fs.readFileSync(file, 'utf-8')))) {
+            consumers.push(moduleToProduct(entry.name))
+        }
+    }
+    return consumers.sort()
+}
+
+// Core importers of a lib, as file paths. Core carries no product id, so the only
+// sound response to one is the full suite, and running this scan is what keeps the
+// "a lib change can skip Django" path honest without a separate lint.
+function coreFilesImportingModule(module, dirs = CORE_SCAN_DIRS) {
+    const importPattern = importPatternFor(module)
+    const found = []
+    for (const dir of dirs) {
+        for (const file of collectPythonFiles(dir)) {
+            if (!importPattern.test(fs.readFileSync(file, 'utf-8'))) {continue}
+            found.push(file)
+            if (found.length >= CORE_IMPORTER_SAMPLE) {return found}
+        }
+    }
+    return found
 }
 
 // Check if .test_durations is stale for a product by comparing on-disk test
@@ -1241,6 +1385,10 @@ module.exports = {
     productGraphFromTachMap,
     loadTachModuleGraph,
     tachDependents,
+    getAffectedLibPackages,
+    libImportName,
+    productsImportingModule,
+    coreFilesImportingModule,
 }
 
 // --- Main ---
@@ -1350,6 +1498,54 @@ if (legacyChanged) {
         console.error('No product changes detected')
         products = []
         runLegacy = false
+    }
+
+    // The scan only ever yields product directory names, so a lib package can never
+    // reach the matrix, whose filters resolve @posthog/products-* packages.
+    const affectedLibs = getAffectedLibPackages(allTestTasks, affectedTestTasks)
+    if (affectedLibs.length > 0) {
+        const directConsumers = new Set()
+        for (const lib of affectedLibs) {
+            const libModule = libImportName(lib.directory)
+            const importers = productsImportingModule(libModule).filter((p) => allProductSet.has(p))
+            console.error(`Lib package changed: ${lib.name} (${libModule}) — imported by ${JSON.stringify(importers)}`)
+            for (const importer of importers) {
+                directConsumers.add(importer)
+            }
+            const coreImporters = coreFilesImportingModule(libModule)
+            if (coreImporters.length > 0) {
+                console.error(`${libModule} is imported by core (${coreImporters.join(', ')}) — Django will run`)
+                runLegacy = true
+                runLegacyReason = runLegacyReason || 'lib_cascade'
+            }
+        }
+        if (directConsumers.size === 0) {
+            console.error('No product imports the changed lib packages — nothing cascaded in')
+        } else {
+            const cascaded = tachDependentProducts([...directConsumers], allProductSet)
+            if (cascaded === null) {
+                // Fail toward over-testing, like the contract cascade above: without the
+                // graph we cannot know which products depend on the changed package.
+                console.error('Lib dependent cascade unavailable — testing all products rather than risk skipping a dependent')
+                products = allProducts
+                runLegacy = true
+                runLegacyReason = runLegacyReason || 'lib_cascade'
+            } else {
+                if (cascaded.length > 0) {
+                    console.error(`Products depending on those importers via the tach map: ${JSON.stringify(cascaded)}`)
+                }
+                const reached = [...new Set([...directConsumers, ...cascaded])].sort()
+                products = [...new Set([...products, ...reached])].sort()
+                const nonIsolatedReached = reached.filter((p) => !isolatedProducts.has(p))
+                if (nonIsolatedReached.length > 0) {
+                    console.error(
+                        `Non-isolated products cascaded in from a lib change: ${JSON.stringify(nonIsolatedReached)} — Django will run, since core can import their internals`
+                    )
+                    runLegacy = true
+                    runLegacyReason = runLegacyReason || 'lib_cascade'
+                }
+            }
+        }
     }
 
     if (schemaChanged) {

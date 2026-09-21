@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://github.com/PostHog/posthog/blob/master/tools/owners/resolution.schema.json",
+    "$id": "https://github.com/PostHog/posthog/blob/master/packages/owners/resolution.schema.json",
     "title": "owners.yaml resolver response",
     "description": "The JSON object a resolver writes for a resolution request, keyed by normalized path. See SPEC.md section 7.",
     "type": "object",

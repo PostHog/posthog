@@ -1914,6 +1914,8 @@ importers:
         specifier: 'catalog:'
         version: 2.9.0
 
+  packages/owners: {}
+
   packages/quill:
     devDependencies:
       tailwindcss-scroll-mask:

@@ -62,7 +62,7 @@ fi
 
 mkdir -p "$output_dir" || fall_back "Could not create $output_dir"
 
-if ! PYTHONPATH="$repo_root/tools/owners" generate >/dev/null 2>&1; then
+if ! PYTHONPATH="$repo_root/packages/owners" generate >/dev/null 2>&1; then
     fall_back "Could not generate the Trunk ownership map"
 fi
 

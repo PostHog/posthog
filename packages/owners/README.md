@@ -7,7 +7,7 @@ Resolving a path takes more steps than a CODEOWNERS lookup: the nearest file win
 So don't read the files to find an owner. Ask the resolver: `owners who <path>` for a person, and the library, CLI, or JSON entrypoint for a tool.
 GitHub's `CODEOWNERS` can stay in place for required approvals.
 
-The format is defined in [SPEC.md](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md).
+The format is defined in [SPEC.md](https://github.com/PostHog/posthog/blob/master/packages/owners/SPEC.md).
 PostHog's monorepo uses it for about 30 teams.
 The files route review requests, daily digests, flaky-test reports, and alerts.
 
@@ -102,8 +102,8 @@ teams:
 Only the `owners` field of such a file is read, and an `owners.yaml` next to it wins.
 Without the setting, only `owners.yaml` decides ownership.
 
-[SPEC.md](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md) lists every field and the full resolution algorithm.
-For editor completion, point your YAML language server at [`owners.schema.json`](https://github.com/PostHog/posthog/blob/master/tools/owners/owners.schema.json).
+[SPEC.md](https://github.com/PostHog/posthog/blob/master/packages/owners/SPEC.md) lists every field and the full resolution algorithm.
+For editor completion, point your YAML language server at [`owners.schema.json`](https://github.com/PostHog/posthog/blob/master/packages/owners/owners.schema.json).
 
 ### Look up owners
 
@@ -164,7 +164,7 @@ Submodules can change between minor releases.
 From any language, with only PyYAML installed:
 
 ```bash
-echo "billing/api/invoices.py" | PYTHONPATH=path/to/tools/owners python3 -m owners_yaml --repo-root path/to/repo
+echo "billing/api/invoices.py" | PYTHONPATH=path/to/packages/owners python3 -m owners_yaml --repo-root path/to/repo
 ```
 
 It prints one JSON object keyed by path, in the same shape as `owners resolve --json`.
@@ -250,12 +250,12 @@ Backstage and other service catalogs track ownership per service, not per path.
 
 ## Project
 
-- [Changelog](https://github.com/PostHog/posthog/blob/master/tools/owners/CHANGELOG.md)
-- [Specification](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md)
+- [Changelog](https://github.com/PostHog/posthog/blob/master/packages/owners/CHANGELOG.md)
+- [Specification](https://github.com/PostHog/posthog/blob/master/packages/owners/SPEC.md)
 - [Issues](https://github.com/PostHog/posthog/issues)
 
-The package lives in the [PostHog monorepo](https://github.com/PostHog/posthog/tree/master/tools/owners). It has no dependencies on the rest of the monorepo.
-Run its tests with `uv run --no-project --with pyyaml --with click --with pytest pytest tools/owners/tests`.
+The package lives in the [PostHog monorepo](https://github.com/PostHog/posthog/tree/master/packages/owners). It has no dependencies on the rest of the monorepo.
+Run its tests with `uv run --no-project --with pyyaml --with click --with pytest pytest packages/owners/tests`.
 
 To release, bump `version` in `pyproject.toml`, add the matching section to `CHANGELOG.md`, merge, then tag `master`:
 

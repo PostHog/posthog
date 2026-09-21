@@ -121,7 +121,7 @@ export function resolveOwners(items, toRepoPaths = repoPathResolver()) {
             const out = execFileSync('python3', ['-m', 'owners_yaml', '--purpose', 'notifications'], {
                 encoding: 'utf8',
                 input: allPaths.join('\n'),
-                env: { ...process.env, PYTHONPATH: 'tools/owners' },
+                env: { ...process.env, PYTHONPATH: 'packages/owners' },
             })
             resolved = JSON.parse(out)
         } catch (err) {

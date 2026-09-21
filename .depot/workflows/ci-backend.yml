@@ -409,6 +409,15 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         - 'tools/hogli-commands/hogli_commands/product/**'
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
+                        # owners_yaml is a runtime dependency of product code (stamphog reads
+                        # owners.yaml through it), so a resolver change has to re-run its
+                        # dependents; turbo-discover finds the products that import it.
+                        # Deliberately not in `legacy`, because a leaf-package change should
+                        # run its dependents rather than the whole Django suite.
+                        - 'packages/owners/**'
+                        # Transitional: branches that predate the move still carry the
+                        # resolver at tools/owners.
+                        - 'tools/owners/**'
                         # product:lint --all checks these generated files against the tree,
                         # so a baseline-only edit must run it too. The crossings baseline is
                         # also what product:lint reads to let a wiring location leave a
@@ -548,6 +557,9 @@ jobs:
                         - 'products/*/product.yaml'
                         - '**/owners.yaml'
                         # Resolver changes must re-run the owners.yaml lint too.
+                        - 'packages/owners/**'
+                        # Transitional: branches that predate the move still carry the
+                        # resolver at tools/owners.
                         - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema

@@ -648,6 +648,9 @@ const TRIPWIRE_RULES = [
     // owners.yaml is the fallback every path resolves through when no nearer
     // file claims it. A product's own owners.yaml is not here: it keeps its
     // product lane.
+    ['packages/owners/**', OWNERSHIP],
+    // Transitional: branches that predate the move still carry the resolver at tools/owners,
+    // where the tools/ fallback rule would give it the Python lanes only.
     ['tools/owners/**', OWNERSHIP],
     ['owners.yaml', OWNERSHIP],
     // The quarantine list covers the pytest, jest, and playwright suites at

@@ -310,7 +310,7 @@ exclude-newer = "7 days"
 exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
-members = ["tools/hogli", "tools/owners"]
+members = ["tools/hogli", "packages/owners"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
@@ -494,7 +494,10 @@ exclude_gitignore = true
 # (both resolve to top-level module "conftest")
 # rust/deltalite/python: pytest suite for the maturin-built extension; nothing Django
 # imports it and it has its own CI (ci-deltalite-python.yml).
-exclude = ["^(bin/.*|tools/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+# packages/owners: a standalone distribution that must build and run with no Django. This config
+# loads the Django and DRF plugins and the app's settings, so it is the wrong checker for it. ty
+# covers it repo-wide instead, and ci-python builds and exercises the wheel in an empty venv.
+exclude = ["^(bin/.*|tools/.*|packages/owners/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -551,8 +554,18 @@ exclude = [
 # Complements tach (inter-module boundaries) with intra-product enforcement.
 
 [tool.importlinter]
-root_packages = ["products"]
+root_packages = ["products", "owners_yaml"]
 include_external_packages = true
+
+# A Python distribution under packages/ is a leaf: it must install and run outside the
+# monorepo venv, so it can import nothing from the app. tach resolves a uv distribution as
+# third-party and cannot police that boundary. import-linter resolves by installed import
+# name, so it can.
+[[tool.importlinter.contracts]]
+name = "packages/owners is a leaf"
+type = "forbidden"
+source_modules = ["owners_yaml"]
+forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
 
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.

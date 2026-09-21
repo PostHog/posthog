@@ -29,29 +29,32 @@ services/              # Independent services NOT owned by any one product
   stripe-app/          # Stripe integration app
 
 packages/              # Libraries shared across more than one product/service (e.g. quill)
+  owners/              # owners.yaml resolver (owners_yaml) — Python uv workspace member, RUNTIME dependency
 
 common/                # Shared code — holding pen, NOT a destination (goal: shrink it)
   hogql_parser/        # HogQL parser
 
-tools/                 # Developer/CI tooling, with one exception noted below
+tools/                 # Developer/CI tooling
   hogli/               # Developer CLI framework (PyPI-publishable; uv workspace member)
   hogli-commands/      # PostHog-specific hogli commands (consumed via hogli.yaml)
-  owners/              # owners.yaml resolver (owners_yaml) — also a RUNTIME dependency
 
 devenv/                # Developer environment config (intent map, process model)
 ```
 
-`tools/` is developer and CI tooling by default, and one directory in it is not. `tools/owners` is
-installed into the production venv, because stamphog's digest resolves a team's Slack channel through
-`owners_yaml` rather than reparsing `owners.yaml` itself. It is also copied into the production
-image as source, alongside stamphog's review engine at
+`tools/` is developer and CI tooling: code no runtime process imports.
+`packages/owners` is the counterexample that used to sit there.
+It is installed into the production venv, because stamphog's digest resolves a team's Slack channel
+through `owners_yaml` rather than reparsing `owners.yaml` itself.
+It is also copied into the production image as source, alongside stamphog's review engine at
 `products/stamphog/packages/pr-approval-agent/`, because stamphog ships both into its review sandbox
 at runtime.
 
-Inside that sandbox the engine is written to `<checkout>/tools/pr-approval-agent` with `tools/owners`
-beside it, and that placement is a contract rather than a leftover: the engine finds its repo root by
-walking up from its own file, so the path decides which policy it reads, and downstream repos vendor
-the two directories in exactly that arrangement.
+Inside that sandbox the engine is written to `<checkout>/tools/pr-approval-agent` with the resolver
+beside it at `<checkout>/tools/owners`, and that placement is a contract rather than a leftover: the
+engine finds its repo root by walking up from its own file, so the path decides which policy it
+reads, and downstream repos vendor the two directories in exactly that arrangement.
+The engine resolves the resolver by fixed offsets from its own file, `packages/owners` first and the
+sibling `owners/` second, so the monorepo and the vendored layout both work.
 
 ### Products
 
@@ -81,7 +84,9 @@ Nest because tooling boundaries become path-scoped (`products/<product>/**` for 
 
 ### Packages
 
-This covers **pnpm workspace packages** (JS/TS). Python and Rust differ — there, location and import name matter directly (a top-level Python package can even shadow a stdlib module, which is why there's no top-level `platform/`), so these rules don't apply.
+Anything under `packages/` is a workspace member of its ecosystem: `package.json` for pnpm, `pyproject.toml` for uv.
+The placement rules below are about **pnpm workspace packages** (JS/TS).
+Rust differs, and Python has its own section after them, because there location and import name matter directly (a top-level Python package can even shadow a stdlib module, which is why there's no top-level `platform/`).
 
 For pnpm packages, location doesn't gate who can import them (pnpm resolves by name), so location is an ownership signal, not access control. Place by current ownership:
 
@@ -90,6 +95,25 @@ For pnpm packages, location doesn't gate who can import them (pnpm resolves by n
 - Promote nested → root only when a second consumer actually depends on it — on real usage, not intent. It's a path rename with a stable package name (no import churn), so don't pay the "shared" cost before it's true.
 
 `pnpm-workspace.yaml` globs are explicit (`products/*`, `packages/quill`, …) and don't yet match nested `products/<product>/packages/*` or a new top-level `packages/<name>/` — so register the package's path there when you add it, or `workspace:*` deps, filters, and scripts won't resolve.
+
+#### Python packages
+
+A Python package under `packages/<name>/` is a uv workspace member with its own `pyproject.toml`, registered in the root `pyproject.toml` under `[tool.uv.workspace].members` and `[tool.uv.sources]`.
+Its import name is independent of its location (`packages/owners` ships `owners_yaml`), so a move is a path rename with no import churn, the same property pnpm packages have.
+
+Reach for one only when a consumer must install it outside the monorepo venv: a bare-python CI step, the review sandbox, another repo, PyPI.
+Reuse inside the app is not a reason on its own.
+What puts it in `packages/` rather than `tools/` is that runtime code imports it.
+A distribution only CI and developer workflows use belongs in `tools/`, like `hogli`.
+
+Rules that follow from being a distribution rather than a module:
+
+- It is a leaf: no imports of `posthog/`, `ee/`, `products/`, `common/`, Django, or DRF. tach resolves a uv distribution as third-party and cannot police this, so each package gets a `forbidden` contract in the root `pyproject.toml` under `[tool.importlinter]` (see `packages/owners is a leaf`), which resolves by installed import name.
+- It carries a `package.json` (`@posthog/<name>`, private) and a `turbo.json` whose `backend:test` inputs cover its sources, so turbo can tell when it changed. The manifest also declares `pythonImportName`. `turbo-discover` reads that name, scans `products/` for imports of it, and re-tests the importers plus their tach dependents. Consumers declare nothing.
+- Its own tests are a step in `ci-python.yml`, not a matrix entry: `turbo-discover` treats it as a cascade source only.
+- Core (`posthog/`, `ee/`, `common/`) should not import it, so that a package change re-tests its product consumers rather than the Django suite. `turbo-discover` scans those trees too, and runs the full suite when one of them imports it.
+- Register its path in `pnpm-workspace.yaml`, in `.dockerignore` (an allowlist), and in the Dockerfile bind-mount list, because `uv sync` validates workspace membership at build time.
+- Same nest-then-promote rule as pnpm packages: promote on a second real consumer, not on intent.
 
 ### Services
 

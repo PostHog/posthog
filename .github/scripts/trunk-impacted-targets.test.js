@@ -466,6 +466,7 @@ test('stack and image configuration at the root stays universal', () => {
 test('ownership data shares one lane instead of every lane', () => {
     for (const file of [
         'owners.yaml',
+        'packages/owners/owners_yaml/matcher.py',
         'tools/owners/owners_yaml/matcher.py',
         '.github/CODEOWNERS',
         '.github/owners.yaml',
@@ -1828,6 +1829,7 @@ test('cross-domain tools are tripwires rather than backend-only', () => {
         computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT),
         computeTargets(['frontend/src/products.json'], CONTEXT)
     )
+    assert.deepEqual(computeTargets(['packages/owners/owners_yaml/__init__.py'], CONTEXT), ['ownership'])
     assert.deepEqual(computeTargets(['tools/owners/owners_yaml/__init__.py'], CONTEXT), ['ownership'])
 })
 

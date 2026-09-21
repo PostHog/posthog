@@ -960,7 +960,9 @@ jobs:
               shell: bash
               run: |
                   available=false
-                  if [[ -f .github/scripts/report_test_timings.py && -f bin/report-jest-timings && -d tools/owners ]] && grep -q -- '--timings' .github/scripts/report_test_timings.py; then
+                  # The owners resolver is a path dep of the reporter. A head ref from before the
+                  # move to packages/owners still carries it at tools/owners, so both count.
+                  if [[ -f .github/scripts/report_test_timings.py && -f bin/report-jest-timings && ( -d packages/owners || -d tools/owners ) ]] && grep -q -- '--timings' .github/scripts/report_test_timings.py; then
                     available=true
                   fi
                   if [[ "$available" != "true" ]]; then

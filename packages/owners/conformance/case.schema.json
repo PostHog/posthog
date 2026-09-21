@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://github.com/PostHog/posthog/blob/master/tools/owners/conformance/case.schema.json",
+    "$id": "https://github.com/PostHog/posthog/blob/master/packages/owners/conformance/case.schema.json",
     "title": "owners.yaml conformance case file",
     "type": "object",
     "required": ["cases"],

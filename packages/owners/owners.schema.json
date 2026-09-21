@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://github.com/PostHog/posthog/blob/master/tools/owners/owners.schema.json",
+    "$id": "https://github.com/PostHog/posthog/blob/master/packages/owners/owners.schema.json",
     "title": "owners.yaml",
     "description": "Code ownership for a directory, version 1. See SPEC.md. Keys under 'Repository settings' are valid only in the repository root file.",
     "type": "object",

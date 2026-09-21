@@ -5,7 +5,7 @@ script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/trunk-codeowners.sh"
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
-# The generator itself is covered by tools/owners/tests/test_owners.py. These cases stub the
+# The generator itself is covered by packages/owners/tests/test_owners.py. These cases stub the
 # interpreter so the script's own contract is deterministic on a runner with no Python.
 stub_interpreter() {
     local name="$1" exit_code="$2" body="$3"

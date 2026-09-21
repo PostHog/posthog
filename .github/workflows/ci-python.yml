@@ -110,6 +110,9 @@ jobs:
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
+                        - 'packages/owners/**'
+                        # Transitional: branches that predate the move still carry the resolver
+                        # at tools/owners.
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
@@ -138,6 +141,9 @@ jobs:
                         - 'uv.lock'
                         - .github/workflows/ci-python.yml
                       owners:
+                        - 'packages/owners/**'
+                        # Transitional: branches that predate the move still carry the resolver
+                        # at tools/owners.
                         - 'tools/owners/**'
                         - 'pyproject.toml'
                         - 'uv.lock'
@@ -353,17 +359,17 @@ jobs:
                   - name: Run owners resolver tests
                     shell: bash
                     run: |
-                        [ "$RUN_OWNERS" = "true" ] || { echo "tools/owners unchanged — skipping"; exit 0; }
-                        pytest tools/owners/tests -v --junitxml=junit-owners.xml
+                        [ "$RUN_OWNERS" = "true" ] || { echo "the owners package is unchanged — skipping"; exit 0; }
+                        pytest packages/owners/tests -v --junitxml=junit-owners.xml
 
                   # A wheel in an empty venv cannot import anything else from the monorepo, so a
                   # new import of host code fails here instead of for users of the published package.
                   - name: Check the owners package runs outside the monorepo
                     shell: bash
                     run: |
-                        [ "$RUN_OWNERS" = "true" ] || { echo "tools/owners unchanged — skipping"; exit 0; }
+                        [ "$RUN_OWNERS" = "true" ] || { echo "the owners package is unchanged — skipping"; exit 0; }
                         scratch=$(mktemp -d)
-                        uv build tools/owners --wheel --out-dir "$scratch/dist"
+                        uv build packages/owners --wheel --out-dir "$scratch/dist"
                         uv venv "$scratch/venv"
                         uv pip install --python "$scratch/venv/bin/python" "$scratch"/dist/*.whl
                         repo="$scratch/repo"

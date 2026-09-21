@@ -12,7 +12,7 @@ It overrides `deny` and `allow`, and the differences are:
 
 - `auth` and `billing` exempt `products/warehouse_sources/backend/temporal/data_imports/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing.
 - `infra_cicd` also matches `.github/pr-deploy`.
-- `stamphog_policy` also matches `products/stamphog/backend/logic/policy_defaults/`, `tools/owners/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
+- `stamphog_policy` also matches `products/stamphog/backend/logic/policy_defaults/`, `packages/owners/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
 - `allow` also lists `.github/CODEOWNERS`.
 - Every `rationale` records the false positives that shaped the rule in this repository.
 

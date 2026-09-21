@@ -44,7 +44,9 @@ STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the
 # scalar the workflow gates on.
 STAMPHOG_REVIEWHOG_LABEL = "reviewhog"
 # The owners-yaml resolver package, expected by the engine as a sibling of its own dir
-# (gates.py resolves `../owners` for the hogli-resolver ownership format).
+# (gates.py resolves `../owners` for the hogli-resolver ownership format). This stays a sibling of
+# the engine dir although the monorepo source moved to packages/owners, because downstream repos
+# vendor the engine with the resolver beside it and the engine resolves the two layouts by offset.
 STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"
 STAMPHOG_SANDBOX_CONTEXT_PATH = f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog_review_context.json"
 

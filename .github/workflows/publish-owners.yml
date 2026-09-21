@@ -45,9 +45,9 @@ jobs:
                   TAG_REF: ${{ github.ref_name }}
               run: |
                   tag_version="${TAG_REF#owners-v}"
-                  pkg_version=$(python -c "import tomllib; print(tomllib.load(open('tools/owners/pyproject.toml','rb'))['project']['version'])")
+                  pkg_version=$(python -c "import tomllib; print(tomllib.load(open('packages/owners/pyproject.toml','rb'))['project']['version'])")
                   if [[ "$tag_version" != "$pkg_version" ]]; then
-                      echo "::error::tag version ($tag_version) does not match tools/owners/pyproject.toml version ($pkg_version)"
+                      echo "::error::tag version ($tag_version) does not match packages/owners/pyproject.toml version ($pkg_version)"
                       exit 1
                   fi
 
@@ -58,10 +58,10 @@ jobs:
                   TAG_REF: ${{ github.ref_name }}
               run: |
                   tag_version="${TAG_REF#owners-v}"
-                  python tools/hogli/scripts/release_notes.py "$tag_version" --changelog tools/owners/CHANGELOG.md > /tmp/owners-release-notes.md
+                  python tools/hogli/scripts/release_notes.py "$tag_version" --changelog packages/owners/CHANGELOG.md > /tmp/owners-release-notes.md
 
             - name: Build sdist and wheel
-              run: uv build tools/owners --out-dir dist
+              run: uv build packages/owners --out-dir dist
 
             - name: Validate metadata
               run: uvx twine check dist/*.whl dist/*.tar.gz

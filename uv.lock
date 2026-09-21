@@ -5239,7 +5239,7 @@ wheels = [
 [[package]]
 name = "owners-yaml"
 version = "0.2.0"
-source = { editable = "tools/owners" }
+source = { editable = "packages/owners" }
 dependencies = [
     { name = "click" },
     { name = "pyyaml" },
@@ -5955,7 +5955,7 @@ requires-dist = [
     { name = "opentelemetry-sdk", specifier = "==1.33.1" },
     { name = "orjson", specifier = "==3.11.9" },
     { name = "ormsgpack", specifier = "~=1.12" },
-    { name = "owners-yaml", editable = "tools/owners" },
+    { name = "owners-yaml", editable = "packages/owners" },
     { name = "pandas", specifier = "~=2.2.2" },
     { name = "paramiko", specifier = "~=3.5.0" },
     { name = "pillow", specifier = "==12.3.0" },

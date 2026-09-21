@@ -5,7 +5,7 @@ Status: stable
 
 This document defines the `owners.yaml` file format and how a tool resolves the owner of a path from it.
 `owners-yaml` is the reference implementation.
-A JSON Schema for editors is in [`owners.schema.json`](https://github.com/PostHog/posthog/blob/master/tools/owners/owners.schema.json).
+A JSON Schema for editors is in [`owners.schema.json`](https://github.com/PostHog/posthog/blob/master/packages/owners/owners.schema.json).
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174) when, and only when, they appear in all capitals, as shown here.
 
@@ -162,7 +162,7 @@ flowchart TD
 
 ### 4.3 Conformance
 
-The cases in [`conformance/`](https://github.com/PostHog/posthog/tree/master/tools/owners/conformance) are part of this specification.
+The cases in [`conformance/`](https://github.com/PostHog/posthog/tree/master/packages/owners/conformance) are part of this specification.
 An implementation of section 4 and section 5.2 MUST produce the expected result for every case that applies to it.
 When the prose and a case disagree, the disagreement is a defect in this specification.
 
@@ -257,7 +257,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 4. A path that is unowned by design has an empty `owners` array and a non-null `source`. An unowned path has an empty `owners` array and a `null` source.
 5. An unowned path is not an error.
 
-[`resolution.schema.json`](https://github.com/PostHog/posthog/blob/master/tools/owners/resolution.schema.json) describes this object.
+[`resolution.schema.json`](https://github.com/PostHog/posthog/blob/master/packages/owners/resolution.schema.json) describes this object.
 
 ### 7.3 Errors
 
