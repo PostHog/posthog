@@ -538,8 +538,8 @@ CREATE TABLE posthog.metrics4_samples (
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
+  observed_timestamp SimpleAggregateFunction(min, DateTime64(6)),
   timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
-  observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
   value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)) CODEC(Gorilla(8), Default),
   count_arr SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64)) CODEC(T64, Default),
   histogram_counts_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64))) CODEC(T64, Default),
@@ -549,7 +549,7 @@ CREATE TABLE posthog.metrics4_samples (
   INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
   INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
   INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,
   metric_name LowCardinality(String),

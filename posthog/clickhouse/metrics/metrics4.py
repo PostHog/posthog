@@ -6,6 +6,23 @@ parallel array. The insert view and background merges keep at most 10,000 points
 in each row. Readers combine partial rows and sort the points by timestamp. The
 PromQL bridge already creates the same array shape from `metrics2`.
 
+The insert view keeps one point for each series-second and discards the rest.
+The latest point in a second wins. This bounds a series at 3,600 points in an
+hour, which is well below the 10,000-point array limit. Without that bound a
+fast series loses whole minutes: `groupArrayArray` keeps the first 10,000
+elements of a merge, and the sort key has no disambiguator, so overflow cannot
+survive in a second row. The limit applies to one insert block, so two points in
+the same second can still arrive in separate blocks.
+
+The insert view sorts the arrays of each row by timestamp. `DoubleDelta` needs a
+near-monotonic stream, and insert order is not time order. A merge concatenates
+the arrays of several rows, so a merged row holds sorted runs rather than one
+sorted array. Readers must still sort the points.
+
+`metrics4_samples` keeps the earliest `observed_timestamp` for each row instead
+of one value for each point. The per-point array cost more than every other
+point field together, and no reader used it.
+
 After a merge, `metrics4_series` keeps one label row for each active series-hour
 in an expiry partition. `metrics4_names` stores hourly metric names.
 `metrics4_attributes` stores hourly metric and resource attributes. Readers use
@@ -48,11 +65,13 @@ WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
 WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
 METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
+# A 128-row granule holds one array of points for each row, so a scan reads many
+# small ranges. 1,024 keeps a primary-key lookup cheap and makes a scan sequential.
+METRICS4_SAMPLES_INDEX_GRANULARITY = 1_024
 
 # Each tuple maps an input column to its metrics4 array element type.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("timestamp", "DateTime64(6)"),
-    ("observed_timestamp", "DateTime64(6)"),
     ("value", "Float64"),
     ("count", "UInt64"),
     ("histogram_counts", "Array(UInt64)"),
@@ -62,11 +81,11 @@ METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 # ClickHouse applies each codec to the continuous stream of array elements.
-# Each array keeps its insert order. The delta codecs compress adjacent values.
+# The insert view sorts each array by timestamp, so the delta codecs compress
+# adjacent values. A merged row holds one sorted run for each row it combined.
 # T64 and Gorilla can process values without a sort.
 _ARRAY_CODECS: dict[str, str] = {
     "timestamp": " CODEC(DoubleDelta, Default)",
-    "observed_timestamp": " CODEC(DoubleDelta, Default)",
     "value": " CODEC(Gorilla, Default)",
     "count": " CODEC(T64, Default)",
     "histogram_counts": " CODEC(T64, Default)",
@@ -131,6 +150,7 @@ def WRITABLE_METRICS4_SAMPLES_TABLE_SQL() -> str:
     `instrumentation_scope` SimpleAggregateFunction(any, String),
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
+    `observed_timestamp` SimpleAggregateFunction(min, DateTime64(6)),
 {arrays}""",
     )
 
@@ -191,7 +211,7 @@ def METRICS4_SAMPLES_TABLE_SQL() -> str:
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
     )
     # One merged row contains up to 10,000 points for one series-hour and expiry date.
-    # A 128-row granule can contain many series from one insert.
+    # A granule can contain many series from one insert.
     # A primary-key filter cannot skip individual rows in that granule.
     # The granule can contain multiple metric names and time buckets.
     # The time_bucket minmax index lets an hour filter skip the complete granule.
@@ -214,6 +234,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     `instrumentation_scope` SimpleAggregateFunction(any, String),
     `histogram_bounds` SimpleAggregateFunction(anyLast, Array(Float64)),
     `_topic` SimpleAggregateFunction(any, LowCardinality(String)),
+    `observed_timestamp` SimpleAggregateFunction(min, DateTime64(6)),
 {arrays},
     INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
     INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
@@ -224,7 +245,7 @@ PARTITION BY original_expiry_date
 ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
 TTL original_expiry_date
 SETTINGS
-    index_granularity = 128,
+    index_granularity = {METRICS4_SAMPLES_INDEX_GRANULARITY},
     ttl_only_drop_parts = 1
 """
 
@@ -312,37 +333,114 @@ SETTINGS
 
 
 def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
+    """Reduce each series-second to one point, then collect a series-hour into arrays.
+
+    The inner query keeps the latest point of each series-second and drops the
+    rest. This bounds one series at 3,600 points in an hour, well below the
+    10,000-point array limit, so a fast series no longer loses whole minutes. The
+    reduction sees one insert block, so two points in the same second can still
+    reach the table through separate blocks.
+
+    The outer query applies one timestamp order to every parallel array, so the
+    same index still identifies all fields of one point. `DoubleDelta` needs a
+    near-monotonic stream and insert order is not time order. A merge
+    concatenates the arrays of several rows, so a merged row holds sorted runs
+    rather than one sorted array, and readers must still sort.
+    """
     db = _db()
-    group_arrays = ",\n".join(
-        f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})({name}) AS {name}_arr"
+    # The `p_` prefix keeps each reduced point distinct from the input column of
+    # the same name. Without it `argMax(value, timestamp)` and the GROUP BY bind
+    # `timestamp` to an alias of their own SELECT.
+    reduced_points = ",\n".join(
+        f"            argMax({name}, timestamp) AS p_{name}"
         for name, _ in METRICS4_POINT_ARRAY_COLUMNS
+        if name != "timestamp"
+    )
+    raw_arrays = ",\n".join(
+        f"        groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})(p_{name}) AS {name}_raw"
+        for name, _ in METRICS4_POINT_ARRAY_COLUMNS
+    )
+    ordered_arrays = ",\n".join(
+        f"    arrayMap(i -> {name}_raw[i], point_order) AS {name}_arr" for name, _ in METRICS4_POINT_ARRAY_COLUMNS
     )
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
 AS SELECT
     team_id,
     metric_name,
-    toDateTime(toStartOfHour(timestamp)) AS time_bucket,
-    series_fingerprint,
-    toDate32(original_expiry_timestamp) AS original_expiry_date,
-    any(resource_fingerprint) AS resource_fingerprint,
-    any(service_name) AS service_name,
-    any(metric_type) AS metric_type,
-    any(unit) AS unit,
-    any(aggregation_temporality) AS aggregation_temporality,
-    max(toUInt8(is_monotonic)) AS is_monotonic,
-    max(toUInt8(has_labels)) AS has_labels,
-    any(instrumentation_scope) AS instrumentation_scope,
-    anyLast(histogram_bounds) AS histogram_bounds,
-    any(_topic) AS _topic,
-{group_arrays}
-FROM {db}.{METRICS4_INPUT_TABLE_NAME}
-GROUP BY
-    team_id,
-    metric_name,
     time_bucket,
     series_fingerprint,
-    original_expiry_date
+    original_expiry_date,
+    resource_fingerprint,
+    service_name,
+    metric_type,
+    unit,
+    aggregation_temporality,
+    is_monotonic,
+    has_labels,
+    instrumentation_scope,
+    histogram_bounds,
+    _topic,
+    observed_timestamp,
+{ordered_arrays}
+FROM
+(
+    SELECT
+        team_id,
+        metric_name,
+        time_bucket,
+        series_fingerprint,
+        original_expiry_date,
+        any(resource_fingerprint) AS resource_fingerprint,
+        any(service_name) AS service_name,
+        any(metric_type) AS metric_type,
+        any(unit) AS unit,
+        any(aggregation_temporality) AS aggregation_temporality,
+        max(is_monotonic) AS is_monotonic,
+        max(has_labels) AS has_labels,
+        any(instrumentation_scope) AS instrumentation_scope,
+        anyLast(histogram_bounds) AS histogram_bounds,
+        any(_topic) AS _topic,
+        min(p_observed_timestamp) AS observed_timestamp,
+{raw_arrays},
+        arraySort(i -> timestamp_raw[i], arrayEnumerate(timestamp_raw)) AS point_order
+    FROM
+    (
+        SELECT
+            team_id,
+            metric_name,
+            toDateTime(toStartOfHour(timestamp)) AS time_bucket,
+            series_fingerprint,
+            toDate32(original_expiry_timestamp) AS original_expiry_date,
+            max(timestamp) AS p_timestamp,
+            min(observed_timestamp) AS p_observed_timestamp,
+{reduced_points},
+            any(resource_fingerprint) AS resource_fingerprint,
+            any(service_name) AS service_name,
+            any(metric_type) AS metric_type,
+            any(unit) AS unit,
+            any(aggregation_temporality) AS aggregation_temporality,
+            max(toUInt8(is_monotonic)) AS is_monotonic,
+            max(toUInt8(has_labels)) AS has_labels,
+            any(instrumentation_scope) AS instrumentation_scope,
+            anyLast(histogram_bounds) AS histogram_bounds,
+            any(_topic) AS _topic
+        FROM {db}.{METRICS4_INPUT_TABLE_NAME}
+        GROUP BY
+            team_id,
+            metric_name,
+            time_bucket,
+            series_fingerprint,
+            original_expiry_date,
+            toStartOfSecond(timestamp)
+    )
+    GROUP BY
+        team_id,
+        metric_name,
+        time_bucket,
+        series_fingerprint,
+        original_expiry_date
+)
 """
 
 

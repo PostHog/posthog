@@ -98,7 +98,7 @@ database "posthog" {
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
-      index_granularity   = "128"
+      index_granularity   = "1024"
       ttl_only_drop_parts = "1"
     }
     column "team_id" {
@@ -147,11 +147,10 @@ database "posthog" {
     column "_topic" {
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
     }
-    column "timestamp_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
-      codec = "DoubleDelta, Default"
+    column "observed_timestamp" {
+      type = "SimpleAggregateFunction(min, DateTime64(6))"
     }
-    column "observed_timestamp_arr" {
+    column "timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
       codec = "DoubleDelta, Default"
     }

@@ -1595,8 +1595,8 @@ CREATE TABLE posthog.metrics4_samples (
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
+  observed_timestamp SimpleAggregateFunction(min, DateTime64(6)),
   timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
-  observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
   value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)) CODEC(Gorilla(8), Default),
   count_arr SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64)) CODEC(T64, Default),
   histogram_counts_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64))) CODEC(T64, Default),
@@ -1606,7 +1606,7 @@ CREATE TABLE posthog.metrics4_samples (
   INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
   INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
   INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -4083,8 +4083,8 @@ CREATE TABLE posthog.writable_metrics4_samples (
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
+  observed_timestamp SimpleAggregateFunction(min, DateTime64(6)),
   timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))),
-  observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))),
   value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)),
   count_arr SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64)),
   histogram_counts_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64))),
@@ -5548,33 +5548,90 @@ FROM
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.writable_metrics4_samples (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime, series_fingerprint UInt64, original_expiry_date Date32, resource_fingerprint UInt64, service_name String, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, has_labels UInt8, instrumentation_scope String, histogram_bounds Array(Float64), _topic String, timestamp_arr Array(DateTime64(6)), observed_timestamp_arr Array(DateTime64(6)), value_arr Array(Float64), count_arr Array(UInt64), histogram_counts_arr Array(Array(UInt64)), trace_id_arr Array(String), span_id_arr Array(String), trace_flags_arr Array(Int32)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.writable_metrics4_samples (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime, series_fingerprint UInt64, original_expiry_date Date32, resource_fingerprint UInt64, service_name String, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, has_labels UInt8, instrumentation_scope String, histogram_bounds Array(Float64), _topic String, observed_timestamp DateTime64(6), timestamp_arr Array(DateTime64(6)), value_arr Array(Float64), count_arr Array(UInt64), histogram_counts_arr Array(Array(UInt64)), trace_id_arr Array(String), span_id_arr Array(String), trace_flags_arr Array(Int32)) AS SELECT
   team_id,
   metric_name,
-  toDateTime(toStartOfHour(timestamp)) AS time_bucket,
+  time_bucket,
   series_fingerprint,
-  toDate32(original_expiry_timestamp) AS original_expiry_date,
-  any(resource_fingerprint) AS resource_fingerprint,
-  any(service_name) AS service_name,
-  any(metric_type) AS metric_type,
-  any(unit) AS unit,
-  any(aggregation_temporality) AS aggregation_temporality,
-  max(toUInt8(is_monotonic)) AS is_monotonic,
-  max(toUInt8(has_labels)) AS has_labels,
-  any(instrumentation_scope) AS instrumentation_scope,
-  anyLast(histogram_bounds) AS histogram_bounds,
-  any(_topic) AS _topic,
-  groupArray(10000)(timestamp) AS timestamp_arr,
-  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
-  groupArray(10000)(value) AS value_arr,
-  groupArray(10000)(count) AS count_arr,
-  groupArray(10000)(histogram_counts) AS histogram_counts_arr,
-  groupArray(10000)(trace_id) AS trace_id_arr,
-  groupArray(10000)(span_id) AS span_id_arr,
-  groupArray(10000)(trace_flags) AS trace_flags_arr
-FROM posthog.metrics4_input
-GROUP BY
-  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date;
+  original_expiry_date,
+  resource_fingerprint,
+  service_name,
+  metric_type,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  has_labels,
+  instrumentation_scope,
+  histogram_bounds,
+  _topic,
+  observed_timestamp,
+  arrayMap(i -> (timestamp_raw[i]), point_order) AS timestamp_arr,
+  arrayMap(i -> (value_raw[i]), point_order) AS value_arr,
+  arrayMap(i -> (count_raw[i]), point_order) AS count_arr,
+  arrayMap(i -> (histogram_counts_raw[i]), point_order) AS histogram_counts_arr,
+  arrayMap(i -> (trace_id_raw[i]), point_order) AS trace_id_arr,
+  arrayMap(i -> (span_id_raw[i]), point_order) AS span_id_arr,
+  arrayMap(i -> (trace_flags_raw[i]), point_order) AS trace_flags_arr
+FROM
+  (
+    SELECT
+      team_id,
+      metric_name,
+      time_bucket,
+      series_fingerprint,
+      original_expiry_date,
+      any(resource_fingerprint) AS resource_fingerprint,
+      any(service_name) AS service_name,
+      any(metric_type) AS metric_type,
+      any(unit) AS unit,
+      any(aggregation_temporality) AS aggregation_temporality,
+      max(is_monotonic) AS is_monotonic,
+      max(has_labels) AS has_labels,
+      any(instrumentation_scope) AS instrumentation_scope,
+      anyLast(histogram_bounds) AS histogram_bounds,
+      any(_topic) AS _topic,
+      min(p_observed_timestamp) AS observed_timestamp,
+      groupArray(10000)(p_timestamp) AS timestamp_raw,
+      groupArray(10000)(p_value) AS value_raw,
+      groupArray(10000)(p_count) AS count_raw,
+      groupArray(10000)(p_histogram_counts) AS histogram_counts_raw,
+      groupArray(10000)(p_trace_id) AS trace_id_raw,
+      groupArray(10000)(p_span_id) AS span_id_raw,
+      groupArray(10000)(p_trace_flags) AS trace_flags_raw,
+      arraySort(i -> (timestamp_raw[i]), arrayEnumerate(timestamp_raw)) AS point_order
+    FROM
+      (
+        SELECT
+          team_id,
+          metric_name,
+          toDateTime(toStartOfHour(timestamp)) AS time_bucket,
+          series_fingerprint,
+          toDate32(original_expiry_timestamp) AS original_expiry_date,
+          max(timestamp) AS p_timestamp,
+          min(observed_timestamp) AS p_observed_timestamp,
+          argMax(value, timestamp) AS p_value,
+          argMax(count, timestamp) AS p_count,
+          argMax(histogram_counts, timestamp) AS p_histogram_counts,
+          argMax(trace_id, timestamp) AS p_trace_id,
+          argMax(span_id, timestamp) AS p_span_id,
+          argMax(trace_flags, timestamp) AS p_trace_flags,
+          any(resource_fingerprint) AS resource_fingerprint,
+          any(service_name) AS service_name,
+          any(metric_type) AS metric_type,
+          any(unit) AS unit,
+          any(aggregation_temporality) AS aggregation_temporality,
+          max(toUInt8(is_monotonic)) AS is_monotonic,
+          max(toUInt8(has_labels)) AS has_labels,
+          any(instrumentation_scope) AS instrumentation_scope,
+          anyLast(histogram_bounds) AS histogram_bounds,
+          any(_topic) AS _topic
+        FROM posthog.metrics4_input
+        GROUP BY
+          team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date, toStartOfSecond(timestamp)
+      )
+    GROUP BY
+      team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date
+  );
 CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.writable_metrics4_series (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, metric_type LowCardinality(String), unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, service_name LowCardinality(String), instrumentation_scope String, resource_attributes Map(LowCardinality(String), String), attributes Map(LowCardinality(String), String), timestamp DateTime64(6), original_expiry_timestamp DateTime64(6)) AS SELECT
   team_id,
   metric_name,
