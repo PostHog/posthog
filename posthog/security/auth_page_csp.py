@@ -181,11 +181,11 @@ def build_auth_page_policy(
         # directive below sets its own sources, so nothing else falls back to this list.
         _directive("default-src", "'self'", static_origin),
         # 'strict-dynamic' trusts a script because a nonced script loaded it, and makes browsers
-        # ignore every host source and 'self' in this directive. That closes what the app policy's
-        # allowlist leaves open to a markup injection. `https://*.posthog.com` covers the asset
-        # hosts that serve every project's remote config script, and that script bundles the
-        # project's site apps, whose TypeScript any project owner writes. An injected <script src>
-        # that names an attacker's own project carries no nonce, so it does not run.
+        # ignore every host source and 'self' in this directive. The app policy names every PostHog
+        # host, so it is only as strong as every endpoint those hosts serve. Some serve code a
+        # customer wrote, such as each project's remote config, which carries its site apps. That
+        # config only registers functions and runs nothing on load, but this policy does not rest on
+        # it: an injected <script src> carries no nonce, so it runs from no host at all.
         #
         # Everything these pages run arrives through a nonced script: the esbuild loader imports the
         # bundle, posthog-js injects its remote config and extensions, and the signup captcha
