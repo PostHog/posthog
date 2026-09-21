@@ -8943,7 +8943,7 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             user=self.user,
             label="read",
             secure_value=hash_key_value(token),
-            scopes=["experiment:read", "experiment_saved_metric:read"],
+            scopes=["experiment:read", "experiment_saved_metric:read", "query:read"],
         )
         self.client.logout()
 
@@ -8956,12 +8956,18 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             assert sections["team_defaults"]["status"] == "ok"
             assert sections["sdk_profile"]["status"] == "ok"
 
-    def test_shared_metrics_need_the_saved_metric_scope(self) -> None:
-        # The response carries saved-metric names, events and reuse counts, which the saved-metric
-        # API gates behind its own scope. An experiment-only key must not reach them here.
+    @parameterized.expand(
+        [
+            # Saved-metric names, events and reuse counts sit behind the saved-metric API's own scope.
+            ("without_saved_metric_scope", ["experiment:read", "query:read"]),
+            # Event counts for caller-chosen events are the same data /query/ gates behind query:read.
+            ("without_query_scope", ["experiment:read", "experiment_saved_metric:read"]),
+        ]
+    )
+    def test_rejects_key_missing_a_scope_for_data_it_would_return(self, _name: str, scopes: list[str]) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            user=self.user, label="experiments only", secure_value=hash_key_value(token), scopes=["experiment:read"]
+            user=self.user, label="partial", secure_value=hash_key_value(token), scopes=scopes
         )
         self.client.logout()
 

@@ -4826,7 +4826,7 @@
         "feature": "experiments",
         "summary": "Get experiment setup context",
         "title": "Get experiment setup context",
-        "required_scopes": ["experiment:read", "experiment_saved_metric:read"],
+        "required_scopes": ["experiment:read", "experiment_saved_metric:read", "query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

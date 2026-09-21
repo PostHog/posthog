@@ -1158,6 +1158,7 @@ tools:
         scopes:
             - experiment:read
             - experiment_saved_metric:read
+            - query:read
         annotations:
             readOnly: true
             destructive: false

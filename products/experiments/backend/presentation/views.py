@@ -1513,7 +1513,8 @@ class EnterpriseExperimentsViewSet(
         url_path="setup_context",
         # The response carries saved-metric definitions and reuse counts, which the saved-metric
         # API gates behind its own scope. Object-level filtering does not check token scopes.
-        required_scopes=["experiment:read", "experiment_saved_metric:read"],
+        # It also counts arbitrary events across the project, which /query/ gates behind query:read.
+        required_scopes=["experiment:read", "experiment_saved_metric:read", "query:read"],
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def setup_context(self, request: ValidatedRequest, **kwargs: Any) -> Response:
