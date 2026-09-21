@@ -9065,8 +9065,7 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
                 "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
             },
         )
-        # The result's query_from has to be the experiment's start date to the microsecond: that is
-        # what identifies the current run, so two separate now() calls would drop the result.
+        # The result belongs to the run that starts here, so both dates come from one value.
         started_at = timezone.now() - timedelta(days=10)
         experiment = Experiment.objects.create(
             team=self.team,
