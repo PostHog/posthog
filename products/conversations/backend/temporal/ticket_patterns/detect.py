@@ -15,6 +15,7 @@ with workflow.unsafe.imports_passed_through():
 
     import structlog
 
+    from posthog.dataclasses import frozen
     from posthog.llm.gateway_client import build_async_anthropic_client
     from posthog.models import Team
     from posthog.models.comment import Comment
@@ -283,21 +284,31 @@ def _report(team: Team, clusters: list[DetectedCluster], lookback_minutes: int) 
             )
 
 
+@frozen
+class _EligibleWindow:
+    """One team's window of tickets, loaded together because eligibility and the tickets are read
+    in the same database round trip."""
+
+    team: Team
+    candidates: list[TicketCandidate]
+    requesters: dict[str, str]
+
+
 async def _detect(team: EligibleTeam, *, report: bool = True, check_flag: bool = True) -> DetectOutput:
     # An activity can retry minutes after the coordinator gated it, so recheck consent before any
     # ticket text leaves the project.
-    def load_if_still_eligible() -> tuple[Team, list[TicketCandidate], dict[str, str]] | None:
+    def load_if_still_eligible() -> _EligibleWindow | None:
         row = Team.objects.select_related("organization").get(id=team.team_id)
         if not is_team_eligible(row, check_flag=check_flag):
             return None
         candidates, requesters = _load_candidates(team.team_id, team.settings)
-        return row, candidates, requesters
+        return _EligibleWindow(team=row, candidates=candidates, requesters=requesters)
 
-    loaded = await database_sync_to_async(load_if_still_eligible, thread_sensitive=False)()
-    if loaded is None:
+    window = await database_sync_to_async(load_if_still_eligible, thread_sensitive=False)()
+    if window is None:
         logger.info("ticket_patterns: no longer eligible, skipping", team_id=team.team_id)
         return DetectOutput(team_id=team.team_id, candidate_count=0)
-    team_row, candidates, requesters = loaded
+    team_row, candidates, requesters = window.team, window.candidates, window.requesters
 
     if len(candidates) < team.settings.min_tickets:
         return DetectOutput(team_id=team.team_id, candidate_count=len(candidates))
