@@ -27,7 +27,7 @@ import plistlib
 import functools
 import subprocess
 import webbrowser
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -150,12 +150,18 @@ def _enumerate_cookie_files(browser: str | None) -> list[tuple[str, Path]]:
     return targets
 
 
-def _load_cookies_from_browser(
+def _iter_cookie_candidates(
     domain: str,
     browser: str | None,
     seen_warnings: set[str] | None = None,
-) -> dict[str, str]:
-    """Read cookies for `domain` from the user's system browser cookie store.
+) -> Iterator[dict[str, str]]:
+    """Yield one complete REQUIRED_COOKIES set per readable browser profile, in scan order.
+
+    A profile that doesn't hold every required cookie is skipped rather than
+    merged with another profile's set — cookie values from two different
+    logins don't add up to a valid session. This is a generator, so a caller
+    that stops once an earlier candidate validates never decrypts (or
+    Keychain-prompts for) a later profile.
 
     Decrypting Chromium cookies on macOS triggers a one-time Keychain prompt
     per profile; users who pick "Always allow" won't see it again.
@@ -186,7 +192,7 @@ def _load_cookies_from_browser(
         ).load()
 
     targets = _enumerate_cookie_files(browser)
-    found: dict[str, str] = {}
+    found_candidate = False
     errors: list[str] = []
     for loader_name, cookie_file in targets:
         loader = dia if loader_name == "dia" else getattr(browser_cookie3, loader_name, None)
@@ -205,18 +211,42 @@ def _load_cookies_from_browser(
             if cookie.name in REQUIRED_COOKIES and cookie.value:
                 source_cookies[cookie.name] = cookie.value
         if all(name in source_cookies for name in REQUIRED_COOKIES):
-            # One profile already has a complete session on its own; stop here
-            # rather than mixing it with cookies from a different profile's session.
-            return source_cookies
-        found.update(source_cookies)
+            found_candidate = True
+            yield source_cookies
 
-    if not found and errors:
+    if not found_candidate and errors:
         new_errors = errors if seen_warnings is None else [e for e in errors if e not in seen_warnings]
         if seen_warnings is not None:
             seen_warnings.update(errors)
         if new_errors:
             click.echo("\n".join(f"  warn: {e}" for e in new_errors), err=True)
-    return found
+
+
+def _find_valid_candidate(
+    domain: str,
+    browser: str | None,
+    seen_warnings: set[str] | None = None,
+    rejected_headers: set[str] | None = None,
+) -> tuple[str | None, bool]:
+    """Try each cookie candidate against Metabase in order; return (header, any_candidate).
+
+    `header` is the first candidate's cookie header the server accepts, or
+    `None` if none did. `rejected_headers`, when passed, skips re-checking a
+    header already known invalid without stopping the scan — an expired
+    session in an earlier profile must not block a valid one in a later
+    profile, on this call or a repeated one.
+    """
+    any_candidate = False
+    for candidate in _iter_cookie_candidates(domain, browser, seen_warnings):
+        any_candidate = True
+        header = _format_cookie_header(candidate)
+        if rejected_headers is not None and header in rejected_headers:
+            continue
+        if _check_cookie(domain, header):
+            return header, any_candidate
+        if rejected_headers is not None:
+            rejected_headers.add(header)
+    return None, any_candidate
 
 
 def _secure_write(path: Path, content: str) -> None:
@@ -368,40 +398,34 @@ def _wait_for_valid_cookie(
 
     Returns the cookie header on success. Raises `click.ClickException` after
     `timeout` seconds without finding a valid session — or immediately if no
-    cookies at all can be read and every installed candidate browser is
-    blocked, since waiting out the timeout would never help in that case. A
-    still-readable candidate might just need more time to complete SSO, so
+    cookie candidate at all can be read and every installed candidate browser
+    is blocked, since waiting out the timeout would never help in that case.
+    A still-readable candidate might just need more time to complete SSO, so
     that case keeps polling as before.
     """
     blocked = _detect_blocked_browsers(browser)
     hopeless = bool(blocked) and _all_readable_browsers_blocked(browser, blocked)
     deadline = time.monotonic() + timeout
     last_status = ""
-    last_header: str | None = None
     seen_warnings: set[str] = set()
+    rejected_headers: set[str] = set()
     blocked_note_printed = False
     while True:
-        cookies = _load_cookies_from_browser(domain, browser, seen_warnings)
+        header, any_candidate = _find_valid_candidate(domain, browser, seen_warnings, rejected_headers)
+        if header is not None:
+            return header
 
-        if not cookies and hopeless:
+        if not any_candidate and hopeless:
             raise click.ClickException(_blocked_browser_message(blocked))
         if blocked and not blocked_note_printed:
             click.echo(_blocked_browser_note(blocked))
             blocked_note_printed = True
 
-        missing = [name for name in REQUIRED_COOKIES if name not in cookies]
-        if not missing:
-            cookie_header = _format_cookie_header(cookies)
-            # Avoid pinging /api/user/current with the same header repeatedly
-            # when the user already had a stale cookie set on disk.
-            if cookie_header != last_header:
-                last_header = cookie_header
-                if _check_cookie(domain, cookie_header):
-                    return cookie_header
-            status = "Cookies present but session not yet valid; still waiting..."
-        else:
-            status = f"Waiting for cookies: missing {missing}..."
-
+        status = (
+            "Cookies present but session not yet valid; still waiting..."
+            if any_candidate
+            else "Waiting for cookies: no browser profile has the full set yet..."
+        )
         if status != last_status:
             click.echo(status)
             last_status = status
@@ -419,13 +443,11 @@ def _login_region(region: str, browser: str | None, no_open: bool, timeout: floa
     """Authenticate one region: fast-path if already logged in, else open browser and wait."""
     domain = REGIONS[region]
 
-    cookies = _load_cookies_from_browser(domain, browser)
-    if all(name in cookies for name in REQUIRED_COOKIES):
-        header = _format_cookie_header(cookies)
-        if _check_cookie(domain, header):
-            path = _write_cookie_file(region, header)
-            click.echo(f"[{region}] already logged in; saved cookie to {path}")
-            return
+    header, _ = _find_valid_candidate(domain, browser)
+    if header is not None:
+        path = _write_cookie_file(region, header)
+        click.echo(f"[{region}] already logged in; saved cookie to {path}")
+        return
 
     if not no_open:
         click.echo(f"[{region}] opening https://{domain} in your default browser.")
