@@ -2625,6 +2625,6 @@ class TestSignalReportNoRepoFacadeGates(TestCase):
         self.assertEqual(task.repository, "persisted/repo")
 
         # 3. Analytics capture must have `resolution_tier="persisted"`
-        capture_mock.assert_called_once()
+        capture_mock.assert_not_called()
         self.assertEqual(capture_mock.call_args.kwargs["resolution_tier"], "persisted")
         self.assertEqual(capture_mock.call_args.kwargs["resolved_repository"], "persisted/repo")

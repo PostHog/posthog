@@ -40,6 +40,7 @@ from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.logic.repo_selection.cascade import CascadeTierResult
 from products.tasks.backend.access import DesktopAccessResolutionError
 from products.tasks.backend.constants import DEV_STACK_PREVIEW_PORT
 from products.tasks.backend.exceptions import SandboxNotFoundError
@@ -2574,7 +2575,12 @@ class TestTaskAPI(BaseTaskAPITest):
         _persisted = "products.signals.backend.facade.api.persisted_repo_selection"
         is_implementation = relationship in (None, "implementation")
         with (
-            patch(_cascade, return_value="test-org/test-repo") if is_implementation else nullcontext(),
+            patch(
+                _cascade,
+                return_value=CascadeTierResult(repository="test-org/test-repo", tier="single_repo"),
+            )
+            if is_implementation
+            else nullcontext() ,
             patch(_persisted, return_value=None) if is_implementation else nullcontext(),
         ):
             return self.client.post(

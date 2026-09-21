@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from posthog.dataclasses import frozen
 
 from posthog.git import extract_explicit_repo, extract_linked_repo
 from posthog.models.team import Team
@@ -11,7 +11,7 @@ from products.tasks.backend.models import Task
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
+@frozen(frozen=True)
 class CascadeTierResult:
     repository: str
     tier: str  # "single_repo" | "explicit_token" | "linked_url"
