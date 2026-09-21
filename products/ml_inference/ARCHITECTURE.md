@@ -148,9 +148,15 @@ The CI apply job reads it with its own role and hands instances presigned URLs, 
 ```
 
 The router exists because the gateway routes to one URL per host and the state cache is per instance.
-It is stateless apart from the instance list, which it reads from the same declared file the apply job uses, and health-checks.
 It also gives the gateway one stable in-cluster URL while instances come and go.
 If the gateway later learns instance-level affinity for served hosts, the router folds into it.
+
+The router is a CPU pod, two or three replicas behind one Service, scaled on in-flight requests.
+It has no database and no shared store.
+The instance list is config rendered from the declared file, read by every replica.
+Instance health is per replica, the same rule the gateway applies to its circuit breakers: the failure signal stays on the request path that observed it.
+Affinity needs no coordination, because rendezvous hashing is a pure function of the state hash and the healthy instance set, so replicas with the same view pick the same instance and replicas with a different view cost one cache miss.
+Load for the least-loaded fallback is each replica's own in-flight count; the real back-pressure is the instance's 503.
 
 ## 5. Engine: vLLM is the end state
 
