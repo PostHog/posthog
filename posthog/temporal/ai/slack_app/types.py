@@ -186,7 +186,7 @@ class SlackAppProjectRoute(BaseModel):
     integration_id: int
 
 
-@dataclass
+@frozen
 class PostHogCodeSlackMentionCommandWorkflowInputs:
     event: dict[str, Any]
     integration_ids: list[int]

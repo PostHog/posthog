@@ -236,7 +236,7 @@ class SlackUserContext:
     slack_email: str | None
 
 
-@dataclass
+@frozen
 class RulesCommand:
     """Parsed `/posthog <command>` text.
 
@@ -2429,9 +2429,14 @@ def route_posthog_code_event_to_relevant_region(
         if untagged_followup_mapping is None:
             mention_command = parse_rules_command(event.get("text", ""))
             if mention_command is not None:
-                return _redirect_mention_command(
-                    mention_command, event, candidates[0], slack_team_id, posthog_user=posthog_user
-                )
+                # The redirect reply is static, but its analytics event attributes to whichever
+                # install it is sent through, so use the resolution's stable tie-break rather than
+                # the head of ``candidates`` — that order reshuffles as auth verdicts expire.
+                redirect_probe = resolution.resolved_or_first()
+                if redirect_probe is not None:
+                    return _redirect_mention_command(
+                        mention_command, event, redirect_probe, slack_team_id, posthog_user=posthog_user
+                    )
 
         # A tagged-thread ``message`` is bound to its mapping's integration —
         # the mapping was the user's last explicit choice in this thread, so no
@@ -2708,8 +2713,8 @@ def _redirect_mention_command(
 ) -> str:
     """Point a mention that reads as a command at the slash command, without running it.
 
-    ``probe`` is any integration the workspace has connected, because the reply is static text and
-    needs no project resolved first.
+    ``probe`` needs no project resolved first, because the reply is static text. It is still the
+    resolution's stable pick, so the analytics event lands on the same project every time.
 
     The reply goes out ephemerally with no fallback: a channel-visible one would announce the
     integration in an externally-shared channel that has not approved it yet.

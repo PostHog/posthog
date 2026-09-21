@@ -59,6 +59,20 @@ def user_resolution_failure_reply(
     return None
 
 
+def _resolved_or_oldest(integration: Integration | None, candidates: list[Integration]) -> Integration | None:
+    """The resolved integration, falling back to the oldest install in `candidates`.
+
+    Surfaces that must act on *some* integration rather than prompt for one share this
+    tie-break, so a workspace with no saved pick is answered for the same project
+    whichever surface handles it. Ordered by id rather than taken off the front of
+    `candidates`: the auth filter sorts that list freshest-verdict-first, which
+    reshuffles as cache entries expire and would make the fallback drift.
+    """
+    if integration is not None and integration in candidates:
+        return integration
+    return min(candidates, key=lambda candidate: candidate.id, default=None)
+
+
 @dataclass
 class ResolutionResult:
     integration: Integration | None
@@ -66,17 +80,8 @@ class ResolutionResult:
     candidates: list[Integration] = field(default_factory=list)
 
     def resolved_or_first(self) -> Integration | None:
-        """The resolved integration, falling back to the workspace's oldest install.
-
-        Surfaces that must act on *some* integration rather than prompt for one share this
-        tie-break, so a workspace with no saved pick is answered for the same project
-        whichever surface handles it. Ordered by id rather than taken off the front of
-        `candidates`: the auth filter sorts that list freshest-verdict-first, which
-        reshuffles as cache entries expire and would make the fallback drift.
-        """
-        if self.integration is not None and self.integration in self.candidates:
-            return self.integration
-        return min(self.candidates, key=lambda candidate: candidate.id, default=None)
+        """The resolved integration, falling back to the workspace's oldest install."""
+        return _resolved_or_oldest(self.integration, self.candidates)
 
 
 def project_label(integration: Integration) -> str:
@@ -307,6 +312,10 @@ class UserAndIntegrationsResolution:
     source: ResolutionSource = "needs_picker"
     failure_reason: UserResolutionFailure | None = None
     slack_email: str | None = None
+
+    def resolved_or_first(self) -> Integration | None:
+        """The integration this resolution picked, falling back to the oldest one the user can reach."""
+        return _resolved_or_oldest(self.integration, self.candidates)
 
 
 def resolve_user_for_workspace(
