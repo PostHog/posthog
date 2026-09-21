@@ -460,6 +460,11 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "that is valid for time: { ts: Timestamp(1000000000, 1) } with id: 1234567890', "
                 "'code': 211, 'codeName': 'KeyNotFound'}",
             ),
+            (
+                "server_too_old",
+                "Server at cluster.abc.mongodb.net:27017 reports wire version 7, but this version of "
+                "PyMongo requires at least 8 (MongoDB 4.2).",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -514,6 +519,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
             ("key_not_found", "No keys found for HMAC", "key management"),
+            ("server_too_old", "version of PyMongo requires at least", "upgrade the cluster"),
             ("replica_set_no_members", "No replica set members available for replica set name", "replica set"),
             ("replica_set_mismatch", "client is configured to connect to a replica set named", "replica set"),
         ]
@@ -615,6 +621,18 @@ class TestGetRetryableErrors(SimpleTestCase):
         assert message is not None, f"Exhausted retryable error must surface a message: {error_msg}"
         assert "Topology Description" not in message
         assert expected_phrase in message.lower()
+
+    def test_connection_reset_is_classified_retryable(self):
+        # AutoReconnect wrapping a bare ConnectionResetError mid-cursor-read (an RST, not a
+        # timeout) — the next connection attempt succeeds once the network recovers, so this must
+        # not flood error tracking as an unclassified exception on every retry.
+        error_msg = (
+            "cluster0.example.mongodb.net:27017: [Errno 104] Connection reset by peer "
+            "(configured timeouts: connectTimeoutMS: 20000.0ms)"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB connection reset should be classified retryable: {error_msg}"
+        )
 
     def test_interrupted_at_shutdown_is_classified_retryable(self):
         # NotPrimaryError raised when a read is killed by a routine replica-set failover (the

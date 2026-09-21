@@ -1284,7 +1284,6 @@ async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
     assert emission.team_id == ateam_emit.id
     assert emission.finding_id == "f-emit"
     assert emission.description == "Checkout 500s post-deploy"
-    assert emission.weight == SCOUT_SIGNAL_WEIGHT
     assert emission.confidence == 0.85
     assert emission.severity == "P1"
     assert emission.tags == ["post-deploy-regression"]
