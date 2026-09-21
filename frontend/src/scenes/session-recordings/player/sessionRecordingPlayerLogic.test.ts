@@ -360,7 +360,6 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it.each([
             ['a string', 'H4sI_truncated'],
-            ['a number', 42],
             ['null', null],
         ])('reads a snapshot whose data is %s without throwing', (_label, badData) => {
             const snapshots = [

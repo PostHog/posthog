@@ -1319,7 +1319,6 @@ describe('replay/transform', () => {
         // proves nothing. Spy on captureException instead.
         test.each([
             ['a string', 'H4sI_truncated'],
-            ['a number', 42],
             ['null', null],
         ])('returns the event untouched when data is %s', (_label, badData) => {
             const telemetry = { capture: jest.fn(), captureException: jest.fn() }

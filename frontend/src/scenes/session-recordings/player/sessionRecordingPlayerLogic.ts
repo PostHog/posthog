@@ -1656,7 +1656,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         } else if (
                             snapshot.type === EventType.IncrementalSnapshot &&
                             isObject(snapshot.data) &&
-                            'source' in snapshot.data &&
                             snapshot.data.source === IncrementalSource.Mutation
                         ) {
                             rawActivity[timestamp].y +=
