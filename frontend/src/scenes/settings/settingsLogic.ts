@@ -83,6 +83,7 @@ const getSectionStringValue = (section: SettingSection): string => {
 export interface settingsLogicValues {
     billingEntryUrl: string | null // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    receivedFeatureFlags: boolean // featureFlagLogic
     organizationIntegrations: IntegrationType[] | null // organizationIntegrationsLogic
     currentOrganization: OrganizationType | null // organizationLogic
     isAdminOrOwner: boolean | null // organizationLogic
@@ -217,6 +218,14 @@ export interface settingsLogicMeta {
             selectedSectionId: SettingSectionId | null,
             defaultSectionId: SettingSectionId | null
         ) => SettingSection | null
+        unavailableSection: (
+            sections: SettingSection[],
+            selectedSectionId: SettingSectionId | null,
+            doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
+            isAdminOrOwner: boolean | null,
+            receivedFeatureFlags: boolean,
+            currentOrganization: OrganizationType | null
+        ) => UnavailableSection | null
         settings: (
             selectedLevel: 'environment' | 'organization' | 'project' | 'user',
             selectedSectionId: SettingSectionId | null,
@@ -265,7 +274,7 @@ export const settingsLogic = kea<settingsLogicType>([
     connect(() => ({
         values: [
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlags', 'receivedFeatureFlags'],
             userLogic,
             ['hasAvailableFeature'],
             preflightLogic,
@@ -598,17 +607,27 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         unavailableSection: [
-            (s) => [s.sections, s.selectedSectionId, s.doesMatchFlags, s.isAdminOrOwner],
+            (s) => [
+                s.sections,
+                s.selectedSectionId,
+                s.doesMatchFlags,
+                s.isAdminOrOwner,
+                s.receivedFeatureFlags,
+                s.currentOrganization,
+            ],
             (
                 sections: SettingSection[],
                 selectedSectionId: SettingSectionId | null,
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
-                isAdminOrOwner: boolean | null
+                isAdminOrOwner: boolean | null,
+                receivedFeatureFlags: boolean,
+                currentOrganization: null | import('../../types').OrganizationType
             ): UnavailableSection | null =>
                 findUnavailableSection({
                     sectionId: selectedSectionId,
                     visibleSections: sections,
                     allSections: SETTINGS_MAP,
+                    gatesResolved: receivedFeatureFlags && !!currentOrganization,
                     doesMatchFlags,
                     isAdminOrOwner,
                 }),

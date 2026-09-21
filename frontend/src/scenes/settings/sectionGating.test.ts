@@ -22,6 +22,7 @@ describe('findUnavailableSection', () => {
                 sectionId: 'organization-access-resolution',
                 visibleSections: [],
                 allSections: [gatedSection],
+                gatesResolved: true,
                 doesMatchFlags: () => false,
                 isAdminOrOwner: true,
             })
@@ -39,10 +40,24 @@ describe('findUnavailableSection', () => {
                 sectionId: 'organization-access-resolution',
                 visibleSections: [],
                 allSections: [gatedSection],
+                gatesResolved: true,
                 doesMatchFlags: () => true,
                 isAdminOrOwner: false,
             })
         ).toMatchObject({ reason: 'admin-only' })
+    })
+
+    it('waits for the flags and the membership level before it calls a section admin-only', () => {
+        expect(
+            findUnavailableSection({
+                sectionId: 'organization-access-resolution',
+                visibleSections: [],
+                allSections: [gatedSection],
+                gatesResolved: false,
+                doesMatchFlags: () => true,
+                isAdminOrOwner: false,
+            })
+        ).toBeNull()
     })
 
     it.each([
@@ -55,6 +70,7 @@ describe('findUnavailableSection', () => {
                 sectionId,
                 visibleSections,
                 allSections: [gatedSection],
+                gatesResolved: true,
                 doesMatchFlags: () => true,
                 isAdminOrOwner: false,
             })
@@ -67,6 +83,7 @@ describe('findUnavailableSection', () => {
                 sectionId: 'project-replay',
                 visibleSections: [],
                 allSections: [section('environment-replay', { flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW' })],
+                gatesResolved: true,
                 doesMatchFlags: () => false,
                 isAdminOrOwner: true,
             })

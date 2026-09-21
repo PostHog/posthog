@@ -16,6 +16,8 @@ interface FindUnavailableSectionInput {
     visibleSections: SettingSection[]
     /** Every section the app defines, gated or not. */
     allSections: SettingSection[]
+    /** False while the feature flags or the organization membership level are still on their way. */
+    gatesResolved: boolean
     doesMatchFlags: (flagDefinition: Pick<SettingSection, 'flag'>) => boolean
     isAdminOrOwner: boolean | null
 }
@@ -28,10 +30,11 @@ export const findUnavailableSection = ({
     sectionId,
     visibleSections,
     allSections,
+    gatesResolved,
     doesMatchFlags,
     isAdminOrOwner,
 }: FindUnavailableSectionInput): UnavailableSection | null => {
-    if (!sectionId || visibleSections.some((section) => section.id === sectionId)) {
+    if (!gatesResolved || !sectionId || visibleSections.some((section) => section.id === sectionId)) {
         return null
     }
 
