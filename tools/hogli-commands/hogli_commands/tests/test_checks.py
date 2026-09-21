@@ -1104,25 +1104,19 @@ class TestProductYamlOwnersCheck:
 
     def test_invalid_slug_reported(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-nonexistent\n")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", {"team-real"})
-        monkeypatch.setattr(gh_module, "_fetch_err", "")
+        monkeypatch.setattr(gh_module, "get_team_slugs", lambda: ({"team-real"}, ""))
         result = owners_check.run(ctx)
         assert any("team-nonexistent" in i for i in result.issues)
 
     def test_valid_slug_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-real\n")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", {"team-real"})
-        monkeypatch.setattr(gh_module, "_fetch_err", "")
+        monkeypatch.setattr(gh_module, "get_team_slugs", lambda: ({"team-real"}, ""))
         result = owners_check.run(ctx)
         assert not result.issues
 
     def test_gh_unavailable_is_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", None)
-        monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
+        monkeypatch.setattr(gh_module, "get_team_slugs", lambda: (None, "gh CLI not found"))
         result = owners_check.run(ctx)
         assert result.issues
         assert any("gh CLI" in i for i in result.issues)

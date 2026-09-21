@@ -15,6 +15,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/consumer'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
+import { ML_BLOCK_COMPRESSION } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-compression'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
@@ -126,6 +127,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             featureStore: new SessionFeatureStore(outputs, false),
             keyStore: keyManager,
             encryptor: keyManager,
+            compression: ML_BLOCK_COMPRESSION,
             runner: new MlMirrorStagedBatchRunner(
                 {
                     keyManager,
