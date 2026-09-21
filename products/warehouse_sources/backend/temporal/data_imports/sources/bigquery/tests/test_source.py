@@ -20,15 +20,21 @@ from google.auth.credentials import Credentials as GoogleAuthCredentials
 from google.auth.exceptions import RefreshError
 from requests.adapters import HTTPAdapter
 
+from posthog.models.integration import Integration
+from posthog.models.team.team import Team
+
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import ServiceAccountOwnershipError
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_CREATE_READ_SESSION_RETRY,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
     BIGQUERY_INVALID_TOKEN_URI_ERROR,
     BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
+    BIGQUERY_NO_CREDENTIALS_ERROR,
     BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
@@ -36,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BIGQUERY_VALIDATION_GENERIC_ERROR,
     BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
+    BigQueryAuthResolutionError,
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
     BigQueryImplementation,
@@ -56,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     _resolve_region,
     _run_destination_query_with_job_retry,
     delete_all_temp_destination_tables,
+    resolve_bigquery_auth,
     validate_bigquery_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
@@ -68,13 +76,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
+    BigQueryAuthTypeConfig,
+    BigQueryAuthTypeConfigKeyFileConfig,
     BigQueryDatasetProjectConfig,
-    BigQueryKeyFileConfig,
     BigQuerySourceConfig,
     BigQueryTemporaryDatasetConfig,
     BigQueryUseCustomRegionConfig,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+
+@pytest.fixture(autouse=True)
+def _stub_google_credential_construction():
+    """The test key files carry placeholder private keys, which google-auth rejects as malformed PEM.
+
+    Turning a key file into credentials is google-auth's job, not the source's, so stub it and let
+    each test exercise the source's own wiring. Tests that assert on credential construction patch
+    over this themselves.
+    """
+    with mock.patch.object(
+        bq_module.service_account.Credentials,
+        "from_service_account_info",
+        side_effect=lambda info, scopes=None: mock.MagicMock(spec=GoogleAuthCredentials),
+    ):
+        yield
 
 
 def _make_inputs(**overrides) -> SourceInputs:
@@ -96,6 +121,28 @@ def _make_inputs(**overrides) -> SourceInputs:
     return SourceInputs(**defaults)
 
 
+def _key_file(**overrides) -> BigQueryAuthTypeConfigKeyFileConfig:
+    fields: dict[str, str] = {
+        "project_id": "project-id",
+        "private_key": "private-key",
+        "private_key_id": "private-key-id",
+        "client_email": "client-email",
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+    fields.update(overrides)
+    return BigQueryAuthTypeConfigKeyFileConfig(**fields)
+
+
+def _key_file_auth(**overrides) -> BigQueryAuthTypeConfig:
+    return BigQueryAuthTypeConfig(selection="key_file", key_file=_key_file(**overrides))
+
+
+def _integration_auth(integration_id: int) -> BigQueryAuthTypeConfig:
+    return BigQueryAuthTypeConfig(
+        selection="service_account", google_cloud_service_account_integration_id=integration_id
+    )
+
+
 def _make_config(
     *,
     project_id: str = "project-id",
@@ -105,13 +152,7 @@ def _make_config(
     use_custom_region: BigQueryUseCustomRegionConfig | None = None,
 ) -> BigQuerySourceConfig:
     return BigQuerySourceConfig(
-        key_file=BigQueryKeyFileConfig(
-            project_id=project_id,
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="https://oauth2.googleapis.com/token",
-        ),
+        auth_type=_key_file_auth(project_id=project_id),
         dataset_id=dataset_id,
         dataset_project=dataset_project,
         temporary_dataset=temporary_dataset,
@@ -906,10 +947,7 @@ def _run_delete_all_temp_destination_tables(side_effect, logger):
             project_id="project-id",
             location=None,
             dataset_project_id=None,
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="https://oauth2.googleapis.com/token",
+            credentials=mock.MagicMock(spec=GoogleAuthCredentials),
             logger=logger,
         )
     return mock_capture
@@ -1051,14 +1089,16 @@ def test_bigquery_resolve_dataset_project_id_trims_and_treats_whitespace_as_unse
 
 
 def test_bigquery_resolve_query_project_prefers_dataset_project():
+    """The dataset project wins over the project the open connection authenticated as, which is the
+    only project available when the source authenticates through a service account integration."""
     config = _make_config(
         project_id=" service-account-project ",
         dataset_project=BigQueryDatasetProjectConfig(dataset_project_id=" dataset-project ", enabled=True),
     )
-    assert _resolve_query_project(config) == "dataset-project"
+    assert _resolve_query_project(config, "connection-project") == "dataset-project"
 
     config = _make_config(project_id=" service-account-project ")
-    assert _resolve_query_project(config) == "service-account-project"
+    assert _resolve_query_project(config, "connection-project") == "connection-project"
 
 
 def test_bigquery_get_columns_trims_whitespace_in_identifiers():
@@ -1066,6 +1106,8 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
     or the `project` it runs against."""
     fake_client = mock.MagicMock()
     fake_client.query.return_value.result.return_value = []
+
+    fake_client.project = "524098457564"
 
     config = _make_config(project_id=" 524098457564", dataset_id=" bigquery_aloalo ")
     BigQueryImplementation().get_columns(fake_client, config, names=None)
@@ -1125,6 +1167,8 @@ def test_bigquery_get_primary_keys_trims_whitespace_in_identifiers():
     fake_client = mock.MagicMock()
     fake_client.query.return_value.result.return_value = []
 
+    fake_client.project = "my-project"
+
     config = _make_config(project_id=" my-project ", dataset_id=" my_dataset ")
     BigQueryImplementation().get_primary_keys(fake_client, config, tables=["t"])
 
@@ -1146,13 +1190,8 @@ def test_bigquery_validate_credentials_trims_whitespace_before_calling_bigquery(
     ) as mock_client:
         validate_bigquery_credentials(
             dataset_id=" my_dataset ",
-            key_file={
-                "project_id": " 524098457564",
-                "private_key": "private-key",
-                "private_key_id": "private-key-id",
-                "client_email": "client-email",
-                "token_uri": "https://oauth2.googleapis.com/token",
-            },
+            project_id=" 524098457564",
+            credentials=mock.MagicMock(spec=GoogleAuthCredentials),
             dataset_project_id=None,
             location=None,
         )
@@ -1161,28 +1200,38 @@ def test_bigquery_validate_credentials_trims_whitespace_before_calling_bigquery(
     bq.dataset.assert_called_once_with("my_dataset", project="524098457564")
 
 
-def _valid_key_file() -> dict[str, str]:
-    return {
-        "project_id": "my-project",
-        "private_key": "private-key",
-        "private_key_id": "private-key-id",
-        "client_email": "client-email",
-        "token_uri": "https://oauth2.googleapis.com/token",
-    }
+def _config_with_key_file(**overrides) -> BigQuerySourceConfig:
+    return BigQuerySourceConfig(auth_type=_key_file_auth(**overrides), dataset_id="my_dataset")
 
 
-def test_bigquery_validate_credentials_missing_fields_reports_actionable_message():
-    key_file = _valid_key_file()
-    del key_file["private_key"]
+def test_bigquery_validate_credentials_missing_key_file_fields_reports_actionable_message():
+    config = _config_with_key_file(private_key="")
 
     with mock.patch.object(bq_module, "bigquery_client") as mock_client:
-        ok, message = validate_bigquery_credentials(
-            dataset_id="my_dataset", key_file=key_file, dataset_project_id=None, location=None
-        )
+        ok, message = BigQuerySource().validate_credentials(config, team_id=1)
 
     assert ok is False
     assert message == BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR
     # A malformed key file must be caught before we try to reach BigQuery.
+    mock_client.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "auth_type",
+    [
+        BigQueryAuthTypeConfig(selection="service_account"),
+        BigQueryAuthTypeConfig(selection="key_file"),
+    ],
+)
+def test_bigquery_validate_credentials_without_the_selected_credential_reports_actionable_message(auth_type):
+    """The credential under each option is optional on the form, so a source can reach validation
+    having picked an authentication type without supplying its credential."""
+    config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=auth_type)
+
+    with mock.patch.object(bq_module, "bigquery_client") as mock_client:
+        ok, message = BigQuerySource().validate_credentials(config, team_id=1)
+
+    assert (ok, message) == (False, BIGQUERY_NO_CREDENTIALS_ERROR)
     mock_client.assert_not_called()
 
 
@@ -1199,49 +1248,32 @@ _NON_GOOGLE_TOKEN_URIS = [
     ["https://oauth2.googleapis.com/token", "https://accounts.google.com/o/oauth2/token"],
 )
 def test_bigquery_validate_credentials_accepts_both_google_token_endpoints(token_uri):
-    key_file = {**_valid_key_file(), "token_uri": token_uri}
+    config = _config_with_key_file(token_uri=token_uri)
 
-    with mock.patch.object(bq_module, "bigquery_client") as mock_client:
-        ok, message = validate_bigquery_credentials(
-            dataset_id="my_dataset", key_file=key_file, dataset_project_id=None, location=None
-        )
+    with (
+        mock.patch.object(bq_module, "bigquery_client"),
+        mock.patch.object(bq_module.service_account.Credentials, "from_service_account_info") as mock_creds,
+    ):
+        ok, message = BigQuerySource().validate_credentials(config, team_id=1)
 
     assert (ok, message) == (True, None)
-    assert mock_client.call_args.args[5] == token_uri
+    assert mock_creds.call_args.args[0]["token_uri"] == token_uri
 
 
 @pytest.mark.parametrize("token_uri", _NON_GOOGLE_TOKEN_URIS)
-def test_bigquery_validate_credentials_rejects_non_google_token_uri_before_any_request(token_uri):
-    key_file = {**_valid_key_file(), "token_uri": token_uri}
-
-    with mock.patch.object(bq_module, "bigquery_client") as mock_client:
-        ok, message = validate_bigquery_credentials(
-            dataset_id="my_dataset", key_file=key_file, dataset_project_id=None, location=None
-        )
-
-    assert ok is False
-    assert message == BIGQUERY_INVALID_TOKEN_URI_ERROR
-    mock_client.assert_not_called()
-
-
-@pytest.mark.parametrize("token_uri", _NON_GOOGLE_TOKEN_URIS)
-@pytest.mark.parametrize("client_factory", ["bigquery_client", "bigquery_storage_read_client"])
-def test_bigquery_clients_refuse_non_google_token_uri_before_building_credentials(client_factory, token_uri):
-    kwargs = {"location": None} if client_factory == "bigquery_client" else {}
+def test_bigquery_rejects_non_google_token_uri_before_building_credentials(token_uri):
+    """`token_uri` decides where a worker posts the service-account grant, so a hand-edited one must
+    be refused before google-auth is handed the key at all."""
+    config = _config_with_key_file(token_uri=token_uri)
 
     with mock.patch.object(bq_module.service_account.Credentials, "from_service_account_info") as mock_creds:
         with pytest.raises(BigQueryInvalidTokenUriError) as exc_info:
-            with getattr(bq_module, client_factory)(
-                project_id="project-id",
-                private_key="private-key",
-                private_key_id="private-key-id",
-                client_email="client-email",
-                token_uri=token_uri,
-                **kwargs,
-            ):
-                pass
+            resolve_bigquery_auth(config, team_id=1)
 
-    mock_creds.assert_not_called()
+        mock_creds.assert_not_called()
+        ok, message = BigQuerySource().validate_credentials(config, team_id=1)
+
+    assert (ok, message) == (False, BIGQUERY_INVALID_TOKEN_URI_ERROR)
     assert str(exc_info.value) in BigQuerySource().get_non_retryable_errors()
 
 
@@ -1295,7 +1327,11 @@ def test_bigquery_validate_credentials_maps_failures_to_actionable_messages(
         mock.patch.object(bq_module, "capture_exception") as mock_capture,
     ):
         ok, message = validate_bigquery_credentials(
-            dataset_id="my_dataset", key_file=_valid_key_file(), dataset_project_id=None, location=None
+            dataset_id="my_dataset",
+            project_id="my-project",
+            credentials=mock.MagicMock(spec=GoogleAuthCredentials),
+            dataset_project_id=None,
+            location=None,
         )
 
     assert ok is False
@@ -1324,10 +1360,9 @@ def test_bigquery_source_validate_credentials_wires_config_and_region(use_custom
         result = BigQuerySource().validate_credentials(config, team_id=1)
 
     assert result == (True, None)
-    dataset_id, key_file, dataset_project_id, region = mock_validate.call_args.args
+    dataset_id, project_id, _credentials, dataset_project_id, region = mock_validate.call_args.args
     assert dataset_id == "dataset-id"
-    assert key_file["project_id"] == "project-id"
-    assert key_file["token_uri"] == "https://oauth2.googleapis.com/token"
+    assert project_id == "project-id"
     assert dataset_project_id is None
     # A custom region only flows through when the toggle is enabled and non-empty.
     assert region == expected_region
@@ -2051,13 +2086,7 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
         mock.patch.object(bq_module, "BigQueryReadGrpcTransport") as mock_transport_cls,
         mock.patch.object(bq_module.bigquery_storage, "BigQueryReadClient"),
     ):
-        with bq_module.bigquery_storage_read_client(
-            project_id="project-id",
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="https://oauth2.googleapis.com/token",
-        ):
+        with bq_module.bigquery_storage_read_client(credentials=mock.Mock(spec=GoogleAuthCredentials)):
             pass
 
     mock_transport_cls.create_channel.assert_called_once()
@@ -2072,22 +2101,14 @@ def test_bigquery_client_retries_transient_token_refresh_failures():
     endpoint escaped every `bigquery_client` call site as an opaque `RefreshError` instead of
     being retried. `bigquery_client` must hand `AuthorizedSession` an `auth_request` built from
     a session carrying `BIGQUERY_TOKEN_REFRESH_RETRY`."""
-    with mock.patch.object(
-        bq_module.service_account.Credentials,
-        "from_service_account_info",
-        return_value=mock.Mock(spec=GoogleAuthCredentials),
-    ):
-        with bq_module.bigquery_client(
-            project_id="project-id",
-            location=None,
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="https://oauth2.googleapis.com/token",
-        ) as client:
-            auth_request_session = client._http._auth_request.session
-            adapter = cast(HTTPAdapter, auth_request_session.get_adapter("https://oauth2.googleapis.com"))
-            retry = adapter.max_retries
+    with bq_module.bigquery_client(
+        project_id="project-id",
+        location=None,
+        credentials=mock.Mock(spec=GoogleAuthCredentials),
+    ) as client:
+        auth_request_session = client._http._auth_request.session
+        adapter = cast(HTTPAdapter, auth_request_session.get_adapter("https://oauth2.googleapis.com"))
+        retry = adapter.max_retries
 
     assert retry is BIGQUERY_TOKEN_REFRESH_RETRY
     assert retry.allowed_methods and "POST" in retry.allowed_methods
@@ -2224,3 +2245,187 @@ def test_bigquery_build_pipeline_threads_resolved_rest_api_version(pin):
         BigQuerySource().source_for_pipeline(_make_config(), _make_inputs(api_version=pin))
 
     assert mock_build.call_args.kwargs["rest_api_version"] == "v2"
+
+
+# A BigQuery source authenticates either with a Google Cloud service account integration (shared
+# across the team, and keyless when PostHog impersonates the account) or with a JSON key file
+# uploaded onto the source itself. `resolve_bigquery_auth` picks between them once per run, and
+# every client the run opens signs with what it returns.
+
+
+_BATCH_EXPORT_MODULE = "products.batch_exports.backend.temporal.destinations.bigquery_batch_export"
+
+
+def _google_cloud_integration(team, *, with_key: bool, email: str = "sa@my-project.iam.gserviceaccount.com"):
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        integration_id=f"{email}-{team.id}-{'key-file' if with_key else 'impersonated'}",
+        config={"project_id": "integration-project", "service_account_email": email},
+        sensitive_config=(
+            {
+                "private_key": "private-key",
+                "private_key_id": "private-key-id",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+            if with_key
+            else {}
+        ),
+    )
+
+
+@pytest.mark.django_db
+def test_bigquery_auth_from_integration_with_a_key_signs_with_the_integrations_key(team):
+    integration = _google_cloud_integration(team, with_key=True)
+    config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
+
+    with mock.patch.object(bq_module.service_account.Credentials, "from_service_account_info") as mock_creds:
+        auth = resolve_bigquery_auth(config, team_id=team.id)
+
+    # The project must come from the integration, not from a key file the source no longer has.
+    assert auth.project_id == "integration-project"
+    assert mock_creds.call_args.args[0]["client_email"] == "sa@my-project.iam.gserviceaccount.com"
+
+
+@pytest.mark.django_db
+def test_bigquery_auth_from_keyless_integration_impersonates_only_after_ownership_is_verified(team, settings):
+    """A keyless integration means PostHog signs as the customer's service account using its own
+    identity. Without the ownership check, a team that merely knows another org's service account
+    email could have PostHog read that org's data on its behalf."""
+    settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD = "//iam.googleapis.com/projects/1/locations/global"
+    settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT = "posthog@posthog.iam.gserviceaccount.com"
+    integration = _google_cloud_integration(team, with_key=False)
+    config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
+
+    with (
+        mock.patch(f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership") as mock_verify,
+        mock.patch(f"{_BATCH_EXPORT_MODULE}.get_our_google_cloud_credentials"),
+        mock.patch.object(bq_module.google_auth_impersonated_credentials, "Credentials") as mock_impersonated,
+    ):
+        auth = resolve_bigquery_auth(config, team_id=team.id)
+
+    mock_verify.assert_awaited_once_with("sa@my-project.iam.gserviceaccount.com", team.id)
+    assert auth.project_id == "integration-project"
+    assert auth.credentials is mock_impersonated.return_value
+    assert mock_impersonated.call_args.kwargs["target_principal"] == "sa@my-project.iam.gserviceaccount.com"
+
+
+@pytest.mark.django_db
+def test_bigquery_unverified_service_account_ownership_is_reported_and_not_retried(team, settings):
+    settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD = "//iam.googleapis.com/projects/1/locations/global"
+    settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT = "posthog@posthog.iam.gserviceaccount.com"
+    integration = _google_cloud_integration(team, with_key=False)
+    config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
+    # Verbatim wording from batch exports, which raises the same error for the same check.
+    ownership_error = ServiceAccountOwnershipError("sa@my-project.iam.gserviceaccount.com", "org-uuid")
+
+    with (
+        mock.patch(
+            f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership", side_effect=ownership_error
+        ),
+        mock.patch(f"{_BATCH_EXPORT_MODULE}.get_our_google_cloud_credentials"),
+        mock.patch.object(bq_module, "bigquery_client") as mock_client,
+    ):
+        ok, message = BigQuerySource().validate_credentials(config, team_id=team.id)
+
+    assert ok is False
+    assert message == str(ownership_error)
+    mock_client.assert_not_called()
+    # The customer has to change their service account description, so the sync must stop rather
+    # than retry the same rejection every run.
+    assert any(key in str(ownership_error) for key in BigQuerySource().get_non_retryable_errors())
+
+
+@pytest.mark.django_db
+def test_bigquery_auth_follows_the_selection_when_both_credentials_are_stored(team):
+    """Switching an existing source to a service account leaves the old upload in `job_inputs`. The
+    selection has to decide, or the source keeps syncing on a key the customer thinks is retired."""
+    integration = _google_cloud_integration(team, with_key=True)
+    config = BigQuerySourceConfig(
+        dataset_id="my_dataset",
+        auth_type=BigQueryAuthTypeConfig(
+            selection="service_account",
+            google_cloud_service_account_integration_id=integration.id,
+            key_file=_key_file(project_id="stale-key-file-project"),
+        ),
+    )
+
+    assert resolve_bigquery_auth(config, team_id=team.id).project_id == "integration-project"
+
+    config.auth_type.selection = "key_file"
+
+    assert resolve_bigquery_auth(config, team_id=team.id).project_id == "stale-key-file-project"
+
+
+@pytest.mark.django_db
+def test_bigquery_auth_rejects_an_integration_belonging_to_another_team(team):
+    other_team = Team.objects.create(organization=team.organization, name="other")
+    integration = _google_cloud_integration(other_team, with_key=True)
+    config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
+
+    with pytest.raises(BigQueryAuthResolutionError) as exc_info:
+        resolve_bigquery_auth(config, team_id=team.id)
+
+    assert str(exc_info.value) == BIGQUERY_INTEGRATION_NOT_FOUND_ERROR
+
+
+@pytest.mark.django_db
+def test_bigquery_disconnected_integration_is_reported_and_not_retried(team):
+    config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(999999999))
+
+    with mock.patch.object(bq_module, "bigquery_client") as mock_client:
+        ok, message = BigQuerySource().validate_credentials(config, team_id=team.id)
+
+    assert (ok, message) == (False, BIGQUERY_INTEGRATION_NOT_FOUND_ERROR)
+    mock_client.assert_not_called()
+    # Reconnecting is the only fix, so the sync must stop instead of retrying every run.
+    assert BIGQUERY_INTEGRATION_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
+
+
+@pytest.mark.django_db
+def test_bigquery_connect_works_for_a_source_with_no_key_file(team):
+    """Schema discovery resolves the project it queries from the open connection, because a source
+    authenticating through an integration has no key file to read a project out of."""
+    integration = _google_cloud_integration(team, with_key=True)
+    config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
+    fake_bq = mock.MagicMock()
+    fake_bq.get_dataset.return_value.location = "europe-west1"
+
+    with _patch_bigquery_client(fake_bq) as mock_client:
+        with BigQueryImplementation().connect(config, team_id=team.id) as conn:
+            assert conn is fake_bq
+
+    assert mock_client.call_args_list[-1][0][0] == "integration-project"
+    assert mock_client.call_args_list[-1][0][1] == "europe-west1"
+
+
+_COMPLETE_KEY_FILE = {
+    "project_id": "my-project",
+    "private_key": "private-key",
+    "private_key_id": "private-key-id",
+    "client_email": "client-email",
+    "token_uri": "https://oauth2.googleapis.com/token",
+}
+
+
+@pytest.mark.parametrize(
+    "auth_type,expected_valid",
+    [
+        ({"selection": "service_account", "google_cloud_service_account_integration_id": 7}, True),
+        ({"selection": "key_file", "key_file": _COMPLETE_KEY_FILE}, True),
+        ({"selection": "service_account", "google_cloud_service_account_integration_id": ""}, False),
+        ({"selection": "key_file", "key_file": {}}, False),
+        # The credential the user did not pick must not satisfy the one they did.
+        ({"selection": "service_account", "key_file": _COMPLETE_KEY_FILE}, False),
+        ({"selection": "key_file", "google_cloud_service_account_integration_id": 7}, False),
+    ],
+)
+def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_type(auth_type, expected_valid):
+    """The credential fields under each option are optional on the form, so the option the user did
+    not pick does not block the save. That makes this the only check stopping a source being created
+    with no usable credentials."""
+    is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", "auth_type": auth_type})
+
+    assert is_valid is expected_valid
+    if not expected_valid:
+        assert any("Google Cloud service account" in error for error in errors)
