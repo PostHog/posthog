@@ -1,17 +1,25 @@
+import ast
 import json
+import tempfile
+import zoneinfo
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
-from posthog.tasks.process_scheduled_changes import process_scheduled_changes
+from posthog.tasks.process_scheduled_changes import process_scheduled_changes, resolve_schedule_timezone
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -1649,7 +1657,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
                 datetime(2024, 1, 16, 9, 0, tzinfo=UTC),
             ),
             # Unknown / typo'd timezone falls back to UTC rather than raising and stalling
-            # the schedule. Exercises the ZoneInfoNotFoundError branch.
+            # the schedule.
             (
                 "invalid_timezone_falls_back_to_utc",
                 "2024-01-15T09:00:00Z",
@@ -1714,3 +1722,50 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
             scheduled_change.refresh_from_db()
             self.assertEqual(scheduled_change.scheduled_at, expected_next)
+
+
+@contextmanager
+def corrupt_system_tzdata() -> Iterator[None]:
+    """
+    Point the zoneinfo search path at a directory whose TZif files are corrupt.
+
+    A name that no file matches raises ZoneInfoNotFoundError and then falls back to the tzdata
+    package, so an empty directory does not reproduce the failure. The file has to exist and be
+    unreadable, which is what makes ZoneInfo raise ValueError.
+    """
+    original_tzpath = zoneinfo.TZPATH
+    with tempfile.TemporaryDirectory() as tzdir:
+        (Path(tzdir) / "America").mkdir()
+        for name in ("UTC", "America/New_York"):
+            (Path(tzdir) / name).write_bytes(b"this is not a TZif file")
+        zoneinfo.reset_tzpath([tzdir])
+        zoneinfo.ZoneInfo.clear_cache()
+        try:
+            yield
+        finally:
+            zoneinfo.reset_tzpath(original_tzpath)
+            zoneinfo.ZoneInfo.clear_cache()
+
+
+class TestScheduledChangesWithoutReadableTzdata(SimpleTestCase):
+    @parameterized.expand([("unreadable_zone", "America/New_York"), ("unreadable_utc", "UTC")])
+    def test_corrupt_tzif_file_falls_back_to_utc(self, _name: str, tz_name: str) -> None:
+        with corrupt_system_tzdata():
+            self.assertEqual(resolve_schedule_timezone(tz_name), UTC)
+
+    def test_module_builds_no_zoneinfo_at_import_time(self) -> None:
+        # posthog/tasks/__init__.py imports this module, so a ZoneInfo built at module scope
+        # reads a TZif file while every management command is still starting up. One corrupt
+        # file then stops the process before it runs, the temporal worker included. Use
+        # datetime.UTC, which needs no tzdata file.
+        source = Path(process_scheduled_changes.__globals__["__file__"]).read_text()
+        module_scope_calls = [
+            node
+            for statement in ast.parse(source).body
+            for node in ast.walk(statement)
+            if isinstance(statement, ast.Assign)
+            and isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "ZoneInfo"
+        ]
+        self.assertEqual(module_scope_calls, [])
