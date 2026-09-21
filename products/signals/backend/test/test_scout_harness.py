@@ -1328,6 +1328,8 @@ class TestPromptBuilder(BaseTest):
         # whose skill does not list `edit_report`, so only such a scout is pointed at them.
         if "edit_report" in allowed_tools:
             assert "scout-report-check-create" in section.split("# ")[0]
+            # A check written in error stays on the report unless the scout knows it can withdraw it.
+            assert "scout-report-check-cancel" in section.split("# ")[0]
         else:
             assert "scout-report-check" not in prompt
 

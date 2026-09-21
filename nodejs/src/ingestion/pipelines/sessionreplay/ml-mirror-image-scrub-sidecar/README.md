@@ -22,7 +22,8 @@ Lag grows while that happens, which is correct and is what the drain-time panels
 Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (50, against a default of 500).
 A batch that outlives `max.poll.interval.ms` (300s) gets the pod evicted mid-batch, and that is not a clean retry: the evicted pod loses the offsets for work it already did, and the partition lands on a pod whose sidecar is equally busy and redoes the same images, so offered load rises while throughput falls.
 Keeping batches far inside the interval is what stops ordinary saturation reaching that point.
-If a revoke does land mid-batch, the batch stops as soon as a flush finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+If a revoke does land mid-batch, the batch stops as soon as a write finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+The S3 writes of a batch run behind the scrub of the next batch, so the batch duration the consumer reports covers the scrub only; `ml_mirror_image_scrub_consumer_write_duration_seconds` covers the writes.
 
 A wedged sidecar still blocks its partitions rather than draining them, and no batch size prevents that.
 

@@ -6128,7 +6128,19 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "Conversion window duration."
+                                "description": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                            },
+                            "conversion_window_unit": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["second", "minute", "hour", "day", "week", "month"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
                             },
                             "denominator": {
                                 "anyOf": [
@@ -6413,6 +6425,18 @@
                                     }
                                 ],
                                 "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                            },
+                            "funnel_order_type": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["strict", "unordered", "ordered"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                             },
                             "goal": {
                                 "anyOf": [
@@ -7801,7 +7825,19 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "Conversion window duration."
+                                "description": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                            },
+                            "conversion_window_unit": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["second", "minute", "hour", "day", "week", "month"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
                             },
                             "denominator": {
                                 "anyOf": [
@@ -8086,6 +8122,18 @@
                                     }
                                 ],
                                 "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                            },
+                            "funnel_order_type": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["strict", "unordered", "ordered"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                             },
                             "goal": {
                                 "anyOf": [

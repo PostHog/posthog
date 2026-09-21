@@ -49,6 +49,8 @@ _WORKSPACE_CHILD_ENDPOINTS = (
     "expense_categories",
     "invoices",
     "time_off_requests",
+    "approval_requests",
+    "user_groups",
 )
 
 
@@ -146,6 +148,29 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     return value
 
 
+def _flatten_approval_request(item: dict[str, Any]) -> dict[str, Any]:
+    """Surface the nested `approvalRequest` object as top-level columns.
+
+    The row's only identifier lives one level down, so without this the table has no primary key —
+    and the owner and approved period, which are what the table is joined and filtered on, would
+    need JSON extraction on every query."""
+    request = item.get("approvalRequest")
+    if not isinstance(request, dict):
+        return item
+    item["approval_request_id"] = request.get("id")
+    status = request.get("status")
+    if isinstance(status, dict):
+        item["approval_request_state"] = status.get("state")
+    owner = request.get("owner")
+    if isinstance(owner, dict):
+        item["approval_request_owner_user_id"] = owner.get("userId")
+    date_range = request.get("dateRange")
+    if isinstance(date_range, dict):
+        item["approval_request_start"] = date_range.get("start")
+        item["approval_request_end"] = date_range.get("end")
+    return item
+
+
 def _flatten_time_entry(item: dict[str, Any]) -> dict[str, Any]:
     """Surface the nested `timeInterval` object as top-level columns so the interval start can be
     used as the incremental cursor and partition key."""
@@ -169,6 +194,20 @@ def _time_entry_map(row: dict[str, Any]) -> dict[str, Any]:
     return _rename_time_entry_parents(_flatten_time_entry(row))
 
 
+def _approval_request_map(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    # Clockify documents `approvalRequest` as nullable. Such a row carries no id at all, so writing
+    # it would seed a null primary key that every later merge multi-matches; drop it instead.
+    if not isinstance(row.get("approvalRequest"), dict):
+        return []
+    return _rename_workspace(_flatten_approval_request(row))
+
+
+# Workspace children that need more than the parent-id rename.
+_WORKSPACE_CHILD_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
+    "approval_requests": _approval_request_map,
+}
+
+
 def _incremental_config(
     should_use_incremental_field: bool, db_incremental_field_last_value: Any
 ) -> IncrementalConfig | None:
@@ -187,7 +226,7 @@ def _incremental_config(
 
 
 def _endpoint_spec(config: ClockifyEndpointConfig, resolve_params: dict[str, Any]) -> Endpoint:
-    params: dict[str, Any] = dict(resolve_params)
+    params: dict[str, Any] = {**resolve_params, **config.extra_params}
     paginator: BasePaginator
     if config.method == "POST":
         paginator = ClockifyTimeOffPaginator(config.page_size)
@@ -225,7 +264,7 @@ def _workspace_child_resource(endpoint: str) -> EndpointResource:
             CLOCKIFY_ENDPOINTS[endpoint],
             {"workspace_id": {"type": "resolve", "resource": "workspaces", "field": "id"}},
         ),
-        "data_map": _rename_workspace,
+        "data_map": _WORKSPACE_CHILD_DATA_MAPS.get(endpoint, _rename_workspace),
     }
 
 
