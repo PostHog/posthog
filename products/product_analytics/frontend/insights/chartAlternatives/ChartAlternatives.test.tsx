@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,6 +19,8 @@ import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 import { ChartAlternatives } from './ChartAlternatives'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { chartPreviewsLogic } from './chartPreviewsLogic'
+
+jest.mock('posthog-js')
 
 const insightProps = { dashboardItemId: 'chart-alternatives' as InsightShortId }
 
@@ -43,6 +46,7 @@ describe('ChartAlternatives', () => {
     let builtInsightVizDataLogic: ReturnType<typeof insightVizDataLogic.build>
 
     beforeEach(() => {
+        jest.mocked(posthog.capture).mockClear()
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend': [],
@@ -109,6 +113,11 @@ describe('ChartAlternatives', () => {
         })
         expect(currentTrendsQuery().breakdownFilter).toBeUndefined()
         expect(logic.values.galleryOpen).toBe(false)
+        expect(posthog.capture).toHaveBeenCalledWith('insight chart alternative selected', {
+            previous_display: ChartDisplayType.ActionsLineGraph,
+            display: ChartDisplayType.BoxPlot,
+            source: 'gallery',
+        })
     })
 
     it('mounts preview state with the chart control', () => {

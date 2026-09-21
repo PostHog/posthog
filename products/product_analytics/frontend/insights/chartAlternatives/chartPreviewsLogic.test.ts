@@ -1,5 +1,6 @@
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,6 +17,8 @@ import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { chartPreviewsLogic } from './chartPreviewsLogic'
 import type { ChartPreview } from './chartPreviewsLogic'
+
+jest.mock('posthog-js')
 
 const insightProps = { dashboardItemId: 'chart-previews' as InsightShortId }
 const logicProps = { editMode: true, embedded: false, ...insightProps }
@@ -44,6 +47,7 @@ describe('chartPreviewsLogic', () => {
     let refreshModes: string[]
 
     beforeEach(() => {
+        jest.mocked(posthog.capture).mockClear()
         refreshModes = []
         const queryMock = async ({ request }: { request: Request }): Promise<Record<string, unknown>> => {
             const body = (await request.json()) as { refresh?: string }
@@ -112,5 +116,28 @@ describe('chartPreviewsLogic', () => {
         await expectLogic(chartPreviewsLogic(logicProps)).toFinishAllListeners()
         expect(lineTile()).toMatchObject({ response: null })
         expect(refreshModes).toHaveLength(queriesBeforeOpen)
+    })
+
+    it.each([
+        [ChartDisplayType.ActionsLineGraph, timeSeriesRow, 13, true],
+        [ChartDisplayType.ActionsPie, totalValueRow, 7, false],
+    ])('captures preview coverage when the %s gallery opens', async (display, row, previewCount, allPreviewsLoaded) => {
+        load(trendsQuery(display), row)
+        chartAlternativesLogic(logicProps).actions.toggleGallery()
+        await expectLogic(chartPreviewsLogic(logicProps)).toFinishAllListeners()
+
+        expect(posthog.capture).toHaveBeenCalledWith('insight chart alternatives viewed', {
+            current_display: display,
+            eligible_chart_count: 13,
+            preview_count: previewCount,
+            sample_preview_count: 2,
+            all_previews_loaded: allPreviewsLoaded,
+            all_previews_use_sample_data: false,
+        })
+
+        chartAlternativesLogic(logicProps).actions.toggleGallery()
+        expect(
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'insight chart alternatives viewed')
+        ).toHaveLength(1)
     })
 })
