@@ -3432,7 +3432,7 @@ SELECT
   cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
   timestamp,
   observed_timestamp,
-  observed_timestamp
+  if(abs(dateDiff('second', timestamp, observed_timestamp)) <= 86400, timestamp, observed_timestamp)
   + toIntervalDay(
     assumeNotNull(
       if(
