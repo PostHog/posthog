@@ -57,7 +57,7 @@ from posthog.temporal.common.metrics import get_metric_meter
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.destinations import count_active_alert_destinations
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -278,9 +278,8 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                     threshold_config,
                     alert.calculation_interval,
                     detector_config=alert.detector_config,
-                    team=alert.team,
-                    user=alert.created_by,
                 )
+                validate_alert_insight_query(insight.query, team=alert.team, user=alert.created_by)
         except ValueError as e:
             disable_invalid_alert(alert, str(e))
             return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=str(e))

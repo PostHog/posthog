@@ -67,6 +67,7 @@ from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
     should_default_check_ongoing_interval,
     validate_alert_config,
+    validate_alert_insight_query,
 )
 from products.alerts.backend.facade.api import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.contracts import (
@@ -863,6 +864,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 calculation_interval,
                 detector_config=detector_config,
                 require_threshold_bounds=require_threshold_bounds,
+            )
+            validate_alert_insight_query(
+                query,
                 team=self.context["get_team"](),
                 user=request_user if isinstance(request_user, User) else None,
             )

@@ -320,18 +320,11 @@ def validate_alert_config(
     calculation_interval: str | None = None,
     detector_config: dict | None = None,
     require_threshold_bounds: bool = True,
-    *,
-    team: Team | None,
-    user: User | None,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure.
 
-    Common checks run here; per-config-type rules live in ``_ALERT_CONFIG_VALIDATORS``.
-
-    ``team`` also runs the insight's own query validation rules, which need a team to build, and
-    ``user`` resolves what that query is allowed to read. Neither has a default, because leaving
-    one out drops part of the validation without saying so. Pass None only where there is no team
-    or user to run the rules against.
+    Common checks run here; per-config-type rules live in ``_ALERT_CONFIG_VALIDATORS``. Whether
+    the insight itself can run is a separate question, answered by ``validate_alert_insight_query``.
     """
     if not calculation_interval or not isinstance(calculation_interval, str):
         raise ValueError(f"Invalid calculation interval: {calculation_interval}")
@@ -362,14 +355,6 @@ def validate_alert_config(
     if validator is None:
         raise ValueError(f"Unsupported alert config type: {config}")
 
-    # A rule the query runner enforces makes the alert unevaluable however it is configured, so it
-    # is reported before the config-shape rules below. Reading those rules rather than copying them
-    # keeps this in step with what the query will accept.
-    if team is not None:
-        violation = first_query_rule_violation(query, team=team, user=user)
-        if violation is not None:
-            raise ValueError(f"Alert's insight can't run: {violation.message}")
-
     validator(
         _AlertConfigValidationContext(
             config=config if isinstance(config, dict) else {},
@@ -381,3 +366,17 @@ def validate_alert_config(
             detector_config=detector_config,
         )
     )
+
+
+def validate_alert_insight_query(query: dict, *, team: Team, user: User | None) -> None:
+    """Check the insight an alert points at against the query runner's own validation rules.
+
+    Raises ValueError like ``validate_alert_config``, so a caller handles both the same way. It is
+    separate because it answers a different question from different inputs: the alert configuration
+    is validated from dicts alone, while these rules need the team and the user that the query would
+    run as. Reading the runner's rules rather than copying them keeps this in step with what the
+    query will accept, for every insight kind.
+    """
+    violation = first_query_rule_violation(query, team=team, user=user)
+    if violation is not None:
+        raise ValueError(f"Alert's insight can't run: {violation.message}")
