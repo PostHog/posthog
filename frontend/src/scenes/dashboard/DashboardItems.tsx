@@ -120,7 +120,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
+        // Dashboard pages hide the survey suggestion in compact headers; notebook embeds also use this component and can show it.
+        skip: placement === DashboardPlacement.Dashboard,
+    })
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
