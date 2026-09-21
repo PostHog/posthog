@@ -83,17 +83,33 @@ def default_branch_head_sha(repo: Repo) -> str | None:
     return response.json().get("sha")
 
 
-def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
-    """Whether `ancestor_sha` is in the history of `head_sha`. False when GitHub cannot tell."""
-    if ancestor_sha == head_sha:
-        return True
+def _is_ancestor(repo: Repo, ancestor_sha: str, head_sha: str) -> bool | None:
+    """Whether `ancestor_sha` is in the history of `head_sha`, or None when GitHub cannot tell."""
     try:
         github = get_github_integration_for_repo(repo)
         merge_base = _get_merge_base_sha(github, repo.repo_full_name, ancestor_sha, head_sha)
     except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
         logger.warning("visual_review.commit_ancestry_unknown", repo_id=str(repo.id), ancestor=ancestor_sha)
-        return False
+        return None
+    if merge_base is None:
+        return None
     return merge_base == ancestor_sha
+
+
+def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
+    """Whether `ancestor_sha` is in the history of `head_sha`. False when GitHub cannot tell.
+
+    Two commits never change their ancestry, so a known answer is cached and later calls for the
+    same pair make no request. An unknown answer is not cached, so the next call asks again.
+    """
+    if ancestor_sha == head_sha:
+        return True
+    ancestry = content_cache.load_by_hash(
+        "commit_ancestry",
+        f"{repo.id}:{ancestor_sha}..{head_sha}",
+        lambda: _is_ancestor(repo, ancestor_sha, head_sha),
+    )
+    return ancestry is True
 
 
 _MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")

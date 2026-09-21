@@ -2,6 +2,8 @@
 
 import pytest
 
+from django.utils import timezone
+
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunType
 from products.visual_review.backend.logic import approvals, artifact_store, github_api, quarantine, repos, runs
@@ -72,17 +74,24 @@ class TestQuarantineStamping:
         assert snapshots["Card-default"].is_quarantined is False
 
     @pytest.mark.parametrize(
-        ("lifted_at_sha", "merge_base", "expect_quarantined"),
+        ("lifted_at_sha", "merge_base", "superseded", "expect_quarantined"),
         [
-            (None, None, False),
-            ("lift", "lift", False),
-            ("lift", "older", True),
-            ("lift", None, True),
+            (None, None, False, False),
+            ("lift", "lift", False, False),
+            ("lift", "older", False, True),
+            ("lift", None, False, True),
+            ("lift", "older", True, False),
         ],
-        ids=["lift-without-sha", "run-contains-lift", "branch-forked-before-lift", "ancestry-unknown"],
+        ids=[
+            "lift-without-sha",
+            "run-contains-lift",
+            "branch-forked-before-lift",
+            "ancestry-unknown",
+            "lift-superseded-by-newer-quarantine",
+        ],
     )
     def test_unquarantine_clears_flag_on_approve(
-        self, repo, team, user, mocker, lifted_at_sha, merge_base, expect_quarantined
+        self, repo, team, user, mocker, lifted_at_sha, merge_base, superseded, expect_quarantined
     ):
         from products.visual_review.backend.models import QuarantinedIdentifier
 
@@ -115,6 +124,15 @@ class TestQuarantineStamping:
         quarantine.unquarantine_identifier(
             repo_id=repo.id, identifier="Button-primary", run_type=RunType.STORYBOOK, team_id=team.id
         )
+        if superseded:
+            QuarantinedIdentifier.objects.create(
+                repo=repo,
+                team_id=team.id,
+                identifier="Button-primary",
+                run_type=RunType.STORYBOOK,
+                reason="flaky again",
+                expires_at=timezone.now(),
+            )
 
         # Finalize the run — _stamp_quarantine re-evaluates
         approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, commit_to_github=False)

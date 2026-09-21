@@ -163,22 +163,31 @@ def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
 
 
 def identifiers_lifted_after_commit(run: Run, *, now: datetime) -> set[str]:
-    """Identifiers whose quarantine was lifted at a commit that `run`'s commit does not contain.
+    """Identifiers in `run` whose quarantine was lifted at a commit that `run`'s commit does not contain.
 
     Such a run is on a branch that forked before the lift. The quarantine still applies there,
     because the branch lacks what the lift relied on. It stops applying once the branch merges the
-    default branch. A lift whose ancestry GitHub cannot confirm keeps applying the quarantine,
-    because a missed gate costs less than a red run that nobody on the branch can fix.
+    default branch. Only the latest quarantine event of an identifier counts, so a lift that a
+    newer quarantine replaced no longer applies. A lift whose ancestry GitHub cannot confirm keeps
+    applying the quarantine, because a missed gate costs less than a red run that nobody on the
+    branch can fix.
     """
-    lifts = (
+    latest_events = (
         QuarantinedIdentifier.objects.using(WRITER_DB)
-        .filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id, lifted_at_sha__isnull=False)
-        .filter(expires_at__lte=now, expires_at__gt=now - timedelta(days=LIFT_SCOPE_DAYS))
-        .values_list("identifier", "lifted_at_sha")
+        .filter(
+            repo_id=run.repo_id,
+            run_type=run.run_type,
+            team_id=run.team_id,
+            identifier__in=run.snapshots.using(WRITER_DB).values("identifier"),
+        )
+        .order_by("identifier", "-created_at")
+        .distinct("identifier")
+        .values_list("identifier", "lifted_at_sha", "expires_at")
     )
+    scope_start = now - timedelta(days=LIFT_SCOPE_DAYS)
     identifiers_by_sha: dict[str, set[str]] = defaultdict(set)
-    for identifier, lifted_at_sha in lifts:
-        if lifted_at_sha is not None:  # always true after the filter; narrows the type
+    for identifier, lifted_at_sha, expires_at in latest_events:
+        if lifted_at_sha is not None and expires_at is not None and scope_start < expires_at <= now:
             identifiers_by_sha[lifted_at_sha].add(identifier)
 
     return {
