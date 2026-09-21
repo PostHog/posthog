@@ -46,7 +46,7 @@ The deploy ladder below says how to establish that; when nothing in the project 
 Two cheap reads decide whether this run does work:
 
 - `scout-scratchpad-search` (`text=pr_follow_up`, `limit=100`): the repositories you watch, the deploy signal this project has, and the `cursor:` and `deferred:` entries per repository.
-  The verdicts do not fit that one read: at the per-run cap the window holds more `pr:` entries than the 100-row search returns, so look each enumerated PR up by its exact key (`text=pr:pr_follow_up:<owner/repo>#<n>`) before you judge it, never by scanning.
+  The verdicts do not fit that one read, so look each enumerated PR up before you judge it: search `text=pr:pr_follow_up:<owner/repo>#<n>` and accept only a result whose `key` equals that string, because `text` is a substring match and `#12` also returns `#120`.
 - One merged-PR listing per watched repository (source ladder below), merged in the last 14 days, newest first.
 
 If no repository is reachable by any source, write `not-in-use:pr_follow_up:team{team_id}` ("checked at {timestamp}: no connected repository, no GitHub source, no PRs linked from the inbox") and close out empty.
@@ -58,8 +58,8 @@ A PR you already listed and deferred is not cold, however old its merge is now: 
 
 ### Get oriented
 
-- `scout-scratchpad-search` (`text=pr_follow_up`, `limit=100`): `config:` (a human-curated repository list, which outranks discovery), `pattern:pr_follow_up:deploy-signal` (how this project tells you a commit is live), `cursor:` and `deferred:` per repository, `noise:` exclusions, `reviewer:` routes.
-- `scout-scratchpad-search` (`text=pr:pr_follow_up:<owner/repo>`, `keys_only=true`, `limit=100`) per repository, then the exact key for each PR you are about to judge: the verdict set outgrows one search, and a verdict the scan missed would be a PR judged twice, its report edited or filed twice.
+- `scout-scratchpad-search` (`text=pr_follow_up`, `limit=100`): `config:` (a human-curated repository list, which outranks discovery), `roster:` (the whole discovered repository list and its rotation pointer), `pattern:pr_follow_up:deploy-signal` (how this project tells you a commit is live), `cursor:` and `deferred:` per repository, `noise:` exclusions, `reviewer:` routes.
+- `scout-scratchpad-search` (`text=pr:pr_follow_up:<owner/repo>`, `keys_only=true`, `limit=1000`) per repository, then the exact-key lookup above for each PR you are about to judge: a verdict the scan missed would be a PR judged twice, its report edited or filed twice.
 - `scout-runs-list` (`skill_name=signals-scout-pr-follow-up`, last 7d): what prior runs covered and deferred.
 - `scout-project-profile-get`: which products the project actually uses, so a claim probe lands on a surface that has data (a perf claim on a project with no APM spans and no web vitals is unverifiable, not failed).
 
@@ -75,17 +75,20 @@ The mechanics of each rung (commands, paging, table naming, the detail fetch) ar
 4. **PRs the inbox already knows**: the pull requests linked from resolved reports (`inbox-reports-list`).
 
 Every bounded listing is paged to the 14-day boundary under the paging rule in that reference, and a run that stops early records where in `cursor:` rather than closing out as covered.
-Before filtering, fetch each candidate's body, file paths, and linked issue text as the reference describes; a PR whose details no source can supply is judged **title-only** and its `pr:` entry says so.
+Filter on listing metadata first and hydrate only the bounded pool the reference describes (deferred PRs first, then the top candidates up to about twice the cap): a per-PR detail fetch for every merge in the window would spend the rate-limited token before any telemetry is read.
+A PR whose body and file paths no source can supply is judged **title-only** and its `pr:` entry says so.
 
 Then split the list before you spend anything on it.
 First record the **deploy batch**: every merged PR in the window with its number, merge time, and author, bots included, because a new error after a deploy can belong to a dependency bump, and the side-effect sweep needs the whole batch to attribute it.
-Then pick the **claim candidates** from that batch: drop bots (`dependabot`, `renovate`, `github-actions`, anything `pull-requests` marks `is_bot`), drop PRs that only touch docs, tests, CI, lockfiles, or formatting (from the fetched file paths), drop anything a `noise:pr_follow_up:` entry names, and drop a PR whose `pr:` entry says `recheck` with a date that has not passed yet (it is neither due nor deferred, so it takes no slot).
+Then pick the **claim candidates** from that batch on metadata alone: drop bots (`dependabot`, `renovate`, `github-actions`, anything `pull-requests` marks `is_bot`), drop anything a `noise:pr_follow_up:` entry names, and drop a PR whose `pr:` entry says `recheck` with a date that has not passed yet (it is neither due nor deferred, so it takes no slot).
+Once the pool is hydrated, also drop PRs that only touch docs, tests, CI, lockfiles, or formatting (from the fetched file paths).
 A dependency bump is never a claim candidate; it stays in the batch, and a regression attributed to it is filed against it from there.
 
 **Cap ~8 PRs per run**, and take the carried backlog before anything new: the `deferred:pr_follow_up:<owner/repo>` entry lists every PR a past run listed but did not judge, oldest merge first, and those go first because a newest-first pick under sustained merge activity would keep them below the cap until they leave the window with no verdict.
 Within what remains, most valuable first: a PR whose title or body states a measurable claim (`fix`, `resolves #`, `should reduce`, `speeds up`, `stop`, `no longer`) before a feature PR, a feature PR that adds an event or flag before a refactor, a large production diff before a small one.
-A deferred PR whose merge is about to pass 14 days gets judged this run on its claim probe alone, with the side-effect sweep skipped and the `pr:` entry saying so, rather than expiring unjudged.
-Every PR you listed and did not judge goes into `deferred:` (keep it as a rewritten list, not one entry per PR); the `cursor:` is the oldest merge you have not yet listed, so it only advances past PRs that are judged or in `deferred:`.
+A deferred PR is never judged claim-only to beat a clock: it is not cold, it waits its turn, and it gets the full probe and side-effect sweep when it is taken, because a terminal verdict without the sweep is the miss this scout exists to catch.
+Every PR you listed and did not judge goes into `deferred:` as a compact rewritten list (`#n@<merge date>`, one entry per repository), capped at about 200 PRs; when the list is full, stop advancing the `cursor:` so the rest are relisted next run instead of overflowing one entry.
+The `cursor:` is the oldest merge you have not yet listed, so it only advances past PRs that are judged or in `deferred:`.
 Say how many you deferred in the close-out.
 
 ### Has it deployed? (deploy ladder)
@@ -127,10 +130,11 @@ Still open and still failing appends the fresh window to your report; resolved m
 Memory is how each PR gets looked at exactly once and how the project's deploy shape is learned once.
 Encode the category in the key prefix; rewrite a key to update in place:
 
-- key `config:pr_follow_up:repos` — _"Watching: acme/web-app, acme/api (from engineering-analytics-sources 2026-06-03). Human-curated additions go here and outrank discovery."_
+- key `config:pr_follow_up:repos` — _"Human-curated: acme/web-app, acme/api. Outranks discovery; never written by a run."_
+- key `roster:pr_follow_up:repos` — _"Discovered 2026-06-03 via integrations-github-repos-retrieve: 14 repositories (full list). Rotation: next run starts at acme/mobile."_ The whole discovered roster, never the slice one run had budget for, so no repository silently drops out.
 - key `pattern:pr_follow_up:deploy-signal` — _"acme/api: github_deployments synced, env `production`; acme/web-app: GIT deploy annotations (content carries the SHA); mobile repo: none, 72h soak."_
 - key `cursor:pr_follow_up:acme/api` — _"Every merged PR up to merged_at 2026-06-10T14:02Z (#4812) is judged or in deferred:. Listed through 2026-06-11T09:30Z."_
-- key `deferred:pr_follow_up:acme/api` — _"Listed, not yet judged, oldest first: #4815 (merged 06-10, past soak), #4816 (merged 06-10), #4820 (merged 06-11, in soak until 06-12). Take these before new arrivals."_
+- key `deferred:pr_follow_up:acme/api` — _"Listed, not yet judged, oldest first: #4815@06-10 #4816@06-10 #4820@06-11(soak until 06-12). Take these before new arrivals."_
 - key `pr:pr_follow_up:acme/api#4809` — _"Fix claim: TypeError in checkout/pay.ts. Onset 2026-06-09 11:40Z (deployment 88123). Baseline 240 occ/day 31 users; post 2 occ/day 2 users over 48h. Held. Sweep clean. Done."_
 - key `pr:pr_follow_up:acme/web-app#911` — _"Impact claim: LCP on /pricing. Onset 2026-06-08 (annotation). p75 3.1s → 2.9s, promised <2.5s. Landing; recheck after 2026-06-12."_
 - key `report:pr_follow_up:acme/api#4790` — the `report_id` of the report you authored, so a still-failing re-check edits it (`append_evidence`) instead of duplicating.
