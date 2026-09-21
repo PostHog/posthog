@@ -69,11 +69,21 @@ class TestTaskCaptureEvent(TestCase):
         self.assertEqual(properties["internal"], internal)
         self.assertEqual(properties["is_platform_origin"], is_platform_origin)
 
-    def test_run_events_classify_fleet_traffic_too(self):
-        task = self._task(origin_product=Task.OriginProduct.SIGNALS_SCOUT)
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+    def test_task_and_run_events_agree_on_every_origin(self):
+        capture = MagicMock()
 
-        properties = run.analytics_properties()
+        for origin_product in Task.OriginProduct:
+            task = self._task(origin_product=origin_product)
+            run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+            task.capture_event("task_run_created", capture_fn=capture)
 
-        self.assertFalse(properties["internal"])
-        self.assertTrue(properties["is_platform_origin"])
+            task_properties = capture.call_args.kwargs["properties"]
+            run_properties = run.analytics_properties()
+
+            for name in ("internal", "is_platform_origin"):
+                self.assertEqual(task_properties[name], run_properties[name], f"{origin_product}.{name}")
+            self.assertEqual(
+                run_properties["is_platform_origin"],
+                origin_product in Task.PLATFORM_ORIGIN_PRODUCTS,
+                origin_product,
+            )
