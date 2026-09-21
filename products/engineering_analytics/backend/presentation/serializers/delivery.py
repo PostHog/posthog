@@ -260,7 +260,7 @@ class PullRequestTimelinesSerializer(DataclassSerializer):
     )
     red_seconds_per_merged_pr = PRTimelineRedTimeSerializer(
         many=True,
-        help_text="Average red time per merged pull request, split by what turned the check green.",
+        help_text="Average red time per merged pull request, grouped by the evidence that classifies each red stretch.",
     )
 
     class Meta:

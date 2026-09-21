@@ -79483,7 +79483,7 @@ export namespace Schemas {
     export interface PullRequestTimelines {
       /** The pull requests in scope, newest first: open PRs plus PRs merged in the window, or the one pull request of a pull_request scope. */
       items: PRTimeline[];
-      /** Average red time per merged pull request, split by what turned the check green. */
+      /** Average red time per merged pull request, grouped by the evidence that classifies each red stretch. */
       red_seconds_per_merged_pr: PRTimelineRedTime[];
       /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
        *

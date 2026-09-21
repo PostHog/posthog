@@ -29,7 +29,7 @@ export function RedTimeByCauseCard({
                         <div className="flex flex-col gap-1">
                             <div>
                                 Time a merged pull request's latest commit had a failed check, per merged pull request,
-                                split by what turned it green.
+                                grouped by the evidence that classifies each red stretch.
                             </div>
                             <div>
                                 Flake: the failed workflow passed a re-run of the same commit. Master broken: the failed
@@ -48,7 +48,7 @@ export function RedTimeByCauseCard({
                         </div>
                     }
                 >
-                    <span className="cursor-default">Red checks, by what turned them green</span>
+                    <span className="cursor-default">Red checks, by evidence</span>
                 </Tooltip>
             </h3>
             {loading ? (
