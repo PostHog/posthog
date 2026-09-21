@@ -1,5 +1,7 @@
 import os
+import tempfile
 import threading
+from pathlib import Path
 
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -9,7 +11,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 import posthog.celery
-from posthog.celery import _initialize_worker_metrics, on_worker_process_shutdown
+from posthog.celery import PrometheusMultiprocDir, _initialize_worker_metrics, on_worker_process_shutdown
 from posthog.celery_task_names import (
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
     VERIFY_FLAGS_CACHE_TASK_NAME,
@@ -113,3 +115,54 @@ class TestCeleryMetrics(TestCase):
                 labels={"name": "NO_ZOOKEEPER", "replica": "ch1", "shard": "1"},
             ),
         )
+
+
+class TestPrometheusMultiprocDir(TestCase):
+    def setUp(self) -> None:
+        self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.multiproc = PrometheusMultiprocDir(str(self.directory))
+
+    def _write_files_for(self, pid: int) -> list[Path]:
+        # prometheus_client writes one file per metric type per process.
+        paths = [self.directory / f"{prefix}_{pid}.db" for prefix in ("counter", "histogram", "summary", "gauge_max")]
+        for path in paths:
+            path.write_bytes(b"")
+        return paths
+
+    def test_purge_pid_removes_every_metric_type_not_only_gauges(self) -> None:
+        # mark_process_dead keeps counter/histogram/summary files, which is the disk leak.
+        own = self._write_files_for(4242)
+        other = self._write_files_for(4243)
+
+        assert self.multiproc.purge_pid(4242) == len(own)
+        assert not any(path.exists() for path in own)
+        assert all(path.exists() for path in other)
+
+    def test_purge_pid_leaves_a_pid_that_is_a_suffix_of_another(self) -> None:
+        kept = self.directory / "counter_1242.db"
+        kept.write_bytes(b"")
+
+        assert self.multiproc.purge_pid(242) == 0
+        assert kept.exists()
+
+    def test_sweep_orphans_removes_dead_pids_and_keeps_live_ones(self) -> None:
+        dead = self._write_files_for(4242)
+        live = self._write_files_for(os.getpid())
+
+        with patch.object(PrometheusMultiprocDir, "_is_alive", staticmethod(lambda pid: pid == os.getpid())):
+            assert self.multiproc.sweep_orphans() == len(dead)
+        assert not any(path.exists() for path in dead)
+        assert all(path.exists() for path in live)
+
+    def test_purge_all_keeps_files_that_are_not_metric_files(self) -> None:
+        metric_file = self.directory / "counter_4242.db"
+        metric_file.write_bytes(b"")
+        unrelated = self.directory / "notes.txt"
+        unrelated.write_bytes(b"")
+
+        assert self.multiproc.purge_all() == 1
+        assert not metric_file.exists()
+        assert unrelated.exists()
+
+    def test_missing_directory_does_not_raise(self) -> None:
+        assert PrometheusMultiprocDir(str(self.directory / "gone")).sweep_orphans() == 0
