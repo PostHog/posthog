@@ -43,6 +43,11 @@ class SandboxUsageBase(APIBaseTest):
 
 
 class TestSandboxSessionWrites(SandboxUsageBase):
+    def _closed_event_properties(self, mock_capture) -> dict:
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
+        assert len(captured) == 1
+        return captured[0].kwargs["properties"]
+
     def test_open_attributes_cold_runs_immediately(self):
         run = self._run()
         measured_at = datetime(2026, 1, 2, 10, tzinfo=UTC)
@@ -218,9 +223,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.CLEANUP)
         close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.REAPED)
 
-        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
-        assert len(captured) == 1
-        props = captured[0].kwargs["properties"]
+        props = self._closed_event_properties(mock_capture)
         assert props["ended_reason"] == SandboxSession.EndedReason.CLEANUP
         assert props["runtime_seconds"] >= 0
         assert props["idle_seconds"] >= 0
