@@ -542,6 +542,16 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert source.status == SourceStatus.READY
         assert source.error_message == ""
 
+    def test_supersede_is_a_no_op_when_the_replacement_is_the_source_itself(self) -> None:
+        result, document = self._searchable_generated_source()
+
+        supersession = self._supersede(result.source_id, document.id, replacement_source_id=result.source_id)
+
+        source = KnowledgeSource.objects.unscoped().get(id=result.source_id)
+        assert supersession.outcome == "same_source"
+        assert source.status == SourceStatus.READY
+        assert logic.search_knowledge(self.team.id, "refunds")
+
     def test_supersede_leaves_another_teams_source_alone(self) -> None:
         other_team = Team.objects.create_with_data(
             organization=self.organization,

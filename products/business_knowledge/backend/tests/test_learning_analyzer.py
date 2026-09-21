@@ -665,6 +665,58 @@ class TestLearningAnalyzer:
             assert generated_now == generated_before
             assert ("rejected_stale_candidate" if case == "stale" else "rejected_already_known") in outcomes
 
+    def test_a_conflicting_source_deleted_mid_publication_still_publishes(self, team: Team) -> None:
+        run, input = _setup_sync(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are now available within 7 days.",)))
+        old_content = "Refunds are available within 15 days."
+        learned = logic.create_generated_knowledge_document(
+            logic.CreateGeneratedKnowledgeDocument(
+                team_id=team.id,
+                provider="conversations",
+                ticket_id=_OLD_TICKET_ID,
+                ticket_number=7,
+                source_team_id=team.id,
+                resolution_comment_id=_OLD_COMMENT_ID,
+                analysis_version=ANALYSIS_VERSION,
+                title="Refund policy",
+                content=old_content,
+                evidence_revision_at=_REVISION_AT - timedelta(days=30),
+            )
+        )
+        old_source = KnowledgeSource.objects.unscoped().get(id=learned.source_id)
+        search_result = _existing_result(old_source, old_content)
+
+        def delete_then_report_age(*, team_id: int, document_id: UUID) -> datetime:
+            # A person deletes the older source between the recency read and the supersession lock.
+            KnowledgeSource.objects.unscoped().filter(id=learned.source_id).delete()
+            return _REVISION_AT - timedelta(days=30)
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(
+                f"{_MODULE}._invoke_structured_model",
+                side_effect=[
+                    _extraction(canonical_answer="Refunds are available within 7 days."),
+                    PiiVerdict(verdict="safe"),
+                    _promotion(contradicts_existing=True, conflicting_index=0),
+                    _contradiction(),
+                ],
+            ),
+            patch(f"{_MODULE}.generate_embedding", return_value=_embedding()),
+            patch(f"{_MODULE}.logic.search_knowledge", return_value=[search_result]),
+            patch(f"{_MODULE}.logic.get_knowledge_fact_recorded_at", side_effect=delete_then_report_age),
+        ):
+            result = analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        assert result.result == "knowledge_created"
+        assert result.rejection_code == "none"
+        assert run.result == LearningRunResult.KNOWLEDGE_CREATED
+        assert result.knowledge_document_id is not None
+        document = KnowledgeDocument.objects.unscoped().get(id=result.knowledge_document_id)
+        assert document.content == "Refunds are available within 7 days."
+        assert not KnowledgeSource.objects.unscoped().filter(id=learned.source_id).exists()
+
     def test_missing_run_raises_bounded_error(self, team: Team) -> None:
         run, input = _setup_sync(team)
         run.delete()

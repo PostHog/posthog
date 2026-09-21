@@ -545,6 +545,8 @@ def _publish_candidate(
                         superseded_by_ticket_number=evidence.ticket_number,
                         superseded_by_source_id=published.source_id,
                     )
+                # "same_source" and "nothing_to_supersede" are left out on purpose: the older answer
+                # is already this one, or it is gone, so publishing leaves one answer either way.
                 if supersession.outcome in {
                     "already_superseded",
                     "source_has_other_documents",

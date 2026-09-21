@@ -195,6 +195,10 @@ SupersessionOutcome = Literal[
     "already_superseded",
     "source_has_other_documents",
     "source_not_generated",
+    # The caller writes its new answer for these two: "same_source" means the answer it publishes
+    # already lives in the conflicting source, and "nothing_to_supersede" means the older source is
+    # gone, so neither leaves a second answer in search.
+    "same_source",
     "nothing_to_supersede",
 ]
 
@@ -723,7 +727,8 @@ def supersede_knowledge_source(
 ) -> KnowledgeSourceSupersession:
     """Soft-disable one learned source so search stops returning it. Content stays so the change can be reversed."""
     if superseded_by_source_id is not None and superseded_by_source_id == source_id:
-        return KnowledgeSourceSupersession(outcome="nothing_to_supersede")
+        # A retry of the same reply resolves to the source it would replace.
+        return KnowledgeSourceSupersession(outcome="same_source")
 
     with transaction.atomic():
         try:
