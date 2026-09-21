@@ -92,7 +92,8 @@ struct Cli {
 
     /// Percentage of events spent on person merges. Each takes two events: a
     /// fresh anonymous id sends one of its own, then an `$identify` claims it,
-    /// so the merge folds one person into another.
+    /// so the merge folds one person into another. Ids still unclaimed when the
+    /// load ends are claimed then, on top of `--count` and after `--duration`.
     #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=100))]
     percent_person_merges: u8,
 
@@ -237,6 +238,34 @@ fn claim(remaining: &AtomicU64, batch: usize) -> u64 {
             Ok(_) => return take,
             Err(actual) => cur = actual,
         }
+    }
+}
+
+/// Claims the anonymous ids still seeded when the load ends, so no person merge is left half done.
+async fn drain_person_merges(shared: &Shared, batch_size: usize, hist: &mut Histogram<u64>) {
+    let mut rng = StdRng::from_entropy();
+    let (claims, wait) = shared.factory.drain_person_merges(&mut rng);
+    if claims.is_empty() {
+        return;
+    }
+    println!(
+        "[load] claiming {} seeded anonymous ids in {:.1}s",
+        claims.len(),
+        wait.as_secs_f64()
+    );
+    tokio::time::sleep(wait).await;
+    for batch in claims.chunks(batch_size) {
+        let body = match shared.client.encode(batch) {
+            Ok(body) => body,
+            Err(e) => {
+                tracing::warn!("encode error: {e:#}");
+                shared.counters.record(false, 0);
+                continue;
+            }
+        };
+        let result = shared.client.send(body).await;
+        hist.saturating_record(result.latency.as_micros() as u64);
+        shared.counters.record(result.ok, batch.len() as u64);
     }
 }
 
@@ -424,6 +453,7 @@ async fn main() -> Result<()> {
                 merged.add(&hist).ok();
             }
         }
+        drain_person_merges(&shared, cli.batch_size, &mut merged).await;
 
         stop.notify_one();
         reporter.await.ok();

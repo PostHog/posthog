@@ -168,6 +168,28 @@ impl EventFactory {
         }
     }
 
+    /// The `$identify` for every id still seeded, and how long until the youngest has
+    /// waited out the delay, so a run can finish the person merges it started.
+    pub fn drain_person_merges(&self, rng: &mut impl Rng) -> (Vec<RawEvent>, Duration) {
+        let seeded = std::mem::take(
+            &mut *self
+                .seeded_anon_ids
+                .lock()
+                .expect("seeded anon ids lock poisoned"),
+        );
+        let wait = seeded.back().map_or(Duration::ZERO, |(_, seeded_at)| {
+            self.person_merge_delay.saturating_sub(seeded_at.elapsed())
+        });
+        let claims = seeded
+            .into_iter()
+            .map(|(anon_id, _)| {
+                let index = rng.gen_range(0..self.distinct_ids.len());
+                Self::identify_event(self.base_event(&self.distinct_ids[index]), anon_id)
+            })
+            .collect();
+        (claims, wait)
+    }
+
     /// `$merge_dangerously` folding the partner's person into the pool user's, identified or not.
     fn dangerous_merge_event(mut base: RawEvent, partner: &str) -> RawEvent {
         base.properties
@@ -403,6 +425,44 @@ mod tests {
         let batch = f.batch(5, &mut rng);
 
         assert!(batch.iter().all(|e| e.event != "$identify"));
+    }
+
+    #[test]
+    fn draining_claims_every_seeded_id_once() {
+        let mix = TrafficMix {
+            person_merges: 100,
+            ..Default::default()
+        };
+        let delay = Duration::from_secs(3600);
+        let f = factory_with(10, mix, delay);
+        let mut rng = StdRng::seed_from_u64(11);
+        let mut seeded: Vec<String> = f
+            .batch(5, &mut rng)
+            .iter()
+            .map(|e| distinct_id(e).to_string())
+            .collect();
+
+        let (claims, wait) = f.drain_person_merges(&mut rng);
+
+        let mut claimed: Vec<String> = claims
+            .iter()
+            .map(|e| {
+                assert_eq!(e.event, "$identify");
+                assert!(distinct_id(e).starts_with("loadgen-user-"));
+                e.properties["$anon_distinct_id"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        seeded.sort();
+        claimed.sort();
+        assert_eq!(claimed, seeded);
+        assert!(wait > Duration::ZERO && wait <= delay, "wait: {wait:?}");
+
+        let (again, no_wait) = f.drain_person_merges(&mut rng);
+        assert!(again.is_empty());
+        assert_eq!(no_wait, Duration::ZERO);
     }
 
     #[test]

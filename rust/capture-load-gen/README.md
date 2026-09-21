@@ -50,7 +50,7 @@ the rest of the events are plain (no person-pipeline work beyond creation).
 The three identity flags exercise different paths:
 
 - `--percent-attaches` claims an anonymous id that never sent an event. It has no person, so the `$identify` only attaches the id to the pool user.
-- `--percent-person-merges` gives the anonymous id a person first. A seed event from the id carries a `$set`, and its `$identify` follows after `--person-merge-delay`, so one person folds into another. The two events use different partitions, so an `$identify` that still arrives first attaches instead.
+- `--percent-person-merges` gives the anonymous id a person first. A seed event from the id carries a `$set`, and its `$identify` follows after `--person-merge-delay`, so one person folds into another. The two events use different partitions, so an `$identify` that still arrives first attaches instead. When the load ends, the run waits out the delay and claims every id still seeded, so it finishes up to one delay after `--duration` and sends those `$identify` events on top of `--count`.
 - `--percent-dangerous-merges` sends `$merge_dangerously` from a pool user with its partner as `alias`. Users pair off (`0` with `1`, `2` with `3`), which bounds a person to two pool users. The merged-away user keeps receiving events.
 
 Output is a once-per-second throughput line plus a final summary with
