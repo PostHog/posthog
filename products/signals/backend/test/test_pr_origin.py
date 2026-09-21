@@ -8,13 +8,16 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.integration import GitHubIntegration
+
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.pr_origin import PullRequestOrigin, place_origin_section
-from products.signals.backend.signal_metadata import OriginSignal
+from products.signals.backend.pr_origin import PullRequestOrigin, place_origin_section, write_origin_section
+from products.signals.backend.pull_request_body import BodyEditOutcome
+from products.signals.backend.signal_metadata import OriginSignal, SignalSourceReference
 from products.signals.backend.task_run_artefacts import record_implementation_task
 
 # Task ORM model needed to build a cross-product fixture; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
 SECTION = "<!-- posthog-self-driving-origin:r1 -->\n## Origin\n\n- new\n<!-- /posthog-self-driving-origin:r1 -->"
 OTHER_REPORT = "<!-- posthog-self-driving-origin:r0 -->\n## Origin\n\n- other\n<!-- /posthog-self-driving-origin:r0 -->"
@@ -48,6 +51,11 @@ class TestPlaceOriginSection(SimpleTestCase):
                 "second_report_keeps_the_first",
                 f"## Problem\n\n- broken\n\n{OTHER_REPORT}\n\n## Changes\n",
                 f"## Problem\n\n- broken\n\n{SECTION}\n\n{OTHER_REPORT}\n\n## Changes\n",
+            ),
+            (
+                "fenced_heading_is_code",
+                "## Problem\n\n```\n## Origin\n---\n```\n\n## Changes\n",
+                f"## Problem\n\n```\n## Origin\n---\n```\n\n{SECTION}\n\n## Changes\n",
             ),
             (
                 "appended_without_problem",
@@ -111,7 +119,14 @@ class TestPullRequestOrigin(BaseTest):
 
         with (
             patch("products.signals.backend.pr_origin.fetch_origin_signals_for_report", return_value=signals),
-            patch("products.signals.backend.pr_origin.fetch_source_references_for_report", return_value=[]),
+            patch(
+                "products.signals.backend.pr_origin.fetch_source_references_for_report",
+                return_value=[
+                    SignalSourceReference("github", "#12", "https://github.com/acme/web/issues/12"),
+                    SignalSourceReference("github", "#3", "https://github.com/acme/private/issues/3"),
+                    SignalSourceReference("linear", "ENG-1", "https://linear.app/acme/issue/ENG-1/secret-title"),
+                ],
+            ),
         ):
             section = PullRequestOrigin.for_report(
                 team=self.team, report_id=str(report.id), task_id=str(task.id), repository="acme/web"
@@ -119,11 +134,51 @@ class TestPullRequestOrigin(BaseTest):
 
         project = f"/project/{self.team.id}"
         assert f"[issue 1](http://localhost:8010{project}/error_tracking/01a0a561-54a4)" in section
-        assert "and 1 more" in section
+        assert "and more" in section
         assert "settings?x=1" not in section
         assert "run:1:finding:2" not in section
         assert "- Scout: `signals-scout-error-tracking`" in section
         assert "- First signal: 2026-09-15" in section
         assert "[`a59c3290`](https://github.com/acme/web/commit/a59c3290)" in section
         assert "- Started by: auto-start, after the report was rated P2 and ready to fix" in section
+        assert "- Issues: [#12](https://github.com/acme/web/issues/12), GitHub issue, ENG-1" in section
         assert "private" not in section
+        assert "secret-title" not in section
+
+    @parameterized.expand([("verified", True, BodyEditOutcome.WRITTEN), ("unverified", False, BodyEditOutcome.FAILED)])
+    def test_edits_only_a_webhook_confirmed_pull_request(
+        self, _name: str, verified: bool, expected: BodyEditOutcome
+    ) -> None:
+        pr_url = "https://github.com/acme/web/pull/7"
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=1, total_weight=1.0
+        )
+        task = Task.objects.create(
+            team=self.team, title="task", description="desc", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            state={"verified_pr_urls": [pr_url] if verified else []},
+            output={"pr_url": pr_url},
+        )
+
+        with (
+            patch("products.signals.backend.pr_origin.fetch_origin_signals_for_report", return_value=[]),
+            patch("products.signals.backend.pr_origin.fetch_source_references_for_report", return_value=[]),
+            patch.object(
+                GitHubIntegration,
+                "first_for_team_repository",
+                return_value=GitHubIntegration.__new__(GitHubIntegration),
+            ),
+            patch.object(
+                GitHubIntegration, "get_pull_request", return_value={"success": True, "body": "", "etag": "e"}
+            ),
+            patch.object(GitHubIntegration, "update_pull_request_body", return_value={"success": True}) as update,
+        ):
+            outcome = write_origin_section(
+                team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), pr_url=pr_url
+            )
+
+        assert outcome == expected
+        assert update.called is verified

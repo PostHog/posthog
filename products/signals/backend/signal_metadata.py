@@ -19,6 +19,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 # The embedding model whose document rows constitute the signal store; every signals
@@ -360,7 +361,7 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
     return references[:_SOURCE_REFERENCE_CAP]
 
 
-@dataclass(frozen=True)
+@frozen
 class OriginSignal:
     """Where one of a report's signals came from, without any of its content."""
 

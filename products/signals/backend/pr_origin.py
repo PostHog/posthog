@@ -30,9 +30,11 @@ from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
 from products.signals.backend.signal_metadata import (
     OriginSignal,
+    SignalSourceReference,
     fetch_origin_signals_for_report,
     fetch_source_references_for_report,
 )
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -49,6 +51,8 @@ _ORIGIN_HEADING_RE = re.compile(r"^##[ \t]+Origin[ \t]*$", re.MULTILINE | re.IGN
 _MARKED_BLOCK_RE = re.compile(rf"<!-- {ORIGIN_MARKER_PREFIX}:\S+ -->.*?<!-- /{ORIGIN_MARKER_PREFIX}:\S+ -->", re.DOTALL)
 # A section ends at the next level-two heading, a horizontal rule, or a PostHog Origin block.
 _SECTION_END_RE = re.compile(rf"^(##[ \t]|---[ \t]*$|<!-- {ORIGIN_MARKER_PREFIX}:)", re.MULTILINE)
+# A heading or rule inside a fenced code block is code, not structure.
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,}).*?^\1[ \t]*$", re.MULTILINE | re.DOTALL)
 
 # Linear and GitHub signals come from `fetch_source_references_for_report`, which already
 # validates their public links.
@@ -69,17 +73,17 @@ _ENTITY_PAGES: dict[str, EntityPage] = {
     SignalSourceProduct.ERROR_TRACKING: EntityPage(link_label="issue", path="/error_tracking/{id}"),
     SignalSourceProduct.SESSION_REPLAY: EntityPage(link_label="recording", path="/replay/{id}"),
     SignalSourceProduct.CONVERSATIONS: EntityPage(link_label="ticket", path="/support/tickets/{id}"),
-    SignalSourceProduct.LLM_ANALYTICS: EntityPage(link_label="trace", path="/ai-observability/traces/{id}"),
 }
 
 
 @frozen
 class OriginLink:
     label: str
-    url: str
+    # None when only the label is safe to publish.
+    url: str | None
 
     def render(self) -> str:
-        return f"[{self.label}]({self.url})"
+        return f"[{self.label}]({self.url})" if self.url else self.label
 
 
 @frozen
@@ -89,13 +93,12 @@ class OriginSource:
     count: int
 
     def render(self) -> str:
+        # Counts stay out, because the number of private recordings or tickets is itself private.
         if not self.links:
-            noun = "signal" if self.count == 1 else "signals"
-            return f"- {self.label}: {self.count} {noun}"
+            return f"- {self.label}"
         rendered = ", ".join(link.render() for link in self.links)
-        hidden = self.count - len(self.links)
-        if hidden > 0:
-            rendered = f"{rendered} and {hidden} more"
+        if self.count > len(self.links):
+            rendered = f"{rendered} and more"
         return f"- {self.label}: {rendered}"
 
 
@@ -190,6 +193,21 @@ def _priority(team_id: int, report_id: str) -> str | None:
     return judgment.priority.value if judgment else None
 
 
+def _issue_link(reference: SignalSourceReference, repository: str) -> OriginLink:
+    """Link an issue only when it is as public as the pull request itself.
+
+    An issue in another repository or in Linear can be private, and its URL alone can name the
+    workspace or the title, so those keep a plain label.
+    """
+    same_repository = f"https://github.com/{repository}/issues/".lower()
+    if reference.source_product == "github":
+        if reference.url.lower().startswith(same_repository):
+            return OriginLink(label=reference.label, url=reference.url)
+        # A bare "#42" would render as a link to issue 42 of this pull request's repository.
+        return OriginLink(label="GitHub issue", url=None)
+    return OriginLink(label=reference.label, url=None)
+
+
 @frozen
 class PullRequestOrigin:
     """Where a self-driving pull request came from, reduced to facts that are safe to publish."""
@@ -212,8 +230,7 @@ class PullRequestOrigin:
             report_url=f"{settings.SITE_URL}/project/{team.pk}/inbox/reports/{report_id}",
             sources=tuple(_product_sources(team.pk, signals)),
             issue_references=tuple(
-                OriginLink(label=reference.label, url=reference.url)
-                for reference in fetch_source_references_for_report(team, report_id)
+                _issue_link(reference, repository) for reference in fetch_source_references_for_report(team, report_id)
             ),
             scout_name=next((s.scout_name for s in signals if _SCOUT_NAME_RE.match(s.scout_name)), None),
             first_seen=signals[0].timestamp.date() if signals else None,
@@ -254,8 +271,21 @@ class PullRequestOrigin:
         )
 
 
+def _first_outside(
+    pattern: re.Pattern[str], body: str, position: int, skipped: list[tuple[int, int]]
+) -> re.Match[str] | None:
+    for match in pattern.finditer(body, position):
+        if not any(start <= match.start() < end for start, end in skipped):
+            return match
+    return None
+
+
+def _fenced_spans(body: str) -> list[tuple[int, int]]:
+    return [fence.span() for fence in _FENCE_RE.finditer(body)]
+
+
 def _section_end(body: str, position: int) -> int:
-    match = _SECTION_END_RE.search(body, position)
+    match = _first_outside(_SECTION_END_RE, body, position, _fenced_spans(body))
     return match.start() if match else len(body)
 
 
@@ -266,11 +296,8 @@ def _splice(body: str, start: int, end: int, section: str) -> str:
 
 def _agent_origin_heading(body: str) -> re.Match[str] | None:
     """The first Origin heading outside a PostHog block, which only an agent can have written."""
-    marked = [block.span() for block in _MARKED_BLOCK_RE.finditer(body)]
-    for heading in _ORIGIN_HEADING_RE.finditer(body):
-        if not any(start <= heading.start() < end for start, end in marked):
-            return heading
-    return None
+    skipped = [block.span() for block in _MARKED_BLOCK_RE.finditer(body)] + _fenced_spans(body)
+    return _first_outside(_ORIGIN_HEADING_RE, body, 0, skipped)
 
 
 def place_origin_section(body: str, *, report_id: str, section: str) -> str:
@@ -290,7 +317,7 @@ def place_origin_section(body: str, *, report_id: str, section: str) -> str:
     if agent_origin is not None:
         return _splice(body, agent_origin.start(), _section_end(body, agent_origin.end()), section)
 
-    problem = _PROBLEM_HEADING_RE.search(body)
+    problem = _first_outside(_PROBLEM_HEADING_RE, body, 0, _fenced_spans(body))
     if problem is None:
         return _splice(body, len(body), len(body), section)
     insert_at = _section_end(body, problem.end())
@@ -303,6 +330,11 @@ def write_origin_section(*, team_id: int, report_id: str, task_id: str, pr_url: 
     Never raises: a missing section must not stop the tracker cross-link that runs beside it.
     """
     try:
+        # Anyone who controls the task can write a run's pr_url, so only a webhook-confirmed PR gets edited.
+        # The webhook usually lands after the agent reports the URL, so this is a retry, not a skip.
+        if not tasks_facade.is_verified_task_pr_url(task_id=task_id, team_id=team_id, pr_url=pr_url):
+            logger.info("signals.pr_origin_unverified_pr", report_id=report_id, pr_url=pr_url)
+            return BodyEditOutcome.FAILED
         team = Team.objects.get(pk=team_id)
 
         def add_origin(body: str, repository: str) -> str:
