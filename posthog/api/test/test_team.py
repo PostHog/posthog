@@ -3446,6 +3446,33 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertEqual(self.team.test_account_filters, original_test_account_filters)
 
+    def test_validate_test_account_filters_rejects_unparseable_hogql(self):
+        original_test_account_filters = self.team.test_account_filters
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"test_account_filters": [{"key": "properties.plan match 'free'", "type": "hogql"}]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "test_account_filters")
+        self.assertIn("properties.plan match 'free'", response.json()["detail"])
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.test_account_filters, original_test_account_filters)
+
+    def test_validate_test_account_filters_allows_valid_hogql(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"test_account_filters": [{"key": "properties.plan != 'free'", "type": "hogql"}]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["test_account_filters"],
+            [{"key": "properties.plan != 'free'", "type": "hogql"}],
+        )
+
     def test_validate_test_account_filters_allows_is_set_filters_without_value(self):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/",

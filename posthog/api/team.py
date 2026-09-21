@@ -41,6 +41,9 @@ from posthog.schema import (
     SourceMap,
 )
 
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_expr
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, validate_authorized_url_wildcards
@@ -1056,12 +1059,31 @@ test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
 
 
 def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+    """Validate test account filters before they're saved. A `hogql` filter carries a HogQL
+    expression in its key, and pydantic accepts any string there. Test account filters apply to
+    every query that turns on "filter test accounts", so an expression that doesn't parse breaks
+    all of them for the whole team. Parse it here, where the user can still fix it."""
     try:
         test_account_filters_adapter.validate_python(value)
     except PydanticValidationError as error:
         raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
 
-    return cast(list[dict[str, object]], value)
+    filters = cast(list[dict[str, object]], value)
+
+    for property_filter in filters:
+        if not isinstance(property_filter, dict) or property_filter.get("type") != "hogql":
+            continue
+        key = property_filter.get("key")
+        if not isinstance(key, str):
+            continue
+        try:
+            parse_expr(key)
+        except BaseHogQLError as error:
+            raise exceptions.ValidationError(
+                f"This filter isn't valid HogQL: {key}. {error}. Fix the expression or remove the filter."
+            ) from error
+
+    return filters
 
 
 def _alias_backreferences(alias: str) -> list[int]:

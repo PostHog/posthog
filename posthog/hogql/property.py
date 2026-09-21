@@ -50,7 +50,7 @@ from posthog.hogql.base import AST
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
-from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.errors import BaseHogQLError, NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import CacheOrigin, parse_expr
 from posthog.hogql.utils import map_virtual_properties
@@ -1194,7 +1194,12 @@ def property_to_expr(
         return ast.Constant(value=1)
     elif property.type == "hogql":
         tag_contains_user_hogql()
-        return parse_expr(property.key, cache_origin=CacheOrigin.USER)
+        try:
+            return parse_expr(property.key, cache_origin=CacheOrigin.USER)
+        except BaseHogQLError as error:
+            # Filters saved before save-time parsing can still hold an expression that doesn't parse.
+            # Name the filter, so the failure is traceable to it rather than to the query that ran.
+            raise QueryError(f"Invalid HogQL property filter: {property.key}. {error}") from error
     elif property.type == "behavioral":
         if not team:
             raise Exception("Can not convert behavioral property to expression without team")

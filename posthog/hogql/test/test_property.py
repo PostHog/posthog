@@ -122,6 +122,12 @@ class TestProperty(BaseTest):
             ast.Constant(value=1),
         )
 
+    def test_property_to_expr_hogql_that_does_not_parse_names_the_filter(self):
+        with self.assertRaises(QueryError) as error:
+            self._property_to_expr({"type": "hogql", "key": "properties.plan match 'free'"})
+
+        self.assertIn("properties.plan match 'free'", str(error.exception))
+
     def test_property_to_expr_group(self):
         self.assertEqual(
             self._property_to_expr({"type": "group", "group_type_index": 0, "key": "a", "value": "b"}),
