@@ -194,6 +194,9 @@ tools:
     vision-observations-signal-reports-list:
         operation: vision_observations_signal_reports_list
         enabled: false
+    vision-observations-thumbnail-retrieve:
+        operation: vision_observations_thumbnail_retrieve
+        enabled: false
     vision-observations-viewed-create:
         operation: vision_observations_viewed_create
         enabled: false
@@ -548,6 +551,9 @@ tools:
             ask the person to rate a few results before you call `vision-scanners-prompt-suggestions-generate`. Record
             their verdicts with `vision-observations-label-create` rather than supplying your own. Testing a suggestion
             is not available over MCP, so tell them to test it on the scanner's Calibration tab before they apply it.
+    vision-scanners-observations-thumbnail-retrieve:
+        operation: vision_scanners_observations_thumbnail_retrieve
+        enabled: false
     vision-scanners-observations-viewed-create:
         operation: vision_scanners_observations_viewed_create
         enabled: false

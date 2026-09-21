@@ -8,6 +8,7 @@ packages:
     - common/replay-headless
     - common/tailwind
     - packages/llm-normalizer
+    - packages/owners-yaml
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
@@ -149,7 +150,7 @@ catalog:
     '@posthog/icons': ^0.38.0
     '@posthog/brand': 0.11.0
     '@posthog/react': ^1.11.1
-    posthog-js: ^1.433.9
+    posthog-js: ^1.434.4
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
