@@ -1616,6 +1616,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.presentation\\.hub_api.*",
 ]
 from = [
     "products.security",
