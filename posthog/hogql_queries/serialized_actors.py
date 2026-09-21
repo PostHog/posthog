@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any, Literal, Optional, TypedDict, Union
+from typing import Any, Literal, NotRequired, Optional, TypedDict, Union
 
 from django.db.models.query import QuerySet
 
@@ -42,6 +42,8 @@ class SerializedPerson(CommonActor):
     is_identified: Optional[bool]
     name: str
     distinct_ids: list[str]
+    # Only on a persons search response: the searched fields the term was found in.
+    matched_fields: NotRequired[list[str]]
 
 
 class SerializedGroup(CommonActor):

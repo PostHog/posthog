@@ -122,6 +122,7 @@ import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortReal
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
+import { PersonSearchMatchTags } from 'products/persons/frontend/components/PersonSearchMatchTags'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import type { Noun } from '../../../models/groupsModel'
@@ -1957,6 +1958,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: `api/environments/${teamId}/persons/`,
                         getName: (person: PersonType) => person.name || 'Anon user?',
                         getValue: (person: PersonType) => person.distinct_ids?.[0],
+                        getTag: (person: PersonType) => <PersonSearchMatchTags person={person} />,
                         getPopoverHeader: () => `Person`,
                     },
                     {

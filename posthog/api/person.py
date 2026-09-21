@@ -46,7 +46,7 @@ from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_que
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.properties_timeline import PropertiesTimeline
-from posthog.hogql_queries.serialized_actors import get_serialized_people
+from posthog.hogql_queries.serialized_actors import SerializedPerson, get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -553,6 +553,24 @@ def _exact_identifier_person_uuids(team_id: int, search: str) -> list[str]:
     return matches
 
 
+def _search_match_fields(search: str, person: SerializedPerson) -> list[str]:
+    """Which searched fields hold the term, so a picker can say why a row is there.
+
+    Two people often share one display name, for example when an address is one person's
+    distinct ID and another person's email property, so the name alone cannot tell them apart.
+    The check is the fuzzy search's: case-insensitive substring over the same four fields.
+    """
+    needle = search.lower()
+    properties = person["properties"]
+    checks = (
+        ("distinct_id", any(needle in distinct_id.lower() for distinct_id in person["distinct_ids"])),
+        ("email", needle in str(properties.get("email") or "").lower()),
+        ("name", needle in str(properties.get("name") or "").lower()),
+        ("id", needle in str(person["id"]).lower()),
+    )
+    return [field for field, holds_term in checks if holds_term]
+
+
 @extend_schema(extensions={"x-product": ProductKey.PERSONS})
 @extend_schema_view(
     retrieve=_id_schema,
@@ -640,8 +658,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 OpenApiTypes.STR,
                 description=(
                     "Search persons by email, name, person ID, or distinct ID. Partial values match. "
-                    "When the term is a complete email address or UUID that exactly matches a distinct ID "
-                    "or person ID, only that person is returned."
+                    "A UUID that exactly matches a person ID or distinct ID returns only that person. "
+                    "A complete email address that exactly matches a distinct ID returns that person together "
+                    "with every person whose email property contains the address. "
+                    "Each result carries `matched_fields`, the subset of `distinct_id`, `email`, `name` and "
+                    "`id` the term was found in."
                 ),
             ),
             OpenApiParameter(
@@ -716,6 +737,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
             properties=slo_properties,
         ) as slo:
+            exact_uuids: list[str] = []
+            answered_by = "clickhouse"
             if filter.distinct_id:
                 # Exact match on any of the person's distinct IDs; no matching person => no results.
                 matched = get_person_by_distinct_id(team.pk, filter.distinct_id, distinct_id_limit=0)
@@ -737,10 +760,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
             elif search:
                 exact_uuids = _exact_identifier_person_uuids(team.pk, search) if can_answer_from_identifier else []
-                API_PERSON_LIST_SEARCH_COUNTER.labels(
-                    answered_by="exact_identifier" if exact_uuids else "clickhouse"
-                ).inc()
-                if exact_uuids:
+                # A UUID hit is the whole answer. An email hit is not, because the address can also
+                # sit in another person's email property, and only ClickHouse can find that row.
+                email_property_search = bool(exact_uuids) and _COMPLETE_EMAIL_TERM.match(search) is not None
+                if exact_uuids and not email_property_search:
+                    API_PERSON_LIST_SEARCH_COUNTER.labels(answered_by="exact_identifier").inc()
                     page = exact_uuids[: filter.limit]
                     slo.tag(answered_by="exact_identifier", result_count=len(page))
                     return self._person_list_response(
@@ -749,12 +773,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         filter,
                         total_count=len(exact_uuids) if include_total else None,
                         has_next=len(exact_uuids) > filter.limit,
+                        search=search,
                     )
+                if email_property_search:
+                    # Only the email arm of the fuzzy search runs. The identifier arms are answered,
+                    # and the distinct ID scan they need is what makes the fuzzy search slow.
+                    person_properties.append(
+                        {"type": "person", "key": "email", "value": search, "operator": "icontains"}
+                    )
+                    answered_by = "exact_identifier_and_email"
+                API_PERSON_LIST_SEARCH_COUNTER.labels(answered_by=answered_by).inc()
 
             actors_query = ActorsQuery(
                 select=["id"],
                 properties=person_properties,
-                search=filter.search or None,
+                search=None if exact_uuids else filter.search or None,
                 orderBy=["created_at DESC", "id DESC"],
                 limit=filter.limit,
                 offset=filter.offset,
@@ -794,8 +827,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 slo.tag(cancelled=True)
                 return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
 
-            slo.tag(answered_by="clickhouse", result_count=len(actor_ids))
-            return self._person_list_response(request, actor_ids, filter, total_count=total_count)
+            if exact_uuids:
+                # The page is hydrated in creation order, so the identifier hits only need to be on
+                # it. They go first so the trim never drops them.
+                clickhouse_ids = [str(actor_id) for actor_id in actor_ids]
+                actor_ids = (exact_uuids + [actor_id for actor_id in clickhouse_ids if actor_id not in exact_uuids])[
+                    : filter.limit
+                ]
+                if total_count is not None:
+                    total_count += sum(1 for exact_uuid in exact_uuids if exact_uuid not in clickhouse_ids)
+                # The runner tagged `has_search` from its query, which carries the address as a
+                # property filter rather than a search term. The request did search.
+                slo.tag(has_search=True)
+
+            slo.tag(answered_by=answered_by, result_count=len(actor_ids))
+            return self._person_list_response(request, actor_ids, filter, total_count=total_count, search=search)
 
     def _person_list_response(
         self,
@@ -804,6 +850,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         filter: Filter,
         total_count: Optional[int] = None,
         has_next: Optional[bool] = None,
+        search: Optional[str] = None,
     ) -> Response:
         team = self.team
         with personhog_caller_tag("persons/list"):
@@ -817,6 +864,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     person_dict["properties"] = {
                         k: v for k, v in properties.items() if k not in restricted_person_properties
                     }
+
+        # After the property restriction, so a tag never points at a property the caller cannot see.
+        if search:
+            for person_dict in serialized_actors:
+                person_dict["matched_fields"] = _search_match_fields(search, person_dict)
 
         # A full page means there may be more behind it. Callers that know the whole result set up
         # front say so instead, so a page that happens to fill the limit does not advertise an

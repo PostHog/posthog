@@ -1734,6 +1734,8 @@ export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
+export type PersonSearchMatchField = 'distinct_id' | 'email' | 'name' | 'id'
+
 export interface PersonType {
     id?: string
     uuid?: string
@@ -1743,6 +1745,8 @@ export interface PersonType {
     created_at?: string
     last_seen_at?: string
     is_identified?: boolean
+    /** Only on a search result: the fields the search term was found in. */
+    matched_fields?: PersonSearchMatchField[]
 }
 
 export interface PersonListParams {

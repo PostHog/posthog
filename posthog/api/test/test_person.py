@@ -84,11 +84,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         flush_persons_and_events()
         response = self.client.get("/api/person/?search=another@gm")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual([result["matched_fields"] for result in response.json()["results"]], [["email"]])
 
         response = self.client.get("/api/person/?search=distinct_id_3")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual([result["matched_fields"] for result in response.json()["results"]], [["distinct_id"]])
 
     @staticmethod
     def _persons_list_slo_events(capture: mock.MagicMock) -> list[dict]:
@@ -103,7 +103,23 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             ("partial search", "?search=another@gm", True, False, "clickhouse", "person"),
             ("no search", "", False, False, "clickhouse", "person"),
-            ("exact identifier", "?search=someone@gmail.com", True, False, "exact_identifier", None),
+            (
+                "exact identifier",
+                "?search=0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e5f",
+                True,
+                False,
+                "exact_identifier",
+                None,
+            ),
+            # An email hit still asks ClickHouse for the address as a property, which tags the actor type.
+            (
+                "exact identifier and email property",
+                "?search=someone@gmail.com",
+                True,
+                False,
+                "exact_identifier_and_email",
+                "person",
+            ),
             ("client query id", "?search=another@gm&client_query_id=abc-123", True, True, "clickhouse", "person"),
         ]
     )
@@ -118,7 +134,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     ) -> None:
         _create_person(
             team=self.team,
-            distinct_ids=["someone@gmail.com"],
+            distinct_ids=["someone@gmail.com", "0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e5f"],
             properties={"email": "another@gmail.com"},
             immediate=True,
         )
@@ -222,7 +238,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # results that cannot exist.
         for url, expected in [
             (f"/api/person/?search={person.uuid}&limit=1", person),
-            ("/api/person/?search=someone@gmail.com&limit=1", person),
             (f"/api/person/?search={anonymous_distinct_id}&limit=1", anonymous),
             ("/api/person/?distinct_id=someone@gmail.com&limit=1", person),
         ]:
@@ -232,6 +247,35 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 self.assertEqual([result["id"] for result in response.json()["results"]], [str(expected.uuid)])
                 self.assertIsNone(response.json()["next"])
             self.assertEqual(clickhouse_queries, [])
+
+    def test_search_by_email_lists_the_property_match_with_the_distinct_id_hit(self) -> None:
+        by_distinct_id = _create_person(
+            team=self.team, distinct_ids=["abe@example.com"], properties={"name": "Abe"}, immediate=True
+        )
+        by_property = _create_person(
+            team=self.team,
+            distinct_ids=["0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e5f"],
+            properties={"email": "abe@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team, distinct_ids=["zoe@example.com"], properties={"email": "zoe@example.com"}, immediate=True
+        )
+        flush_persons_and_events()
+
+        with self.capture_select_queries() as clickhouse_queries:
+            response = self.client.get("/api/person/?search=abe@example.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {result["id"]: result["matched_fields"] for result in response.json()["results"]},
+            {str(by_distinct_id.uuid): ["distinct_id"], str(by_property.uuid): ["email"]},
+        )
+        self.assertIsNone(response.json()["next"])
+        # The identifier hit answered the ID arms of the fuzzy search, so the one person query reads
+        # the email property and never scans the team's distinct IDs.
+        person_queries = [query for query in clickhouse_queries if "system.columns" not in query]
+        self.assertEqual(len(person_queries), 1)
+        self.assertNotIn("person_distinct_id2", person_queries[0])
 
     def test_search_by_exact_identifier_still_applies_other_filters(self) -> None:
         _create_person(

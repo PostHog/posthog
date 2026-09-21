@@ -435,7 +435,7 @@ export type PersonsListParams = {
      */
     properties?: PropertyApi[]
     /**
-     * Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.
+     * Search persons by email, name, person ID, or distinct ID. Partial values match. A UUID that exactly matches a person ID or distinct ID returns only that person. A complete email address that exactly matches a distinct ID returns that person together with every person whose email property contains the address. Each result carries `matched_fields`, the subset of `distinct_id`, `email`, `name` and `id` the term was found in.
      */
     search?: string
 }
