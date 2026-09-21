@@ -34,7 +34,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic._shared import _prior_window
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
-    query_setup_break_attempts,
+    query_setup_breaks,
     run_evidence,
     scan_placeholders,
     selector_from_nodeid,
@@ -121,7 +121,7 @@ def _window_placeholders(
         date_from=date_from,
         scan_from=window.scan_from,
         date_to=window.resolved_to,
-        setup_break_run_attempts=query_setup_break_attempts(
+        setup_breaks=query_setup_breaks(
             curated=curated, date_from=date_from, scan_from=window.scan_from, date_to=window.resolved_to
         ),
     )

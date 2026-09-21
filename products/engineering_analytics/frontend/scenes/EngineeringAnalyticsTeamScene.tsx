@@ -160,7 +160,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     />
                     <WindowComparisonCard
                         title="Flaky tests"
-                        tooltip="Owned tests one commit was seen both failing and passing in this window. Only tests with that recovery proof count as flaky."
+                        tooltip="Owned tests one commit was seen both failing and passing in this window. Only tests with that recovery proof count as flaky. A job attempt with 100+ failed or errored tests is a CI setup break, not test proof."
                         value={healthRow?.flakyTestCount}
                         previousValue={healthRow?.flakyTestCountPrior}
                         formatValue={humanFriendlyNumber}
@@ -170,7 +170,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     />
                     <WindowComparisonCard
                         title="Failed runs"
-                        tooltip="CI runs where at least one test this team owns failed or errored. A run counts once, however many tests failed. Runs where CI setup broke tests across many jobs or teams are left out. Absolute counts, not rates: passing runs are mostly not recorded."
+                        tooltip="CI runs where at least one test this team owns failed or errored. A run counts once, however many tests failed. CI setup breaks (many jobs or teams, or 100 or more failed or errored tests in one job) are left out. Absolute counts, not rates: passing runs are mostly not recorded."
                         value={healthRow?.failedRunCount}
                         previousValue={healthRow?.failedRunCountPrior}
                         formatValue={humanFriendlyNumber}

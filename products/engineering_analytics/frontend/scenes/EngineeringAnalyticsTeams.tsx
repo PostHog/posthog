@@ -66,7 +66,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             key: 'flakyTestCount',
             width: 120,
             align: 'right',
-            tooltip: `Owned tests one commit was seen both failing and passing in the ${FIXED_WINDOW}. Only tests with that recovery proof count as flaky.`,
+            tooltip: `Owned tests one commit was seen both failing and passing in the ${FIXED_WINDOW}. Only tests with that recovery proof count as flaky. A job attempt with 100+ failed or errored tests is a CI setup break, not test proof.`,
             sorter: (a, b) => a.flakyTestCount - b.flakyTestCount,
             render: (_, row) => <CountCell value={row.flakyTestCount} />,
         },
