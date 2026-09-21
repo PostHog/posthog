@@ -21,6 +21,14 @@ COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohor
 # keys resolved into nested field chains so the HogVM matches against the nested object.
 INTERNAL_NESTED_PROPERTY_EVENTS = frozenset({"$activity_log_entry_created"})
 
+# Filter sources whose rows come from the warehouse rather than from events: one invocation per
+# row, with the row under `event.properties` and no person attached.
+DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
+
+# The warehouse consumer writes the row's table name under this key. Keep it equal to
+# DWH_SOURCE_TABLE_PROPERTY in nodejs/src/cdp/schema/hogflow.ts.
+WAREHOUSE_SOURCE_TABLE_PROPERTY = "$source_table"
+
 
 class _NestedPropertyKeyResolver(CloningVisitor):
     """Resolve dotted event-property keys into nested field chains.
@@ -180,11 +188,26 @@ def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:
     return result
 
 
+def _as_row_properties(properties: list[Any]) -> list[Any]:
+    """Read a `data_warehouse` column filter from `properties`, where the consumer puts the row.
+
+    Such a filter otherwise compiles to a bare field such as `organization`, which the filter
+    globals never carry, so the row fails the filter.
+    """
+    return [
+        {**prop, "type": "event"} if isinstance(prop, dict) and prop.get("type") == "data_warehouse" else prop
+        for prop in properties
+    ]
+
+
 def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
     """Build global property filters that apply to all events."""
     if not filters.get("properties"):
         return []
-    return [property_to_expr(prop, team) for prop in filters["properties"]]
+    properties = filters["properties"]
+    if filters.get("source") in DATA_WAREHOUSE_SOURCES:
+        properties = _as_row_properties(properties)
+    return [property_to_expr(prop, team) for prop in properties]
 
 
 def _build_event_filter_expr(filter: dict) -> ast.Expr:
@@ -248,6 +271,29 @@ def _combine_expressions(expressions: list[ast.Expr]) -> ast.Expr:
         return ast.And(exprs=expressions)
 
 
+def _build_warehouse_table_filters(filters: dict, team: Team) -> list[ast.Expr]:
+    if filters.get("source") not in DATA_WAREHOUSE_SOURCES:
+        return []
+    entries = [entry for entry in filters.get("data_warehouse") or [] if isinstance(entry, dict)]
+    if not any(entry.get("properties") for entry in entries):
+        return []
+
+    # Row filters apply only to rows from their own entry's table. Every entry checks its table name,
+    # because an entry without row filters would otherwise match rows from the filtered tables too.
+    entry_exprs: list[ast.Expr] = []
+    for entry in entries:
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["properties", WAREHOUSE_SOURCE_TABLE_PROPERTY]),
+                right=ast.Constant(value=entry.get("table_name")),
+            )
+        ]
+        exprs.extend(property_to_expr(prop, team) for prop in _as_row_properties(entry.get("properties") or []))
+        entry_exprs.append(_combine_expressions(exprs))
+    return [ast.Or(exprs=entry_exprs) if len(entry_exprs) > 1 else entry_exprs[0]]
+
+
 def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, Action]) -> ast.Expr:
     """
     Build a HogQL expression from hog function filters.
@@ -258,13 +304,14 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
     # Build component filters
     test_account_filters = _build_test_account_filters(filters, team)
     global_property_filters = _build_global_property_filters(filters, team)
+    warehouse_table_filters = _build_warehouse_table_filters(filters, team)
 
     # Get all event and action filters
     all_filters = filters.get("events", []) + filters.get("actions", [])
 
-    # If no event/action filters, return just the account and property filters
+    # If no event/action filters, return just the account, property and warehouse table filters
     if not all_filters:
-        return _combine_expressions(test_account_filters + global_property_filters)
+        return _combine_expressions(test_account_filters + global_property_filters + warehouse_table_filters)
 
     # Build expressions for each event/action filter (dotted keys on internal events are resolved
     # per-branch inside _build_single_filter_expr).

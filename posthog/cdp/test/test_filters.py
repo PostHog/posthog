@@ -105,6 +105,86 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
         assert execute_bytecode(bytecode, {}).result is True
 
+    @parameterized.expand(
+        [
+            (
+                "trigger_filter_matches_row",
+                {
+                    "source": "data-warehouse-view",
+                    "properties": [
+                        {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                    ],
+                },
+                {"organization": "acme", "$source_table": "accounts"},
+                True,
+            ),
+            (
+                "trigger_filter_rejects_row",
+                {
+                    "source": "data-warehouse-view",
+                    "properties": [
+                        {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                    ],
+                },
+                {"organization": "globex", "$source_table": "accounts"},
+                False,
+            ),
+            (
+                "destination_table_filter_matches_row",
+                {
+                    "source": "data-warehouse-table",
+                    "data_warehouse": [
+                        {
+                            "table_name": "postgres.accounts",
+                            "properties": [
+                                {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                            ],
+                        }
+                    ],
+                },
+                {"organization": "acme", "$source_table": "postgres.accounts"},
+                True,
+            ),
+            (
+                "destination_unfiltered_table_still_matches",
+                {
+                    "source": "data-warehouse-table",
+                    "data_warehouse": [
+                        {
+                            "table_name": "postgres.accounts",
+                            "properties": [
+                                {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                            ],
+                        },
+                        {"table_name": "postgres.orders"},
+                    ],
+                },
+                {"organization": "globex", "$source_table": "postgres.orders"},
+                True,
+            ),
+            (
+                "destination_unfiltered_table_does_not_bypass_filtered_table",
+                {
+                    "source": "data-warehouse-table",
+                    "data_warehouse": [
+                        {
+                            "table_name": "postgres.accounts",
+                            "properties": [
+                                {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                            ],
+                        },
+                        {"table_name": "postgres.orders"},
+                    ],
+                },
+                {"organization": "globex", "$source_table": "postgres.accounts"},
+                False,
+            ),
+        ]
+    )
+    def test_warehouse_row_filters_match_row_columns(self, _name: str, filters: dict, row: dict, expected: bool):
+        bytecode = self.filters_to_bytecode(filters=filters)
+        assert execute_bytecode(bytecode, {"properties": row}).result is expected
+
     def test_filters_raises_on_select(self):
         response = compile_filters_bytecode(
             filters={
