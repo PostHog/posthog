@@ -47,6 +47,7 @@ The `state` field must be a JSON object.
 Send a JSON object with a `summary` string of 1 to 1,500 characters after trimming whitespace.
 The endpoint requires permission to control the task. A task-bound sandbox token can update only its own task.
 The update does not complete the run or change its structured `output`.
+Cloud agent runs write the summary through the `task_summary_update` local tool; local Desktop sessions do not have the tool.
 Generic run-state updates cannot change the summary or its inherited value.
 
 A resumed run uses its source run's summary until it saves a new summary.
