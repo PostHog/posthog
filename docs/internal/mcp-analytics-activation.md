@@ -63,20 +63,6 @@ Use the stored product-intent activation timestamp for that metric; the activati
 The data-detected event is a browser observation, not an ingestion timestamp or proof of SDK installation on a particular server.
 It can miss projects whose data arrives while no setup detection is mounted.
 MCP analytics detection currently accepts any `$mcp_tool_call` in the project, including hosted PostHog MCP traffic.
-The hosted MCP server and PostHog CLI skip `$mcp_tool_call` during staff impersonation.
-Both read impersonation status from OAuth token introspection and pass it to the shared SDK client's `before_send` hook.
-Only a confirmed impersonation status causes the hook to drop a tool-call event.
-An absent status defaults to no impersonation.
-MCP reuses cached token metadata until it expires.
-Old cache entries lack this field, so impersonated events can remain in usage counts for up to seven days after deployment.
-This excludes both successful and failed impersonated calls from tool-call usage counts.
-If the CLI cannot fetch the user, it uses its fallback distinct ID.
-If token metadata is unavailable, it assumes no impersonation and captures the event.
-CLI feedback events remain enabled during impersonation and user lookup failures.
-It does not remove historical events or disable server operational metrics.
-Merge and deploy the additive `is_impersonated` field on `/oauth/introspect/` separately before merging the MCP capture change.
-Confirm that the API returns the field in each environment that MCP uses.
-The existing impersonation fields on `/api/users/@me/` keep their browser-session meaning.
 To measure installation of an owned server, independently verify the server identity on the ingested call.
 Do not report this frontend proxy as that stronger metric.
 
