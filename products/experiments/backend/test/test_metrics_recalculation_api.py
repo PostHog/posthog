@@ -16,6 +16,10 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+_RECALC_WINDOW = datetime(2026, 3, 1, tzinfo=UTC)
+_OLDER_POINT = datetime(2026, 2, 1, tzinfo=UTC)
+_NEWER_POINT = datetime(2026, 3, 2, tzinfo=UTC)
+
 
 def _mean_metric(uuid: str) -> dict:
     return {
@@ -308,6 +312,39 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert body["result_source"] == "timeseries_fallback"
         assert body["results"][0]["result"] == {"ok": True}
         assert body["active_run"] == {"id": str(active.id), "status": "pending"}
+
+    @parameterized.expand(
+        [
+            ("every_metric_newer", {"m1": _NEWER_POINT, "m2": _NEWER_POINT}, "timeseries_fallback"),
+            ("every_metric_older", {"m1": _OLDER_POINT, "m2": _OLDER_POINT}, "recalculation"),
+            ("one_metric_older", {"m1": _NEWER_POINT, "m2": _OLDER_POINT}, "recalculation"),
+            ("one_metric_without_point", {"m1": _NEWER_POINT}, "recalculation"),
+            ("same_window", {"m1": _RECALC_WINDOW, "m2": _RECALC_WINDOW}, "recalculation"),
+        ]
+    )
+    def test_get_latest_prefers_timeseries_when_newer_for_every_metric(
+        self, _name: str, points: dict[str, datetime], expected_source: str
+    ):
+        # The daily timeseries run lands after the last recalculation: its data is fresher for the same
+        # metrics, so the read returns it. A partial refresh keeps the recalculation, or the view would mix
+        # two data windows.
+        exp = self._launched_experiment(flag_key=f"ts-newer-{_name}")
+        exp.metrics = [_mean_metric("m1"), _mean_metric("m2")]
+        exp.save()
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, metric_uuids=["m1", "m2"], status="completed", query_to=_RECALC_WINDOW
+        )
+        for metric_uuid, query_to in points.items():
+            self._store_timeseries_point(exp, metric_uuid, query_to)
+
+        resp = self.client.get(self._latest_url(exp.id))
+        assert resp.status_code == status.HTTP_200_OK, resp.content
+        body = resp.json()
+        assert body["result_source"] == expected_source
+        if expected_source == "recalculation":
+            assert body["id"] == str(recalc.id)
+        else:
+            assert {r["metric_uuid"] for r in body["results"]} == {"m1", "m2"}
 
     def test_get_latest_still_404_when_no_recalc_and_no_timeseries(self):
         exp = self._launched_experiment(flag_key="ts-empty")

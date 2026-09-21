@@ -10,7 +10,7 @@ Module-level free functions (not methods on ExperimentService) so the API view c
 """
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -38,7 +38,10 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
+from products.experiments.backend.temporal.models import (
+    ExperimentMetricsRecalculationWorkflowInputs,
+    ExperimentMetricToRecalculate,
+)
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics, find_metric_dict
 
@@ -428,23 +431,19 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
     ]
 
 
-def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
-    """Synthetic 'completed' recalculation payload built from each metric's latest completed timeseries point.
+def _latest_timeseries_points(
+    experiment: Experiment,
+) -> tuple[list[ExperimentMetricToRecalculate], dict[str, ExperimentMetricResult]]:
+    """Each metric's newest completed timeseries point, keyed by metric uuid, plus the full metric list.
 
-    Pure read. Used by GET /metrics_recalculation/latest as a cold-start placeholder when no real
-    metrics-recalculation run exists yet. Timeseries rows live in ExperimentMetricResult under the metric's
-    CONFIG fingerprint (not a per-run recalc fingerprint), so they're found without any recalc row.
-
-    Returns None when no metric has a completed timeseries point (caller then keeps the 404). query_to and
-    completed_at both pin to the freshest point's date so the frontend's >24h staleness path fires its own
-    recompute trigger (GET never triggers anything itself).
+    Timeseries rows live in ExperimentMetricResult under the metric's CONFIG fingerprint (not a per-run recalc
+    fingerprint), so they're found without any recalc row. A metric with no point is absent from the dict.
     """
     with team_scope(experiment.team_id, canonical=True):
         metrics = discover_experiment_metrics(experiment)
         stats_method = get_experiment_stats_method(experiment)
 
-        results: list[dict] = []
-        latest_query_to = None
+        points: dict[str, ExperimentMetricResult] = {}
         for metric in metrics:
             metric_dict = find_metric_dict(experiment, metric.metric_uuid)
             if metric_dict is None:
@@ -467,35 +466,68 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
                 .order_by("-query_to")
                 .first()
             )
-            if row is None:
-                continue
-            results.append(
-                {
-                    "metric_uuid": row.metric_uuid,
-                    "status": row.status,
-                    "result": strip_step_sessions(row.result),
-                    "error_message": None,
-                }
-            )
-            if latest_query_to is None or row.query_to > latest_query_to:
-                latest_query_to = row.query_to
+            if row is not None:
+                points[metric.metric_uuid] = row
+        return metrics, points
 
-        if not results:
-            return None
 
-        return {
-            "id": "timeseries-fallback",
-            "experiment_id": experiment.id,
-            "status": ExperimentMetricsRecalculation.Status.COMPLETED,
-            "total_metrics": len(metrics),
-            "completed_metrics": len(results),
-            "failed_metrics": 0,
-            "metric_errors": {},
-            "trigger": ExperimentMetricsRecalculation.Trigger.COLD_RUN,
-            "created_at": latest_query_to,
-            "started_at": latest_query_to,
-            "completed_at": latest_query_to,
-            "query_to": latest_query_to,
-            "results": results,
-            "result_source": "timeseries_fallback",
-        }
+def get_latest_timeseries(experiment: Experiment) -> datetime | None:
+    """The window end the timeseries data covers for EVERY metric of the experiment, or None.
+
+    Returns the oldest of the per-metric newest completed points, so a caller comparing it against a
+    recalculation's query_to knows the timeseries payload is newer for all metrics, not only some. A partial
+    refresh returns None: mixing a fresh point for one metric with an older recalculation for another would
+    show two data windows in one view, which the one-query_to-per-run contract exists to prevent.
+    """
+    metrics, points = _latest_timeseries_points(experiment)
+    if not metrics or len(points) < len(metrics):
+        return None
+    return min(row.query_to for row in points.values())
+
+
+def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
+    """Synthetic 'completed' recalculation payload built from each metric's latest completed timeseries point.
+
+    Pure read. Used by GET /metrics_recalculation/latest as a cold-start placeholder when no real
+    metrics-recalculation run exists yet, and when the daily timeseries data is newer than the latest run for
+    every metric (see get_latest_timeseries).
+
+    Returns None when no metric has a completed timeseries point (caller then keeps the 404). query_to and
+    completed_at both pin to the freshest point's date so the frontend's >24h staleness path fires its own
+    recompute trigger (GET never triggers anything itself).
+    """
+    metrics, points = _latest_timeseries_points(experiment)
+
+    results: list[dict] = []
+    latest_query_to = None
+    for row in points.values():
+        results.append(
+            {
+                "metric_uuid": row.metric_uuid,
+                "status": row.status,
+                "result": strip_step_sessions(row.result),
+                "error_message": None,
+            }
+        )
+        if latest_query_to is None or row.query_to > latest_query_to:
+            latest_query_to = row.query_to
+
+    if not results:
+        return None
+
+    return {
+        "id": "timeseries-fallback",
+        "experiment_id": experiment.id,
+        "status": ExperimentMetricsRecalculation.Status.COMPLETED,
+        "total_metrics": len(metrics),
+        "completed_metrics": len(results),
+        "failed_metrics": 0,
+        "metric_errors": {},
+        "trigger": ExperimentMetricsRecalculation.Trigger.COLD_RUN,
+        "created_at": latest_query_to,
+        "started_at": latest_query_to,
+        "completed_at": latest_query_to,
+        "query_to": latest_query_to,
+        "results": results,
+        "result_source": "timeseries_fallback",
+    }

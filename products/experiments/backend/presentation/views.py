@@ -109,6 +109,7 @@ from products.experiments.backend.recalculation import (
     build_timeseries_cold_start_payload,
     get_active_recalculation,
     get_latest_recalculation,
+    get_latest_timeseries,
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
@@ -1376,14 +1377,18 @@ class EnterpriseExperimentsViewSet(
         active = get_active_recalculation(experiment)
         active_run = {"id": str(active.id), "status": active.status} if active is not None else None
         recalc = get_latest_recalculation(experiment)
+        timeseries_query_to = get_latest_timeseries(experiment)
 
-        if recalc is not None:
+        # A daily timeseries run that landed after the latest recalculation is fresher data for every metric,
+        # so the timeseries payload below wins over the older snapshot.
+        if recalc is not None and (
+            timeseries_query_to is None or (recalc.query_to is not None and timeseries_query_to <= recalc.query_to)
+        ):
             return Response(_serialize_recalculation(recalc, active_run=active_run))
 
-        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
-        # placeholder so the user sees results immediately, even while a first run is active (its pending
-        # payload would blank them out); an active run still rides along for polling. Pure read, no
-        # workflow start.
+        # Cold start or superseded run: fall back to the latest timeseries data as a read-only placeholder so
+        # the user sees results immediately, even while a first run is active (its pending payload would blank
+        # them out); an active run still rides along for polling. Pure read, no workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
             if active_run is not None:
