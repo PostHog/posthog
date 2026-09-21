@@ -120,7 +120,6 @@ describe('session-recording-playlists-list response budget', () => {
     it('leaves the structured payload whole for a caller that asks for every field', () => {
         const row = (page.results as Record<string, unknown>[])[0]!
 
-        expect((row.filters as Record<string, unknown>).session_ids).toHaveLength(PINNED_SESSION_COUNT)
-        expect(row.created_by).toEqual(AUTHOR)
+        expect(row).toEqual(playlist(0))
     })
 })
