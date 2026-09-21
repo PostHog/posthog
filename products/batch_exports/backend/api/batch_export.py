@@ -1095,14 +1095,22 @@ class HogQLSelectQueryField(serializers.Field):
             raise serializers.ValidationError("Failed to parse query")
 
         try:
+            restricted_properties = get_restricted_properties_with_group_type_index_for_team(
+                user=self.context["request"].user, team_id=self.context["team_id"]
+            )
             context = HogQLContext(
                 team_id=self.context["team_id"],
                 user=self.context["request"].user,
                 enable_select_queries=True,
+                restricted_properties=restricted_properties,
                 modifiers=HogQLQueryModifiers(
                     personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                 ),
             )
+            if restricted_properties:
+                # A restricted query is stored without its HogQL text, so no run can recompile it for
+                # the native source, where a materialized column does not exist.
+                context.modifiers.materializationMode = MaterializationMode.DISABLED
             use_native_schema = context.uses_new_events_schema()
             prepared_select_query = cast(
                 ast.SelectQuery,
