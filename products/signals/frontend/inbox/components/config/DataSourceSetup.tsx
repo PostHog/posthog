@@ -1,11 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import { AvailableSourcesError } from 'products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 import SourceForm from 'products/data_warehouse/frontend/shared/components/forms/SourceForm'
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
@@ -22,30 +23,23 @@ export function DataSourceSetup({
     onComplete: () => void
 }): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
-    const { load } = useActions(availableSourcesLogic)
     const { dwSourceType, requiredTables } = WAREHOUSE_SOURCE_SETUP[source]
 
     if (availableSourcesLoading) {
         return <LemonSkeleton className="h-16" />
     }
 
-    // The wizard endpoint answers 403 without an error, so an empty list also covers "not allowed".
     if (availableSources === null) {
-        return (
-            <SetupUnavailable onRetry={load}>
-                Couldn't load the data sources you can connect. You may not have permission to add one in this project,
-                so check with an admin if trying again doesn't help.
-            </SetupUnavailable>
-        )
+        return <AvailableSourcesError />
     }
 
     const sourceConfig = Object.values(availableSources).find((s: SourceConfigResponseApi) => s.name === dwSourceType)
     if (!sourceConfig) {
         return (
-            <SetupUnavailable onRetry={load}>
+            <LemonBanner type="warning">
                 This data source isn't available to connect from here. You can{' '}
                 <Link to={urls.dataWarehouseSourceNew()}>add it in the data warehouse</Link>, then turn this source on.
-            </SetupUnavailable>
+            </LemonBanner>
         )
     }
 
@@ -60,17 +54,6 @@ export function DataSourceSetup({
         >
             <DataSourceSetupForm sourceConfig={sourceConfig} />
         </BindLogic>
-    )
-}
-
-function SetupUnavailable({ children, onRetry }: { children: React.ReactNode; onRetry: () => void }): JSX.Element {
-    return (
-        <div className="flex flex-col items-start gap-2 rounded border border-dashed p-4">
-            <p className="mb-0 text-sm text-secondary">{children}</p>
-            <LemonButton type="secondary" size="small" onClick={onRetry}>
-                Try again
-            </LemonButton>
-        </div>
     )
 }
 

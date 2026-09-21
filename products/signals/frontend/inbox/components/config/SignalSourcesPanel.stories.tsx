@@ -375,19 +375,19 @@ export const ErrorTrackingExpanded: Story = {
     },
 }
 
+const openConnectFlow: Story['play'] = async ({ canvasElement }) => {
+    await userEvent.click((await within(canvasElement).findAllByText('Connect'))[0])
+}
+
 /** Connect on a warehouse-backed source with no connectable sources to offer: says so, and retries. */
 export const ConnectableSourcesUnavailable: Story = {
     args: {
         connectableSourcesUnavailable: true,
     },
-    play: async ({ canvasElement }) => {
-        await userEvent.click((await within(canvasElement).findAllByText('Connect'))[0])
-    },
+    play: openConnectFlow,
 }
 
 /** Connect on a source the wizard does not offer: points at the data warehouse instead of a skeleton. */
 export const ConnectSourceMissing: Story = {
-    play: async ({ canvasElement }) => {
-        await userEvent.click((await within(canvasElement).findAllByText('Connect'))[0])
-    },
+    play: openConnectFlow,
 }

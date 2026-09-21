@@ -250,6 +250,7 @@ export interface signalSourcesLogicValues {
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoadFailed: boolean
     sourceConfigsLoading: boolean
+    sourceConfigsPending: boolean
     sourcesModalOpen: boolean
     togglingSourceKeys: Set<string>
     toolDataEvents: Set<string> | null
@@ -452,6 +453,7 @@ export interface signalSourcesLogicMeta {
         zendeskTicketsConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         pgAnalyzeIssuesConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         conversationsConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
+        sourceConfigsPending: (sourceConfigs: SignalSourceConfig[] | null, sourceConfigsLoadFailed: boolean) => boolean
         isConversationsToggling: (togglingSourceKeys: Set<string>) => boolean
         isGithubIssuesToggling: (togglingSourceKeys: Set<string>) => boolean
         isLinearIssuesToggling: (togglingSourceKeys: Set<string>) => boolean
@@ -775,6 +777,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         c.source_product === SignalSourceProduct.Conversations &&
                         c.source_type === SignalSourceType.Ticket
                 ) ?? null,
+        ],
+        // The configs have not resolved and no failure has been reported, so anything derived from
+        // them cannot be trusted yet.
+        sourceConfigsPending: [
+            (s) => [s.sourceConfigs, s.sourceConfigsLoadFailed],
+            (sourceConfigs: SignalSourceConfig[] | null, sourceConfigsLoadFailed: boolean): boolean =>
+                sourceConfigs === null && !sourceConfigsLoadFailed,
         ],
         isConversationsToggling: [
             (s) => [s.togglingSourceKeys],
