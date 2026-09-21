@@ -558,7 +558,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_uncompilable_filters_only_block_saves_that_leave_function_enabled(
         self, _name, initial_enabled, patch, expected
     ):
-        cohort = Cohort.objects.create(team=self.team, name="Test users", is_static=True)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@example.com"}],
+                }
+            },
+        )
         self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk}]
         self.team.save()
         fn = HogFunction.objects.create(
@@ -571,6 +580,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             hog="return event",
             filters={"filter_test_accounts": True},
         )
+        # Static only after the save: a save leaving the function enabled and uncompilable is refused.
+        cohort.is_static = True
+        cohort.save()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
             data=patch,
@@ -583,7 +595,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # A client may send the boolean as a JSON string ("false"). The enable-guard reads the raw
         # value before field coercion, so it must coerce rather than rely on truthiness - otherwise
         # "false" is truthy and the disable is wrongly rejected with the filter error.
-        cohort = Cohort.objects.create(team=self.team, name="Test users", is_static=True)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@example.com"}],
+                }
+            },
+        )
         self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk}]
         self.team.save()
         fn = HogFunction.objects.create(
@@ -596,6 +617,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             hog="return event",
             filters={"filter_test_accounts": True},
         )
+        # Static only after the save: a save leaving the function enabled and uncompilable is refused.
+        cohort.is_static = True
+        cohort.save()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
             data={"enabled": "false"},
