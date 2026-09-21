@@ -26,7 +26,7 @@ from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 
-from posthog_owners.schema import TeamEntry
+from owners_yaml.schema import TeamEntry
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
@@ -72,6 +72,16 @@ class QuarantineWriteError(Exception):
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
+
+
+class UnknownDoraEnvironmentError(Exception):
+    """A DORA read named deploy environments the source did not deploy to in the scan window.
+    Framework-free; the presentation layer maps it to a 400 on the ``environment`` parameter.
+    """
+
+    def __init__(self, environments: list[str]) -> None:
+        super().__init__(f"Unknown deploy environments: {', '.join(environments)}")
+        self.environments = environments
 
 
 class PRState(StrEnum):
@@ -733,12 +743,14 @@ class TeamCIHealthItem:
     # Owned tests that failed with no such proof and still hit the blast-radius bar. Not flakes.
     regression_test_count: int
     regression_test_count_prior: int
-    # Runs (not spans) where an owned test's recorded outcome was failed or error.
+    # Distinct runs where at least one owned test failed or errored. One run that failed many of the
+    # team's tests counts once, so these are never a sum of the per-test run counts.
     failed_run_count: int
     failed_run_count_prior: int
     same_commit_recovery_run_count: int
     same_commit_recovery_run_count_prior: int
-    # Runs where an owned test recorded a tolerated failure while quarantined: already masked, still failing.
+    # Distinct runs where an owned test recorded a tolerated failure while quarantined: already
+    # masked, still failing.
     quarantined_failed_run_count: int
     quarantined_failed_run_count_prior: int
     # Most recent failure, recovery, or quarantined-failure run across the team's owned tests,
@@ -1561,15 +1573,13 @@ class WorkflowJobAggregate:
 
 @dataclass(frozen=True)
 class PathOwnership:
-    """Which team owns each of a set of repository paths, plus the repo's Slack registry.
+    """Which team owns each repository path, plus the repo's Slack registry from the root ``owners.yaml``.
+    The registry rides along because the caller that asks who owns a path usually has to reach that
+    team next, and the root file answers both questions in one read.
 
-    The registry rides along because the caller that asks who owns a path usually has to reach
-    that team next, and the root ``owners.yaml`` answers both questions in one read.
-
-    ``resolved`` is false when the ownership files could not be read, which leaves every path
-    ``UNOWNED_TEAM`` and the registry empty. A caller that says so beats one that reads the blind
-    answer as "nobody owns this".
-    """
+    ``resolved`` is false when the ownership files could not be read; every path is then
+    ``UNOWNED_TEAM`` and the registry is empty. A caller that says so beats one that reads the blind
+    answer as "nobody owns this"."""
 
     team_by_path: Mapping[str, str]
     registry: Mapping[str, TeamEntry]
@@ -1752,12 +1762,9 @@ class DeliveryComparison:
 
 
 class PRTimelineSegmentKind(StrEnum):
-    """What a pull request was waiting on during one stretch of its timeline, most specific first.
-
-    CI and queue states win over review states: a red check blocks a merge whatever the review
-    says. The red variants name what turned the check green, which is evidence about the cause,
-    not proof of it.
-    """
+    """What a pull request was waiting on during one stretch of its timeline. The red variants name
+    what turned the check green, which is evidence about the cause, not proof of it.
+    ``logic/pr_timeline.py`` defines the precedence."""
 
     DRAFT = "draft"
     WAITING_FOR_REVIEW = "waiting_for_review"

@@ -1,12 +1,8 @@
 from datetime import date, datetime
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from rest_framework.response import Response
-
-from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.tasks.tasks import sync_team_earliest_event_date
 from products.managed_warehouse.backend.facade.contracts import (
@@ -14,17 +10,14 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTeamMembership,
 )
 
-
-def _team() -> tuple[Organization, Team]:
-    org = Organization.objects.create(name="Org")
-    team = Team.objects.create(organization=org)
-    return org, team
+TEAM_ID = 4242
+ORGANIZATION_ID = "018f0000-0000-0000-0000-00000000c0de"
 
 
-def _membership(org: Organization, team: Team, earliest: date | None = None) -> ManagedWarehouseTeamMembership:
+def _membership(earliest: date | None = None) -> ManagedWarehouseTeamMembership:
     return ManagedWarehouseTeamMembership(
-        team_id=team.id,
-        organization_id=str(org.id),
+        team_id=TEAM_ID,
+        organization_id=ORGANIZATION_ID,
         schema_name="env",
         enabled=True,
         backfill_enabled=True,
@@ -47,7 +40,7 @@ def _patch_membership(row: ManagedWarehouseTeamMembership | None):
         ("post_2015_kept", datetime(2020, 6, 15), date(2020, 6, 15)),
     ]
 )
-@pytest.mark.django_db
+@patch("products.managed_warehouse.backend.facade.api.get_org_id_for_team", return_value=ORGANIZATION_ID)
 @patch("products.managed_warehouse.backend.facade.api.update_team_earliest_event_date")
 @patch("products.managed_warehouse.backend.facade.api.resolve_team_earliest_event_date")
 def test_sync_task_resolves_and_pushes_to_control_plane(
@@ -56,48 +49,47 @@ def test_sync_task_resolves_and_pushes_to_control_plane(
     expected: date,
     mock_get_earliest: MagicMock,
     mock_update: MagicMock,
+    _mock_org_id: MagicMock,
 ) -> None:
     # The provisioning-time task must apply the same clamp the backfill sensor uses and
     # persist the result on the team's duckgres control-plane row (the sensor's read source).
-    org, team = _team()
     mock_get_earliest.return_value = expected
-    mock_update.return_value = Response({}, status=200)
 
-    with _patch_membership(_membership(org, team)):
-        sync_team_earliest_event_date(team.id)
+    with _patch_membership(_membership()):
+        sync_team_earliest_event_date(TEAM_ID)
 
-    mock_update.assert_called_once_with(str(org.id), team.id, expected)
+    _mock_org_id.assert_called_once_with(TEAM_ID)
+    mock_update.assert_called_once_with(ORGANIZATION_ID, TEAM_ID, expected)
 
 
-@pytest.mark.django_db
+@patch("products.managed_warehouse.backend.facade.api.get_org_id_for_team", return_value=ORGANIZATION_ID)
 @patch("products.managed_warehouse.backend.facade.api.update_team_earliest_event_date")
 @patch("products.managed_warehouse.backend.facade.api.resolve_team_earliest_event_date")
-def test_sync_task_leaves_empty_team_unresolved(mock_get_earliest: MagicMock, mock_update: MagicMock) -> None:
+def test_sync_task_leaves_empty_team_unresolved(
+    mock_get_earliest: MagicMock, mock_update: MagicMock, _mock_org_id: MagicMock
+) -> None:
     # A just-provisioned project plausibly has no events YET. A cached date is final, so
     # storing the no-history sentinel here would permanently exclude the team from
     # historical backfill; the task must store nothing and leave the sensor to resolve
     # it later.
-    org, team = _team()
     mock_get_earliest.return_value = None
 
-    with _patch_membership(_membership(org, team)):
-        sync_team_earliest_event_date(team.id)
+    with _patch_membership(_membership()):
+        sync_team_earliest_event_date(TEAM_ID)
 
     mock_update.assert_not_called()
 
 
-@pytest.mark.django_db
+@patch("products.managed_warehouse.backend.facade.api.get_org_id_for_team", return_value=ORGANIZATION_ID)
 @patch("products.managed_warehouse.backend.facade.api.update_team_earliest_event_date")
 @patch("products.managed_warehouse.backend.facade.api.resolve_team_earliest_event_date")
 def test_sync_task_skips_clickhouse_when_date_already_cached(
-    mock_get_earliest: MagicMock, mock_update: MagicMock
+    mock_get_earliest: MagicMock, mock_update: MagicMock, _mock_org_id: MagicMock
 ) -> None:
     # Idempotent re-runs (dispatch retries, re-onboards) must not re-query ClickHouse or
     # re-push a date the control plane already holds.
-    org, team = _team()
-
-    with _patch_membership(_membership(org, team, earliest=date(2019, 5, 1))):
-        sync_team_earliest_event_date(team.id)
+    with _patch_membership(_membership(earliest=date(2019, 5, 1))):
+        sync_team_earliest_event_date(TEAM_ID)
 
     mock_get_earliest.assert_not_called()
     mock_update.assert_not_called()
@@ -112,16 +104,14 @@ def test_sync_task_skips_clickhouse_when_date_already_cached(
         ("cp_unreachable", None),
     ]
 )
-@pytest.mark.django_db
+@patch("products.managed_warehouse.backend.facade.api.get_org_id_for_team", return_value=ORGANIZATION_ID)
 @patch("products.managed_warehouse.backend.facade.api.update_team_earliest_event_date")
 @patch("products.managed_warehouse.backend.facade.api.resolve_team_earliest_event_date")
 def test_sync_task_is_a_noop_without_a_readable_row(
-    _name: str, rows, mock_get_earliest: MagicMock, mock_update: MagicMock
+    _name: str, rows, mock_get_earliest: MagicMock, mock_update: MagicMock, _mock_org_id: MagicMock
 ) -> None:
-    org, team = _team()
-
-    with _patch_membership(_membership(org, team) if rows else None):
-        sync_team_earliest_event_date(team.id)
+    with _patch_membership(_membership() if rows else None):
+        sync_team_earliest_event_date(TEAM_ID)
 
     mock_get_earliest.assert_not_called()
     mock_update.assert_not_called()
