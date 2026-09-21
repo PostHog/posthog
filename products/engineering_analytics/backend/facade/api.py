@@ -7,14 +7,14 @@ parameters and return canonical contract types.
 ``repo`` is an optional ``owner/name`` filter, applied against the curated repo
 identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
 ``head_branch`` filter for workflow health, a workflow's runs list, and its runner
-costs; the same surfaces also take a broader ``run_scope`` filter that selects one of
-four run groups (``all``, ``default_branch``, ``pull_request``, ``merge_queue``). ``date_from`` / ``date_to`` accept
+costs; the same surfaces also take a broader ``run_scope`` filter (see
+``WorkflowHealthRunScope``). ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
 one; it defaults to the oldest connected source. ``user_access_control`` enforces the
 requesting user's per-source warehouse access (pass the request's; ``None`` for system
 contexts). Each function resolves the team's authorized curated read handle once, here,
-then delegates to the read layer — source selection and access control live in this layer,
+then delegates to the read layer: source selection and access control live in this layer,
 not in the query builders below it.
 """
 
@@ -75,11 +75,11 @@ def _authorized_source(
     user_access_control: "UserAccessControl | None",
     repo: str | None = None,
 ) -> "CuratedGitHubSource":
-    """Resolve this caller's curated read handle — the single place source selection and per-source
+    """Resolve this caller's curated read handle: the single place source selection and per-source
     warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
     filters out sources the requesting user can't access; ``source_id`` selects a specific source,
     else the oldest connected. ``repo`` ('owner/name'), when the caller already scopes to one repo,
-    prefers the source connected for that repo — so a team with one source per repository reads the
+    prefers the source connected for that repo, so a team with one source per repository reads the
     right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
     return logic.CuratedGitHubSource.for_team(
@@ -164,11 +164,11 @@ def resolve_branch(
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[BranchPRMatch]:
-    """Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam
+    """Resolve a git branch to the pull request(s) it belongs to: the cross-product link seam
     (LLM analytics links a git branch to a PR detail page). ``branch`` is required; ``repo``
     ('owner/name') optionally narrows to one repository. ``timestamp`` (the trace's capture time)
     prefers the PR that was active at that moment when a branch name was reused across PRs over
-    time — a ranking hint only, never a filter.
+    time. It is a ranking hint only, never a filter.
     """
     return logic.build_resolve_branch(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
@@ -402,7 +402,7 @@ def list_recently_merged_pull_requests(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[MergedPullRequest]:
     """Merged pull requests in ``repository`` ('owner/name'), newest first, each with its branch-tip
-    ``head_sha`` — the discovery seam for ReviewHog telemetry. Raises
+    ``head_sha``: the discovery seam for ReviewHog telemetry. Raises
     ``GitHubSourceNotConnectedError`` (propagated to the caller) when no GitHub source is connected.
 
     Ask one of two ways. ``numbers`` returns exactly those PRs whatever their merge date, which is
@@ -552,7 +552,7 @@ def get_quarantine(
     user_access_control: "UserAccessControl | None" = None,
 ) -> QuarantineFile:
     # Quarantine resolves its source lazily (DEBUG reads the local checkout, an explicit ``repo`` needs
-    # no source) so it stays fail-open where the curated reads above don't — ``source_id`` /
+    # no source) so it stays fail-open where the curated reads above don't. ``source_id`` /
     # ``user_access_control`` only matter when it falls back to the connected source's most-active repo.
     return logic.build_quarantine(team=team, repo=repo, source_id=source_id, user_access_control=user_access_control)
 
@@ -589,38 +589,22 @@ def get_dora_overview(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    validated_environments: list[str] | None = None,
+    environments: list[str] | None = None,
     github_team: str | None = None,
     granularity: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> DoraOverview:
+    """Raises ``UnknownDoraEnvironmentError`` when ``environments`` names an environment the source
+    did not deploy to in the scan window."""
     return logic.build_dora_overview(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
-        validated_environments=validated_environments,
+        environments=environments,
         github_team=github_team,
         granularity=granularity,
-    )
-
-
-def get_dora_environment_choices(
-    environments: list[str],
-    *,
-    team: Team,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    source_id: str | None = None,
-    repo: str | None = None,
-    user_access_control: "UserAccessControl | None" = None,
-) -> list[str]:
-    return logic.get_dora_environment_choices(
-        environments=environments,
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
-        date_from=date_from,
-        date_to=date_to,
     )
 
 
@@ -708,10 +692,6 @@ def list_job_aggregates(
 
 
 def resolve_path_owners(repository: str, paths: Sequence[str]) -> PathOwnership:
-    """Name the team that owns each repository path, from the repository's own ownership files.
-
-    No team parameter: the answer comes from the repository as it stands on its default branch, not
-    from anything this PostHog team stores. Callers outside this product reach it here so the fetch,
-    the cache, and the failure contract stay in one place.
-    """
+    """Name the team that owns each repository path, from the ownership files on the repository's
+    default branch. It takes no team, because nothing PostHog stores feeds the answer."""
     return logic.resolve_path_owners(repository, paths)
