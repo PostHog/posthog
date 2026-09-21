@@ -24,11 +24,11 @@
       FROM
           raw_sessions_v3
       WHERE
-          and(equals(raw_sessions_v3.team_id, <TEAM_ID>), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_75)s, %(hogql_val_76)s)), 80)))))
+          and(equals(raw_sessions_v3.team_id, <TEAM_ID>), equals(toTimeZone(raw_sessions_v3.session_timestamp, %(hogql_val_75)s), fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_76)s, %(hogql_val_77)s)), 80)))))
       GROUP BY
           raw_sessions_v3.session_id_v7) AS sessions
   WHERE
-      equals(sessions.session_id, %(hogql_val_77)s)
+      equals(sessions.session_id, %(hogql_val_78)s)
   LIMIT 1
   '''
 # ---

@@ -33,11 +33,11 @@
       FROM
           raw_sessions_v3
       WHERE
-          and(equals(raw_sessions_v3.team_id, <TEAM_ID>), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)), 80)))))
+          and(equals(raw_sessions_v3.team_id, <TEAM_ID>), equals(toTimeZone(raw_sessions_v3.session_timestamp, %(hogql_val_0)s), fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_1)s, %(hogql_val_2)s)), 80)))))
       GROUP BY
           raw_sessions_v3.session_id_v7) AS sessions
   WHERE
-      equals(sessions.session_id, %(hogql_val_2)s)
+      equals(sessions.session_id, %(hogql_val_3)s)
   LIMIT 50000
   '''
 # ---
@@ -167,11 +167,11 @@
       FROM
           raw_sessions_v3
       WHERE
-          and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)), toIntervalDay(3))), lessOrEquals(raw_sessions_v3.session_timestamp, plus(plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)), toIntervalHour(1)), toIntervalDay(3))), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)), 80)))))
+          and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)), toIntervalDay(3))), lessOrEquals(raw_sessions_v3.session_timestamp, plus(plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)), toIntervalHour(1)), toIntervalDay(3))), equals(toTimeZone(raw_sessions_v3.session_timestamp, %(hogql_val_6)s), fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_7)s, %(hogql_val_8)s)), 80)))))
       GROUP BY
           raw_sessions_v3.session_id_v7) AS sessions
   WHERE
-      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_8)s, %(hogql_val_9)s))), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_10)s, %(hogql_val_11)s)), toIntervalHour(1))), 0), equals(sessions.session_id, %(hogql_val_12)s))
+      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_9)s, %(hogql_val_10)s))), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_11)s, %(hogql_val_12)s)), toIntervalHour(1))), 0), equals(sessions.session_id, %(hogql_val_13)s))
   LIMIT 1
   '''
 # ---
@@ -187,11 +187,11 @@
       FROM
           raw_sessions_v3
       WHERE
-          and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_1)s, %(hogql_val_2)s)), toIntervalDay(3))), lessOrEquals(raw_sessions_v3.session_timestamp, plus(plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_3)s, %(hogql_val_4)s)), toIntervalDay(2)), toIntervalDay(3))), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_5)s, %(hogql_val_6)s)), 80)))))
+          and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_1)s, %(hogql_val_2)s)), toIntervalDay(3))), lessOrEquals(raw_sessions_v3.session_timestamp, plus(plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_3)s, %(hogql_val_4)s)), toIntervalDay(2)), toIntervalDay(3))), equals(toTimeZone(raw_sessions_v3.session_timestamp, %(hogql_val_5)s), fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)), 80)))))
       GROUP BY
           raw_sessions_v3.session_id_v7) AS sessions
   WHERE
-      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_7)s, %(hogql_val_8)s))), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_9)s, %(hogql_val_10)s)), toIntervalDay(2))), 0), equals(sessions.session_id, %(hogql_val_11)s))
+      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_8)s, %(hogql_val_9)s))), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_10)s, %(hogql_val_11)s)), toIntervalDay(2))), 0), equals(sessions.session_id, %(hogql_val_12)s))
   LIMIT 50000
   '''
 # ---
