@@ -674,6 +674,23 @@ class TestSecurityItems:
         rows = _collect(monkeypatch, "security_items", pages)
         assert [row["id"] for row in rows] == ["item-1", "item-2"]
 
+    @parameterized.expand([("security_items", False), ("organizations", True)])
+    def test_sample_capture_is_off_for_security_findings(self, endpoint: str, expected: bool) -> None:
+        # Security rows carry free-text finding bodies and secret-scan detail that the capture
+        # pipeline's name-based scrubber cannot recognise, so they must stay out of the samples.
+        with patch.object(codacy, "make_tracked_session") as make_session:
+            with patch.object(codacy, "_fetch_page", return_value={"data": []}):
+                list(
+                    get_rows(
+                        api_token="token",
+                        provider="gh",
+                        organization="acme",
+                        endpoint=endpoint,
+                        logger=MagicMock(),
+                    )
+                )
+        assert make_session.call_args.kwargs["capture"] is expected
+
     def test_partitions_on_the_stable_detection_timestamp(self) -> None:
         # dueAt and closedAt both move as an item is triaged, so partitioning on either would
         # rewrite partitions on every sync.

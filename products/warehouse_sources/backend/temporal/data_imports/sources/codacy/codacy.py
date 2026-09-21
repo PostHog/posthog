@@ -534,7 +534,7 @@ def get_rows(
     # alive instead of re-handshaking per request. The token rides the custom `api-token`
     # header, which the capture pipeline's name-based denylist doesn't know, so redact it
     # by value.
-    session = make_tracked_session(redact_values=(api_token,))
+    session = make_tracked_session(redact_values=(api_token,), capture=endpoint_config.capture_http_samples)
 
     if endpoint_config.fan_out == "repository":
         yield from _fan_out_over_repositories(session, headers, logger, provider, organization, endpoint_config)

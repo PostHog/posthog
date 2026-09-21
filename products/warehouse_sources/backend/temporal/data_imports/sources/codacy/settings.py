@@ -35,6 +35,9 @@ class CodacyEndpointConfig:
     # False for the endpoints that answer with one complete payload and declare neither `cursor`
     # nor `limit`; sending pagination params they don't accept makes Codacy reject the request.
     paginated: bool = True
+    # False for endpoints whose rows carry free-text finding bodies and secret-scan detail. The
+    # HTTP sample capture scrubber is name-based and cannot recognise those fields.
+    capture_http_samples: bool = True
     fan_out: Optional[FanOut] = None
     # Stable datetime field to partition by (never a mutable field like `updated`).
     partition_key: Optional[str] = None
@@ -141,6 +144,7 @@ CODACY_ENDPOINTS: dict[str, CodacyEndpointConfig] = {
         method="POST",
         primary_keys=["id"],
         partition_key="openedAt",
+        capture_http_samples=False,
         # The endpoint defaults to due date descending, which reshuffles as items are triaged;
         # detection order is the only monotonic sort it offers.
         extra_params={"sort": "DetectedAt", "direction": "asc"},
