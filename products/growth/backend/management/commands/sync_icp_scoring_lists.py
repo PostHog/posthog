@@ -78,7 +78,9 @@ class Command(BaseCommand):
             )
 
         with transaction.atomic():
-            configs = list(IcpScoringConfig.objects.select_for_update().order_by("pk"))
+            configs = list(
+                IcpScoringConfig.objects.select_for_update().order_by("pk").only("pk", "is_active", "scoring_rules")
+            )
             active = next((config for config in configs if config.is_active), None)
             config = IcpScoringConfig.objects.create(
                 version=version,
