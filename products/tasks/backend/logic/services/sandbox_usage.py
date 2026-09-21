@@ -191,6 +191,7 @@ def _capture_sandbox_session_closed(
         {
             "sandbox_id": sandbox_session.sandbox_id,
             "ended_reason": reason,
+            "sandbox_backend": sandbox_session.sandbox_backend,
             "runtime_seconds": _elapsed_seconds(sandbox_session.created_at, effective_end),
             "attributed_seconds": _elapsed_seconds(sandbox_session.user_attributed_at, effective_end),
             "idle_seconds": _elapsed_seconds(sandbox_session.last_user_activity_at, effective_end),

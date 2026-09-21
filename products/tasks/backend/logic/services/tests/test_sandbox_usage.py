@@ -249,6 +249,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
 
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
         props = captured[0].kwargs["properties"]
+        assert props["sandbox_backend"] == sandbox_backend
         assert props["attributed_seconds"] == expected_seconds
         assert props["runtime_seconds"] == expected_seconds
         assert props["idle_seconds"] == expected_seconds
