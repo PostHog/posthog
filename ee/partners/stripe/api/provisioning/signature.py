@@ -76,6 +76,11 @@ def verify_stripe_signature(request: Request) -> Response | None:
     """
     endpoint = request.path
 
+    # An unset secret is an operator problem rather than a caller one, and it is answered before
+    # the body is touched, so an unreadable body cannot mask it behind a 400.
+    if not settings.STRIPE_SIGNING_SECRET:
+        return _unconfigured(endpoint)
+
     body = _get_raw_body(request)
     if body is None:
         _log_and_capture_event("body_not_readable", 400, endpoint)
@@ -102,8 +107,8 @@ def verify_stripe_signature(request: Request) -> Response | None:
 
     outcome = _SCHEME.verify(body=body, headers=request.headers).outcome
     if outcome is VerificationOutcome.NOT_CONFIGURED:
-        _log_and_capture_event("server_error", 500, endpoint)
-        return Response({"error": {"code": "server_error", "message": "Signing secret not configured"}}, status=500)
+        # The secret was set when this request started and is gone now, mid-rotation.
+        return _unconfigured(endpoint)
     if outcome is not VerificationOutcome.VERIFIED:
         _log_and_capture_event("invalid_signature", 401, endpoint, reason=outcome.value)
         return Response(
@@ -112,6 +117,11 @@ def verify_stripe_signature(request: Request) -> Response | None:
 
     _log_and_capture_event("success", 200, endpoint)
     return None
+
+
+def _unconfigured(endpoint: str) -> Response:
+    _log_and_capture_event("server_error", 500, endpoint)
+    return Response({"error": {"code": "server_error", "message": "Signing secret not configured"}}, status=500)
 
 
 def _get_raw_body(request: Request) -> bytes | None:
