@@ -145,6 +145,7 @@ depends_on = [
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
+    "products.security",
 ]
 layer = "modules"
 
@@ -1604,4 +1605,18 @@ expose = [
 ]
 from = [
     "products.ai_training",
+]
+
+[[modules]]
+path = "products.security"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.security",
 ]
