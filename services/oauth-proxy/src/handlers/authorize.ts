@@ -73,8 +73,8 @@ function soleLiveRegion(cookieHeader: string | null): Region | null {
         return null
     }
     const names = new Set(cookieHeader.split(';').map((c) => c.trim().split('=')[0]))
-    const live = (['us', 'eu'] as const).filter((region) => names.has(`ph_authenticated_${region}`))
-    return live.length === 1 ? live[0] : null
+    const [sole, second] = (['us', 'eu'] as const).filter((region) => names.has(`ph_authenticated_${region}`))
+    return sole && !second ? sole : null
 }
 
 async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNamespace): Promise<Response> {
