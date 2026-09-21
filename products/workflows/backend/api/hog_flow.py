@@ -4572,7 +4572,16 @@ class HogFlowViewSet(
         super().check_object_permissions(request, obj)
         if request.method in permissions.SAFE_METHODS or not isinstance(obj, HogFlow):
             return
-        if obj.managed_by != HogFlow.ManagedBy.CODE:
+        self._refuse_if_code_managed(request, obj)
+
+    def _refuse_if_code_managed(self, request: Request, hog_flow: HogFlow) -> None:
+        """Raise unless this request is one of the writes a code-managed workflow still takes.
+
+        Called again on the locked row inside each mutating transaction, because a push can claim the
+        workflow between `check_object_permissions` and the lock, and the row the write lands on is
+        the one that decides.
+        """
+        if hog_flow.managed_by != HogFlow.ManagedBy.CODE:
             return
         if is_code_managed_writer(request):
             return
@@ -4580,7 +4589,7 @@ class HogFlowViewSet(
             return
         if self.action in ("update", "partial_update") and _payload_keys(request) in _CODE_MANAGED_ALLOWED_PAYLOADS:
             return
-        raise CodeManagedWorkflowError(obj)
+        raise CodeManagedWorkflowError(hog_flow)
 
     @extend_schema(
         request=HogInvocationRerunRequestSerializer,
@@ -4856,6 +4865,9 @@ class HogFlowViewSet(
             except HogFlow.DoesNotExist:
                 before_update = None
 
+            if before_update is not None:
+                self._refuse_if_code_managed(self.request, before_update)
+
             # Draft edits race against other draft edits, not against the live row (which they don't
             # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
             guard_timestamp = before_update.updated_at if before_update else None
@@ -5043,6 +5055,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._refuse_if_code_managed(request, locked)
 
             route_to_draft = is_mcp_transport_request(request) and locked.status == HogFlow.State.ACTIVE
 
@@ -5142,6 +5155,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._refuse_if_code_managed(request, locked)
 
             route_to_draft = is_mcp_transport_request(request) and locked.status == HogFlow.State.ACTIVE
 
@@ -5390,6 +5404,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._refuse_if_code_managed(request, locked)
             if not locked.draft:
                 raise exceptions.ValidationError("This workflow has no staged draft to publish.")
             if previewed_value != _publish_confirm_value(locked):
@@ -5439,6 +5454,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._refuse_if_code_managed(request, locked)
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             locked.draft = None
@@ -5501,6 +5517,7 @@ class HogFlowViewSet(
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            self._refuse_if_code_managed(request, locked)
             try:
                 revision = HogFlowRevision.objects.get(hog_flow_id=locked.pk, version=int(version or 0))
             except HogFlowRevision.DoesNotExist:
@@ -5912,12 +5929,19 @@ class HogFlowViewSet(
         # entry), and share the delete's transaction so a failed delete rolls its audit rows back.
         # Usage events fire only after commit.
         with transaction.atomic():
-            deleted_ids = set(
+            locked_rows = list(
                 self.get_queryset()
                 .select_for_update()
                 .filter(id__in=[flow.id for flow in deletable])
-                .values_list("id", flat=True)
+                .values_list("id", "managed_by")
             )
+            # A push can claim a workflow between the check above and this lock, so the locked row is
+            # the one that decides.
+            if not is_code_managed_writer(request):
+                claimed = {row_id for row_id, managed_by in locked_rows if managed_by == HogFlow.ManagedBy.CODE}
+                if claimed:
+                    raise CodeManagedWorkflowError(next(flow for flow in deletable if flow.id in claimed))
+            deleted_ids = {row_id for row_id, _ in locked_rows}
             # delete() also counts the cascaded rows (revisions, schedules); report workflows only.
             _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
             deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
