@@ -43,13 +43,19 @@ describe('eventsSceneLogic', () => {
         expect(logic.values.query).toEqual(query)
     })
 
-    it('falls back to the default query when the #q= hash has no source', async () => {
-        // A DataTableNode without a source cannot be rendered, so it must never reach setQuery.
+    // A DataTable cannot be rendered without a source that names its kind, so these must never reach setQuery.
+    it.each([
+        ['no source', undefined],
+        ['a source with no kind', {}],
+        ['a string source', 'nope'],
+        ['an array source', []],
+        ['a non-string kind', { kind: 7 }],
+    ])('falls back to the default query when the #q= hash has %s', async (_label, source) => {
         router.actions.push(
             combineUrl(
                 urls.activity(ActivityTab.ExploreEvents),
                 {},
-                { q: { kind: NodeKind.DataTableNode, full: true } }
+                { q: { kind: NodeKind.DataTableNode, full: true, ...(source !== undefined ? { source } : {}) } }
             ).url
         )
 
