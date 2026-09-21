@@ -13,7 +13,7 @@ import { getHogFlowBranchColor, useHogFlowBranchSelection } from '../HogFlowBran
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowEdge } from '../types'
 import { HogFlowTreeBranchConnector } from './HogFlowTreeBranchConnector'
-import type { WorkflowTreeBranch, WorkflowTreeNode } from './workflowTree'
+import { getWaitTimeoutLabel, type WorkflowTreeBranch, type WorkflowTreeNode } from './workflowTree'
 import { getWorkflowTreeBranchSummary, getWorkflowTreeOccurrenceKey } from './workflowTreePresentation'
 
 export function HogFlowTreeBranch({
@@ -60,7 +60,9 @@ export function HogFlowTreeBranch({
                 : `If #${branchIndex + 1}`
             : node.action.type === 'wait_until_condition'
               ? branchIndex === null
-                  ? 'Timeout'
+                  ? getWaitTimeoutLabel(node.action.config.max_wait_duration)
+                      ? 'Timeout'
+                      : 'No match'
                   : 'Match'
               : branchIndex === null
                 ? 'Fallback'

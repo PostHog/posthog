@@ -42,7 +42,7 @@ export function isBranchingAction(action: Pick<HogFlowAction, 'type'>): boolean 
     return BRANCHING_ACTION_TYPES.includes(action.type as (typeof BRANCHING_ACTION_TYPES)[number])
 }
 
-function getWaitTimeoutLabel(maxWaitDuration: string | undefined): string | null {
+export function getWaitTimeoutLabel(maxWaitDuration: string | undefined): string | null {
     const parts = COMPLETE_DURATION_PATTERN.exec(maxWaitDuration ?? '')
     if (!parts) {
         return null
