@@ -278,12 +278,12 @@ RUN apt-get update && \
 FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONUNBUFFERED=1
 # Granian embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
 # coercion never runs and open() defaults to ASCII under the container's bare locale.
 # Force UTF-8 so file reads with non-ASCII bytes don't raise UnicodeDecodeError.
-ENV PYTHONUTF8 1
-ENV LANG C.UTF-8
+ENV PYTHONUTF8=1
+ENV LANG=C.UTF-8
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
 # Runtime-only shared libs: lxml/xmlsec are compiled --no-binary in the build stage (which keeps
