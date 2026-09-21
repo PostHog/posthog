@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import (
+    _TOKEN_EXPIRY_LEEWAY_SECONDS,
     ClickHouseChPool,
     ClickHouseCredentials,
     ClickHouseUser,
@@ -123,6 +124,9 @@ def _sa_token(exp: int) -> str:
         pytest.param("static-secret", "valid", False, id="armed-and-valid-uses-token"),
         pytest.param("", "expired", False, id="token-only-keeps-expired-token"),
         pytest.param("static-secret", "malformed", False, id="unparseable-token-is-sent"),
+        pytest.param("static-secret", "non_dict_payload", False, id="non-dict-payload-is-sent"),
+        pytest.param("static-secret", "oversized_exp", False, id="oversized-exp-is-sent"),
+        pytest.param("static-secret", "near_expiry", True, id="near-expiry-uses-static"),
     ],
 )
 def test_read_password_uses_static_only_for_an_armed_user_with_an_expired_token(
@@ -130,6 +134,13 @@ def test_read_password_uses_static_only_for_an_armed_user_with_an_expired_token(
 ):
     if token_kind == "malformed":
         token = "not-a-jwt"
+    elif token_kind == "non_dict_payload":
+        payload = base64.urlsafe_b64encode(json.dumps([1, 2, 3]).encode()).rstrip(b"=").decode()
+        token = f"header.{payload}.signature"
+    elif token_kind == "oversized_exp":
+        token = _sa_token(10**400)
+    elif token_kind == "near_expiry":
+        token = _sa_token(int(time.time()) + _TOKEN_EXPIRY_LEEWAY_SECONDS - 1)
     else:
         token = _sa_token(int(time.time()) + (-3600 if token_kind == "expired" else 3600))
     token_file = tmp_path / "token"

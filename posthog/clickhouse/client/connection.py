@@ -139,10 +139,12 @@ def _token_expiry(token: str) -> float | None:
     try:
         padding = "=" * (-len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
-    except (ValueError, TypeError):
+        if not isinstance(claims, dict):
+            return None
+        exp = claims.get("exp")
+        return float(exp) if isinstance(exp, int | float) and not isinstance(exp, bool) else None
+    except (ValueError, TypeError, OverflowError):
         return None
-    exp = claims.get("exp")
-    return float(exp) if isinstance(exp, int | float) and not isinstance(exp, bool) else None
 
 
 def _token_is_expired(token: str) -> bool:
