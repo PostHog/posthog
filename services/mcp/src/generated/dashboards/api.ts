@@ -1400,17 +1400,29 @@ export const DashboardsRunInsightsRetrieveQueryParams = () => zod.object({
             'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
         ),
     format: zod.enum(['json', 'txt']).optional(),
+    max_result_chars: zod
+        .number()
+        .optional()
+        .describe(
+            "Per-tile character budget for 'optimized' output. A longer table is cut to whole rows and marked as truncated. Defaults to 2000; pass 0 for the whole table. Ignored when output_format is 'json'. Whatever the value, an 'optimized' response stops running tiles after 30000 characters."
+        ),
     output_format: zod
         .enum(['json', 'optimized'])
         .optional()
         .describe(
-            "'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects."
+            "'optimized' (default) returns LLM-friendly formatted text per insight, bounded by max_result_chars. 'json' returns the raw query result objects, unbounded."
         ),
     refresh: zod
         .enum(['blocking', 'force_blocking', 'force_cache'])
         .optional()
         .describe(
             "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates."
+        ),
+    tile_ids: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others.'
         ),
     variables_override: zod
         .string()

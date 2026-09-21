@@ -101,6 +101,75 @@ class TestDashboardRunInsights(APIBaseTest):
         if isinstance(result, str):
             self.assertIn("|", result)
 
+    def test_tile_ids_runs_only_the_selected_tiles(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        first_id, _ = self.dashboard_api.create_insight(
+            {"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]}
+        )
+        second_id, _ = self.dashboard_api.create_insight(
+            {"name": "B", "query": _trends_query_dict("$autocapture"), "dashboards": [dashboard_id]}
+        )
+        second_tile = DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=second_id)
+
+        body = self._run(dashboard_id, output_format="json", tile_ids=str(second_tile.id))
+
+        self.assertEqual([tile["insight"]["id"] for tile in body["results"]], [second_id])
+        # The order stays the tile's position on the dashboard, not its index in the subset.
+        self.assertEqual(body["results"][0]["order"], 1)
+        self.assertNotEqual(first_id, second_id)
+
+    def test_rejects_a_non_numeric_tile_id(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_insights/",
+            data={"tile_ids": "12,abc"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_rejects_a_negative_max_result_chars(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_insights/",
+            data={"max_result_chars": "-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_optimized_result_is_cut_to_the_per_tile_budget(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+
+        full = self._run(dashboard_id, refresh="blocking", max_result_chars="0")["results"][0]["insight"]["result"]
+        if not isinstance(full, str):
+            self.skipTest("LLM formatting is unavailable, so there is nothing to truncate")
+
+        bounded = self._run(dashboard_id, refresh="blocking", max_result_chars="40")["results"][0]["insight"]["result"]
+
+        self.assertLess(len(bounded), len(full))
+        self.assertIn("Truncated to 40 characters", bounded)
+        self.assertTrue(full.startswith(bounded.split("\n[Truncated")[0]))
+
+    def test_optimized_stops_running_tiles_at_the_response_budget(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+        self.dashboard_api.create_insight(
+            {"name": "B", "query": _trends_query_dict("$autocapture"), "dashboards": [dashboard_id]}
+        )
+
+        with patch("products.dashboards.backend.api.dashboard.RUN_INSIGHTS_MAX_TOTAL_CHARS", 1):
+            body = self._run(dashboard_id, refresh="blocking")
+
+        self.assertEqual(len(body["results"]), 2)
+        self.assertNotIn("Not run", str(body["results"][0]["insight"]["result"]))
+        self.assertIn("Not run", body["results"][1]["insight"]["result"])
+        self.assertEqual(
+            set(body["results"][1]["insight"].keys()),
+            {"id", "short_id", "name", "derived_name", "result"},
+        )
+
     def test_skips_text_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})

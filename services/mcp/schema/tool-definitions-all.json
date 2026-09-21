@@ -2702,7 +2702,7 @@
         }
     },
     "dashboard-insights-run": {
-        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. Supports variables_override and filters_override query params to run insights with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.",
+        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. 'optimized' output is bounded so a wide dashboard fits in context: each tile's table is cut to max_result_chars characters and marked as truncated, and the response stops running tiles once it reaches its overall character budget. Pass tile_ids to run only the tiles you need, and max_result_chars=0 for a tile's whole table. 'json' is unbounded, so pair it with tile_ids. Supports variables_override and filters_override query params to run insights with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Run dashboard insights",

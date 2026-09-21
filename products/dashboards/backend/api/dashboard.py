@@ -119,7 +119,12 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     UpdateDashboardWidgetRequestOpenApi,
     WidgetCatalogResponseSerializer,
 )
-from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
+from products.dashboards.backend.constants import (
+    DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_WIDGETS_BATCH_SIZE,
+    RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
+    RUN_INSIGHTS_MAX_TOTAL_CHARS,
+)
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
@@ -130,6 +135,12 @@ from products.dashboards.backend.models.dashboard import (
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.run_insights_output import (
+    parse_max_result_chars,
+    parse_tile_ids,
+    truncate_formatted_result,
+    unrun_tile_result,
+)
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
@@ -3247,8 +3258,26 @@ class DashboardsViewSet(
                 OpenApiTypes.STR,
                 enum=["optimized", "json"],
                 description=(
-                    "'optimized' (default) returns LLM-friendly formatted text per insight. "
-                    "'json' returns the raw query result objects."
+                    "'optimized' (default) returns LLM-friendly formatted text per insight, bounded by "
+                    "max_result_chars. 'json' returns the raw query result objects, unbounded."
+                ),
+            ),
+            OpenApiParameter(
+                "tile_ids",
+                OpenApiTypes.STR,
+                description=(
+                    "Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the "
+                    "dashboard. Use it to read one tile without receiving the others."
+                ),
+            ),
+            OpenApiParameter(
+                "max_result_chars",
+                OpenApiTypes.INT,
+                description=(
+                    "Per-tile character budget for 'optimized' output. A longer table is cut to whole rows "
+                    f"and marked as truncated. Defaults to {RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS}; pass 0 for "
+                    "the whole table. Ignored when output_format is 'json'. Whatever the value, an "
+                    f"'optimized' response stops running tiles after {RUN_INSIGHTS_MAX_TOTAL_CHARS} characters."
                 ),
             ),
             VARIABLES_OVERRIDE_PARAM,
@@ -3261,6 +3290,8 @@ class DashboardsViewSet(
         """Run all insights on a dashboard and return their results."""
         dashboard = self.get_object()
         output_format = request.query_params.get("output_format", "optimized")
+        tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
+        max_result_chars = parse_max_result_chars(request.query_params.get("max_result_chars"))
 
         access_method = dashboard_access_method(request)
         record_dashboard_access(access_method)
@@ -3282,12 +3313,21 @@ class DashboardsViewSet(
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
-        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, "sm")
+        # Order over every tile first, so a tile_ids subset keeps the dashboard's own ordering.
+        ordered_tiles = list(enumerate(DashboardTile.sort_tiles_by_layout(tiles, "sm")))
+        if tile_ids is not None:
+            ordered_tiles = [(order, tile) for order, tile in ordered_tiles if tile.id in tile_ids]
 
         tile_results = []
-        for order, tile in enumerate(sorted_tiles):
+        used_chars = 0
+        for order, tile in ordered_tiles:
             if not tile.insight or not tile.insight.query:
                 continue
+
+            if output_format == "optimized" and used_chars >= RUN_INSIGHTS_MAX_TOTAL_CHARS:
+                tile_results.append(unrun_tile_result(tile, tile.insight, order))
+                continue
+
             tile_context = {**context, "dashboard_tile": tile, "order": order}
             tile_data = DashboardTileResultSerializer(tile, context=tile_context).data
 
@@ -3295,7 +3335,9 @@ class DashboardsViewSet(
                 insight_data = tile_data.get("insight") or {}
                 formatted = self._format_insight_for_llm(tile.insight, insight_data)
                 if formatted is not None and insight_data:
+                    formatted = truncate_formatted_result(formatted, tile_id=tile.id, max_chars=max_result_chars)
                     insight_data["result"] = formatted
+                    used_chars += len(formatted)
 
             tile_results.append(tile_data)
 
