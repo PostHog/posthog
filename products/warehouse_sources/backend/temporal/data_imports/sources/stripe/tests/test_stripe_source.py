@@ -231,6 +231,10 @@ class TestStripeSource:
             # name, so these are matched on the stable message text rather than "PermissionError".
             "Request req_Zb0EgUuheEd4gf: Permission denied. The provided key 'rk_live_***j4va7j' does not have the required permissions for this endpoint on account 'acct_123'. Enabling \"Prices Read\" ('plan_read') permissions on this key would allow this request to continue.",
             "Request req_abc123: Only Stripe Connect platforms can work with other accounts. If you specified a client_id parameter, make sure it's correct.",
+            # A connected account was configured as the source's "Account id", and the sync then
+            # tried to list connected accounts (the Account table) — a connected account can't have
+            # connected accounts of its own.
+            "You cannot access the connected accounts of your platform's connected accounts.",
             # 401/403 surfaced as a requests HTTPError keep matching the existing URL-based keys.
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
             "403 Client Error: Forbidden for url: https://api.stripe.com/v1/prices",

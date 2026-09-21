@@ -289,6 +289,12 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # A non-Connect key was sent with a `stripe_account` header (the source's "Account id"),
             # so Stripe rejects the whole request for the account rather than a specific scope.
             "Only Stripe Connect platforms can work with other accounts": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. The 'Account id' in your source settings only applies to Stripe Connect platform accounts — remove or correct it if your key belongs directly to the account, then reconnect.",
+            # Stripe rejects listing connected accounts (the Account table) when the configured
+            # `stripe_account` (the source's "Account id") is itself a connected account, not the
+            # platform — a connected account can't have connected accounts of its own. Retrying
+            # replays the identical request; only a config change fixes it. Match Stripe's stable
+            # rejection text.
+            "cannot access the connected accounts of your platform's connected accounts": "Stripe rejected the request because a connected account can't have connected accounts of its own. If the 'Account id' in your source settings points to a connected account, remove it or disable the Account table, then reconnect.",
             # Stripe's `account_invalid` rejection: the key can't reach the configured account (a
             # `stripe_account` header it isn't authorized for) or the connected application's access
             # was revoked. Surfaced mid-sync as `stripe.PermissionError` straight out of `get_rows`,
