@@ -45,6 +45,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     SHOPIFY_MISSING_CREDENTIALS_ERROR,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
+    SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MESSAGE,
+    SHOPIFY_PROTECTED_CUSTOMER_DATA_FIELD_ERROR_MATCH,
+    SHOPIFY_PROTECTED_CUSTOMER_DATA_OBJECT_ERROR_MATCH,
     SHOPIFY_STORE_NOT_FOUND_ERROR,
     ShopifyPermissionError,
     ShopifyResumeConfig,
@@ -103,6 +106,18 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # 404 from the same endpoint — no store at this subdomain. Retrying cannot
             # recover; the user must correct the store id.
             SHOPIFY_STORE_NOT_FOUND_ERROR: SHOPIFY_STORE_NOT_FOUND_ERROR,
+            # These two entries precede the access-scope entry below on purpose. Shopify can
+            # return several GraphQL errors for one query, which the source joins into a single
+            # message, and the failure path shows the first entry that matches. A response that
+            # denies one field on scope and another on protected customer data must surface the
+            # approval fix, because granting the scope leaves the sync failing.
+            # "This app is not approved to access the <Object> object" and its per-field wording
+            # "... not approved to use the <field> field" — Shopify's protected customer data
+            # gate, which sits above access scopes. Only app approval (and for some fields a paid
+            # store plan) opens it, so fail fast instead of retrying and telling the user to grant
+            # scopes they may already hold.
+            SHOPIFY_PROTECTED_CUSTOMER_DATA_OBJECT_ERROR_MATCH: SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MESSAGE,
+            SHOPIFY_PROTECTED_CUSTOMER_DATA_FIELD_ERROR_MATCH: SHOPIFY_PROTECTED_CUSTOMER_DATA_ERROR_MESSAGE,
             # GraphQL "Access denied for <field> field" — the access token is missing the
             # scope required to read this resource. The scope can't change on retry, so fail
             # fast and tell the user to reconnect with the required permissions.
