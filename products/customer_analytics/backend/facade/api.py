@@ -97,7 +97,11 @@ from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
-from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, AccountRelationshipSource
+from products.customer_analytics.backend.facade.enums import (
+    AccountPropertyPinKind,
+    AccountRelationshipSource,
+    TaskDigestCadence,
+)
 from products.customer_analytics.backend.logic import (
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
@@ -105,6 +109,7 @@ from products.customer_analytics.backend.logic import (
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
     customer_tasks as _customer_tasks_logic,
+    feature_request_github as _feature_request_github_logic,
     feature_requests as _feature_requests_logic,
     ownership as _ownership,
     relationships as _relationships_logic,
@@ -249,7 +254,7 @@ def _get_account_search_q(team_id: int, query: str, user_access_control: "UserAc
 
 
 def _account_tags(account: Account) -> list[str]:
-    return sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True))
+    return sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True))
 
 
 def _account_notes(account: Account) -> list[contracts.AccountNote]:
@@ -1212,7 +1217,8 @@ def _to_user_customer_analytics_config(
         pinned_properties=[
             contracts.PinnedAccountProperty(kind=reference["kind"], id=UUID(str(reference["id"])))
             for reference in raw_references
-        ]
+        ],
+        task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
     )
 
 
@@ -1228,6 +1234,24 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_task_digest_preferences(
+    *,
+    team_id: int,
+    user_id: int,
+    enabled: bool | None = None,
+    send_time: time | None = None,
+    cadence: str | None = None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_task_digest(
+        team_id=team_id,
+        user_id=user_id,
+        enabled=enabled,
+        send_time=send_time,
+        cadence=TaskDigestCadence(cadence) if cadence is not None else None,
     )
     return _to_user_customer_analytics_config(config)
 
@@ -2433,6 +2457,7 @@ def list_custom_property_sync_runs(
 FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
 FeatureRequestProductAreaConflictError = _feature_requests_logic.FeatureRequestProductAreaConflictError
 FeatureRequestConflictError = _feature_requests_logic.FeatureRequestConflictError
+GitHubLinkUnavailableError = _feature_request_github_logic.GitHubLinkUnavailableError
 
 
 def list_feature_request_product_areas(
@@ -2528,6 +2553,89 @@ def update_feature_request(
         actor_id=actor_id,
         user_access_control=user_access_control,
     )
+
+
+def link_feature_request_github(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.LinkFeatureRequestGitHubInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_request_github_logic.link_feature_request_github(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def set_feature_request_github_sync(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    expected_version: int,
+    enabled: bool,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_request_github_logic.set_feature_request_github_sync(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        expected_version=expected_version,
+        enabled=enabled,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def unlink_feature_request_github(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    expected_version: int,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_request_github_logic.unlink_feature_request_github(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        expected_version=expected_version,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def process_feature_request_github_delivery(
+    *,
+    installation_id: str,
+    repository: str,
+    issue_number: int,
+    issue_title: str,
+    issue_state: str,
+    issue_state_reason: str,
+    github_updated_at: datetime,
+    github_delivery_id: str | None = None,
+    github_received_at: str | None = None,
+) -> str:
+    from products.customer_analytics.backend.tasks.tasks import (
+        process_feature_request_github_issue,  # noqa: PLC0415 — Celery task registration must stay off the facade import path
+    )
+
+    task = process_feature_request_github_issue.delay(
+        installation_id=installation_id,
+        repository=repository,
+        issue_number=issue_number,
+        issue_title=issue_title,
+        issue_state=issue_state,
+        issue_state_reason=issue_state_reason,
+        github_updated_at=github_updated_at.isoformat(),
+        github_delivery_id=github_delivery_id,
+        github_received_at=github_received_at,
+    )
+    return task.id
 
 
 def add_feature_request_account(
@@ -2980,8 +3088,9 @@ def _apply_account_table_sort(
             queryset = queryset.annotate(_account_table_sort=KeyTextTransform(sort.account_field.value, "_properties"))
     elif sort.kind == contracts.AccountTableSortKind.TAGS:
         tag_values = (
-            TaggedItem.objects.filter(account_id=OuterRef("pk"), tag__team_id=team_id)
-            .values("account_id")
+            TaggedItem.objects.matching_outer(Account)
+            .filter(tag__team_id=team_id)
+            .values("object_key")
             .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
             .values("value")
         )
@@ -3188,9 +3297,9 @@ def query_accounts_table(
     tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
     if selection.include_tags:
         for account_id, tag_name in (
-            TaggedItem.objects.filter(account_id__in=account_ids)
+            TaggedItem.objects.for_objects(Account, account_ids)
             .order_by("tag__name")
-            .values_list("account_id", "tag__name")
+            .values_list("object_key", "tag__name")
         ):
             tags_by_account[account_id].append(tag_name)
 

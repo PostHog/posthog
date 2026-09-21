@@ -32,6 +32,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CISignalsConfig,
     CITestRunner,
     CurrentBranchHealth,
+    DeliveryComparison,
     DeliverySummary,
     DoraOverview,
     FlakyTestList,
@@ -294,6 +295,35 @@ def get_delivery_summary(
     return logic.build_delivery_summary(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         scope=scope,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_delivery_comparison(
+    *,
+    team: Team,
+    author: str | None,
+    pr_number: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> DeliveryComparison:
+    """An author's ready-to-merge medians next to their team's and the repository's. ``pr_number`` names a
+    pull request by the author, and a team that this pull request asked to review wins the team choice."""
+    author = (author or "").strip()
+    if not author:
+        raise ValueError("author is required")
+    repo = (repo or "").strip() or None
+    # Pull request numbers restart in every repository, so a number alone names no pull request.
+    if pr_number is not None and repo is None:
+        raise ValueError("repo is required with pr_number")
+    return logic.build_delivery_comparison(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        author=author,
+        focus_pr=pr_number,
         date_from=date_from,
         date_to=date_to,
     )

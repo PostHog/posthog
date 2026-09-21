@@ -91,7 +91,7 @@ Skipping one of those tables is worse than under-deleting: the overrides that re
 ## Covered tables
 
 - `sharded_events` — all sweeps.
-- `sharded_events_json` — all sweeps. Optional: only present after the native-JSON migration.
+- `sharded_events_json` — all sweeps, but `deletes_job` skips it by default today. Optional: only present after the native-JSON migration. See the known gap below.
 - `sharded_flag_evaluations` — person, team, queued-uuid and event removal. Not property removal (below). Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
@@ -108,6 +108,29 @@ Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
 
 ## Known gaps
+
+### `deletes_job` skips `sharded_events_json` by default
+
+`SweepTargetsConfig.skip_targets` defaults to `["sharded_events_json"]`, so the weekly sweep leaves
+that table alone and does not address the events cluster at all.
+
+The table's storage is on the events cluster, which `deletes_job` reaches through a sibling handle.
+Resolving that handle has not been reliable: a run that fails to resolve it drops the target and
+still marks the requests verified, which reports an erasure that did not happen. Skipping the target
+outright makes the sweep say so, in `resolve_sweep_targets`, rather than leaving the outcome to
+whether one probe answered.
+
+The cost is that rows `sharded_events_json` holds for a deleted person, team or queued uuid stay
+readable, and the requests covering them are marked verified either way, so a later run does not
+return to them. The table is dual-written from the same events, so those rows duplicate ones the
+sweep does remove from `sharded_events`.
+
+To sweep it again:
+
+- For one run, set `skip_targets: []` under the `resolve_sweep_targets` op in run config.
+- Permanently, remove the entry from `_DEFAULT_SKIP_TARGETS` in `posthog/dags/deletes.py`.
+
+Neither restores what earlier runs left behind. That needs a backfill sweep over the affected uuids.
 
 ### Property removal does not reach `flag_evaluations`
 

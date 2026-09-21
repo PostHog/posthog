@@ -56,7 +56,7 @@ jobs:
     # Job to decide if we should run nodejs services ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         name: Determine need to run Node.js checks
         permissions:
@@ -954,7 +954,7 @@ jobs:
     report-test-speed:
         name: Node.js test-speed report
         needs: [tests]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         continue-on-error: true
         permissions:
@@ -1019,7 +1019,7 @@ jobs:
     capture-nodejs-selection:
         name: Capture Node.js jest selection
         needs: [changes, tests]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # Nothing to report on a PR that never ran the suite. Forks and Dependabot never
         # have the secret.
@@ -1055,7 +1055,7 @@ jobs:
         # report-test-speed is deliberately not in needs: it is visible but non-gating.
         needs: [changes, tests, rust_ingestion_e2e, build, lint]
         name: Node.js Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

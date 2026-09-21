@@ -44,6 +44,11 @@ export interface EnrichedReviewer {
     user: SignalReviewerUserInfo | null
     /** Why this reviewer was chosen. Absent on artefacts stored before the field existed. */
     reason?: string | null
+    source_skill?: string | null
+    /** User-facing provenance for this suggestion, derived by the backend. */
+    source_label?: string
+    /** Short user-facing explanation for this suggestion, derived by the backend. */
+    explanation?: string | null
 }
 
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */

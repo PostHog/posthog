@@ -53,6 +53,15 @@ def team_distinct_id(team_id: int) -> str:
     return f"team-{team_id}"
 
 
+class GatewayNotConfiguredError(ValueError):
+    """No LLM gateway is configured, so the client could not be built and no call was made.
+
+    A `ValueError` so existing callers keep behaving as before, but a distinct type so a caller whose
+    LLM step is optional can tell an absent gateway, which is static and the same for every team,
+    apart from a gateway call that went out and failed and is worth reporting.
+    """
+
+
 def get_llm_client(
     product: Product = "django",
     team_id: int | None = None,
@@ -113,7 +122,7 @@ def get_llm_client(
     """
     resolved_api_key = api_key or settings.LLM_GATEWAY_API_KEY
     if not settings.LLM_GATEWAY_URL or not resolved_api_key:
-        raise ValueError("LLM_GATEWAY_URL and an API key must be configured")
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and an API key must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
     headers = dict(default_headers or {})
@@ -138,7 +147,7 @@ def get_async_llm_client(
     attribution and how to attach extra per-call event properties.
     """
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
     headers = dict(default_headers or {})
@@ -182,7 +191,7 @@ def get_async_anthropic_gateway_client(
     Bedrock instead of failing. Sent as the `x-posthog-use-bedrock-fallback` default header.
     """
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     default_headers = _team_id_header(team_id) if team_id is not None else {}
     if use_bedrock_fallback:
@@ -205,7 +214,7 @@ def get_anthropic_gateway_client(
 ) -> Anthropic:
     """Synchronous variant of :func:`get_async_anthropic_gateway_client`."""
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     headers = dict(default_headers or {})
     if team_id is not None:

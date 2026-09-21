@@ -73,6 +73,7 @@ export const AccountsEvents = {
     EventStreamMembershipToggled: 'customer analytics account event stream toggled',
     EventStreamConfigSaved: 'customer analytics event stream config saved',
     EventStreamTestMessageSent: 'customer analytics event stream test message sent',
+    TaskDigestPreferencesSaved: 'customer analytics task digest preferences saved',
     NotesTabViewed: 'customer analytics notes tab viewed',
     NotesTabSearched: 'customer analytics notes tab searched',
     NotesTabFiltered: 'customer analytics notes tab filtered',

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-16 20:03:08 UTC
+// Generated at: 2026-09-18 20:02:33 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -99,7 +99,6 @@ export type CanonicalProvider =
     | 'groq'
     | 'inception'
     | 'inceptron-fp4'
-    | 'inceptron-fp8'
     | 'inceptron-int4'
     | 'inference-net'
     | 'inference-net-fp4'
@@ -132,6 +131,7 @@ export type CanonicalProvider =
     | 'morph-bf16'
     | 'morph-fast'
     | 'morph-fp8'
+    | 'near-ai-fp8'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi-bf16'
@@ -180,13 +180,13 @@ export type CanonicalProvider =
     | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'
     | 'tencent-fp8'
     | 'thinkingmachines-nvfp4'
     | 'together'
+    | 'unbiased'
     | 'upstage'
     | 'upstage-zdr'
     | 'venice'

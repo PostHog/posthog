@@ -20,6 +20,7 @@ function fillClassName(muted: boolean, hasSegments: boolean): string {
 
 export function ComparisonBarRow({
     label,
+    labelTooltip,
     value,
     fraction,
     muted = false,
@@ -27,6 +28,8 @@ export function ComparisonBarRow({
     children,
 }: {
     label: string
+    /** Shown on hover over the label, e.g. the full name a narrow label truncates. */
+    labelTooltip?: string
     value: string
     /** Bar length as a share of the track, 0–1. */
     fraction: number
@@ -38,7 +41,9 @@ export function ComparisonBarRow({
 }): JSX.Element {
     return (
         <div className="flex items-center gap-2">
-            <span className="w-24 shrink-0 truncate text-[11px] text-tertiary">{label}</span>
+            <Tooltip title={labelTooltip}>
+                <span className="w-24 shrink-0 truncate text-[11px] text-tertiary">{label}</span>
+            </Tooltip>
             <div className="relative h-2.5 flex-1">
                 <div
                     className={cn('h-full overflow-hidden rounded-sm', fillClassName(muted, children != null))}

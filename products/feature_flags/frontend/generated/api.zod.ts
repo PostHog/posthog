@@ -551,7 +551,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
             ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -600,10 +599,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -992,7 +987,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .describe(
                 'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
             ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -1041,10 +1035,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
