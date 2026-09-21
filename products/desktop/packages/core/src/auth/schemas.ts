@@ -65,8 +65,9 @@ export function pickInitialProjectId(args: {
   return allProjectIds[0] ?? null;
 }
 
-// "startup_plan" is no longer sent — the backend lets Startup and YC organizations in and caps
-// their spend instead. A client that updates before the backend deploys still has to parse it.
+// The backend does not send "startup_plan": it lets Startup and YC organizations in and caps
+// their spend. The value stays here because a client can update before the backend deploys,
+// and an unparsable reason would show the error screen instead of the blocked screen.
 const desktopAccessReasonSchema = z.enum(["startup_plan", "prepaid_credits"]);
 export const desktopAccessResponseSchema = z.union([
   z.object({ allowed: z.literal(true), reason: z.null() }),

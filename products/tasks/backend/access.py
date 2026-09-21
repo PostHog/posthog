@@ -57,10 +57,10 @@ def _record_decision(
     organization: "Organization",
     startup_program_label: str | None = None,
 ) -> None:
-    """Count the decision in Prometheus and capture it as an event.
+    """The Prometheus counter says how often each outcome fires, but not to whom.
 
-    The counter says how often each outcome fires; the event is what makes a refusal
-    attributable to an organization, so support can answer "who is this blocking?".
+    The event carries the organization, so a refusal is attributable and support can
+    name the organizations a gate change would unblock.
     """
     observe_desktop_access_decision(outcome=outcome)
     properties: dict[str, object] = {
@@ -120,8 +120,8 @@ def get_desktop_access_decision(user: User, organization: "Organization") -> Des
         _record_decision("resolution_failure", user=user, organization=organization)
         raise
 
-    # Startup and YC program organizations are allowed in. Their spend is held down by the
-    # monthly posthog_code_usage billing limit instead, so the program caps rather than blocks.
+    # The decision does not read startup_program_label. The monthly posthog_code_usage billing
+    # limit caps what a Startup or YC program organization can spend, so the program needs no block.
     startup_program_label = funding_status.startup_program_label
     if funding_status.prepaid_credit_state in {PrepaidCreditState.PENDING, PrepaidCreditState.ACTIVE}:
         _record_decision(
