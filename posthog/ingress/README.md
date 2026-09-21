@@ -181,7 +181,9 @@ Ingress carries both as general controls, so the next endpoint gets them without
 
 ## Regional forwarding
 
-A third party holds one callback URL, which points at the primary region (EU), so a delivery about a resource the other region (US) owns still arrives here first.
+A third party holds one callback URL, which points at one region, so a delivery about a resource the other region owns still arrives there first.
+For every App registered today that URL is the primary region (EU) and the forward runs to the secondary one (US).
+A provider whose App was registered against the secondary region instead overrides `receiving_region_domain()`, and the forward runs the other way.
 Ingress owns the forward, because what is replayed is the signed body — a consumer only ever sees the parsed mapping.
 
 A consumer whose resources are split by region declares `ownership`, a callable that takes the delivery and answers a `DeliveryOwnership`:
@@ -195,7 +197,7 @@ A fourth value, `FAILED`, is the dispatcher's own: a consumer never answers it, 
 Every delivery in the request is assessed first, and the request is then forwarded **once**, when any consumer answered `ELSEWHERE`.
 One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
 Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
-Only the primary region forwards; on the secondary region an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
+Only the receiving region forwards; on the region that receives forwards an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
 The replay carries the signed bytes and the provider's own headers, but never the headers that name the host this region answered on: `Host`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Proto` and `Forwarded`.
 The receiving region reads which region it is off the connection it receives, so a forwarded host would make it forward the delivery on again.
 
