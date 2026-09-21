@@ -2,6 +2,8 @@ import uuid
 
 from posthog.test.base import BaseTest
 
+from django.utils import timezone
+
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.models import KnowledgeChunk
 from products.conversations.backend.ai.evidence import hydrate_ai_sources
@@ -20,6 +22,7 @@ class TestHydrateAiSources(BaseTest):
                 analysis_version="post_resolution_v1",
                 title="Refund policy",
                 content="Refunds are available within 30 days.",
+                evidence_revision_at=timezone.now(),
             )
         )
         chunk_id = KnowledgeChunk.objects.unscoped().filter(document_id=generated.id).values_list("id", flat=True)[0]
