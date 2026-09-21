@@ -3,13 +3,22 @@ from typing import Any
 
 from rest_framework import exceptions
 
-from products.dashboards.backend.constants import RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS, RUN_INSIGHTS_MAX_TOTAL_CHARS
+from products.dashboards.backend.constants import (
+    RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
+    RUN_INSIGHTS_MAX_TOTAL_CHARS,
+    RUN_INSIGHTS_MIN_TILE_CHARS,
+)
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 
-TRUNCATION_NOTE = (
-    "[Truncated to {max_chars} characters. To read the whole table, run dashboard-insights-run again "
+ELISION_NOTE = (
+    "[{omitted} of {total} rows omitted here. To read the whole table, run dashboard-insights-run "
     "with tile_ids={tile_id} and max_result_chars=0.]"
+)
+
+CUT_NOTE = (
+    "[Cut at {max_chars} characters. To read the whole table, run dashboard-insights-run with "
+    "tile_ids={tile_id} and max_result_chars=0.]"
 )
 
 BUDGET_NOTE = (
@@ -18,17 +27,16 @@ BUDGET_NOTE = (
 )
 
 
-def parse_tile_ids(raw: str | None) -> set[int] | None:
-    """Parse the `tile_ids` query param. None means every tile on the dashboard."""
+def parse_tile_ids(raw: str | None) -> list[int]:
+    """Parse the `tile_ids` query param into ordered, deduplicated IDs. Empty means the param was
+    not given, which each caller reads its own way."""
     if raw is None or not raw.strip():
-        return None
+        return []
     try:
-        tile_ids = {int(part) for part in (part.strip() for part in raw.split(",")) if part}
+        tile_ids = [int(part) for part in (part.strip() for part in raw.split(",")) if part]
     except ValueError as exc:
         raise exceptions.ValidationError("tile_ids must be a comma-separated list of integers.") from exc
-    if not tile_ids:
-        return None
-    return tile_ids
+    return list(dict.fromkeys(tile_ids))
 
 
 def parse_max_result_chars(raw: str | None) -> int:
@@ -44,6 +52,12 @@ def parse_max_result_chars(raw: str | None) -> int:
     return max_chars
 
 
+def tile_fits_response_budget(used_chars: int) -> bool:
+    """Whether the response has enough budget left for another tile to carry usable rows.
+    Below the floor a tile yields a sliced header and a marker, so it is reported as not run."""
+    return RUN_INSIGHTS_MAX_TOTAL_CHARS - used_chars >= RUN_INSIGHTS_MIN_TILE_CHARS
+
+
 def tile_budget(max_result_chars: int, used_chars: int) -> int:
     """Per-tile budget, held down to what the response has left. Zero stays unbounded."""
     if max_result_chars <= 0:
@@ -51,21 +65,51 @@ def tile_budget(max_result_chars: int, used_chars: int) -> int:
     return min(max_result_chars, RUN_INSIGHTS_MAX_TOTAL_CHARS - used_chars)
 
 
-def truncate_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -> str:
-    """Cut a formatted insight table to whole lines within the budget, and say so."""
+def bound_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -> str:
+    """Hold a formatted insight table inside `max_chars`, keeping both ends of it.
+
+    Rows come out of the middle because which end carries the answer depends on the query type.
+    A trends table runs oldest bucket first, so its recent data is at the bottom, while a funnel
+    runs first step first and a paths table runs most-travelled first. Dropping the tail would
+    hand an agent the opening of a date range and read as the whole of it.
+    """
     if max_chars <= 0 or len(formatted) <= max_chars:
         return formatted
 
-    kept: list[str] = []
-    used = 0
-    for line in formatted.splitlines():
-        used += len(line) + 1
-        if used > max_chars:
+    lines = formatted.splitlines()
+    if len(lines) < 3 or len(lines[0]) + 1 > max_chars:
+        # No middle to drop, or the header alone is over budget, so cutting text holds the bound.
+        return formatted[:max_chars] + "\n" + CUT_NOTE.format(max_chars=max_chars, tile_id=tile_id)
+
+    # The first line is the column header in every formatter, so it is always kept.
+    head = [lines[0]]
+    tail: list[str] = []
+    used = len(lines[0]) + 1
+    next_head, next_tail = 1, len(lines) - 1
+
+    while next_head <= next_tail:
+        took = False
+        # The tail goes first so an odd row count spends its last row on the recent end. Each pass
+        # tries both ends, so one long row cannot stop the other end from filling.
+        for from_tail in (True, False):
+            if next_head > next_tail:
+                break
+            line = lines[next_tail] if from_tail else lines[next_head]
+            if used + len(line) + 1 > max_chars:
+                continue
+            used += len(line) + 1
+            if from_tail:
+                tail.append(line)
+                next_tail -= 1
+            else:
+                head.append(line)
+                next_head += 1
+            took = True
+        if not took:
             break
-        kept.append(line)
-    # A single row wider than the budget still has to be cut, or it defeats the bound.
-    body = "\n".join(kept) if kept else formatted[:max_chars]
-    return body + "\n" + TRUNCATION_NOTE.format(max_chars=max_chars, tile_id=tile_id)
+
+    note = ELISION_NOTE.format(omitted=next_tail - next_head + 1, total=len(lines) - 1, tile_id=tile_id)
+    return "\n".join([*head, note, *reversed(tail)])
 
 
 def render_unsupported_result(result: Any) -> str:

@@ -136,11 +136,12 @@ from products.dashboards.backend.models.dashboard import (
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.run_insights_output import (
+    bound_formatted_result,
     parse_max_result_chars,
     parse_tile_ids,
     render_unsupported_result,
     tile_budget,
-    truncate_formatted_result,
+    tile_fits_response_budget,
     unrun_tile_result,
 )
 from products.dashboards.backend.widget_access import (
@@ -3269,18 +3270,20 @@ class DashboardsViewSet(
                 OpenApiTypes.STR,
                 description=(
                     "Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the "
-                    "dashboard. Use it to read one tile without receiving the others."
+                    "dashboard. Use it to read one tile without receiving the others. An ID that is not on "
+                    "this dashboard is rejected."
                 ),
             ),
             OpenApiParameter(
                 "max_result_chars",
                 OpenApiTypes.INT,
                 description=(
-                    "Per-tile character budget for 'optimized' output. A longer table is cut to whole rows "
-                    f"and marked as truncated. Defaults to {RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS}; pass 0 for "
-                    "the whole table. Ignored when output_format is 'json'. Any value above zero is also held "
-                    f"down to what the response has left of its {RUN_INSIGHTS_MAX_TOTAL_CHARS} character budget, "
-                    "and tiles past that budget are not run."
+                    "Per-tile character budget for 'optimized' output. A longer table keeps its header and "
+                    "both ends, and names how many rows were dropped from the middle. Defaults to "
+                    f"{RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS}; pass 0 for the whole table. Ignored when "
+                    "output_format is 'json'. Any value above zero is also held down to what the response has "
+                    f"left of its {RUN_INSIGHTS_MAX_TOTAL_CHARS} character budget, and tiles past that budget "
+                    "are not run."
                 ),
             ),
             VARIABLES_OVERRIDE_PARAM,
@@ -3293,7 +3296,7 @@ class DashboardsViewSet(
         """Run all insights on a dashboard and return their results."""
         dashboard = self.get_object()
         output_format = request.query_params.get("output_format", "optimized")
-        tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
+        requested_tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
         max_result_chars = (
             parse_max_result_chars(request.query_params.get("max_result_chars")) if output_format == "optimized" else 0
         )
@@ -3320,8 +3323,15 @@ class DashboardsViewSet(
 
         # Order over every tile first, so a tile_ids subset keeps the dashboard's own ordering.
         ordered_tiles = list(enumerate(DashboardTile.sort_tiles_by_layout(tiles, "sm")))
-        if tile_ids is not None:
-            ordered_tiles = [(order, tile) for order, tile in ordered_tiles if tile.id in tile_ids]
+        if requested_tile_ids:
+            wanted_tile_ids = set(requested_tile_ids)
+            unknown_ids = sorted(wanted_tile_ids - {tile.id for _, tile in ordered_tiles})
+            if unknown_ids:
+                raise exceptions.ValidationError(
+                    f"These tile IDs are not on this dashboard: {', '.join(str(tile_id) for tile_id in unknown_ids)}. "
+                    "Read the dashboard to see the tiles it has."
+                )
+            ordered_tiles = [(order, tile) for order, tile in ordered_tiles if tile.id in wanted_tile_ids]
 
         tile_results = []
         used_chars = 0
@@ -3329,7 +3339,7 @@ class DashboardsViewSet(
             if not tile.insight or not tile.insight.query:
                 continue
 
-            if output_format == "optimized" and used_chars >= RUN_INSIGHTS_MAX_TOTAL_CHARS:
+            if output_format == "optimized" and not tile_fits_response_budget(used_chars):
                 tile_results.append(unrun_tile_result(tile, tile.insight, order))
                 continue
 
@@ -3344,7 +3354,7 @@ class DashboardsViewSet(
                     if formatted is None:
                         # No formatter covers this query type, so the raw result still has to be bounded.
                         formatted = render_unsupported_result(raw_result)
-                    formatted = truncate_formatted_result(
+                    formatted = bound_formatted_result(
                         formatted,
                         tile_id=tile.id,
                         max_chars=tile_budget(max_result_chars, used_chars),
@@ -3373,18 +3383,9 @@ class DashboardsViewSet(
         if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
             raise exceptions.PermissionDenied("Dashboard widgets are not enabled for this project.")
 
-        tile_ids_param = request.query_params.get("tile_ids")
-        if not tile_ids_param:
-            raise exceptions.ValidationError("tile_ids is required.")
-
-        try:
-            tile_ids = [int(tile_id.strip()) for tile_id in tile_ids_param.split(",") if tile_id.strip()]
-        except ValueError as exc:
-            raise exceptions.ValidationError("tile_ids must be a comma-separated list of integers.") from exc
-
-        tile_ids = list(dict.fromkeys(tile_ids))
+        tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
         if not tile_ids:
-            raise exceptions.ValidationError("tile_ids must include at least one tile ID.")
+            raise exceptions.ValidationError("tile_ids is required.")
         if len(tile_ids) > MAX_WIDGETS_BATCH_SIZE:
             raise exceptions.ValidationError(f"At most {MAX_WIDGETS_BATCH_SIZE} tile_ids may be requested at once.")
 

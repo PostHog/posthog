@@ -13,16 +13,17 @@ from posthog.models.team import Team
 
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.api.dashboard import DashboardsViewSet
+from products.dashboards.backend.constants import RUN_INSIGHTS_MIN_TILE_CHARS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
-def _trends_query_dict(event: str = "$pageview") -> dict:
+def _trends_query_dict(event: str = "$pageview", date_from: str = "-7d") -> dict:
     return InsightVizNode(
         source=TrendsQuery(
             series=[EventsNode(event=event)],
-            dateRange=DateRange(date_from="-7d"),
+            dateRange=DateRange(date_from=date_from),
             trendsFilter=TrendsFilter(display="ActionsLineGraph"),
         ),
     ).model_dump()
@@ -129,6 +130,22 @@ class TestDashboardRunInsights(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
+    def test_rejects_a_tile_id_that_is_not_on_this_dashboard(self) -> None:
+        # Dropping the unknown ID instead would answer a stale tile_ids with an empty dashboard.
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]}
+        )
+        tile = DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=insight_id)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_insights/",
+            data={"tile_ids": f"{tile.id},{tile.id + 1000}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn(str(tile.id + 1000), response.json()["detail"])
+
     def test_rejects_a_negative_max_result_chars(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
 
@@ -139,19 +156,19 @@ class TestDashboardRunInsights(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
-    def test_optimized_result_is_cut_to_the_per_tile_budget(self) -> None:
+    def test_optimized_result_is_held_to_the_per_tile_budget(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
 
         full = self._run(dashboard_id, refresh="blocking", max_result_chars="0")["results"][0]["insight"]["result"]
         if not isinstance(full, str):
-            self.skipTest("LLM formatting is unavailable, so there is nothing to truncate")
+            self.skipTest("LLM formatting is unavailable, so there is nothing to bound")
 
         bounded = self._run(dashboard_id, refresh="blocking", max_result_chars="40")["results"][0]["insight"]["result"]
 
         self.assertLess(len(bounded), len(full))
-        self.assertIn("Truncated to 40 characters", bounded)
-        self.assertTrue(full.startswith(bounded.split("\n[Truncated")[0]))
+        self.assertIn("tile_ids=", bounded)
+        self.assertEqual(bounded.splitlines()[-1], full.splitlines()[-1])
 
     def test_optimized_stops_running_tiles_at_the_response_budget(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
@@ -160,7 +177,10 @@ class TestDashboardRunInsights(APIBaseTest):
             {"name": "B", "query": _trends_query_dict("$autocapture"), "dashboards": [dashboard_id]}
         )
 
-        with patch("products.dashboards.backend.api.dashboard.RUN_INSIGHTS_MAX_TOTAL_CHARS", 1):
+        with patch(
+            "products.dashboards.backend.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS",
+            RUN_INSIGHTS_MIN_TILE_CHARS,
+        ):
             body = self._run(dashboard_id, refresh="blocking")
 
         self.assertEqual(len(body["results"]), 2)
@@ -189,19 +209,25 @@ class TestDashboardRunInsights(APIBaseTest):
 
         result = body["results"][0]["insight"]["result"]
         self.assertIsInstance(result, str)
-        self.assertIn("Truncated to 60 characters", result)
+        self.assertIn("tile_ids=", result)
 
     def test_a_generous_per_tile_budget_cannot_overshoot_the_response_budget(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+        self.dashboard_api.create_insight(
+            {"name": "A", "query": _trends_query_dict(date_from="-90d"), "dashboards": [dashboard_id]}
+        )
 
-        with patch("products.dashboards.backend.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS", 30):
+        with patch(
+            "products.dashboards.backend.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS",
+            RUN_INSIGHTS_MIN_TILE_CHARS,
+        ):
             body = self._run(dashboard_id, refresh="blocking", max_result_chars="1000000")
 
         result = body["results"][0]["insight"]["result"]
         if not isinstance(result, str):
-            self.skipTest("LLM formatting is unavailable, so there is nothing to truncate")
-        self.assertIn("Truncated to 30 characters", result)
+            self.skipTest("LLM formatting is unavailable, so there is nothing to bound")
+        rows = [line for line in result.splitlines() if not line.startswith("[")]
+        self.assertLessEqual(sum(len(row) + 1 for row in rows), RUN_INSIGHTS_MIN_TILE_CHARS)
 
     def test_skips_text_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

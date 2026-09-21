@@ -1404,7 +1404,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = () => zod.object({
         .number()
         .optional()
         .describe(
-            "Per-tile character budget for 'optimized' output. A longer table is cut to whole rows and marked as truncated. Defaults to 2000; pass 0 for the whole table. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run."
+            "Per-tile character budget for 'optimized' output. A longer table keeps its header and both ends, and names how many rows were dropped from the middle. Defaults to 2000; pass 0 for the whole table. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run."
         ),
     output_format: zod
         .enum(['json', 'optimized'])
@@ -1422,7 +1422,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others.'
+            'Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.'
         ),
     variables_override: zod
         .string()
