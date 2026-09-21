@@ -29,9 +29,9 @@ posthoganalytics = false
 [manifest]
 members = [
     "hogli",
+    "owners-yaml",
     "personhog-proto",
     "posthog",
-    "posthog-owners",
 ]
 
 [[manifest.dependency-metadata]]
@@ -5272,6 +5272,28 @@ wheels = [
 ]
 
 [[package]]
+name = "owners-yaml"
+version = "0.2.0"
+source = { editable = "packages/owners-yaml" }
+dependencies = [
+    { name = "click" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "packaging"
 version = "24.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5703,6 +5725,7 @@ dependencies = [
     { name = "opentelemetry-sdk" },
     { name = "orjson" },
     { name = "ormsgpack" },
+    { name = "owners-yaml" },
     { name = "pandas" },
     { name = "paramiko" },
     { name = "personhog-proto" },
@@ -5711,7 +5734,6 @@ dependencies = [
     { name = "playwright" },
     { name = "polars" },
     { name = "posthog-hogland" },
-    { name = "posthog-owners" },
     { name = "posthoganalytics" },
     { name = "protobuf" },
     { name = "psycopg", extra = ["binary"] },
@@ -5990,6 +6012,7 @@ requires-dist = [
     { name = "opentelemetry-sdk", specifier = "==1.35.0" },
     { name = "orjson", specifier = "==3.11.9" },
     { name = "ormsgpack", specifier = "~=1.12" },
+    { name = "owners-yaml", editable = "packages/owners-yaml" },
     { name = "pandas", specifier = "~=2.3.3" },
     { name = "paramiko", specifier = "~=3.5.0" },
     { name = "personhog-proto", editable = "packages/personhog-proto" },
@@ -5998,7 +6021,6 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthog-owners", editable = "tools/owners" },
     { name = "posthoganalytics", specifier = "==7.54.1" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
@@ -6157,28 +6179,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/b1/ca/c67965f512f9d4e2a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/35/2a/527ef6d0c3eee98b676bf5c9878c3010e749601210eb1b32dd99548b51b4/posthog_hogland-0.4.1-py3-none-any.whl", hash = "sha256:2bc2fd6bf4a710df8eaf4e5bfa1a4ffd8d29751eb13edc650b89bdcba045eaf2", size = 38357, upload-time = "2026-09-01T14:21:01.536Z" },
 ]
-
-[[package]]
-name = "posthog-owners"
-version = "0.1.0"
-source = { editable = "tools/owners" }
-dependencies = [
-    { name = "click" },
-    { name = "pyyaml" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "click", specifier = ">=8.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
