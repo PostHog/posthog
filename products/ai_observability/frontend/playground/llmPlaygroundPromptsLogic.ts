@@ -12,7 +12,12 @@ import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
-import { llmPromptsCreate, llmPromptsNamePartialUpdate, llmPromptsNameRetrieve } from '../generated/api'
+import {
+    evaluationsRetrieve,
+    llmPromptsCreate,
+    llmPromptsNamePartialUpdate,
+    llmPromptsNameRetrieve,
+} from '../generated/api'
 import { normalizeMessage } from '../messageNormalization'
 import { llmPromptLogic } from '../prompts/llmPromptLogic'
 import { getApiErrorDetail } from '../prompts/utils'
@@ -1246,13 +1251,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         const fetchedEvaluation = await api.get<EvaluationConfig>(
                             `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
                         )
-                        if (fetchedEvaluation.output_type === 'numeric') {
-                            lemonToast.error(
-                                'Numeric evaluations are not supported in Playground. Edit this evaluation from the evaluations page.'
-                            )
-                            router.actions.replace(urls.aiObservabilityEvaluation(fetchedEvaluation.id))
-                            return
-                        }
                         actions.setSourceNames(null, fetchedEvaluation.name ?? null, promptId)
                         if (fetchedEvaluation.evaluation_type === 'llm_judge') {
                             actions.setSystemPrompt(
@@ -1523,13 +1521,18 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
+                const sourceEvaluation =
+                    prompt.sourceType === 'evaluation' && prompt.sourceEvaluationId
+                        ? await evaluationsRetrieve(String(teamId), prompt.sourceEvaluationId)
+                        : null
                 // nosemgrep: prefer-codegen-api
                 const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
                     name,
                     evaluation_type: 'llm_judge',
                     evaluation_config: { prompt: prompt.systemPrompt },
                     model_configuration: modelConfig,
-                    output_type: 'boolean',
+                    output_type: sourceEvaluation?.output_type ?? 'boolean',
+                    ...(sourceEvaluation ? { output_config: sourceEvaluation.output_config } : {}),
                     conditions: [],
                     enabled: false,
                 })

@@ -132,9 +132,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
-        evaluation.output_type !== 'numeric' &&
-        evaluation.id
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 

@@ -42,3 +42,11 @@ When N/A is enabled, the numeric judge returns either a finite score or `null` f
 Applicability is derived from the score, so the judge does not need to return a separate applicability flag.
 Switching between boolean and numeric output while creating an evaluation preserves each type's draft settings.
 API output settings must be an object. MCP validates supplied setting types and does not insert defaults for omitted settings.
+
+### Editing evaluation prompts in Playground
+
+Boolean and numeric LLM judge evaluations can open in Playground to edit their prompt and model.
+Saving back to the linked evaluation leaves its output settings unchanged.
+Saving as a new evaluation copies the linked evaluation's current output type and settings, including bounds, N/A, passing rules, and boolean polarity.
+Unlinked prompts create boolean evaluations by default.
+Playground completions do not apply the evaluation's structured response schema or output validation.
