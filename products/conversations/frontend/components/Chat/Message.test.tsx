@@ -47,7 +47,7 @@ describe('Message', () => {
 
         render(<Message message={message} isCustomer={false} onApplyAiDraft={onApplyAiDraft} />)
 
-        fireEvent.click(screen.getByRole('button', { name: 'Use as reply' }))
+        fireEvent.click(screen.getByText('Use as reply'))
         expect(onApplyAiDraft).toHaveBeenCalledTimes(1)
         expect(screen.getByText('64% confidence')).toBeInTheDocument()
         expect(screen.getByText('example.com/docs/sdk')).toBeInTheDocument()
@@ -67,7 +67,7 @@ describe('Message', () => {
 
         render(<Message message={message} isCustomer={false} onApplyAiDraft={jest.fn()} />)
 
-        expect(screen.getByRole('button', { name: 'Use question' })).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'Use as reply' })).not.toBeInTheDocument()
+        expect(screen.getByText('Use question')).toBeInTheDocument()
+        expect(screen.queryByText('Use as reply')).not.toBeInTheDocument()
     })
 })

@@ -693,6 +693,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "compose",
         "reply",
         "ai_feedback",
+        "ai_human_outcome",
         "note",
         "delete_note",
     ]

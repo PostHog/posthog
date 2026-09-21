@@ -5,6 +5,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { IconArrowDown } from 'lib/lemon-ui/icons'
 
 import type { AITriageSource, AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
+import { aiDraftAction } from './aiDraftAction'
 import { Message } from './Message'
 
 export interface MessageListProps {
@@ -208,6 +209,14 @@ export function MessageList({
 
     const deliveryStatusMap = getDeliveryStatusMap()
 
+    // Applying a draft records the outcome against the ticket's current AI run, so only the
+    // newest draft offers it. An older one would mark the wrong run as used.
+    const latestAiDraftId =
+        messages
+            .filter((message) => aiDraftAction(message) !== null)
+            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+            .at(-1)?.id ?? null
+
     // Messages and extras share one chronological stream, so an agent's findings sit at the point in
     // the conversation they arrived rather than always at the bottom. Ties keep messages first, and
     // the original order within each kind, so a same-second reply never reshuffles.
@@ -249,7 +258,11 @@ export function MessageList({
                         }
                         aiSources={aiSources}
                         aiDraftApplying={aiDraftApplying}
-                        onApplyAiDraft={canEditTicket && onApplyAiDraft ? () => onApplyAiDraft(message) : undefined}
+                        onApplyAiDraft={
+                            canEditTicket && onApplyAiDraft && message.id === latestAiDraftId
+                                ? () => onApplyAiDraft(message)
+                                : undefined
+                        }
                     />
                 ),
             }

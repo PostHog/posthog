@@ -112,6 +112,40 @@ class TestAiTriageSourcesAPI(APIBaseTest):
         assert "sources" not in triage
         assert triage["citations"] == [self.chunk_id]
 
+    def _ai_comment(self, deleted: bool = False) -> Comment:
+        return Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Suggested reply",
+            deleted=deleted,
+            item_context={
+                "author_type": "AI",
+                "is_private": True,
+                "citations": [self.chunk_id],
+            },
+        )
+
+    def test_empty_stored_citations_do_not_fall_back_to_an_older_comment(self) -> None:
+        self._ai_comment()
+        Ticket.objects.filter(id=self.ticket.id).update(
+            ai_triage={"status": "done", "result": "suggested", "citations": []}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "sources" not in response.json()["ai_triage"]
+
+    def test_deleted_ai_comment_is_not_a_citation_fallback(self) -> None:
+        self._ai_comment(deleted=True)
+        Ticket.objects.filter(id=self.ticket.id).update(ai_triage={"status": "done", "result": "suggested"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "sources" not in response.json()["ai_triage"]
+
     def test_retrieve_falls_back_to_latest_ai_comment_citations(self) -> None:
         Comment.objects.create(
             team=self.team,

@@ -52,15 +52,15 @@ def parse_chunk_id(ref: str) -> UUID | None:
 def citations_for_ticket(ticket: Ticket, triage: dict[str, object]) -> list[str]:
     raw = triage.get("citations")
     if isinstance(raw, list):
-        citations = [str(item) for item in raw if item]
-        if citations:
-            return citations[:MAX_AI_SOURCES]
+        # An empty list is what the latest run stored, so the older comment below is stale.
+        return [str(item) for item in raw if item][:MAX_AI_SOURCES]
     context = (
         Comment.objects.filter(
             team_id=ticket.team_id,
             scope="conversations_ticket",
             item_id=str(ticket.id),
             item_context__author_type="AI",
+            deleted=False,
         )
         .order_by("-created_at", "-id")
         .values_list("item_context", flat=True)
