@@ -470,13 +470,7 @@ def _to_report_evidence(entries: list[dict] | None) -> list[ReportEvidence] | No
     None, which the edit path reads as "no evidence supplied"."""
     if not entries:
         return None
-    return [
-        ReportEvidence(
-            description=entry["description"],
-            source_id=entry["source_id"],
-        )
-        for entry in entries
-    ]
+    return [ReportEvidence(description=entry["description"], source_id=entry["source_id"]) for entry in entries]
 
 
 def _to_report_links(entries: list[dict] | None) -> list[ReportLinkInput] | None:
