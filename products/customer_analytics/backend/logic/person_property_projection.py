@@ -1,16 +1,15 @@
-"""Resolves the person-property source configs the warehouse import pipeline asks for.
+"""Resolves the person-property source configs a warehouse run asks for.
 
-Registered as the data-import pipeline's projection and sync-config hooks (see apps.ready).
-Called from the pipeline, outside request context, so it scopes explicitly with ``for_team``.
+Registered as the warehouse pipeline's projection and sync-config hooks (see apps.ready). Called from
+a data-import job or a view materialization, outside request context, so it scopes explicitly with
+``for_team``.
 
 Both resolvers are the feature's pipeline choke point: they return None when the
 ``warehouse-person-properties`` rollout flag is off for the team's organization, which switches
-off staging, the post-sync workflow gate, and the upsert in one place. The flag is only evaluated
-once a schema is confirmed to have enabled person sources, so unconfigured schemas (the vast
-majority of syncs) never pay a flag-service call.
+off staging, the post-run workflow gate, and the upsert in one place. The flag is only evaluated
+once a binding is confirmed to have enabled person sources, so unconfigured tables and views (the
+vast majority of runs) never pay a flag-service call.
 """
-
-from uuid import UUID
 
 import posthoganalytics
 
@@ -19,7 +18,12 @@ from posthog.models import Team
 
 from products.customer_analytics.backend.constants import WAREHOUSE_PERSON_PROPERTIES_FLAG
 from products.customer_analytics.backend.models import CustomPropertySource, TargetType
-from products.warehouse_sources.backend.facade.hooks import PersonPropertySourceProjection, PersonPropertySyncSource
+from products.warehouse_sources.backend.facade.hooks import (
+    BINDING_KIND_SAVED_QUERY,
+    PersonPropertySourceProjection,
+    PersonPropertySyncSource,
+    WarehouseBinding,
+)
 
 
 def person_properties_flag_enabled(team_id: int) -> bool:
@@ -47,33 +51,34 @@ def person_properties_flag_enabled(team_id: int) -> bool:
         return False
 
 
-# Warehouse-backed profile targets (person or group). Account sources use the materialized-view
-# (saved_query) path, not the warehouse staging pipeline, so they're excluded here.
+# Warehouse-backed profile targets (person or group). Account sources read a single view column
+# through their own Celery sync, not the warehouse staging pipeline, so they're excluded here.
 _PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
 
 
-def _enabled_profile_sources(team_id: int, schema_id: str | UUID) -> list[CustomPropertySource]:
+def _enabled_profile_sources(team_id: int, binding: WarehouseBinding) -> list[CustomPropertySource]:
     # Sources without a key column are skipped: their rows have no identifier (person distinct_id or
     # group key) to attach the properties to. select_related the definition so target_type /
     # group_type_index don't lazy-load per source.
+    binding_field = "saved_query_id" if binding.kind == BINDING_KIND_SAVED_QUERY else "external_data_schema_id"
     return [
         source
         for source in CustomPropertySource.objects.for_team(team_id)
         .select_related("definition")
         .filter(
-            external_data_schema_id=schema_id,
             is_enabled=True,
             definition__target_type__in=_PROFILE_TARGETS,
+            **{binding_field: binding.id},
         )
         if source.key_column
     ]
 
 
-def person_property_projection(team_id: int, schema_id: str | UUID) -> list[PersonPropertySourceProjection] | None:
-    """One projection per enabled person/group-target source on the schema (its key column plus its
-    mapped columns), or None when the schema feeds no such properties (so the pipeline stages
+def person_property_projection(team_id: int, binding: WarehouseBinding) -> list[PersonPropertySourceProjection] | None:
+    """One projection per enabled person/group-target source on the binding (its key column plus its
+    mapped columns), or None when the binding feeds no such properties (so the pipeline stages
     nothing). The projection is target-agnostic — the group type is config, not a staged column."""
-    sources = _enabled_profile_sources(team_id, schema_id)
+    sources = _enabled_profile_sources(team_id, binding)
     if not sources or not person_properties_flag_enabled(team_id):
         return None
     return [
@@ -85,11 +90,11 @@ def person_property_projection(team_id: int, schema_id: str | UUID) -> list[Pers
     ]
 
 
-def person_property_sync_sources(team_id: int, schema_id: str | UUID) -> list[PersonPropertySyncSource] | None:
-    """Full sync config per enabled person/group-target source on the schema, for the warehouse-owned
-    post-sync upsert job — or None when the schema feeds no such properties. Carries ``target`` and,
+def person_property_sync_sources(team_id: int, binding: WarehouseBinding) -> list[PersonPropertySyncSource] | None:
+    """Full sync config per enabled person/group-target source on the binding, for the warehouse-owned
+    post-run upsert job — or None when the binding feeds no such properties. Carries ``target`` and,
     for group targets, ``group_type_index`` so the upsert can write the right entity."""
-    sources = _enabled_profile_sources(team_id, schema_id)
+    sources = _enabled_profile_sources(team_id, binding)
     if not sources or not person_properties_flag_enabled(team_id):
         return None
     return [

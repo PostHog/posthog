@@ -69,6 +69,48 @@ describe("task response normalization", () => {
     });
   });
 
+  it("keeps PostHog reference metadata without requiring file storage", () => {
+    expect(
+      normalizeTaskRunResponse(
+        {
+          id: "run-1",
+          artifacts: [
+            {
+              id: "phref-1",
+              name: "Checkout funnel",
+              type: "reference",
+              source: "posthog_object",
+              uploaded_at: "2026-08-19T00:00:00Z",
+              metadata: {
+                reference_type: "posthog_object",
+                object_kind: "insight",
+                object_id: "9pQx3",
+                source_message_ids: ["turn-1"],
+                occurrence_count: 1,
+              },
+            },
+          ],
+        },
+        { teamId: 123, taskId: "task-1" },
+      ).artifacts,
+    ).toEqual([
+      {
+        id: "phref-1",
+        name: "Checkout funnel",
+        type: "reference",
+        source: "posthog_object",
+        uploaded_at: "2026-08-19T00:00:00Z",
+        metadata: {
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_ids: ["turn-1"],
+          occurrence_count: 1,
+        },
+      },
+    ]);
+  });
+
   it("normalizes task responses and their generated latest-run records", () => {
     expect(
       normalizeTaskResponse(
@@ -87,6 +129,7 @@ describe("task response normalization", () => {
             status: "started",
             log_url: null,
           },
+          description_preview: "Task preview",
           created_at: "2026-07-21T00:00:00Z",
           updated_at: "2026-07-21T00:01:00Z",
         },
@@ -98,6 +141,7 @@ describe("task response normalization", () => {
       slug: "task-1",
       title: "",
       description: "",
+      description_preview: "Task preview",
       origin_product: "",
       repository: null,
       github_integration: null,

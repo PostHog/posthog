@@ -1,0 +1,27 @@
+{
+    "$schema": "https://turbo.build/schema.json",
+    "extends": ["//"],
+    "tasks": {
+        "build": {
+            "inputs": [
+                "src",
+                "Cargo.toml",
+                "$TURBO_ROOT$/rust/replay-anonymizer/src/**",
+                "$TURBO_ROOT$/rust/replay-anonymizer/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.lock"
+            ]
+        },
+        "test": {
+            "inputs": [
+                "src",
+                "Cargo.toml",
+                "$TURBO_ROOT$/rust/replay-anonymizer/src/**",
+                "$TURBO_ROOT$/rust/replay-anonymizer/tests/**",
+                "$TURBO_ROOT$/rust/replay-anonymizer/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.lock"
+            ]
+        }
+    }
+}

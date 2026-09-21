@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     EndpointType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_RETRY_RESPONSE_ACTIONS,
     TikTokAdsAPIError,
     TikTokAdsAuth,
     TikTokAdsPaginator,
@@ -86,6 +87,7 @@ def get_tiktok_resource(
     }
 
     endpoint["params"] = params
+    endpoint["response_actions"] = TIKTOK_RETRY_RESPONSE_ACTIONS
     resource["endpoint"] = endpoint
 
     if should_use_incremental_field and config.incremental_fields:
@@ -137,6 +139,9 @@ def _iter_chunk(
         "client": {
             "base_url": BASE_URL,
             "auth": TikTokAdsAuth(access_token),
+            # The QPS ceiling is per app, so every concurrent schema competes for the same budget.
+            # A few extra attempts (backoff caps at 60s) ride out that contention.
+            "max_retries": 8,
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -147,10 +152,9 @@ def _iter_chunk(
     # NOTE: ``rest_api_resource`` returns a lazy iterable; actual HTTP
     # requests happen when the caller consumes it in ``process_resources``.
     # The retry below therefore only guards the (fast, rare-to-fail)
-    # resource-construction step — mid-pagination TikTok errors propagate
-    # out and are not retried here. Per-request retries would need to live
-    # inside the paginator or rest_client. Kept as-is to preserve existing
-    # behaviour.
+    # resource-construction step. Mid-pagination retries live one level down,
+    # in the rest client: ``TIKTOK_RETRY_RESPONSE_ACTIONS`` classifies TikTok's
+    # HTTP-200 error envelope so a transient code reissues the request there.
     resource = make_sync_retryable_with_exponential_backoff(
         lambda: rest_api_resource(
             chunk_config,

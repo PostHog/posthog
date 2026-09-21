@@ -1,10 +1,17 @@
 // prometheus exporter setup
 
+use common_types::timestamp::TimestampSource;
 use limiters::redis::QuotaResource;
 use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
+
+pub const CAPTURE_TIMESTAMP_PATH_TOTAL: &str = "capture_timestamp_path_total";
+pub const CAPTURE_STORED_VS_CLIENT_CAPTURE_SECONDS: &str =
+    "capture_stored_vs_client_capture_seconds";
+pub const CAPTURE_EDGE_TO_NOW_SECONDS: &str = "capture_edge_to_now_seconds";
+pub const CAPTURE_EDGE_TIMESTAMP_REJECTED: &str = "capture_edge_timestamp_rejected_total";
 
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
     counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);
@@ -26,6 +33,139 @@ pub fn report_internal_error_metrics(err_type: &'static str, stage_tag: &'static
 pub fn report_clock_skew(skew: chrono::Duration) {
     let skew_seconds = skew.num_milliseconds().saturating_abs() as f64 / 1000.0;
     metrics::histogram!("capture_client_clock_skew_seconds").record(skew_seconds);
+}
+
+/// Records the branch, and the gap between the stored timestamp and the device's
+/// own capture instant. That gap is delivery delay minus device clock offset,
+/// which a single request cannot separate.
+pub fn report_timestamp_path(
+    source: TimestampSource,
+    client_uuid: Option<uuid::Uuid>,
+    stored: chrono::DateTime<chrono::Utc>,
+) {
+    let path_tag = source.as_str();
+    counter!(CAPTURE_TIMESTAMP_PATH_TOTAL, "ts_path" => path_tag).increment(1);
+
+    let Some(captured_ms) = client_uuid.and_then(crate::utils::client_capture_millis) else {
+        return;
+    };
+    let Some(delta_ms) = stored.timestamp_millis().checked_sub(captured_ms) else {
+        return;
+    };
+    let direction = if delta_ms < 0 {
+        "stored_earlier"
+    } else {
+        "stored_later"
+    };
+    metrics::histogram!(
+        CAPTURE_STORED_VS_CLIENT_CAPTURE_SECONDS,
+        "ts_path" => path_tag,
+        "direction" => direction,
+    )
+    .record(delta_ms.saturating_abs() as f64 / 1000.0);
+}
+
+/// Time from an upstream hop stamping the request to capture reading its clock.
+/// Neither proxy overwrites a client-supplied value: Envoy appends its own
+/// `X-Request-Start` after it, and the ALB keeps a supplied `Root` while putting its
+/// own time in `Self`. So read the last one, prefer `Self`, and bound the result.
+pub fn report_edge_to_now(headers: &axum::http::HeaderMap, now: chrono::DateTime<chrono::Utc>) {
+    let now_ms = now.timestamp_millis();
+    if let Some(start_ms) = headers
+        .get_all("x-request-start")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .filter_map(parse_request_start_ms)
+        .next_back()
+    {
+        record_edge_delta("envoy", now_ms, start_ms);
+    }
+    if let Some(start_ms) = headers
+        .get("x-amzn-trace-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_amzn_trace_epoch_ms)
+    {
+        record_edge_delta("alb", now_ms, start_ms);
+    }
+}
+
+/// The Envoy route timeout is 120s and the ALB idle timeout is 300s, so a larger
+/// delta is a forged or broken header rather than a slow request.
+const EDGE_DELTA_CEILING_MS: i64 = 600_000;
+
+fn record_edge_delta(edge: &'static str, now_ms: i64, start_ms: i64) {
+    let Some(delta_ms) = now_ms.checked_sub(start_ms) else {
+        counter!(CAPTURE_EDGE_TIMESTAMP_REJECTED, "edge" => edge, "reason" => "implausible")
+            .increment(1);
+        return;
+    };
+    if !(0..=EDGE_DELTA_CEILING_MS).contains(&delta_ms) {
+        let reason = if delta_ms < 0 {
+            "negative"
+        } else {
+            "implausible"
+        };
+        counter!(CAPTURE_EDGE_TIMESTAMP_REJECTED, "edge" => edge, "reason" => reason).increment(1);
+        return;
+    }
+    metrics::histogram!(CAPTURE_EDGE_TO_NOW_SECONDS, "edge" => edge)
+        .record(delta_ms as f64 / 1000.0);
+}
+
+/// Parses Envoy's `t=<seconds>.<millis>`. Integer arithmetic, because an f64
+/// seconds parse loses milliseconds at epoch magnitude.
+fn parse_request_start_ms(value: &str) -> Option<i64> {
+    let stripped = value.strip_prefix("t=").unwrap_or(value);
+    let (secs, frac) = match stripped.split_once('.') {
+        Some((s, f)) => (s, f),
+        None => (stripped, ""),
+    };
+    let secs: i64 = secs.parse().ok()?;
+    if secs < 0 {
+        return None;
+    }
+    let mut millis = 0i64;
+    if !frac.is_empty() {
+        if !frac.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let mut digits = frac.as_bytes().iter().take(3);
+        for place in [100, 10, 1] {
+            millis += i64::from(digits.next().map_or(0, |b| b - b'0')) * place;
+        }
+    }
+    secs.checked_mul(1_000)?.checked_add(millis)
+}
+
+/// `Self` is present only when the ALB kept a client-supplied `Root`, so it is the
+/// trustworthy field when both appear.
+fn parse_amzn_trace_epoch_ms(value: &str) -> Option<i64> {
+    let field = |name: &str| {
+        value
+            .split(';')
+            .find_map(|part| part.trim().strip_prefix(name))
+            .and_then(parse_trace_field_epoch_ms)
+    };
+    field("Self=").or_else(|| field("Root="))
+}
+
+/// AWS writes `1-<8 hex epoch seconds>-<24 hex id>`. A truncated epoch would read as
+/// 1970 and land every request in the top bucket.
+fn parse_trace_field_epoch_ms(field: &str) -> Option<i64> {
+    let mut parts = field.split('-');
+    if parts.next()? != "1" {
+        return None;
+    }
+    let epoch = parts.next()?;
+    let id = parts.next()?;
+    if parts.next().is_some()
+        || epoch.len() != 8
+        || id.len() != 24
+        || !id.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    i64::from_str_radix(epoch, 16).ok()?.checked_mul(1_000)
 }
 
 pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> PrometheusHandle {
@@ -80,8 +220,6 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         16777216.0, // 16MB
         33554432.0, // 32MB
     ];
-    // Blob count per event (2x increments)
-    const BLOB_COUNTS: &[f64] = &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
     // Redis read/write pipeline round-trip (milliseconds). Dense around the
     // 100ms read/write timeout so p99 is readable below it.
     const GLOBAL_RATE_LIMITER_PIPELINE_MS: &[f64] = &[
@@ -109,6 +247,11 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
     const CLOCK_SKEW_SECONDS: &[f64] = &[
         0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0, 3600.0, 86400.0,
     ];
+
+    // Coarse on purpose, because every extra bucket multiplies by the label
+    // combinations. 150 is the largest offset that could plausibly be transit
+    // delay rather than a wrong clock.
+    const DISPLACEMENT_SECONDS: &[f64] = &[0.05, 0.25, 1.0, 5.0, 30.0, 150.0, 3600.0];
 
     // Kafka produce ack duration (milliseconds), measured app-side from
     // `send_result()` returning to broker ack / error / cancellation.
@@ -160,21 +303,6 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .set_buckets_for_metric(
             Matcher::Full("capture_ai_otel_spans_per_request".to_string()),
             BATCH_SIZES,
-        )
-        .unwrap()
-        .set_buckets_for_metric(
-            Matcher::Full("capture_ai_blob_count_per_event".to_string()),
-            BLOB_COUNTS,
-        )
-        .unwrap()
-        .set_buckets_for_metric(
-            Matcher::Full("capture_ai_blob_size_bytes".to_string()),
-            S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
-        )
-        .unwrap()
-        .set_buckets_for_metric(
-            Matcher::Full("capture_ai_blob_total_bytes_per_event".to_string()),
-            S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
         )
         .unwrap()
         .set_buckets_for_metric(
@@ -238,6 +366,174 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
             CLOCK_SKEW_SECONDS,
         )
         .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full(CAPTURE_STORED_VS_CLIENT_CAPTURE_SECONDS.to_string()),
+            DISPLACEMENT_SECONDS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full(CAPTURE_EDGE_TO_NOW_SECONDS.to_string()),
+            DISPLACEMENT_SECONDS,
+        )
+        .unwrap()
         .install_recorder()
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::{client_capture_millis, uuid_v7};
+    use uuid::Uuid;
+
+    #[test]
+    fn request_start_keeps_millisecond_resolution() {
+        // An f64 seconds parse rounds these away into the first bucket.
+        assert_eq!(
+            parse_request_start_ms("t=1789599946.571"),
+            Some(1789599946571)
+        );
+        assert_eq!(
+            parse_request_start_ms("1789599946.571"),
+            Some(1789599946571)
+        );
+        assert_eq!(parse_request_start_ms("t=1789599946"), Some(1789599946000));
+        assert_eq!(
+            parse_request_start_ms("t=1789599946.5"),
+            Some(1789599946500)
+        );
+        assert_eq!(
+            parse_request_start_ms("t=1789599946.571999"),
+            Some(1789599946571)
+        );
+    }
+
+    #[test]
+    fn request_start_rejects_rather_than_guesses() {
+        for bad in [
+            "",
+            "t=",
+            "t=abc",
+            "t=1789599946.5x1",
+            "t=-5.0",
+            "  t=1789599946.571",
+        ] {
+            assert_eq!(parse_request_start_ms(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn alb_trace_prefers_the_field_the_load_balancer_controls() {
+        // Reading `Root` first would report a client's number as ours.
+        assert_eq!(
+            parse_amzn_trace_epoch_ms(
+                "Self=1-6aab488c-7f773a4636e043286963f18e;Root=1-3b9aca00-forgedforgedforgedforg"
+            ),
+            Some(1789610124000)
+        );
+        assert_eq!(
+            parse_amzn_trace_epoch_ms("Root=1-6aab20ca-7499b34d351523a60de25e91"),
+            Some(1789599946000)
+        );
+    }
+
+    #[test]
+    fn alb_trace_rejects_every_non_aws_shape() {
+        for bad in [
+            "",
+            "Root=",
+            "Root=1-5",
+            "Root=1-6aab20ca",
+            "Root=1-6aab20ca-short",
+            "Root=1-6aab20ca-7499b34d351523a60de25e91-extra",
+            "Root=1-6aab20ca-zzzzzzzzzzzzzzzzzzzzzzzz",
+            "Root=2-6aab20ca-7499b34d351523a60de25e91",
+            "Root=1-zzzzzzzz-7499b34d351523a60de25e91",
+        ] {
+            assert_eq!(parse_amzn_trace_epoch_ms(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn envoy_request_start_wins_over_a_client_supplied_one() {
+        // Envoy appends, so `HeaderMap::get` would return the forged first value.
+        let mut headers = axum::http::HeaderMap::new();
+        headers.append("x-request-start", "t=1000000000.000".parse().unwrap());
+        headers.append("x-request-start", "t=1789610124.697".parse().unwrap());
+        let chosen = headers
+            .get_all("x-request-start")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .filter_map(parse_request_start_ms)
+            .next_back();
+        assert_eq!(chosen, Some(1789610124697));
+    }
+
+    #[test]
+    fn hostile_input_never_panics_on_either_entry_point() {
+        // These run on every capture request. A panic here would take a request
+        // down, so the contract is that any input is observed or skipped.
+        let hostile = [
+            "",
+            "t=",
+            "t=.",
+            "t=-",
+            "t=9223372036854775807",
+            "t=9223372036854775807.999",
+            "t=99999999999999999999999999999999999999",
+            "t=-9223372036854775808",
+            "t=0.000000000000000000000000",
+            "Root=1-ffffffff-ffffffffffffffffffffffff",
+            "Self=1-00000000-000000000000000000000000",
+            "Root=1--",
+            "Self=;Root=;Self=",
+            "\u{1f600}\u{1f600}\u{1f600}",
+            "t=1e999",
+            "t=+1789610124.697",
+        ];
+        for value in hostile {
+            let mut headers = axum::http::HeaderMap::new();
+            if let Ok(hv) = axum::http::HeaderValue::from_str(value) {
+                headers.append("x-request-start", hv.clone());
+                headers.append("x-amzn-trace-id", hv);
+            }
+            for now in [
+                chrono::Utc::now(),
+                chrono::DateTime::<chrono::Utc>::MIN_UTC,
+                chrono::DateTime::<chrono::Utc>::MAX_UTC,
+            ] {
+                report_edge_to_now(&headers, now);
+            }
+        }
+
+        // A v7 UUID carrying the largest representable 48-bit instant, against the
+        // widest stored timestamps chrono can hold.
+        let max_v7 = Uuid::from_u128((0xFFFF_FFFF_FFFFu128 << 80) | (7u128 << 76));
+        for uuid in [None, Some(max_v7), Some(uuid_v7(0)), Some(Uuid::new_v4())] {
+            for stored in [
+                chrono::DateTime::<chrono::Utc>::MIN_UTC,
+                chrono::DateTime::<chrono::Utc>::MAX_UTC,
+                chrono::Utc::now(),
+            ] {
+                for source in [
+                    TimestampSource::Offset,
+                    TimestampSource::SentAtSkew,
+                    TimestampSource::ClientTimestamp,
+                    TimestampSource::Now,
+                ] {
+                    report_timestamp_path(source, uuid, stored);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn only_a_v7_uuid_reports_a_capture_instant() {
+        assert_eq!(
+            client_capture_millis(uuid_v7(1_700_000_000_123)),
+            Some(1_700_000_000_123)
+        );
+        assert_eq!(client_capture_millis(Uuid::new_v4()), None);
+        assert_eq!(client_capture_millis(Uuid::nil()), None);
+    }
 }

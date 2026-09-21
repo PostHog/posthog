@@ -55,6 +55,10 @@ export const QUERY_SQL_INSERT_COMMAND_KEY = 'query-sql'
  * without hard-coding the label, which would split into a second group if this were renamed. */
 export const COMMON_INSERT_COMMAND_CATEGORY = 'Common'
 
+/** The menu's last group, sorted by label rather than by insertion order. Exported so a caller
+ * merging product commands in can name it without hard-coding the label. */
+export const PRODUCTS_INSERT_COMMAND_CATEGORY = 'Products'
+
 export function omitInsertCommands(commands: InsertCommand[], hiddenKeys: string[] | undefined): InsertCommand[] {
     if (!hiddenKeys?.length) {
         return commands
@@ -149,6 +153,9 @@ export function InsertMenu({
                                     <span className="MarkdownNotebook__insert-item-icon">{command.icon}</span>
                                 ) : null}
                                 <span>{renderHighlightedInsertCommandLabel(command.label, query)}</span>
+                                {command.badge ? (
+                                    <span className="MarkdownNotebook__insert-item-badge">{command.badge}</span>
+                                ) : null}
                             </button>
                         ))}
                     </div>
@@ -178,11 +185,11 @@ export function renderHighlightedInsertCommandLabel(label: string, query: string
 
 export function getFilteredInsertCommands(commands: InsertCommand[], query: string): InsertCommand[] {
     const normalizedQuery = query.trim().toLowerCase()
-    if (!normalizedQuery) {
-        return commands
-    }
+    const filteredCommands = normalizedQuery
+        ? commands.filter((command) => getInsertCommandSearchText(command).includes(normalizedQuery))
+        : commands
 
-    return commands.filter((command) => getInsertCommandSearchText(command).includes(normalizedQuery))
+    return Object.values(groupInsertCommandsByCategory(filteredCommands)).flat()
 }
 
 export function getInsertCommandSearchText(command: InsertCommand): string {
@@ -458,13 +465,13 @@ export function buildInsertCommands(
         },
     ]
 
-    // Appended after every other built-in category so "Products" renders as the last group
-    // (grouping preserves first-occurrence order); scene-supplied product commands merge in.
+    // Sorted and moved after every other category on the way out, so "Products" renders as the
+    // last group (grouping preserves first-occurrence order); scene-supplied commands merge in.
     const productCommands: InsertCommand[] = [
         {
             key: 'data-session-recordings',
             label: 'Session recordings',
-            category: 'Products',
+            category: PRODUCTS_INSERT_COMMAND_CATEGORY,
             aliases: ['replay', 'playlist'],
             icon: <IconRewindPlay />,
             run: (targetNodeId) => insertRegisteredComponent(targetNodeId, 'RecordingPlaylist'),
@@ -516,6 +523,7 @@ export function buildInsertCommands(
                 description: insertCommand.description ?? definition.description,
                 aliases: insertCommand.aliases ?? definition.aliases,
                 icon: insertCommand.icon ?? definition.icon,
+                badge: insertCommand.badge,
                 run: (targetNodeId) =>
                     insertRegisteredComponent(
                         targetNodeId,
@@ -610,7 +618,7 @@ export function buildInsertCommands(
         },
     ]
 
-    return [
+    return sortProductInsertCommandsLast([
         ...aiCommands,
         ...textCommands,
         ...sqlCommands,
@@ -621,7 +629,16 @@ export function buildInsertCommands(
         ...textStyleCommands,
         ...productCommands,
         ...extraCommands,
-    ]
+    ])
+}
+
+/** Every other category is hand-ordered, but products arrive in widget-catalog key order, which
+ * reads as arbitrary. Sorting here rather than at render time keeps the order the arrow keys walk
+ * in step with the order the menu paints. */
+function sortProductInsertCommandsLast(commands: InsertCommand[]): InsertCommand[] {
+    const products = commands.filter((command) => command.category === PRODUCTS_INSERT_COMMAND_CATEGORY)
+    const rest = commands.filter((command) => command.category !== PRODUCTS_INSERT_COMMAND_CATEGORY)
+    return [...rest, ...products.sort((a, b) => a.label.localeCompare(b.label))]
 }
 
 export function getInsertMenuPosition(anchorElement: HTMLElement): InsertMenuPosition {

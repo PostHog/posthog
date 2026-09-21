@@ -12,6 +12,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
 )
@@ -23,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _mark_job_completed,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
+    _resolve_cdc_positions,
+    _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
     process_message,
 )
@@ -468,6 +471,40 @@ class TestMarkJobCompleted:
         mock_release.assert_not_called()
 
 
+class TestRedeliveredFinalBatchPostLoad:
+    @parameterized.expand([("companion", "scd2_append"), ("consolidated", "incremental_merge"), ("snapshot", None)])
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    def test_forwards_the_batch_write_mode(
+        self,
+        _case: str,
+        cdc_write_mode: str | None,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        _read: MagicMock,
+        mock_post_load: AsyncMock,
+    ) -> None:
+        # Post-load derives the whole CDC branch from the write mode: whether this is a companion
+        # write (register the _cdc table, leave schema.table alone) or a snapshot to seed the
+        # companion from. Dropping it here let a redelivered streaming batch re-seed the companion,
+        # wiping its SCD2 history, and point schema.table at the companion's folder.
+        delta_table = MagicMock(schema=MagicMock(return_value=pa.schema([_COL_ID])))
+        mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=delta_table)
+
+        signal = MagicMock()
+        signal.cdc_write_mode = cdc_write_mode
+
+        _run_post_load_for_already_processed_batch(signal)
+
+        assert mock_post_load.await_args is not None
+        assert mock_post_load.await_args.kwargs["cdc_write_mode"] == cdc_write_mode
+
+
 class TestPostImportTrigger:
     """The V3 hand-off to `data-import-post-import`: without it the load-dependent
     post-import steps (signals, enrichment, statistics, table size, DuckLake copy)
@@ -563,9 +600,13 @@ class TestPostImportTrigger:
         [
             # Any start failure (e.g. no Temporal env vars on the load deployment) must
             # not fail the load; it is logged and captured.
-            ("start_failure_is_captured", RuntimeError("no temporal"), True),
-            # An id collision means a prior delivery already started this job's run.
-            ("already_started_is_benign", WorkflowAlreadyStartedError("wf-id", "wf-type"), False),
+            ("start_failure_is_captured", RuntimeError("no temporal"), True, 1),
+            # An id collision means a register is already in flight for this schema.
+            ("already_started_is_benign", WorkflowAlreadyStartedError("wf-id", "wf-type"), False, 1),
+            # A genuine cancellation must not be mistaken for the client-side timeout that also
+            # reports CANCELLED — only the "Timeout expired" / "operation was canceled" phrases
+            # are transient, so this one is captured on the first attempt, not retried.
+            ("genuine_cancel_is_captured", RPCError("Cancelled by caller", RPCStatusCode.CANCELLED, b""), True, 1),
         ]
     )
     @patch(f"{_PROCESSOR}.capture_exception")
@@ -575,6 +616,7 @@ class TestPostImportTrigger:
         _case: str,
         error: Exception,
         expect_captured: bool,
+        expected_attempts: int,
         mock_connect: AsyncMock,
         mock_capture: MagicMock,
     ) -> None:
@@ -592,6 +634,7 @@ class TestPostImportTrigger:
 
         _trigger_post_import_workflow(signal)
 
+        assert client.start_workflow.call_count == expected_attempts
         assert mock_capture.called is expect_captured
 
     def _signal(self) -> MagicMock:
@@ -604,10 +647,22 @@ class TestPostImportTrigger:
         signal.source_id = "source-1"
         return signal
 
+    @parameterized.expand(
+        [
+            ("deadline_exceeded", RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b"")),
+            # tonic cancels a call that outruns the client's own RPC deadline and reports it as
+            # CANCELLED with this message, not DEADLINE_EXCEEDED — the status a bare-frontend
+            # timeout produces. Must be ridden out the same way, not dropped on the first blip.
+            ("client_side_cancel", RPCError("Timeout expired", RPCStatusCode.CANCELLED, b"")),
+            ("lost_connection", RPCError("operation was canceled", RPCStatusCode.CANCELLED, b"")),
+        ]
+    )
     @patch(f"{_PROCESSOR}.capture_exception")
     @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
     def test_transient_rpc_timeout_is_retried_and_recovers(
         self,
+        _case: str,
+        error: RPCError,
         mock_connect: AsyncMock,
         mock_capture: MagicMock,
     ) -> None:
@@ -615,14 +670,31 @@ class TestPostImportTrigger:
         # none of the server-side retry a `workflow.start_child_workflow` command would
         # have — a single transient timeout must not drop the trigger permanently.
         client = MagicMock()
-        client.start_workflow = AsyncMock(
-            side_effect=[RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""), None]
-        )
+        client.start_workflow = AsyncMock(side_effect=[error, None])
         mock_connect.return_value = client
 
         _trigger_post_import_workflow(self._signal())
 
         assert client.start_workflow.call_count == 2
+        mock_capture.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_transient_connect_failure_is_retried_and_recovers(
+        self,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        # async_connect() itself can fail transiently (e.g. a DNS blip reaching the Temporal
+        # frontend), raising the Rust bridge's untyped RuntimeError before any client exists —
+        # this must be retried like an RPCError, not drop the trigger on the first blip.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=None)
+        mock_connect.side_effect = [RuntimeError("Failed client connect: Server connection error: ..."), client]
+
+        _trigger_post_import_workflow(self._signal())
+
+        assert mock_connect.call_count == 2
         mock_capture.assert_not_called()
 
     @patch(f"{_PROCESSOR}.capture_exception")
@@ -662,6 +734,120 @@ class TestEnrichCdcRows:
                 TOAST_OMITTED_COLUMN: pa.array([r.get("omitted") for r in rows], pa.list_(pa.string())),
             }
         )
+
+    def _stamped(self, ids: list[int], ops: list[str], seqs: list[int]) -> pa.Table:
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_PROVENANCE
+
+        table = pa.table(
+            {
+                "id": pa.array(ids, pa.int64()),
+                "name": pa.array([f"n{i}" for i in ids], pa.string()),
+                CDC_OP_COLUMN: pa.array(ops, pa.string()),
+            }
+        )
+        return table.append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())
+        )
+
+    def _resolve(self, table: pa.Table, *, cdc_write_mode: str = "incremental_merge"):
+        return _resolve_cdc_positions(
+            table,
+            primary_keys=["id"],
+            cdc_write_mode=cdc_write_mode,
+            team_id="2",
+        )
+
+    def test_the_merge_lane_collapses_a_key_to_its_latest_version(self):
+        # The write engine rejects duplicate keys outright.
+        table = self._stamped([1, 1, 2], ["I", "U", "I"], [10, 20, 30])
+        result = self._resolve(table)
+
+        assert result.column(CDC_SEQ_COLUMN).to_pylist() == [20, 30]
+
+    def test_resolution_is_skipped_without_an_engine_stamped_position(self):
+        # A source column named _ph_cdc_seq must not drive the guard.
+        table = self._stamped([1, 1], ["I", "U"], [10, 20]).drop_columns([CDC_SEQ_COLUMN])
+        table = table.append_column(pa.field(CDC_SEQ_COLUMN, pa.int64()), pa.array([10, 20], pa.int64()))
+        result = self._resolve(table)
+
+        assert result is table
+
+    def test_the_history_lane_keeps_every_version_of_a_key(self):
+        table = self._stamped([1, 1], ["I", "U"], [10, 20])
+        result = self._resolve(table, cdc_write_mode="scd2_append")
+
+        assert result.column(CDC_SEQ_COLUMN).to_pylist() == [10, 20]
+
+    def _write_existing(self, path: str) -> None:
+        write_deltalake(
+            path,
+            pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "name": pa.array(["one"], pa.string()),
+                    "big": pa.array(["toasted-1"], pa.string()),
+                }
+            ),
+            mode="overwrite",
+        )
+
+    def test_verification_stays_quiet_when_enrichment_filled_the_delete(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            with patch(f"{_PROCESSOR}.CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL") as violations:
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                    verify_deletes=True,
+                    team_id="2",
+                )
+
+            violations.labels.assert_not_called()
+
+    def test_verification_reports_a_delete_that_would_null_target_data(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            # Enrichment silently doing nothing is the failure this lane exists to catch: under
+            # deltalite the upsert replaces the whole row, so those nulls would land in the table.
+            with (
+                patch(f"{_PROCESSOR}.enrich_delete_rows", side_effect=lambda table, *_a, **_kw: table),
+                patch(f"{_PROCESSOR}.CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL") as violations,
+            ):
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                    verify_deletes=True,
+                    team_id="2",
+                )
+
+            violations.labels.assert_called_once_with(team_id="2")
+            violations.labels.return_value.inc.assert_called_once_with(1)
+
+    def test_verification_is_skipped_when_the_flag_is_off(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            with (
+                patch(f"{_PROCESSOR}.enrich_delete_rows", side_effect=lambda table, *_a, **_kw: table),
+                patch(f"{_PROCESSOR}.verify_delete_enrichment") as verify,
+            ):
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                )
+
+            verify.assert_not_called()
 
     def test_fills_toast_and_delete_rows_from_delta_state_and_drops_marker(self):
         with tempfile.TemporaryDirectory() as path:

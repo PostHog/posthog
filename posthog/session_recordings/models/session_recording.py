@@ -52,8 +52,6 @@ class SessionRecording(UUIDTModel):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     deleted = models.BooleanField(null=True, blank=True)
-    object_storage_path = models.CharField(max_length=200, null=True, blank=True)
-    full_recording_v2_path = models.CharField(max_length=1000, null=True, blank=True)
 
     distinct_id = models.CharField(max_length=400, null=True, blank=True)
 
@@ -73,8 +71,6 @@ class SessionRecording(UUIDTModel):
 
     start_url = models.CharField(blank=True, null=True, max_length=512)
 
-    storage_version = models.CharField(blank=True, null=True, max_length=20)
-
     retention_period_days = models.IntegerField(blank=True, null=True)
 
     # DYNAMIC FIELDS
@@ -85,10 +81,10 @@ class SessionRecording(UUIDTModel):
     matching_events: Optional[RecordingMatchingEvents] = None
     ongoing: Optional[bool] = None
     activity_score: Optional[float] = None
-    has_summary: Optional[bool] = None
-    summary_outcome: Optional[dict] = None
     expiry_time: Optional[datetime] = None
     recording_ttl: Optional[int] = None
+    total_size: Optional[int] = None
+    event_count: Optional[int] = None
     # False when this recording was included in listing results via session_recording_id
     # despite not matching the listing filters
     matches_filters: Optional[bool] = None
@@ -100,44 +96,44 @@ class SessionRecording(UUIDTModel):
         if self._metadata:
             return True
 
-        if self.full_recording_v2_path:
-            # Nothing todo as we have all the metadata in the model
-            pass
-        else:
-            # Deferred: session_replay_events pulls the HogQL/schema layer, and this model
-            # loads at django.setup() in every process.
-            from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents  # noqa: PLC0415
+        # Deferred: session_replay_events pulls the HogQL/schema layer, and this model
+        # loads at django.setup() in every process.
+        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents  # noqa: PLC0415
 
-            # Try to load from Clickhouse
-            metadata = SessionReplayEvents().get_metadata(
-                team=self.team,
-                session_id=self.session_id,
-                recording_start_time=self.start_time,
-            )
+        metadata = SessionReplayEvents().get_metadata(
+            team=self.team,
+            session_id=self.session_id,
+            recording_start_time=self.start_time,
+        )
 
-            if not metadata:
-                return False
+        if not metadata:
+            return False
 
-            self._metadata = metadata
+        self._metadata = metadata
 
-            # Some fields of the metadata are persisted fully in the model
-            self.distinct_id = metadata["distinct_id"]
-            self.start_time = metadata["start_time"]
-            self.end_time = metadata["end_time"]
-            self.duration = metadata["duration"]
-            self.click_count = metadata["click_count"]
-            self.keypress_count = metadata["keypress_count"]
-            self.set_start_url_from_urls(first_url=metadata["first_url"])
-            self.mouse_activity_count = metadata["mouse_activity_count"]
-            self.active_seconds = metadata["active_seconds"]
-            self.inactive_seconds = metadata["duration"] - metadata["active_seconds"]
-            self.console_log_count = metadata["console_log_count"]
-            self.console_warn_count = metadata["console_warn_count"]
-            self.console_error_count = metadata["console_error_count"]
-            self.retention_period_days = metadata["retention_period_days"]
-            self.expiry_time = metadata["expiry_time"]
-            self.recording_ttl = metadata["recording_ttl"]
-            self.ongoing = metadata["ongoing"]
+        # Some fields of the metadata are persisted fully in the model
+        self.distinct_id = metadata["distinct_id"]
+        self.start_time = metadata["start_time"]
+        self.end_time = metadata["end_time"]
+        self.duration = metadata["duration"]
+        self.click_count = metadata["click_count"]
+        self.keypress_count = metadata["keypress_count"]
+        self.set_start_url_from_urls(first_url=metadata["first_url"])
+        self.mouse_activity_count = metadata["mouse_activity_count"]
+        self.active_seconds = metadata["active_seconds"]
+        # `active_seconds` sums per-block active time, so blocks that overlap in wall clock
+        # (concurrent tabs in one session) each count their own and the total can exceed the
+        # elapsed span. Only the totals are stored, so the overlap cannot be subtracted out.
+        self.inactive_seconds = max(metadata["duration"] - metadata["active_seconds"], 0)
+        self.console_log_count = metadata["console_log_count"]
+        self.console_warn_count = metadata["console_warn_count"]
+        self.console_error_count = metadata["console_error_count"]
+        self.retention_period_days = metadata["retention_period_days"]
+        self.expiry_time = metadata["expiry_time"]
+        self.recording_ttl = metadata["recording_ttl"]
+        self.ongoing = metadata["ongoing"]
+        self.total_size = metadata["total_size"]
+        self.event_count = metadata["event_count"]
 
         return True
 

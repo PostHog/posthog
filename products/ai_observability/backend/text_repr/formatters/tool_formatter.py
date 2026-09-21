@@ -10,6 +10,8 @@ import json
 import base64
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from posthog.dataclasses import frozen
+
 from .constants import DEFAULT_TOOLS_COLLAPSE_THRESHOLD
 
 if TYPE_CHECKING:
@@ -29,83 +31,114 @@ class Tool(TypedDict, total=False):
     parameters: dict[str, Any]  # Google/Gemini format (unwrapped)
 
 
-def _format_tools_list(tools_list: list[Any]) -> str:
+@frozen
+class _ToolDefinition:
+    """A tool reduced to the fields a signature needs, whatever provider format it came in."""
+
+    name: str
+    description: str
+    parameter_schema: Any
+
+
+def _unwrap_declarations(tool: dict[str, Any]) -> list[Any]:
+    """Unwrap the Google/Gemini format: {functionDeclarations: [{name, description, parameters}]}."""
+    declarations = tool.get("functionDeclarations")
+    if isinstance(declarations, list):
+        return declarations
+    return [tool]
+
+
+def _flatten_tools(tools_list: list[Any]) -> list[dict[str, Any]]:
     """
-    Format a list of tools into text representation.
+    Unwrap every container, so a Google/Gemini bundle counts as its tools and not as one item.
+    Drops what cannot render, so the count and the collapse decision see the real tools.
+    """
+    flattened: list[dict[str, Any]] = []
+    for tool in tools_list:
+        if not isinstance(tool, dict):
+            continue
+        flattened.extend(declaration for declaration in _unwrap_declarations(tool) if isinstance(declaration, dict))
+    return flattened
+
+
+def _read_description(source: dict[str, Any]) -> str:
+    """SDKs record non-string descriptions, which crash `.split()` in `_format_description`."""
+    description = source.get("description", "N/A")
+    return description if isinstance(description, str) else "N/A"
+
+
+def _read_tool(tool: dict[str, Any]) -> _ToolDefinition:
+    """Read name, description and parameter schema out of any supported provider format."""
+    if "function" in tool and isinstance(tool["function"], dict):
+        # OpenAI format: {type: 'function', function: {name, description, parameters}}
+        function = tool["function"]
+        return _ToolDefinition(
+            name=str(function.get("name", "unknown")),
+            description=_read_description(function),
+            parameter_schema=function.get("parameters"),
+        )
+
+    if "name" in tool:
+        # Multiple formats:
+        # - Anthropic: {name, description, input_schema} (snake_case)
+        # - OpenAI: {name, description, inputSchema} (camelCase)
+        # - Google/Gemini unwrapped: {name, description, parameters}
+        return _ToolDefinition(
+            name=str(tool["name"]),
+            description=_read_description(tool),
+            parameter_schema=tool.get("input_schema") or tool.get("inputSchema") or tool.get("parameters"),
+        )
+
+    # Unknown format
+    return _ToolDefinition(
+        name=str(tool.get("type", "UNKNOWN")), description=json.dumps(tool)[:100], parameter_schema=None
+    )
+
+
+def _format_signature(name: str, schema: Any) -> str:
+    """Build a function signature such as `read_file(path: string, lines?: string)`."""
+    # SDKs record non-object `properties`, which crashes `.items()` below.
+    if not isinstance(schema, dict) or not isinstance(schema.get("properties"), dict):
+        return f"{name}()"
+
+    # SDKs record a `required` that holds no members, which crashes the `in` test below.
+    required = schema.get("required", [])
+    if not isinstance(required, list | tuple | set):
+        required = []
+
+    params: list[str] = []
+    for param_name, param_info in schema["properties"].items():
+        if not isinstance(param_info, dict):
+            continue
+        param_type = param_info.get("type", "any")
+        optional_marker = "" if param_name in required else "?"
+        params.append(f"{param_name}{optional_marker}: {param_type}")
+
+    return f"{name}({', '.join(params)})"
+
+
+def _format_description(description: str) -> str:
+    """Keep only the first line of the description, and end it with a period."""
+    first_line = description.split("\n")[0]
+    first_sentence = first_line.split(". ")[0]
+    return first_sentence if first_sentence.endswith(".") else f"{first_sentence}."
+
+
+def _format_tools_list(tools_list: list[dict[str, Any]]) -> str:
+    """
+    Format a flattened list of tools into text representation.
     Returns the formatted text as a single string.
     """
     lines: list[str] = []
 
     for tool in tools_list:
-        # Skip non-dict entries
-        if not isinstance(tool, dict):
-            continue
+        definition = _read_tool(tool)
 
-        # Handle Google/Gemini format: {functionDeclarations: [{name, description, parameters}]}
-        tools_to_process: list[Any] = []
-        if "functionDeclarations" in tool and isinstance(tool["functionDeclarations"], list):
-            tools_to_process = tool["functionDeclarations"]
-        else:
-            tools_to_process = [tool]
+        lines.append("")
+        lines.append(f"  {_format_signature(definition.name, definition.parameter_schema)}")
 
-        for t in tools_to_process:
-            # Skip non-dict entries in tools_to_process
-            if not isinstance(t, dict):
-                continue
-            name: str
-            desc: str
-            schema: dict[str, Any] | None = None
-
-            # Handle different tool formats
-            if "function" in t and isinstance(t["function"], dict):
-                # OpenAI format: {type: 'function', function: {name, description, parameters}}
-                name = t["function"].get("name", "unknown")
-                desc = t["function"].get("description", "N/A")
-                schema = t["function"].get("parameters")
-            elif "name" in t:
-                # Multiple formats:
-                # - Anthropic: {name, description, input_schema} (snake_case)
-                # - OpenAI: {name, description, inputSchema} (camelCase)
-                # - Google/Gemini unwrapped: {name, description, parameters}
-                name = t["name"]
-                desc = t.get("description", "N/A")
-                schema = t.get("input_schema") or t.get("inputSchema") or t.get("parameters")
-            else:
-                # Unknown format
-                name = t.get("type", "UNKNOWN")
-                desc = json.dumps(t)[:100]
-                schema = None
-
-            # Build function signature from schema
-            signature = f"{name}("
-            if schema and isinstance(schema, dict) and "properties" in schema:
-                properties = schema["properties"]
-                required = schema.get("required", [])
-                params: list[str] = []
-
-                for param_name, param_info in properties.items():
-                    if not isinstance(param_info, dict):
-                        continue
-                    param_type = param_info.get("type", "any")
-                    if param_name in required:
-                        params.append(f"{param_name}: {param_type}")
-                    else:
-                        params.append(f"{param_name}?: {param_type}")
-
-                signature += ", ".join(params)
-            signature += ")"
-
-            # Show signature
-            lines.append("")
-            lines.append(f"  {signature}")
-
-            # Show only first line of description (up to first newline or sentence)
-            if desc and desc != "N/A":
-                # Split by newline first, then by sentence
-                first_line = desc.split("\n")[0]
-                first_sentence = first_line.split(". ")[0]
-                final_sentence = first_sentence if first_sentence.endswith(".") else f"{first_sentence}."
-                lines.append(f"    {final_sentence}")
+        if definition.description and definition.description != "N/A":
+            lines.append(f"    {_format_description(definition.description)}")
 
     return "\n".join(lines)
 
@@ -138,22 +171,25 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
     else:
         return lines
 
-    if len(tools_list) == 0:
+    # The count drives the collapse threshold, so unwrap before counting.
+    tools: list[dict[str, Any]] = _flatten_tools(tools_list)
+
+    if len(tools) == 0:
         return lines
 
-    options = options or {}  # ty: ignore[invalid-assignment]
+    options = options or {}
     include_markers = options.get("include_markers", True)
     collapse_threshold: int = options.get("tools_collapse_threshold", DEFAULT_TOOLS_COLLAPSE_THRESHOLD)  # type: ignore[assignment]
 
     lines.append("")
 
     # For long tool lists (> threshold), create expandable section
-    if len(tools_list) > collapse_threshold:
-        display_text = f"AVAILABLE TOOLS: {len(tools_list)}"
+    if len(tools) > collapse_threshold:
+        display_text = f"AVAILABLE TOOLS: {len(tools)}"
 
         if include_markers:
             # Format all tools and encode for frontend to expand
-            tools_content = _format_tools_list(tools_list)
+            tools_content = _format_tools_list(tools)
             full_content = f"{display_text}\n{tools_content}"
             encoded_content = base64.b64encode(full_content.encode()).decode()
             expandable_marker = f"<<<TOOLS_EXPANDABLE|{display_text}|{encoded_content}>>>"
@@ -165,8 +201,8 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
         return lines
 
     # For short tool lists (<= threshold), show full list
-    lines.append(f"AVAILABLE TOOLS: {len(tools_list)}")
-    tools_content = _format_tools_list(tools_list)
+    lines.append(f"AVAILABLE TOOLS: {len(tools)}")
+    tools_content = _format_tools_list(tools)
     lines.append(tools_content)
 
     return lines

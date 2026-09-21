@@ -8,16 +8,13 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 from temporalio.client import Client
-from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql.errors import BaseHogQLError
 
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.schedule import delete_schedule
 
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.data_modeling.backend.logic.freshness import (
@@ -32,13 +29,9 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_target,
 )
-from products.data_modeling.backend.logic.saved_query_dag_sync import (
-    DEGRADED_SYNC_KEY,
-    DegradedSyncMarker,
-    node_type_for,
-    sync_saved_query_to_dag,
-)
+from products.data_modeling.backend.logic.saved_query_dag_sync import node_type_for, sync_saved_query_to_dag
 from products.data_modeling.backend.logic.schedule_reconcile import (
+    delete_dag_schedules,
     delete_v1_saved_query_schedules,
     list_existing_schedule_ids,
     null_saved_query_intervals,
@@ -585,7 +578,7 @@ class Command(BaseCommand):
         if orphaned_drops:
             return f"{len(orphaned_drops)} duplicate(s) never reached the target ({', '.join(orphaned_drops)})"
 
-        if not self._teardown_execute_dag_schedules(temporal, str(plan.dag.id)):
+        if not self._teardown_execute_dag_schedules(str(plan.dag.id)):
             return "execute-dag schedule teardown failed; DAG kept so a re-run can retry it"
 
         plan.dag.delete()
@@ -602,7 +595,6 @@ class Command(BaseCommand):
         fleet-wide, and the next successful sync clears the marker and rebuilds real edges.
         Returns None if even the bare node cannot be created, falling back to keeping the DAG.
         """
-        marker: DegradedSyncMarker = {"error": str(error)[:500], "at": timezone.now().isoformat()}
         try:
             # Atomic so a failed marker save rolls the creation back too: a committed but
             # unmarked node would make the re-run classify this query as DROP instead of
@@ -614,9 +606,8 @@ class Command(BaseCommand):
                     dag=target,
                     defaults={"name": saved_query.name, "type": node_type_for(saved_query)},
                 )
-                properties = node.properties or {}
-                properties.setdefault("system", {})[DEGRADED_SYNC_KEY] = marker
-                node.properties = properties
+                node.properties = node.properties or {}
+                node.mark_lineage_sync_failed(str(error))
                 node.save(update_fields=["properties"])
             return node
         except Exception:
@@ -642,33 +633,13 @@ class Command(BaseCommand):
                 f"(source declared {format_cadence(declared)})"
             )
 
-    def _teardown_execute_dag_schedules(self, temporal: Client, dag_id: str) -> bool:
-        """Delete the execute-dag schedules Temporal actually has for this DAG, from an
-        authoritative listing (PostHogDagId search attribute) rather than an id formula, so an
-        off-scheme schedule cannot be orphaned by the DAG's deletion. NOT_FOUND means a concurrent
-        delete won the race; a listing or delete failure keeps the DAG for a re-run.
-        """
-        try:
-            schedule_ids = list_existing_schedule_ids(dag_id)
-        except Exception:
-            logger.exception("Failed to list execute-dag schedules", dag_id=dag_id)
-            self.stderr.write(f"    FAILED to list execute-dag schedules for DAG {dag_id}")
-            return False
-        ok = True
-        for schedule_id in sorted(schedule_ids):
-            try:
-                delete_schedule(temporal, schedule_id=schedule_id)
-                self.stdout.write(f"    deleted execute-dag schedule {schedule_id}")
-            except RPCError as error:
-                if error.status != RPCStatusCode.NOT_FOUND:
-                    ok = False
-                    logger.exception("Failed to delete execute-dag schedule", schedule_id=schedule_id)
-                    self.stderr.write(f"    FAILED to delete execute-dag schedule {schedule_id}")
-            except Exception:
-                ok = False
-                logger.exception("Failed to delete execute-dag schedule", schedule_id=schedule_id)
-                self.stderr.write(f"    FAILED to delete execute-dag schedule {schedule_id}")
-        return ok
+    def _teardown_execute_dag_schedules(self, dag_id: str) -> bool:
+        teardown = delete_dag_schedules(dag_id)
+        for schedule_id in teardown.deleted:
+            self.stdout.write(f"    deleted execute-dag schedule {schedule_id}")
+        if not teardown.ok:
+            self.stderr.write(f"    FAILED to tear down execute-dag schedules for DAG {dag_id}")
+        return teardown.ok
 
     def _finalize_target(self, target: DAG, temporal: Client) -> set[str]:
         """Converge the target after the moves: seed declared targets from leftover v1 intervals,

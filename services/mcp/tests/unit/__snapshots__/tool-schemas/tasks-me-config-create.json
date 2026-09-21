@@ -1,0 +1,57 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "The default AI run selection stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. What a complete selection is depends on the harness: an ACP default\nsets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send\nevery field as null to clear a stored preference.",
+    "properties": {
+        "model": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default."
+        },
+        "reasoning_effort": {
+            "anyOf": [
+                {
+                    "description": "* `off` - off\n* `minimal` - minimal\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+                    "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultracode"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Default reasoning effort for models that expose an effort control. A Pi default stores a Pi thinking level here, which also allows 'off' and 'minimal'.\n\n* `off` - off\n* `minimal` - minimal\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode"
+        },
+        "runtime": {
+            "anyOf": [
+                {
+                    "description": "* `acp` - ACP\n* `pi` - Pi",
+                    "enum": ["acp", "pi"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.\n\n* `acp` - ACP\n* `pi` - Pi"
+        },
+        "runtime_adapter": {
+            "anyOf": [
+                {
+                    "description": "* `claude` - claude\n* `codex` - codex",
+                    "enum": ["claude", "codex"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n* `claude` - claude\n* `codex` - codex"
+        }
+    },
+    "type": "object"
+}

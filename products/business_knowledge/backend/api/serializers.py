@@ -2,10 +2,11 @@
 
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.security.url_validation import is_url_allowed
@@ -104,6 +105,16 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`."
         ),
     )
+    learned_from_ticket_number = serializers.IntegerField(
+        source="_learned_ticket_number",
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="Support ticket number this learned source came from. Null for sources you added yourself.",
+    )
+    learned_from_ticket_url = serializers.SerializerMethodField(
+        help_text="App URL of the originating support ticket. Null for sources you added yourself.",
+    )
 
     class Meta:
         model = KnowledgeSource
@@ -112,6 +123,7 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "team_id",
             "name",
             "source_type",
+            "is_generated",
             "status",
             "error_message",
             "document_count",
@@ -126,6 +138,8 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "next_refresh_at",
             "has_unsafe_documents",
             "embedding_status",
+            "learned_from_ticket_number",
+            "learned_from_ticket_url",
             "crawl_mode",
             "crawl_config",
             "original_filename",
@@ -149,6 +163,15 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     def get_has_unsafe_documents(self, obj: KnowledgeSource) -> bool:
         # Annotated by the logic layer to avoid an N+1 in list responses.
         return bool(getattr(obj, "_has_unsafe_documents", False))
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_learned_from_ticket_url(self, obj: KnowledgeSource) -> str | None:
+        ticket_number = getattr(obj, "_learned_ticket_number", None)
+        if ticket_number is None:
+            return None
+        source_team_id = getattr(obj, "_learned_source_team_id", None)
+        team_id = source_team_id if source_team_id is not None else obj.team_id
+        return f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket_number}"
 
     @extend_schema_field(serializers.ChoiceField(choices=EmbeddingStatus.choices))
     def get_embedding_status(self, obj: KnowledgeSource) -> str:
@@ -489,7 +512,7 @@ class KnowledgeSearchResultSerializer(serializers.Serializer):
     )
     source_type = serializers.CharField(
         read_only=True,
-        help_text="Source type (text, url, or file).",
+        help_text="Source type: text, URL, or file.",
     )
     document_title = serializers.CharField(
         read_only=True,
@@ -502,6 +525,10 @@ class KnowledgeSearchResultSerializer(serializers.Serializer):
     content = serializers.CharField(
         read_only=True,
         help_text="The chunk's text content.",
+    )
+    is_generated = serializers.BooleanField(
+        read_only=True,
+        help_text="True when this chunk comes from a generated source learned from a past support ticket.",
     )
 
 
@@ -583,3 +610,37 @@ class GapTopicActionResultSerializer(serializers.Serializer):
         read_only=True, help_text="The normalized topic cluster that was acted on."
     )
     updated = serializers.IntegerField(read_only=True, help_text="Number of gap rows whose status changed.")
+
+
+# ---------------------------------------------------------------------------
+# Learning settings
+# ---------------------------------------------------------------------------
+
+
+@extend_schema_serializer(component_name="BusinessKnowledgeSettings")
+class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
+    learn_from_support_enabled = serializers.BooleanField(
+        help_text=(
+            "When true, PostHog learns reusable knowledge from public human replies on resolved "
+            "support tickets. Requires Support to be enabled for this environment."
+        ),
+    )
+    support_enabled = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether Support is enabled for this environment. Learning cannot be turned on while this is false.",
+    )
+
+
+class BusinessKnowledgeSettingsUpdateSerializer(serializers.Serializer):
+    learn_from_support_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, PostHog learns reusable knowledge from public human replies on resolved "
+            "support tickets. Rejected when Support is off for this environment."
+        ),
+    )
+
+    def validate_learn_from_support_enabled(self, value: bool) -> bool:
+        if value and not bool(getattr(self.context.get("team"), "conversations_enabled", False)):
+            raise serializers.ValidationError("Turn on Support to learn from resolved tickets.")
+        return value

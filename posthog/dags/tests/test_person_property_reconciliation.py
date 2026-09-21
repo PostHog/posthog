@@ -38,11 +38,7 @@ from posthog.dags.person_property_reconciliation import (
     reconcile_with_concurrent_changes,
     update_person_with_version_check,
 )
-from posthog.dags.tests.conftest import refresh_person_from_persons_db
-
-# Exercises the persons DB directly (raw reads and writes against the persons writer), so it must
-# run against the real persons DB rather than the personhog fake.
-pytestmark = pytest.mark.persons_db_direct
+from posthog.dags.tests.conftest import isolated_clickhouse_cluster, refresh_person_from_persons_db
 
 
 class TestClickHouseResultParsing:
@@ -692,7 +688,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -701,11 +697,11 @@ class TestUpdatePersonWithVersionCheck:
             dry_run=False,
         )
 
-        assert success is True
-        assert result_data is not None
-        assert result_data["version"] == 6  # version incremented
-        assert result_data["properties"]["email"] == "test@example.com"
-        assert result_data["properties"]["existing"] == "value"
+        assert result.success is True
+        assert result.updated_person_data is not None
+        assert result.updated_person_data["version"] == 6  # version incremented
+        assert result.updated_person_data["properties"]["email"] == "test@example.com"
+        assert result.updated_person_data["properties"]["existing"] == "value"
 
         # Verify UPDATE was executed
         update_calls = [call for call in cursor.execute.call_args_list if "UPDATE posthog_person" in str(call)]
@@ -755,7 +751,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -764,8 +760,8 @@ class TestUpdatePersonWithVersionCheck:
             dry_run=True,
         )
 
-        assert success is True
-        assert result_data is None  # No data returned for Kafka in dry run
+        assert result.success is True
+        assert result.updated_person_data is None  # No data returned for Kafka in dry run
 
         # Verify UPDATE was NOT executed
         update_calls = [call for call in cursor.execute.call_args_list if "UPDATE posthog_person" in str(call)]
@@ -791,7 +787,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -799,9 +795,9 @@ class TestUpdatePersonWithVersionCheck:
             person_property_diffs=person_diffs,
         )
 
-        assert success is False
-        assert result_data is None
-        assert skip_reason == SkipReason.NOT_FOUND
+        assert result.success is False
+        assert result.updated_person_data is None
+        assert result.skip_reason == SkipReason.NOT_FOUND
 
     @patch("posthog.dags.person_property_reconciliation.fetch_person_properties_from_clickhouse")
     def test_version_mismatch_retry(self, mock_fetch_ch_properties):
@@ -860,7 +856,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -869,12 +865,12 @@ class TestUpdatePersonWithVersionCheck:
             max_retries=3,
         )
 
-        assert success is True
-        assert result_data is not None
-        assert result_data["version"] == 3  # v2 + 1
+        assert result.success is True
+        assert result.updated_person_data is not None
+        assert result.updated_person_data["version"] == 3  # v2 + 1
         # Concurrent change should be preserved, our change should be applied
-        assert result_data["properties"]["other"] == "concurrent_change"
-        assert result_data["properties"]["email"] == "test@example.com"
+        assert result.updated_person_data["properties"]["other"] == "concurrent_change"
+        assert result.updated_person_data["properties"]["email"] == "test@example.com"
 
     def test_exhausted_retries(self):
         """Test failure after exhausting all retries."""
@@ -901,7 +897,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -910,9 +906,9 @@ class TestUpdatePersonWithVersionCheck:
             max_retries=3,
         )
 
-        assert success is False
-        assert result_data is None
-        assert skip_reason == SkipReason.VERSION_CONFLICT
+        assert result.success is False
+        assert result.updated_person_data is None
+        assert result.skip_reason == SkipReason.VERSION_CONFLICT
 
 
 class TestBatchCommits:
@@ -1308,7 +1304,7 @@ class TestBackupFunctionality:
             unset_updates={},
         )
 
-        success, result_data, backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -1318,9 +1314,9 @@ class TestBackupFunctionality:
             backup_enabled=False,
         )
 
-        assert success is True
-        assert result_data is not None
-        assert backup_created is False
+        assert result.success is True
+        assert result.updated_person_data is not None
+        assert result.backup_created is False
 
         # Verify backup INSERT was NOT executed
         backup_calls = [
@@ -1359,7 +1355,7 @@ class TestBackupFunctionality:
             unset_updates={},
         )
 
-        success, _result_data, backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -1369,8 +1365,8 @@ class TestBackupFunctionality:
             backup_enabled=True,
         )
 
-        assert success is True
-        assert backup_created is True
+        assert result.success is True
+        assert result.backup_created is True
 
     def test_backup_created_false_when_conflict(self):
         """
@@ -1416,7 +1412,7 @@ class TestBackupFunctionality:
             unset_updates={},
         )
 
-        success, _result_data, backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -1426,9 +1422,9 @@ class TestBackupFunctionality:
             backup_enabled=True,
         )
 
-        assert success is True
+        assert result.success is True
         # Key assertion: backup_created should be False because rowcount was 0
-        assert backup_created is False
+        assert result.backup_created is False
 
 
 class TestFilterEventPersonProperties:
@@ -2756,6 +2752,11 @@ class TestPersonPropertyDiffsDataclass:
 @pytest.mark.django_db
 class TestClickHouseQueryIntegration:
     """Integration tests that insert data into ClickHouse and run the actual query."""
+
+    @pytest.fixture(scope="class")
+    def cluster(self, django_db_setup):
+        with isolated_clickhouse_cluster() as clickhouse_cluster:
+            yield clickhouse_cluster
 
     def test_unset_uses_latest_timestamp_regression(self, cluster: ClickhouseCluster):
         """
@@ -4231,7 +4232,7 @@ class TestClickHouseQueryIntegration:
         events after bug_window_start, regardless of when the person was originally created.
         The bug window is about when the ingestion bug occurred, not when persons were created.
         """
-        team_id = 99920
+        team_id = 99919
         person_id = UUID("55550000-0000-0000-0000-000000000002")
         now = datetime.now().replace(microsecond=0)
         bug_window_start = now - timedelta(days=5)
@@ -5761,7 +5762,10 @@ class TestClickHouseQueryIntegration:
         assert "email" in single_diff.unset_updates
 
 
+# Exercises the persons DB directly (raw reads and writes against the persons writer), so it must
+# run against the real persons DB rather than the personhog fake.
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.persons_db_direct
 class TestBatchCommitsEndToEnd:
     """End-to-end integration tests for batch commit functionality.
 
@@ -6118,6 +6122,7 @@ class TestBatchCommitsEndToEnd:
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.persons_db_direct
 class TestKafkaClickHouseRoundTrip:
     """Integration tests that verify person updates flow through Kafka to ClickHouse.
 

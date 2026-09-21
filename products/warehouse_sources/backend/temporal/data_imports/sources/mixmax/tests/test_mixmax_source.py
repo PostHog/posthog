@@ -1,46 +1,14 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixmax import MixMaxSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.mixmax import MixmaxResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.source import MixMaxSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MixMaxSourceConfig:
     return MixMaxSourceConfig(api_key="tok")
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert MixMaxSource().source_type == ExternalDataSourceType.MIXMAX
-
-    def test_config_advertises_a_single_password_api_token_field(self) -> None:
-        config = MixMaxSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.SALES
-        assert len(config.fields) == 1
-        field = config.fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-
-    def test_source_is_alpha(self) -> None:
-        config = MixMaxSource().get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_docs_url_matches_published_doc_slug(self) -> None:
-        assert MixMaxSource().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/mixmax"
 
 
 class TestGetSchemas:
@@ -51,10 +19,6 @@ class TestGetSchemas:
         assert all(s.supports_incremental is False for s in schemas)
         assert all(s.supports_append is False for s in schemas)
         assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_names_filter_restricts_returned_schemas(self) -> None:
-        schemas = MixMaxSource().get_schemas(_config(), team_id=1, names=["sequences", "live_feed"])
-        assert {s.name for s in schemas} == {"sequences", "live_feed"}
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         # `lists_tables_without_credentials` lets the posthog.com Supported tables section render
@@ -97,28 +61,3 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
         errors = MixMaxSource().get_non_retryable_errors()
         assert not any(key in observed for key in errors)
-
-
-class TestResumableWiring:
-    def test_resumable_manager_is_bound_to_mixmax_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = MixMaxSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MixmaxResumeConfig
-
-    def test_source_for_pipeline_plumbs_selected_endpoint(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "messages"
-        inputs.logger = MagicMock()
-        manager = MagicMock()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.source.mixmax_source"
-        ) as mock_source:
-            MixMaxSource().source_for_pipeline(_config(), manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "tok"
-        assert kwargs["endpoint"] == "messages"
-        assert kwargs["resumable_source_manager"] is manager

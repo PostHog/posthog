@@ -9,10 +9,10 @@ import type {
     ExperimentTrendsQuery,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
-    NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
     ExperimentDataWarehouseNode,
+    ExperimentExposureNode,
     ExperimentMetricType,
     ExperimentStatsValidationFailure,
     NodeKind,
@@ -34,7 +34,7 @@ export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | 
     return 'Trend'
 }
 
-type MetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+type MetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode
 
 const getDefaultName = (source: MetricSource): string | null | undefined => {
     switch (source.kind) {
@@ -44,6 +44,8 @@ const getDefaultName = (source: MetricSource): string | null | undefined => {
             return source.name || `Action ${source.id}`
         case NodeKind.ExperimentDataWarehouseNode:
             return source.table_name
+        case NodeKind.ExperimentExposureNode:
+            return 'Exposure'
     }
 }
 
@@ -280,7 +282,8 @@ export function formatMetricValue(data: any, metric: ExperimentMetric): string {
             const ratio = data.sum / data.denominator_sum
             return ratio.toFixed(2)
         }
-        return '0.000'
+        // The ratio is undefined without denominator data, so don't render a fake zero
+        return '—'
     }
 
     const primaryValue = data.sum / data.number_of_samples
@@ -371,16 +374,6 @@ export function getMetricColors(
         positive: colors.BAR_POSITIVE,
         negative: colors.BAR_NEGATIVE,
     }
-}
-
-export function hasValidationFailures(result: NewExperimentQueryResponse | null): boolean {
-    if (!result) {
-        return false
-    }
-    return !!(
-        result.baseline?.validation_failures?.length ||
-        result.variant_results?.some((v) => v.validation_failures?.length)
-    )
 }
 
 export function getValidationFailureType(variant: ExperimentStatsBaseValidated): 'not-enough-data' | 'error' | null {

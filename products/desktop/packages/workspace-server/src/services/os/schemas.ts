@@ -44,6 +44,10 @@ export const selectFilesOutput = z.array(z.string());
 
 export const checkWriteAccessInput = z.object({ directoryPath: z.string() });
 
+export const setWorktreeLocationInput = z.object({
+  location: z.string().min(1),
+});
+
 export const messageBoxOptionsSchema = z.object({
   type: z.enum(["none", "info", "error", "question", "warning"]).optional(),
   title: z.string().optional(),
@@ -99,6 +103,12 @@ export const saveClipboardFileInput = z.object({
   base64Data: z.string(),
   originalName: z.string().optional(),
 });
+
+export const hostInfoOutput = z.object({
+  platform: z.string(),
+  arch: z.string(),
+});
+export type HostInfo = z.infer<typeof hostInfoOutput>;
 
 export interface SavedAttachment {
   path: string;

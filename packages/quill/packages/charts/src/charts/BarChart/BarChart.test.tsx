@@ -2,7 +2,7 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { getHogChart, getHogChartTooltip, renderHogChart } from '../../testing'
+import { getHogChart, getHogChartTooltip, renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
 
@@ -421,6 +421,41 @@ describe('BarChart', () => {
             await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
         })
 
+        const hoverBandCenter = async (hitArea: 'bar' | 'band', index: number): Promise<void> => {
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={[{ key: 'v', label: 'V', data: [100, 1, 0] }]}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ tooltip: { hitArea } }}
+                />
+            )
+            const bandCenterX = (i: number): number =>
+                dimensions.plotLeft + ((i + 0.5) * dimensions.plotWidth) / LABELS.length
+            const clientY = dimensions.plotTop + 4
+            // The first bar fills the plot, so this hover proves the chart is live.
+            await waitForHogChartTooltip(3000, () =>
+                fireEvent.mouseMove(chart.element, { clientX: bandCenterX(0), clientY })
+            )
+            fireEvent.mouseMove(chart.element, { clientX: bandCenterX(index), clientY })
+        }
+
+        it.each<[string, number, string]>([
+            ['a bar one unit tall', 1, 'Tue'],
+            ['an empty bucket', 2, 'Wed'],
+        ])('band hit-testing reaches %s', async (_name, index, expectedLabel) => {
+            await hoverBandCenter('band', index)
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toContain(expectedLabel))
+        })
+
+        it.each<[string, number]>([
+            ['a bar one unit tall', 1],
+            ['an empty bucket', 2],
+        ])('bar hit-testing leaves %s unreachable', async (_name, index) => {
+            await hoverBandCenter('bar', index)
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+        })
+
         describe('sparse-stacked horizontal (overlap layout)', () => {
             // Mirrors `buildTrendsBarAggregatedSeries`: each series has one non-zero value at
             // its own dataIndex, every label is the same band. Smallest bar paints on top, so
@@ -657,7 +692,7 @@ describe('BarChart', () => {
             expect(container.querySelector('[data-attr="hog-chart-bar-legend"]')).toBeNull()
         })
 
-        it('toggles a series off and on when its legend row is clicked', () => {
+        it('isolates a series when its legend row is clicked, and restores all on the next click', () => {
             const { container, chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
             )
@@ -667,9 +702,26 @@ describe('BarChart', () => {
 
             fireEvent.click(buttons()[1])
             expect(getHogChart(container).seriesCount).toBe(1)
-            expect(buttons()[1].className).toContain('opacity-40')
+            expect(buttons()[0].className).toContain('opacity-40')
+            expect(buttons()[1].className).not.toContain('opacity-40')
 
             fireEvent.click(buttons()[1])
+            expect(getHogChart(container).seriesCount).toBe(2)
+        })
+
+        it('toggles just one series off and on when its legend row is meta-clicked', () => {
+            const { container, chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(chart.seriesCount).toBe(2)
+            const buttons = (): HTMLButtonElement[] =>
+                Array.from(container.querySelectorAll('[data-attr="hog-chart-bar-legend"] button'))
+
+            fireEvent.click(buttons()[1], { metaKey: true })
+            expect(getHogChart(container).seriesCount).toBe(1)
+            expect(buttons()[1].className).toContain('opacity-40')
+
+            fireEvent.click(buttons()[1], { metaKey: true })
             expect(getHogChart(container).seriesCount).toBe(2)
         })
     })

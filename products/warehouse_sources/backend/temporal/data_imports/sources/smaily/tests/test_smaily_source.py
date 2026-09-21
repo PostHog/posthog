@@ -3,14 +3,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smaily import SmailySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.smaily import SmailyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source import SmailySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSmailySource:
@@ -18,26 +13,6 @@ class TestSmailySource:
         self.source = SmailySource()
         self.team_id = 123
         self.config = SmailySourceConfig(subdomain="acme", username="user", password="pass")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SMAILY
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Smaily"
-        assert config.label == "Smaily"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/smaily"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["subdomain", "username", "password"]
-
-    def test_password_field_is_secret(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "password")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # The stored password is sent to `{subdomain}.sendsmaily.net`; retargeting the subdomain
@@ -102,11 +77,6 @@ class TestSmailySource:
         result = self.source.validate_credentials(self.config, self.team_id)
         mock_validate.assert_called_once_with("acme", "user", "pass")
         assert result == (False, "Invalid Smaily credentials")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SmailyResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source.smaily_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

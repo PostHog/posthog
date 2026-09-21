@@ -15,10 +15,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 
@@ -523,6 +523,7 @@ def create_from_template(
                 description=template_tile.get("description"),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
+                tags=template_tile.get("tags"),
                 user=user,
             )
         elif tile_type == "TEXT":
@@ -655,6 +656,7 @@ def _create_tile_for_insight(
     layouts: dict,
     color: Optional[str],
     query: Optional[dict] = None,
+    tags: Optional[list[str]] = None,
     user=None,
 ) -> None:
     insight = Insight.objects.create(
@@ -666,6 +668,14 @@ def _create_tile_for_insight(
         created_by=user,
         last_modified_by=user,
     )
+    for tag_name in tags or []:
+        tag, _ = Tag.objects.get_or_create(
+            name=tag_name,
+            team_id=dashboard.team_id,
+            defaults={"team_id": dashboard.team_id},
+        )
+        insight.tagged_items.create(tag_id=tag.id)
+
     DashboardTile.objects.create(
         insight=insight,
         dashboard=dashboard,
@@ -702,7 +712,42 @@ def create_dashboard_from_template(
 
 
 FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
-FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique users per variant"
+# The unique-calls name embeds the pluralized aggregation entity, so only its ends are fixed.
+FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_PREFIX = "Feature Flag calls made by unique "
+FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_SUFFIX = " per variant"
+FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = (
+    f"{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_PREFIX}users{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_SUFFIX}"
+)
+# The generated descriptions interpolate the flag key, so only their ends are fixed.
+FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX = "Shows the number of"
+FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT = "calls made on feature flag"
+FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME = f"{ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER} Total Volume"
+FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME = "Feature Interaction Total Volume"
+FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION = (
+    "Shows the total number of times this feature was viewed and interacted with"
+)
+
+
+def feature_flag_generated_insight_q() -> Q:
+    """Match the insights this module generated for a feature flag usage dashboard.
+
+    A name on its own is not provenance, because a person can type any of these, so each name is
+    paired with the description the template writes beside it. That makes this narrower than
+    `delete_feature_flag_usage_insights._classifier_q`, which matches a name or a description so a
+    cleanup sweep still reaches rows an older template version wrote.
+    """
+    return Q(
+        Q(name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME)
+        | Q(
+            name__startswith=FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_PREFIX,
+            name__endswith=FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_SUFFIX,
+        ),
+        description__startswith=FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
+        description__contains=FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
+    ) | Q(
+        name__in=[FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME],
+        description=FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
+    )
 
 
 def _get_aggregation_entity_labels(feature_flag) -> tuple[str | None, str | None]:
@@ -776,9 +821,11 @@ def _get_feature_flag_unique_calls_insight_name(feature_flag) -> str:
     _, plural = _get_aggregation_entity_labels(feature_flag)
     if plural is None:
         return FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME
-    return f"Feature Flag calls made by unique {plural} per variant"
+    return f"{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_PREFIX}{plural}{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_SUFFIX}"
 
 
+# The feature flag Usage tab renders these same charts inline for flags without a usage dashboard —
+# keep frontend/src/scenes/feature-flags/featureFlagUsageQueries.ts in sync with this template.
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
     dashboard.filters = {"date_from": "-30d"}
     tag, _ = Tag.objects.get_or_create(
@@ -1191,12 +1238,14 @@ def _update_tile_with_new_key(
         insight.save()
 
 
+# The feature flag Usage tab renders these same charts inline for flags without a usage dashboard —
+# keep frontend/src/scenes/feature-flags/featureFlagUsageQueries.ts in sync with this template.
 def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
     # 1 row
     _create_tile_for_insight(
         dashboard,
-        name=f"{ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER} Total Volume",
-        description="Shows the total number of times this feature was viewed and interacted with",
+        name=FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
+        description=FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
         query={
             "kind": "InsightVizNode",
             "source": {
@@ -1243,8 +1292,8 @@ def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Das
 
     _create_tile_for_insight(
         dashboard,
-        name="Feature Interaction Total Volume",
-        description="Shows the total number of times this feature was viewed and interacted with",
+        name=FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
+        description=FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
         query={
             "kind": "InsightVizNode",
             "source": {

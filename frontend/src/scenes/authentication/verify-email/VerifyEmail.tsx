@@ -1,10 +1,9 @@
-import { useValues } from 'kea'
+import { useMountedLogic } from 'kea'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { authFlowVariantRegistry } from '../authFlowVariantRegistry'
-import { resolveAuthFlowVariant } from '../authFlowVariants'
+import { VerifyEmailForm } from './VerifyEmailForm'
 import { verifyEmailLogic } from './verifyEmailLogic'
 
 export const scene: SceneExport = {
@@ -13,7 +12,7 @@ export const scene: SceneExport = {
 }
 
 export function VerifyEmail(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { VerifyEmail: VariantVerifyEmail } = authFlowVariantRegistry[resolveAuthFlowVariant(featureFlags)]
-    return <VariantVerifyEmail />
+    // Mounted at the scene root so the cookie is read once, not on every view change
+    useMountedLogic(pendingOAuthConnectionLogic)
+    return <VerifyEmailForm />
 }

@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { LogsFullScreenButton } from 'products/logs/frontend/components/LogsViewer/LogsFullScreenButton'
 import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
@@ -17,15 +18,17 @@ import { LogsAppliedFilters, LogsFilterGroup, LogsFilterSearch, LogsQueryControl
 export const LogsQueryBar = ({
     showSavedViewsButton = false,
     showFullScreenButton = false,
+    scope,
 }: {
     showSavedViewsButton?: boolean
     showFullScreenButton?: boolean
+    scope?: LogsViewerScope
 }): JSX.Element => {
     const { id } = useValues(logsViewerFiltersLogic)
 
     return (
         <LogsFilterGroup>
-            <div className="flex flex-col gap-2 w-full bg-primary">
+            <div className="flex flex-col gap-2 w-full">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
                         <div className="flex-1 min-w-[300px]">
@@ -36,7 +39,7 @@ export const LogsQueryBar = ({
                     </div>
                     <div className="flex shrink-0 gap-1.5">
                         <LogsQueryControls />
-                        {showFullScreenButton && <LogsFullScreenButton id={id} />}
+                        {showFullScreenButton && <LogsFullScreenButton id={id} scope={scope} />}
                     </div>
                 </div>
                 <LogsAppliedFilters />

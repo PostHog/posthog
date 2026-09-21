@@ -2,7 +2,7 @@ import datetime
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
 
@@ -191,12 +191,12 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         self.assertEqual(OrganizationDomain.objects.count(), count)
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_can_request_verification_for_unverified_domains(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        mock_dns_query.return_value = FakeDNSResponse(
+        mock_dns_query.return_value.resolve.return_value = FakeDNSResponse(
             [
                 dns.rrset.from_text(
                     "_posthog-challenge.myposthog.com.",
@@ -208,7 +208,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             ]
         )
 
-        with freeze_time("2021-08-08T20:20:08Z"):
+        with time_machine.travel("2021-08-08T20:20:08Z", tick=False):
             response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -227,14 +227,14 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         )
         self.assertEqual(self.domain.is_verified, True)
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_domain_is_not_verified_with_missing_challenge(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        mock_dns_query.side_effect = dns.resolver.NoAnswer()
+        mock_dns_query.return_value.resolve.side_effect = dns.resolver.NoAnswer()
 
-        with freeze_time("2021-10-10T10:10:10Z"):
+        with time_machine.travel("2021-10-10T10:10:10Z", tick=False):
             with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -248,14 +248,14 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")),
         )
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_domain_is_not_verified_with_missing_domain(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        mock_dns_query.side_effect = dns.resolver.NXDOMAIN()
+        mock_dns_query.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
 
-        with freeze_time("2021-10-10T10:10:10Z"):
+        with time_machine.travel("2021-10-10T10:10:10Z", tick=False):
             with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -269,12 +269,12 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")),
         )
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_domain_is_not_verified_with_incorrect_challenge(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        mock_dns_query.return_value = FakeDNSResponse(
+        mock_dns_query.return_value.resolve.return_value = FakeDNSResponse(
             [
                 dns.rrset.from_text(
                     "_posthog-challenge.myposthog.com.",
@@ -286,7 +286,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             ]
         )
 
-        with freeze_time("2021-10-10T10:10:10Z"):
+        with time_machine.travel("2021-10-10T10:10:10Z", tick=False):
             with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

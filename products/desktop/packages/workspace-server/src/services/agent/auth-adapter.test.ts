@@ -8,6 +8,7 @@ vi.mock("@posthog/agent/posthog-api", () => ({
 
 vi.stubGlobal("fetch", mockFetch);
 
+import { configureCustomCloud } from "@posthog/shared";
 import { AgentAuthAdapter } from "./auth-adapter";
 
 const baseCredentials = {
@@ -89,8 +90,6 @@ describe("AgentAuthAdapter", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete process.env.POSTHOG_API_KEY;
-    delete process.env.POSTHOG_AUTH_HEADER;
   });
 
   describe("getCurrentCredentials", () => {
@@ -131,6 +130,52 @@ describe("AgentAuthAdapter", () => {
     );
   });
 
+  it("gives a custom instance no PostHog MCP server", async () => {
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      oauthClientId: "client-id",
+    });
+    try {
+      const { servers } = await adapter.buildMcpServers({
+        ...baseCredentials,
+        apiHost: "https://posthog.example.com",
+      });
+
+      expect(deps.mcpProxy.register).not.toHaveBeenCalledWith(
+        "posthog",
+        expect.anything(),
+      );
+      expect(
+        servers.find((server) => server.name === "posthog"),
+      ).toBeUndefined();
+    } finally {
+      configureCustomCloud(null);
+    }
+  });
+
+  it("gives a loopback custom instance no default MCP port either", async () => {
+    configureCustomCloud({
+      url: "http://localhost:8020",
+      oauthClientId: "client-id",
+    });
+    try {
+      const { servers } = await adapter.buildMcpServers({
+        ...baseCredentials,
+        apiHost: "http://localhost:8020",
+      });
+
+      expect(deps.mcpProxy.register).not.toHaveBeenCalledWith(
+        "posthog",
+        "http://localhost:8787/mcp",
+      );
+      expect(
+        servers.find((server) => server.name === "posthog"),
+      ).toBeUndefined();
+    } finally {
+      configureCustomCloud(null);
+    }
+  });
+
   it("identifies as the posthog-code consumer so the MCP server emits UI-app metadata", async () => {
     const { servers } = await adapter.buildMcpServers(baseCredentials);
 
@@ -169,6 +214,8 @@ describe("AgentAuthAdapter", () => {
     expect(deps.mcpProxy.register).toHaveBeenCalledWith(
       "installation-inst-2",
       "https://proxy.posthog.com/inst-2/",
+      // An auth failure here is about the vendor's credential, not the user's PostHog token.
+      { credentialOwner: "installation" },
     );
     expect(servers).toEqual(
       expect.arrayContaining([
@@ -273,6 +320,56 @@ describe("AgentAuthAdapter", () => {
     ]);
   });
 
+  it("describes runtime servers so an agent finds them before connecting", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            results: [
+              {
+                id: "inst-linear",
+                url: "https://mcp.linear.app/mcp",
+                proxy_url: "https://proxy.posthog.com/inst-linear/",
+                name: "Linear",
+                display_name: "Linear",
+                description: "Manage Linear issues, projects, and workflows.",
+                auth_type: "oauth",
+                is_enabled: true,
+                pending_oauth: false,
+                needs_reauth: false,
+              },
+            ],
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            results: [
+              { tool_name: "create_issue", approval_state: "needs_approval" },
+            ],
+          }),
+      });
+
+    const { servers } = await adapter.getMcpRuntimeConfiguration();
+
+    expect(
+      servers.find((server) => server.name === "Linear")?.description,
+    ).toBe("Manage Linear issues, projects, and workflows.");
+    expect(
+      servers.find((server) => server.name === "posthog")?.description,
+    ).toMatch(/insight/i);
+  });
+
+  it("keeps descriptions out of the servers handed to the ACP adapters", async () => {
+    // Only pi understands a server description; claude and codex receive this list as ACP
+    // session params, which reject fields their schema does not declare.
+    const { servers } = await adapter.buildMcpServers(baseCredentials);
+
+    expect(servers.every((server) => !("description" in server))).toBe(true);
+  });
+
   it("omits runtime servers whose tool policies cannot be loaded", async () => {
     mockFetch
       .mockResolvedValueOnce({
@@ -314,8 +411,6 @@ describe("AgentAuthAdapter", () => {
       claudeCliPath: "/mock/claude-cli.js",
     });
 
-    expect(process.env.POSTHOG_API_KEY).toBe("test-access-token");
-    expect(process.env.POSTHOG_AUTH_HEADER).toBe("Bearer test-access-token");
     expect(process.env.LLM_GATEWAY_URL).toBe("http://127.0.0.1:9999");
     expect(process.env.CLAUDE_CODE_EXECUTABLE).toBe("/mock/claude-cli.js");
     expect(process.env.POSTHOG_PROJECT_ID).toBe("1");
@@ -323,23 +418,20 @@ describe("AgentAuthAdapter", () => {
     expect(process.env.PATH).toBe(pathBefore);
   });
 
-  it("does not export impersonated credentials to the process environment", async () => {
-    process.env.POSTHOG_API_KEY = "stale-token";
-    process.env.POSTHOG_AUTH_HEADER = "Bearer stale-token";
-    deps.authService.getState.mockReturnValue({
-      currentProjectId: 1,
-      sessionType: "impersonated",
-    });
+  it.each([
+    { sessionType: "impersonated" as const, expected: null },
+    { sessionType: "persistent" as const, expected: "test-access-token" },
+  ])(
+    "returns $expected as the publish token for $sessionType sessions",
+    async ({ sessionType, expected }) => {
+      deps.authService.getState.mockReturnValue({
+        currentProjectId: 1,
+        sessionType,
+      });
 
-    await adapter.configureProcessEnv({
-      credentials: baseCredentials,
-      proxyUrl: "http://127.0.0.1:9999",
-      claudeCliPath: "/mock/claude-cli.js",
-    });
-
-    expect(process.env.POSTHOG_API_KEY).toBeUndefined();
-    expect(process.env.POSTHOG_AUTH_HEADER).toBeUndefined();
-  });
+      await expect(adapter.gatewayPublishToken()).resolves.toBe(expected);
+    },
+  );
 
   it.each([
     { rtkEnabled: false, expected: "0" },

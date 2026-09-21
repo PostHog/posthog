@@ -2,15 +2,30 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, SpinnerOverlay } from '@posthog/lemon-ui'
-import type { HeatmapBrushData } from '@posthog/quill-charts'
+import {
+    BarChart,
+    type BarChartConfig,
+    type DateRangeZoomData,
+    DefaultTooltip,
+    type HeatmapBrushData,
+    HighlightedRange,
+    type PointClickData,
+    type Series,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+    type TooltipContext,
+} from '@posthog/quill-charts'
 
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { shortTimeZone } from 'lib/utils/timezones'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
+import { TRACING_DATE_TIME_FORMAT } from './dateFormats'
 import {
     type TracingDurationHistogramData,
     type TracingLatencyHeatmapData,
@@ -18,28 +33,10 @@ import {
     snapDurationToBucket,
 } from './durationBuckets'
 import { SparklineCompareOverlay } from './SparklineCompareOverlay'
+import { bucketRangeToDateRange, type TracingDateRangeSource } from './sparklineSelection'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
 import type { TracingChartType } from './tracingFiltersLogic'
 import { TracingLatencyHeatmap } from './TracingLatencyHeatmap'
-
-// Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is already
-// log-spaced, so a plain category axis renders it evenly. Shared with OperationHistogram
-// so the two duration histograms render identically.
-export function categoryDurationXScale(scale: AnyScaleOptions): AnyScaleOptions {
-    return {
-        ...scale,
-        type: 'category',
-        ticks: {
-            display: true,
-            maxRotation: 0,
-            maxTicksLimit: 8,
-            font: {
-                size: 10,
-                lineHeight: 1,
-            },
-        },
-    } as AnyScaleOptions
-}
 
 interface CompareConfig {
     fullStartMs: number
@@ -52,9 +49,16 @@ interface CompareConfig {
 interface TracingSparklineProps {
     sparklineData: TracingSparklineData
     sparklineLoading: boolean
-    onDateRangeChange: (dateRange: DateRange) => void
+    onDateRangeChange: (dateRange: DateRange, source: TracingDateRangeSource) => void
     displayTimezone: string
+    /** End of the queried window, used as `date_to` when the selection runs to the last bucket
+     *  (which has no following bucket to end on). */
+    currentDateTo?: string | null
     compare?: CompareConfig
+    /** True while any time comparison is active (named preset or custom). Disables drag/click
+     *  range selection — the draggable overlay only exists for the custom preset, so `compare`
+     *  alone can't gate interactions for named presets. */
+    compareActive?: boolean
     visibleRowDateRange?: VisibleSpanTimeRange | null
     /** When set, render a duration histogram instead of the time series (list sorted by duration). */
     durationHistogram?: TracingDurationHistogramData | null
@@ -78,7 +82,9 @@ export function TracingSparkline({
     sparklineLoading,
     onDateRangeChange,
     displayTimezone,
+    currentDateTo,
     compare,
+    compareActive = false,
     visibleRowDateRange,
     durationHistogram,
     visibleRowDurationRange,
@@ -90,84 +96,47 @@ export function TracingSparkline({
     heatmapDisabledReason,
 }: TracingSparklineProps): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
+    const theme = useChartTheme()
     const heatmapMode = latencyHeatmap != null
     const durationMode = !heatmapMode && durationHistogram != null
 
-    const { timeUnit, tickFormat } = useMemo(() => {
-        if (!sparklineData.dates.length) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm:ss' }
-        }
-        const firstDate = dayjs(sparklineData.dates[0])
-        const lastDate = dayjs(sparklineData.dates[sparklineData.dates.length - 1])
-        const hoursDiff = lastDate.diff(firstDate, 'hours')
-
-        if (hoursDiff <= 1) {
-            return { timeUnit: 'second' as const, tickFormat: 'HH:mm:ss' }
-        } else if (hoursDiff <= 6) {
-            return { timeUnit: 'minute' as const, tickFormat: 'HH:mm:ss' }
-        } else if (hoursDiff <= 48) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm' }
-        }
-        return { timeUnit: 'day' as const, tickFormat: 'D MMM HH:mm' }
-    }, [sparklineData.dates])
-
-    const withXScale = useCallback(
-        (scale: AnyScaleOptions): AnyScaleOptions => {
-            if (durationMode) {
-                return categoryDurationXScale(scale)
-            }
-            return {
-                ...scale,
-                type: 'timeseries',
-                ticks: {
-                    display: true,
-                    maxRotation: 0,
-                    maxTicksLimit: 6,
-                    font: {
-                        size: 10,
-                        lineHeight: 1,
-                    },
-                    callback: function (value: string | number) {
-                        const d = displayTimezone ? dayjs(value).tz(displayTimezone) : dayjs(value)
-                        return d.format(tickFormat)
-                    },
-                },
-                time: {
-                    unit: timeUnit,
-                },
-            } as AnyScaleOptions
-        },
-        [durationMode, timeUnit, tickFormat, displayTimezone]
+    const seriesSource = durationMode ? durationHistogram!.data : sparklineData.data
+    const series = useMemo<Series[]>(
+        () =>
+            seriesSource.map((s) => ({
+                key: s.name,
+                label: s.name,
+                data: s.values,
+                color: getColorVar(s.color),
+            })),
+        [seriesSource]
     )
 
-    const renderLabel = useCallback(
+    // Duration mode is categorical (1ms, 2ms, ...); activity mode is a time axis keyed on ISO dates.
+    const timeConfig = useChartConfig<TimeSeriesBarChartConfig>(
+        () => ({
+            xAxis: { timezone: displayTimezone },
+        }),
+        [displayTimezone]
+    )
+    const durationConfig = useChartConfig<BarChartConfig>(() => ({}), [])
+
+    const tooltipLabelFormatter = useCallback(
         (label: string): string => {
-            if (durationMode) {
-                return label // bucket labels ("2ms") are already human-readable
-            }
             const d = displayTimezone ? dayjs(label).tz(displayTimezone) : dayjs(label)
             const tz = displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, d.toDate()) ?? 'Local')
-            return `${d.format('D MMM YYYY HH:mm:ss')} ${tz}`
+            return `${d.format(TRACING_DATE_TIME_FORMAT)} ${tz}`
         },
-        [durationMode, displayTimezone]
+        [displayTimezone]
     )
-
-    const sparklineLabels = useMemo(() => {
-        if (durationHistogram) {
-            return durationHistogram.labels
-        }
-        return sparklineData.dates.map((date: string) => dayjs(date).toISOString())
-    }, [durationHistogram, sparklineData.dates])
 
     // Map the visible rows' duration range onto histogram bucket indices: snap each edge onto
     // the same 1-2-5 series the backend bucketed with, then find those buckets on the axis.
-    const durationHighlightedRange = useMemo(() => {
+    const durationHighlight = useMemo(() => {
         if (!durationHistogram || !visibleRowDurationRange || durationHistogram.bucketsNs.length === 0) {
             return null
         }
         const { bucketsNs, labels } = durationHistogram
-        // An edge missing from the axis can only mean it's outside the rendered range (the axis
-        // spans the data's min..max bucket), so clamp it to the nearest end.
         const startIndexRaw = bucketsNs.indexOf(snapDurationToBucket(visibleRowDurationRange.minNs))
         const endIndexRaw = bucketsNs.indexOf(snapDurationToBucket(visibleRowDurationRange.maxNs))
         const startIndex = startIndexRaw === -1 ? 0 : startIndexRaw
@@ -175,13 +144,13 @@ export function TracingSparkline({
         if (startIndex > endIndex) {
             return null
         }
-        return { xMin: labels[startIndex], xMax: labels[endIndex + 1] ?? labels[endIndex] }
+        return { start: labels[startIndex], end: labels[endIndex] }
     }, [visibleRowDurationRange, durationHistogram])
 
     // Map the visible-row date range onto bucket indices in `dates`. Buckets are anchored at
     // their start time; the date_to edge belongs to the bucket whose start is the last one
     // <= date_to. Suppressed in compare mode, where the list (and its window) isn't shown.
-    const highlightedRange = useMemo(() => {
+    const activityHighlight = useMemo(() => {
         if (compare || !visibleRowDateRange || sparklineData.dates.length === 0) {
             return null
         }
@@ -206,26 +175,48 @@ export function TracingSparkline({
         if (endIndex === -1 || endIndex < startIndex) {
             return null
         }
-        return { xMin: sparklineLabels[startIndex], xMax: sparklineLabels[endIndex + 1] ?? sparklineLabels[endIndex] }
-    }, [compare, visibleRowDateRange, sparklineData.dates, sparklineLabels])
+        return { start: sparklineData.dates[startIndex], end: sparklineData.dates[endIndex] }
+    }, [compare, visibleRowDateRange, sparklineData.dates])
 
-    const onSelectionChange = useCallback(
-        (selection: { startIndex: number; endIndex: number }): void => {
-            const dates = sparklineData.dates
-            const dateFrom = dates[selection.startIndex]
-            const dateTo = dates[selection.endIndex + 1]
-
-            if (!dateFrom) {
-                return
+    // Both gestures narrow the list to the buckets they cover, so they share one mapping. Wired
+    // directly rather than through the drag-to-zoom flag. Meaningless on a duration axis.
+    const selectBuckets = useCallback(
+        (startIndex: number, endIndex: number, source: TracingDateRangeSource): void => {
+            const dateRange = bucketRangeToDateRange(sparklineData.dates, startIndex, endIndex, currentDateTo)
+            if (dateRange) {
+                onDateRangeChange(dateRange, source)
             }
-
-            onDateRangeChange({
-                date_from: dateFrom,
-                date_to: dateTo,
-            })
         },
-        [sparklineData.dates, onDateRangeChange]
+        [sparklineData.dates, currentDateTo, onDateRangeChange]
     )
+
+    const onDateRangeZoom = useCallback(
+        ({ startIndex, endIndex }: DateRangeZoomData): void => selectBuckets(startIndex, endIndex, 'sparkline_drag'),
+        [selectBuckets]
+    )
+
+    // Clicking a single bar is the discoverable shorthand for dragging across it. Quill routes a
+    // click here only once it has ruled out a drag, so a drag-select does not also fire this.
+    // Setting the handler is what turns the cursor into a pointer over the bars.
+    const onPointClick = useCallback(
+        ({ dataIndex }: PointClickData): void => selectBuckets(dataIndex, dataIndex, 'sparkline_bar_click'),
+        [selectBuckets]
+    )
+
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext): JSX.Element => (
+            <DefaultTooltip
+                {...ctx}
+                hideZeroRows
+                sortedByValue
+                valueFormatter={(value) => humanFriendlyNumber(value)}
+                labelFormatter={durationMode ? undefined : tooltipLabelFormatter}
+            />
+        ),
+        [durationMode, tooltipLabelFormatter]
+    )
+
+    const hasData = seriesSource.length > 0
 
     return (
         <div className="flex flex-col gap-1">
@@ -269,22 +260,35 @@ export function TracingSparkline({
                 </div>
             )}
             {!collapsed && !heatmapMode && (
-                <div id="tracing-sparkline-content" className="relative h-32">
-                    {(durationHistogram ? durationHistogram.data : sparklineData.data).length > 0 ? (
-                        <Sparkline
-                            labels={sparklineLabels}
-                            data={durationHistogram ? durationHistogram.data : sparklineData.data}
-                            className="w-full h-full"
-                            // Drag-select sets the date range — meaningless on a duration axis, so
-                            // disabled in duration mode (a duration-range filter is a later idea).
-                            onSelectionChange={compare || durationMode ? undefined : onSelectionChange}
-                            withXScale={withXScale}
-                            renderLabel={renderLabel}
-                            tooltipRowCutoff={100}
-                            hideZerosInTooltip
-                            sortTooltipByCount
-                            highlightedRange={durationMode ? durationHighlightedRange : highlightedRange}
-                        />
+                <div id="tracing-sparkline-content" className="relative h-32 flex flex-col">
+                    {hasData ? (
+                        durationMode ? (
+                            <BarChart
+                                series={series}
+                                labels={durationHistogram!.labels}
+                                theme={theme}
+                                config={durationConfig}
+                                tooltip={renderTooltip}
+                            >
+                                {durationHighlight && (
+                                    <HighlightedRange start={durationHighlight.start} end={durationHighlight.end} />
+                                )}
+                            </BarChart>
+                        ) : (
+                            <TimeSeriesBarChart
+                                series={series}
+                                labels={sparklineData.dates}
+                                theme={theme}
+                                config={timeConfig}
+                                onDateRangeZoom={compareActive ? undefined : onDateRangeZoom}
+                                onPointClick={compareActive ? undefined : onPointClick}
+                                tooltip={renderTooltip}
+                            >
+                                {activityHighlight && (
+                                    <HighlightedRange start={activityHighlight.start} end={activityHighlight.end} />
+                                )}
+                            </TimeSeriesBarChart>
+                        )
                     ) : !sparklineLoading ? (
                         <div className="h-full text-muted flex items-center justify-center">
                             No results matching filters

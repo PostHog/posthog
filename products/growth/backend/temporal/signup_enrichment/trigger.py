@@ -1,0 +1,231 @@
+"""Fire-and-forget dispatch of the signup enrichment workflow from the request path.
+
+Every guard lives here so the signup serializer stays a one-line call. Dispatch is gated by the
+kill switch and the Cloud region (self-hosted never dispatches), and never raises — a Temporal
+outage degrades to "enrichment did not run". The provider key lives on the workers only. Personal-domain
+signups get no provider lookup, but the work-vs-personal email signal is recorded
+for every signup so consumers can read it either way.
+"""
+
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from typing import Literal
+
+from django.conf import settings
+from django.db import transaction
+
+import structlog
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError
+
+from posthog.exceptions_capture import capture_exception
+from posthog.geoip import get_geoip_properties
+from posthog.temporal.common.client import sync_connect
+from posthog.utils import GenericEmails
+
+from products.growth.backend.enrichment import gates
+from products.growth.backend.enrichment.writer import record_signup_work_email
+from products.growth.backend.temporal.signup_enrichment.rescore import WizardStampRescoreInputs
+from products.growth.backend.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
+
+logger = structlog.get_logger(__name__)
+
+RescoreDispatchFailure = Literal["dispatch_backlog_full", "dispatch_failed"]
+
+_generic_emails = GenericEmails()
+
+# Bounded dispatch pool: a slow or unreachable Temporal must never let signup-triggered
+# threads accumulate on web pods. When the pool's backlog cap is hit, dispatch drops —
+# fire-and-forget degrades to "enrichment did not run", which the launch signal surfaces.
+_DISPATCH_MAX_WORKERS = 4
+_DISPATCH_MAX_PENDING = 64
+_dispatch_executor = ThreadPoolExecutor(
+    max_workers=_DISPATCH_MAX_WORKERS, thread_name_prefix="signup-enrichment-dispatch"
+)
+_dispatch_slots = threading.BoundedSemaphore(_DISPATCH_MAX_PENDING)
+
+
+def start_signup_enrichment_workflow(
+    *,
+    organization_id: str,
+    distinct_id: str | None,
+    email: str,
+    role_at_organization: str = "",
+    ip_address: str | None = None,
+) -> None:
+    """Dispatch enrichment for a freshly signed-up org, once the request transaction commits."""
+    # The flag alone gates dispatch. Deliberately no provider-key check here: the key lives
+    # only on the workers, and a keyless worker fails loudly into the launch alert instead of
+    # web pods silently never dispatching (also keeps the key off the public web fleet).
+    if not _enrichment_enabled():
+        return
+    # Cloud only — self-hosted has no Harmonic key or internal project to score against. The
+    # instance setting above is the real per-region toggle.
+    if not gates.region_allowed():
+        return
+
+    domain = gates.domain_from_email(email)
+    if not domain:
+        return
+
+    work_email = not _generic_emails.is_generic(email)
+    _record_work_email(
+        organization_id=str(organization_id), work_email=work_email, signup_role=role_at_organization or None
+    )
+    if not work_email or not distinct_id:
+        return
+
+    inputs = SignupEnrichmentInputs(
+        organization_id=str(organization_id),
+        distinct_id=distinct_id,
+        domain=domain,
+        role_at_organization=role_at_organization or None,
+        geoip_country_code=_geoip_country_code(ip_address),
+    )
+    # on_commit so the worker never reads the org/enrichment rows before they are committed. The
+    # callback fires inline on the signup request thread (it runs after that transaction commits),
+    # so dispatch goes to the bounded pool: building the Temporal client must not add latency to
+    # the signup response, and the pool caps how much a Temporal outage can pile up.
+    transaction.on_commit(lambda: _submit_dispatch(inputs))
+
+
+def dispatch_wizard_stamp_rescore(organization_id: str) -> RescoreDispatchFailure | None:
+    """Shares the bounded dispatch pool with signup dispatch so an unreachable Temporal can't pile up threads on the web pod, same as it does for signups. Returns None once the run is submitted, otherwise why it was not."""
+    return _submit_rescore_dispatch(organization_id)
+
+
+def _submit_rescore_dispatch(organization_id: str) -> RescoreDispatchFailure | None:
+    if not _dispatch_slots.acquire(blocking=False):
+        logger.warning(
+            "wizard_stamp_rescore_dispatch_dropped", organization_id=organization_id, reason="dispatch_backlog_full"
+        )
+        return "dispatch_backlog_full"
+    try:
+        _dispatch_executor.submit(_rescore_dispatch_and_release, organization_id)
+    except Exception as e:
+        _dispatch_slots.release()
+        capture_exception(e)
+        return "dispatch_failed"
+    return None
+
+
+def _rescore_dispatch_and_release(organization_id: str) -> None:
+    try:
+        _rescore_dispatch(organization_id)
+    finally:
+        _dispatch_slots.release()
+
+
+def _rescore_dispatch(organization_id: str) -> None:
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "wizard-stamp-rescore",
+                WizardStampRescoreInputs(organization_id=organization_id),
+                id=f"wizard-stamp-rescore-{organization_id}",
+                task_queue=settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        # A stamp landing while the previous run is still in flight hits the same workflow id and is dropped, collapsing near-simultaneous stamps into one run.
+        logger.info("wizard_stamp_rescore_dispatch_skipped", organization_id=organization_id)
+    except RPCError as e:
+        logger.info("wizard_stamp_rescore_dispatch_skipped", organization_id=organization_id, error=str(e))
+    except Exception as e:
+        capture_exception(e)
+    else:
+        logger.info("wizard_stamp_rescore_dispatch_started", organization_id=organization_id)
+
+
+def dispatch_signup_enrichment(inputs: SignupEnrichmentInputs) -> None:
+    """Synchronous dispatch for operational re-runs (management commands).
+
+    Applies no guards itself — callers own the kill switch and region gate (the backfill
+    command enforces both before dispatching). Unlike the fire-and-forget signup path,
+    dispatch errors propagate so the operator sees them; a still-running workflow for
+    the org counts as dispatched.
+    """
+    try:
+        _start_workflow(inputs)
+    except WorkflowAlreadyStartedError:
+        logger.info("signup_enrichment_dispatch_skipped", organization_id=inputs.organization_id)
+
+
+def _submit_dispatch(inputs: SignupEnrichmentInputs) -> None:
+    if not _dispatch_slots.acquire(blocking=False):
+        logger.warning(
+            "signup_enrichment_dispatch_dropped", organization_id=inputs.organization_id, reason="dispatch_backlog_full"
+        )
+        return
+    try:
+        _dispatch_executor.submit(_dispatch_and_release, inputs)
+    except Exception as e:
+        _dispatch_slots.release()
+        capture_exception(e)
+
+
+def _dispatch_and_release(inputs: SignupEnrichmentInputs) -> None:
+    try:
+        _dispatch(inputs)
+    finally:
+        _dispatch_slots.release()
+
+
+def _enrichment_enabled() -> bool:
+    # Reading the instance setting hits the database on a cache miss, and signup must never fail
+    # or stall on it. A failed read means enrichment does not run for that signup.
+    try:
+        return gates.enrichment_enabled()
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
+def _geoip_country_code(ip_address: str | None) -> str | None:
+    # get_geoip_properties already swallows lookup failures, but nothing geoip-related may ever
+    # surface to signup — so guard the whole call anyway.
+    try:
+        return get_geoip_properties(ip_address).get("$geoip_country_code")
+    except Exception as e:
+        capture_exception(e)
+        return None
+
+
+def _record_work_email(*, organization_id: str, work_email: bool, signup_role: str | None = None) -> None:
+    # The write runs in its own savepoint; a failure here must never surface to signup.
+    try:
+        record_signup_work_email(organization_id=organization_id, work_email=work_email, signup_role=signup_role)
+    except Exception as e:
+        capture_exception(e)
+
+
+def _start_workflow(inputs: SignupEnrichmentInputs) -> None:
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "signup-enrichment",
+            inputs,
+            id=f"signup-enrichment-{inputs.organization_id}",
+            # Rides the general-purpose fleet by default; the SIGNUP_ENRICHMENT_TASK_QUEUE env flips
+            # this unauthenticated signup work onto a dedicated, bounded queue once a worker consumes it.
+            task_queue=settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        )
+    )
+
+
+def _dispatch(inputs: SignupEnrichmentInputs) -> None:
+    try:
+        _start_workflow(inputs)
+    except WorkflowAlreadyStartedError:
+        # A re-signup race hits the still-running workflow id; expected, not an error.
+        logger.info("signup_enrichment_dispatch_skipped", organization_id=inputs.organization_id)
+    except RPCError as e:
+        # A transient RPC issue must not surface to signup.
+        logger.info("signup_enrichment_dispatch_skipped", organization_id=inputs.organization_id, error=str(e))
+    except Exception as e:
+        capture_exception(e)

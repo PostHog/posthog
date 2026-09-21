@@ -114,7 +114,6 @@ def _get_targeting_flag(survey: Survey) -> FeatureFlag:
             "active": True,
             "filters": {"groups": user_submitted_dismissed_groups},
             "creation_context": "surveys",
-            "_should_create_usage_dashboard": False,
         },
         team=survey.team,
         user=None,
@@ -146,8 +145,13 @@ def _get_current_iteration(survey: Survey) -> int:
 
 
 def update_survey_iteration() -> None:
+    # `schedule` is the user's intent. The iteration_* columns can outlive it on rows that predate
+    # the field or were written by an API client, so they alone do not make a survey recurring.
     surveys_with_recurring_schedules = Survey.objects.filter(
-        start_date__isnull=False, end_date__isnull=True, iteration_count__isnull=False
+        start_date__isnull=False,
+        end_date__isnull=True,
+        iteration_count__isnull=False,
+        schedule=Survey.Schedule.RECURRING,
     ).only("id", "iteration_count", "iteration_start_dates")
 
     for survey in list(surveys_with_recurring_schedules):

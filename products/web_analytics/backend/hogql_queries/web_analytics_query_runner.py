@@ -19,6 +19,7 @@ from posthog.schema import (
     EventPropertyFilter,
     PersonPropertyFilter,
     SessionPropertyFilter,
+    WebAgentAnalyticsQuery,
     WebBotsTableQuery,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
@@ -43,8 +44,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import first_pageview_session_filter_expr
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import (
@@ -61,6 +62,7 @@ from products.web_analytics.backend.hogql_queries.traffic_type import get_traffi
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     compute_filters_eligibility_hash,
     is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
 )
 
 logger = structlog.get_logger(__name__)
@@ -90,6 +92,7 @@ WebQueryNode = Union[
     WebStatsTableQuery,
     WebGoalsQuery,
     WebExternalClicksTableQuery,
+    WebAgentAnalyticsQuery,
     WebBotsTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
@@ -522,15 +525,18 @@ WHERE and(
                 raise QueryError(
                     f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
                 )
-            return action_to_expr(action)
+            goal_expr = action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            return ast.CompareOperation(
+            goal_expr = ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"]),
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=self.query.conversionGoal.customEventName),
             )
         else:
             return None
+        if self.query.conversionGoal.properties:
+            return ast.And(exprs=[goal_expr, property_to_expr(self.query.conversionGoal.properties, team=self.team)])
+        return goal_expr
 
     @cached_property
     def conversion_count_expr(self) -> Optional[ast.Expr]:
@@ -744,6 +750,7 @@ WHERE and(
         return get_traffic_type_expr(
             user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
             ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
+            modifiers=self.modifiers,
         )
 
     def _get_traffic_category_expr(
@@ -752,6 +759,7 @@ WHERE and(
         return get_traffic_category_expr(
             user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
             ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
+            modifiers=self.modifiers,
         )
 
     def get_cache_key(self) -> str:
@@ -761,7 +769,12 @@ WHERE and(
         # (the kill switch) must not keep serving cached precompute-produced
         # responses until they stale out.
         precompute = is_precompute_enabled_for_team(self.team)
-        key = f"{original}_{self.team.path_cleaning_filters}_pc{int(precompute)}"
+        # The volume-floor verdict is part of the key too: a team crossing below
+        # the floor switches to the live path, so a precompute-produced response
+        # under the old key must not keep serving until it stales out. Only read
+        # the floor when precompute is on — otherwise it can't change the result.
+        above_floor = precompute and is_team_above_volume_floor(self.team.pk)
+        key = f"{original}_{self.team.path_cleaning_filters}_pc{int(precompute)}_vf{int(above_floor)}"
         # A rewritten filter selects a different population for the same query, so
         # rewritten and entry-attributed runs must not share cache entries.
         if self.rewritten_first_pageview_filters:

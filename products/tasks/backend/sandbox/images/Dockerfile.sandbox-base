@@ -1,5 +1,11 @@
 # Dockerfile for the base sandbox image.
 
+FROM golang:1.23 AS agent-shadow-builder
+
+WORKDIR /src
+COPY products/desktop/packages/agent-shadow/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /agent-shadow .
+
 FROM ubuntu:24.04
 
 # Set environment variables to prevent interactive prompts
@@ -40,6 +46,8 @@ RUN apt-get update && \
     redis-tools \
     # System libraries often needed by Python packages
     libssl-dev \
+    libcurl4-gnutls-dev \
+    libexpat1-dev \
     libffi-dev \
     libbz2-dev \
     libreadline-dev \
@@ -49,11 +57,26 @@ RUN apt-get update && \
     tk-dev \
     libxml2-dev \
     libxmlsec1-dev \
+    zlib1g-dev \
     # Other useful tools
     ca-certificates \
     gnupg \
     sudo \
     && rm -rf /var/lib/apt/lists/*
+
+ARG GIT_VERSION=2.49.1
+ARG GIT_SHA256=310831de967f1c8c5e8ff55f92807dea89f83dc3d3d2a5d16c209bd01a31def1
+RUN set -eux; \
+    curl -fsSL -o /tmp/git.tar.xz \
+      "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz"; \
+    echo "${GIT_SHA256}  /tmp/git.tar.xz" | sha256sum -c -; \
+    mkdir /tmp/git; \
+    tar -xf /tmp/git.tar.xz -C /tmp/git --strip-components=1; \
+    make -C /tmp/git prefix=/usr NO_GETTEXT=YesPlease NO_TCLTK=YesPlease -j"$(nproc)" all; \
+    make -C /tmp/git prefix=/usr NO_GETTEXT=YesPlease NO_TCLTK=YesPlease install; \
+    rm -rf /tmp/git /tmp/git.tar.xz; \
+    git --version; \
+    git help -a | grep -q '[[:space:]]backfill'
 
 # Install Node.js 24.x
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
@@ -61,12 +84,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     rm -rf /var/lib/apt/lists/*
 
 # Install additional language package managers
-RUN npm install -g yarn pnpm typescript ts-node nodemon
+ARG PNPM_VERSION=10.34.5
+RUN npm install -g yarn "pnpm@${PNPM_VERSION}" typescript ts-node nodemon
 
 # Install ruff and ty
 # uv comes from its pinned, registry-verified official image (same pattern as the
 # main Dockerfile) rather than piping a remote installer script to a shell.
-COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /usr/local/bin/
 ARG RUFF_VERSION=0.14.11
 ARG TY_VERSION=0.0.29
 RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
@@ -75,7 +99,7 @@ RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
     ty --version
 
 # Install GitHub CLI without adding another apt repository refresh.
-ARG GH_CLI_VERSION=2.93.0
+ARG GH_CLI_VERSION=2.97.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     curl -fsSL -o /tmp/gh.deb \
@@ -132,9 +156,12 @@ RUN set -eux; \
 ###
 
 # Set up /scripts as a Node.js project and install @posthog/agent.
-# AGENT_VERSION changes on agent releases; COMMIT_HASH invalidates the layer for
-# PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=latest
+# AGENT_VERSION is pinned, not "latest": the CD workflow used to resolve the
+# npm "latest" dist-tag at build time, so any @posthog/agent release reached
+# every sandbox image with no PostHog commit or review. Bump this deliberately
+# in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
+# the layer for PostHog-side image changes that keep the agent version unchanged.
+ARG AGENT_VERSION=2.4.183
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \
@@ -162,6 +189,11 @@ RUN chmod +x /opt/posthog/bin/git
 # non-interactive `bash -c`; the agent's interactive shell needs this shim).
 COPY products/tasks/backend/sandbox/images/gh-guard.sh /opt/posthog/bin/gh
 RUN chmod +x /opt/posthog/bin/gh
+COPY products/tasks/backend/sandbox/images/hogli-shim.sh /opt/posthog/bin/hogli
+RUN chmod +x /opt/posthog/bin/hogli
+COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
+RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
+COPY --from=agent-shadow-builder /agent-shadow /usr/local/bin/agent-shadow
 ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user

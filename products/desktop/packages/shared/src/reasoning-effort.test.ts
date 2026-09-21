@@ -1,18 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { isSupportedReasoningEffort } from "./reasoning-effort";
+import {
+  getCapabilityLadder,
+  isSupportedReasoningEffort,
+} from "./reasoning-effort";
 
 describe("isSupportedReasoningEffort", () => {
   it.each([
     ["codex", "gpt-5.5", "xhigh", true],
     ["codex", "gpt-5.6-sol", "max", true],
+    ["codex", "gpt-6-astra", "max", true],
     ["codex", "gpt-5.4", "max", false],
     ["claude", "claude-opus-4-8", "xhigh", true],
     ["claude", "claude-sonnet-4-6", "xhigh", false],
     ["claude", "@cf/zai-org/glm-5.2", "high", true],
     ["claude", "@cf/zai-org/glm-5.2", "max", true],
     ["claude", "@cf/zai-org/glm-5.2", "medium", false],
+    ["claude", "zai-org/glm-5.3", "high", true],
+    ["claude", "zai-org/glm-5.3", "max", true],
+    ["claude", "zai-org/glm-5.3", "medium", false],
+    ["claude", "zai-org/glm-5.3-flash", "high", true],
+    ["claude", "zai-org/glm-5.3-flash", "medium", false],
     ["claude", "claude-opus-4-8", "minimal", false],
     ["claude", "claude-opus-5", "ultracode", true],
+    ["claude", "claude-fable-5-1", "ultracode", true],
     ["claude", "claude-sonnet-5", "ultracode", true],
     ["claude", "claude-sonnet-4-6", "ultracode", false],
     ["codex", "gpt-5.6-sol", "ultracode", false],
@@ -24,4 +34,13 @@ describe("isSupportedReasoningEffort", () => {
       );
     },
   );
+});
+
+describe("getCapabilityLadder", () => {
+  it("uses GPT-6 Astra at Max as the smartest Codex notch", () => {
+    expect(getCapabilityLadder("codex").at(-1)).toEqual({
+      model: "gpt-6-astra",
+      effort: "max",
+    });
+  });
 });

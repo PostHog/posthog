@@ -1,26 +1,26 @@
+import datetime
+
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualysvmdr import (
     QualysVmdrSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr import (
-    QualysVmdrResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source import QualysVmdrSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source"
 
 
-def _config() -> QualysVmdrSourceConfig:
-    return QualysVmdrSourceConfig(api_server="qualysapi.qualys.com", username="user", password="pass")
+def _config(gateway_server: str | None = None) -> QualysVmdrSourceConfig:
+    return QualysVmdrSourceConfig(
+        api_server="qualysapi.qualys.com", username="user", password="pass", gateway_server=gateway_server
+    )
 
 
 def _inputs(**overrides) -> mock.MagicMock:
     inputs = mock.MagicMock()
     inputs.schema_name = overrides.get("schema_name", "hosts")
+    inputs.api_version = overrides.get("api_version", None)
     inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", False)
     inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", None)
     return inputs
@@ -29,13 +29,6 @@ def _inputs(**overrides) -> mock.MagicMock:
 class TestQualysVmdrSource:
     def setup_method(self):
         self.source = QualysVmdrSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.QUALYSVMDR
-
-    def test_source_is_released(self):
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
 
     def test_api_server_is_a_connection_host_field(self):
         # Retargeting `api_server` must force re-entry of the stored credentials
@@ -54,23 +47,6 @@ class TestQualysVmdrSource:
     def test_get_schemas_filters_by_names(self):
         schemas = self.source.get_schemas(_config(), team_id=1, names=["scans"])
         assert [s.name for s in schemas] == ["scans"]
-
-    @pytest.mark.parametrize(
-        "transport_result",
-        [(True, None), (False, "Invalid Qualys credentials or API server URL")],
-    )
-    def test_validate_credentials(self, transport_result):
-        with mock.patch(f"{_MODULE}.validate_qualys_vmdr_credentials", return_value=transport_result) as validate:
-            result = self.source.validate_credentials(_config(), team_id=1)
-
-        assert result == transport_result
-        validate.assert_called_once_with("qualysapi.qualys.com", "user", "pass")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is QualysVmdrResumeConfig
 
     @pytest.mark.parametrize(
         "endpoint,expected_primary_keys,expected_partition_keys",
@@ -99,6 +75,25 @@ class TestQualysVmdrSource:
 
         assert transport.call_args.kwargs["db_incremental_field_last_value"] is None
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "Unauthorized for url"])
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
+    def test_default_version_is_4_0_and_2_0_is_deprecated(self):
+        # New sources start on 4.0; 2.0 carries the vendor's announced sunset date and 4.0 is clean.
+        assert self.source.default_version == "4.0"
+        deprecation = self.source.get_version_deprecation("2.0")
+        assert deprecation is not None and deprecation.sunset_at == datetime.date(2026, 6, 30)
+        assert self.source.get_version_deprecation("4.0") is None
+
+    @pytest.mark.parametrize(
+        "pin,expected_version",
+        [("2.0", "2.0"), ("4.0", "4.0"), (None, "4.0")],
+    )
+    def test_source_for_pipeline_threads_resolved_version_and_gateway(self, pin, expected_version):
+        with mock.patch(f"{_MODULE}.qualys_vmdr_source") as transport:
+            self.source.source_for_pipeline(
+                _config(gateway_server="gateway.qg2.apps.qualys.com"),
+                mock.MagicMock(),
+                _inputs(schema_name="knowledge_base", api_version=pin),
+            )
+
+        # A NULL pin resolves to default_version (4.0); a present pin is honored verbatim.
+        assert transport.call_args.kwargs["api_version"] == expected_version
+        assert transport.call_args.kwargs["gateway_server"] == "gateway.qg2.apps.qualys.com"

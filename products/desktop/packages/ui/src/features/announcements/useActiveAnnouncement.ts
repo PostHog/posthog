@@ -37,6 +37,7 @@ export function useActiveAnnouncement(): ActiveAnnouncement | null {
         payload,
         now,
         appVersion: appVersion ?? null,
+        isDevBuild: import.meta.env.DEV,
         dismissedIds: dismissedSet,
         handledThisSession,
       }),

@@ -5,6 +5,7 @@ import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -21,6 +22,7 @@ import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSetting
 import { HeatmapRecording } from '../../components/HeatmapRecording'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
 import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { HeatmapScreenshotAccessNotice } from '../../components/HeatmapScreenshotAccessNotice'
 import { HeatmapsEnableCapture } from '../../components/HeatmapsEnableCapture'
 import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
@@ -261,7 +263,7 @@ function ChoosePageStep(): JSX.Element {
 
 function PublicBackgroundChoice(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
-    const { type } = useValues(logic)
+    const { type, displayUrl } = useValues(logic)
     const { setType } = useActions(logic)
     const { isDisplayUrlAuthorized, authorizationDisabledReason, preflightMessage } = useValues(heatmapCreationLogic)
     const { authorizeDisplayUrl } = useActions(heatmapCreationLogic)
@@ -325,14 +327,17 @@ function PublicBackgroundChoice(): JSX.Element {
             ) : null}
 
             {type === 'screenshot' ? (
-                <HeatmapAdvancedSettings
-                    dataUrlPlaceholderFallback=""
-                    dataUrlHelp={null}
-                    consentHelp="Ask the browser to close cookie or consent popups before capturing the screenshot. This can slow down or fail the render on some sites, so it is off by default."
-                    showDataUrl={false}
-                    showConsent
-                    header="Screenshot options"
-                />
+                <>
+                    <HeatmapScreenshotAccessNotice url={displayUrl} />
+                    <HeatmapAdvancedSettings
+                        dataUrlPlaceholderFallback=""
+                        dataUrlHelp={null}
+                        consentHelp="Ask the browser to close cookie or consent popups before capturing the screenshot. This can slow down or fail the render on some sites, so it is off by default."
+                        showDataUrl={false}
+                        showConsent
+                        header="Screenshot options"
+                    />
+                </>
             ) : null}
         </div>
     )
@@ -375,6 +380,20 @@ function ChooseBackgroundStep(): JSX.Element {
                 {pageAccess === 'public' ? <PublicBackgroundChoice /> : null}
                 {pageAccess === 'login' && displayUrl ? (
                     <div className="flex flex-col gap-4">
+                        <LemonBanner
+                            type="info"
+                            action={{
+                                children: 'Open in toolbar',
+                                to: appEditorUrl(displayUrl, { userIntent: 'heatmaps' }),
+                                targetBlank: true,
+                                type: 'primary',
+                                'data-attr': 'heatmap-creation-toolbar-capture',
+                            }}
+                        >
+                            Open your site with the toolbar, turn on Heatmaps, then choose "Save to PostHog". It
+                            captures the signed-in page from your browser and saves the heatmap here, with no session
+                            recording needed.
+                        </LemonBanner>
                         <LemonBanner type="info">
                             Session recordings preserve the signed-in page state. Choose a recording and we will guide
                             you through selecting the exact moment to use as the background. We will bring that state

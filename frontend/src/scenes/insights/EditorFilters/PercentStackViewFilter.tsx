@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { insightLogic } from '../insightLogic'
 
-export function PercentStackViewFilter({ disabledReason }: { disabledReason?: string }): JSX.Element {
+export function PercentStackViewFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { showPercentStackView } = useValues(trendsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(trendsDataLogic(insightProps))
@@ -19,7 +20,6 @@ export function PercentStackViewFilter({ disabledReason }: { disabledReason?: st
             }}
             label={<span className="font-normal">Show as % of total</span>}
             size="small"
-            disabledReason={disabledReason}
         />
     )
 }

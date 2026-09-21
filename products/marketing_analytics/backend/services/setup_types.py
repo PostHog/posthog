@@ -27,10 +27,6 @@ class SuggestionKind(StrEnum):
     FIX_CONVERSION_GOAL = "fix_conversion_goal"
     MARK_GOAL_AS_REVENUE = "mark_goal_as_revenue"
     MARK_GOAL_AS_CUSTOMER = "mark_goal_as_customer"
-    SET_ACTIVITY_EVENT = "set_activity_event"
-    SET_SIGNUP_EVENT = "set_signup_event"
-    SET_PAYMENT_EVENT = "set_payment_event"
-    SET_SUBSCRIPTION_EVENT = "set_subscription_event"
 
 
 class Capability(StrEnum):
@@ -41,8 +37,6 @@ class Capability(StrEnum):
     ATTRIBUTION = "attribution"
     ROAS = "roas"
     CAC = "cac"
-    RETENTION_BY_CHANNEL = "retention_by_channel"
-    LTV_BY_CHANNEL = "ltv_by_channel"
 
 
 class ReadinessStatus(StrEnum):
@@ -102,12 +96,6 @@ UNBLOCKS: dict[SuggestionKind, frozenset[SuggestionKind]] = {
             SuggestionKind.MARK_GOAL_AS_CUSTOMER,
         }
     ),
-    SuggestionKind.SET_ACTIVITY_EVENT: frozenset(
-        {
-            SuggestionKind.SET_PAYMENT_EVENT,
-            SuggestionKind.SET_SUBSCRIPTION_EVENT,
-        }
-    ),
 }
 
 _SEVERITY_RANK = {Severity.ERROR: 2, Severity.WARNING: 1, Severity.INFO: 0}
@@ -127,6 +115,15 @@ class AddCustomSourceMapping(_Op):
     raw_utm_source: str
 
 
+class RemoveCustomSourceMapping(_Op):
+    """Inverse of `add_custom_source_mapping`. Exists so the apply endpoint can return a
+    real undo op rather than asking the client to reconstruct prior state."""
+
+    op: Literal["remove_custom_source_mapping"] = "remove_custom_source_mapping"
+    integration: str
+    raw_utm_source: str
+
+
 class SetCampaignFieldPreference(_Op):
     op: Literal["set_campaign_field_preference"] = "set_campaign_field_preference"
     integration: str
@@ -140,10 +137,23 @@ class AddCampaignNameMapping(_Op):
     raw_values: list[str] = Field(min_length=1)
 
 
+class RemoveCampaignNameMapping(_Op):
+    """Inverse of `add_campaign_name_mapping`."""
+
+    op: Literal["remove_campaign_name_mapping"] = "remove_campaign_name_mapping"
+    integration: str
+    clean_name: str
+    raw_values: list[str] = Field(min_length=1)
+
+
 class CreateConversionGoal(_Op):
     op: Literal["create_conversion_goal"] = "create_conversion_goal"
     # Validated against `ConversionGoalFilter` by the apply endpoint, which owns that adapter.
     goal: dict[str, Any]
+    # Set only on an undo op, to put back the goal a delete removed under its original
+    # id. A fresh create always gets a server-assigned id; honouring a client-supplied
+    # one would let callers pick ids and collide.
+    restore: bool = False
 
 
 class UpdateConversionGoal(_Op):
@@ -209,8 +219,10 @@ class FixPlatformUrls(_Op):
 
 ApplyOp = Annotated[
     AddCustomSourceMapping
+    | RemoveCustomSourceMapping
     | SetCampaignFieldPreference
     | AddCampaignNameMapping
+    | RemoveCampaignNameMapping
     | CreateConversionGoal
     | UpdateConversionGoal
     | DeleteConversionGoal
@@ -226,8 +238,10 @@ ApplyOp = Annotated[
 APPLICABLE_OPS: frozenset[str] = frozenset(
     {
         "add_custom_source_mapping",
+        "remove_custom_source_mapping",
         "set_campaign_field_preference",
         "add_campaign_name_mapping",
+        "remove_campaign_name_mapping",
         "create_conversion_goal",
         "update_conversion_goal",
         "delete_conversion_goal",

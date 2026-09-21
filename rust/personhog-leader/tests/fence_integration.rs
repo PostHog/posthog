@@ -11,21 +11,27 @@ use dashmap::DashMap;
 
 use common::{
     create_leader_client, create_test_kafka, seed_person, test_cached_person, test_recovery,
-    unique_team_id, CHANGELOG_TOPIC, NUM_PARTITIONS,
+    unique_team_id, NUM_PARTITIONS,
 };
 use personhog_common::partitioning::partition_for_person;
-use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
+use personhog_leader::cache::{
+    CacheLookup, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey,
+};
 use personhog_leader::emitted::EmittedVersions;
-use personhog_leader::fence::{FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY};
+use personhog_leader::fence::{
+    rebuild_partition_fences, FenceMap, FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY,
+};
 use personhog_leader::inflight::InflightTracker;
-use personhog_leader::pg::PgFallback;
+use personhog_leader::pg::{LifecycleTables, PgFallback};
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::settle::drop_settled_death_documents;
 use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FoldPersonDocumentRequest, GetPersonRequest, LifecycleOpType, Person,
-    ReleaseFenceRequest, ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
+    FencePersonRequest, FencePersonsRequest, FoldPersonDocumentRequest, GetPersonRequest,
+    LifecycleOpType, Person, ReleaseFenceItem, ReleaseFenceRequest, ReleaseFencesRequest,
+    ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
 };
 use prost::Message;
 use rdkafka::consumer::{BaseConsumer, Consumer};
@@ -56,6 +62,7 @@ fn fence_request(team_id: i64, person_id: i64, op_id: &Uuid) -> FencePersonReque
 
 fn update_request(team_id: i64, person_id: i64) -> UpdatePersonPropertiesRequest {
     UpdatePersonPropertiesRequest {
+        force_update: false,
         team_id,
         person_id,
         event_name: "$set".to_string(),
@@ -79,9 +86,12 @@ struct FenceHarness {
     cache: Arc<PartitionedCache>,
     inflight: Arc<InflightTracker>,
     emitted_versions: Arc<EmittedVersions>,
+    dirty_index: Arc<DirtyIndex>,
+    locks: Arc<DashMap<PersonCacheKey, Arc<tokio::sync::Mutex<()>>>>,
+    fences: FenceMap,
     _cancel: CancellationToken,
-    _mock_cluster:
-        rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
+    /// Kept alive so the topic outlives the test that reads it.
+    topic: common::TestTopic,
 }
 
 async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback>) -> FenceHarness {
@@ -99,23 +109,24 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let inflight = Arc::new(InflightTracker::new());
     let emitted_versions = Arc::new(EmittedVersions::new(1_000_000));
-    // Recovery consumes the same mock cluster so a post-death cache miss
-    // can recover the death document.
+    let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let locks = Arc::new(DashMap::new());
+    let fences: FenceMap = Arc::new(DashMap::new());
+    // Recovery consumes the same topic so a post-death cache miss can
+    // recover the death document.
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         fallback,
-        Arc::new(DashMap::new()),
+        Arc::clone(&locks),
         Arc::clone(&inflight),
         NUM_PARTITIONS,
-        Arc::new(DirtyIndex::new(1_000_000)),
-        test_recovery(&bootstrap),
+        Arc::clone(&dirty_index),
+        test_recovery(&mock_cluster.topic, &bootstrap),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
-        Arc::new(DashMap::new()),
-        None,
-        None,
+        Arc::clone(&fences),
+        common::fenced_producers_acquired(&mock_cluster.topic, NUM_PARTITIONS as i32).await,
+        common::live_authority(),
         Arc::clone(&emitted_versions),
     );
 
@@ -147,8 +158,11 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
         cache,
         inflight,
         emitted_versions,
+        dirty_index,
+        locks,
+        fences,
         _cancel: cancel,
-        _mock_cluster: mock_cluster,
+        topic: mock_cluster,
     }
 }
 
@@ -161,7 +175,7 @@ fn changelog_records(harness: &FenceHarness) -> Vec<Person> {
         .expect("failed to create consumer");
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition_offset(
-        CHANGELOG_TOPIC,
+        &harness.topic.topic,
         harness.partition as i32,
         rdkafka::Offset::Beginning,
     )
@@ -320,6 +334,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -341,8 +356,8 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
     )
     .bind(op)
     .bind(team_id as i32)
@@ -466,6 +481,152 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .expect("cleanup");
 }
 
+/// While the death document's mark stands, reads answer not-found even if
+/// PG already holds a revived row. Once the mark settles, the document
+/// leaves the cache and the next read serves the revival from PG.
+#[tokio::test]
+async fn a_revival_is_served_once_the_death_documents_mark_settles() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .unwrap();
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id,
+                person_uuid: person_uuid.clone(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(sealed.version),
+                created_at: sealed.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("committed release succeeds");
+
+    let key = PersonCacheKey { team_id, person_id };
+    let death = harness
+        .cache
+        .peek(partition, &key)
+        .expect("the death document is cached");
+    assert!(death.is_deleted);
+
+    // A stub-create revived the row in place: same id and uuid, version
+    // above the death document's.
+    sqlx::query(
+        "INSERT INTO posthog_person \
+             (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
+         VALUES ($1, $2, $3::uuid, '{\"revived\": true}'::jsonb, now(), $4, false, false)",
+    )
+    .bind(person_id)
+    .bind(team_id as i32)
+    .bind(&person_uuid)
+    .bind(death.version + 1)
+    .execute(&pool)
+    .await
+    .expect("insert revived row");
+
+    let get = || {
+        with_partition(
+            GetPersonRequest {
+                team_id,
+                person_id,
+                read_options: None,
+            },
+            partition,
+        )
+    };
+    let status = harness
+        .client
+        .get_person(get())
+        .await
+        .expect_err("the death document answers while its mark stands");
+    assert_eq!(status.code(), Code::NotFound);
+
+    // The writer commits past the death record; the prune settles its mark.
+    let mark = harness
+        .dirty_index
+        .get(&key)
+        .expect("the release marks the death record");
+    let (pruned, exhausted) = harness.dirty_index.prune_chunk(partition, mark.offset + 1);
+    assert!(exhausted);
+    assert_eq!(pruned.death_marks.len(), 1);
+    drop_settled_death_documents(&harness.cache, &harness.locks, &pruned.death_marks).await;
+    assert!(
+        harness.cache.peek(partition, &key).is_none(),
+        "the settled death document leaves the cache"
+    );
+
+    let revived = harness
+        .client
+        .get_person(get())
+        .await
+        .expect("the revival is served from PG after the settle")
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(revived.version, death.version + 1);
+    assert_eq!(revived.uuid, person_uuid);
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup person");
+}
+
 /// A pre-fence write with an indeterminate produce outcome spends a
 /// version the cache never learned of. The seal must cover it: sealed
 /// below the spent version, the death document would derive at a version
@@ -514,6 +675,7 @@ async fn a_committed_release_derives_the_death_version_above_the_emitted_floor()
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -533,8 +695,8 @@ async fn a_committed_release_derives_the_death_version_above_the_emitted_floor()
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
     )
     .bind(op)
     .bind(team_id as i32)
@@ -610,6 +772,7 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -628,8 +791,8 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
     )
     .bind(op)
     .bind(team_id as i32)
@@ -692,6 +855,7 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -710,8 +874,8 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
     )
     .bind(op)
     .bind(team_id as i32)
@@ -772,6 +936,164 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
     }
 }
 
+/// A contender's FencePerson bouncing on a ghost must trigger the same
+/// lazy heal as a rejected write: on a low-traffic person no other
+/// caller ever observes the ghost, so the contending op would retry
+/// forever.
+#[tokio::test]
+async fn a_ghost_fence_heals_after_a_rejected_fence_attempt() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let ghost_op = Uuid::now_v7();
+    let contender_op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(ghost_op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
+    )
+    .bind(ghost_op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &ghost_op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds");
+
+    // The op settles (release acked to the saga, mark rows cleaned up)
+    // without this leader hearing about it — the ghost scenario.
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(ghost_op)
+        .execute(&pool)
+        .await
+        .expect("settle the op");
+
+    let status = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &contender_op),
+            partition,
+        ))
+        .await
+        .expect_err("the first fence attempt still bounces on the ghost");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match harness
+            .client
+            .fence_person(with_partition(
+                fence_request(team_id, person_id, &contender_op),
+                partition,
+            ))
+            .await
+        {
+            Ok(_) => break,
+            Err(status) if status.code() == Code::FailedPrecondition => {
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the ghost fence was never healed"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(other) => panic!("unexpected rejection: {other}"),
+        }
+    }
+}
+
+/// The heal's safety half: a fence whose op holds a live mark is not a
+/// ghost, and heal checks triggered by a contender's rejected fence
+/// attempts must never clear it.
+#[tokio::test]
+async fn a_live_marked_fence_survives_heal_attempts() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let holder_op = Uuid::now_v7();
+    let contender_op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(holder_op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
+    )
+    .bind(holder_op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert live mark");
+
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &holder_op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds");
+
+    // A wrong clear would let a later attempt succeed and fail the loop.
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    while tokio::time::Instant::now() < deadline {
+        let status = harness
+            .client
+            .fence_person(with_partition(
+                fence_request(team_id, person_id, &contender_op),
+                partition,
+            ))
+            .await
+            .expect_err("the live fence keeps rejecting the contender");
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// The fail-closed half of the committed release: the request — even with
 /// a fence the caller installed itself — is never enough to destroy a
 /// person. Without a live mark row vouching for the op, the release is
@@ -784,6 +1106,7 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
         Some(PgFallback {
             pool,
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -1013,21 +1336,22 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
     }
     let target: i64 = 100;
     let settled: i64 = 101;
-    for (person_id, role, status) in [
-        (fenced_a, "source", "marked"),
-        (fenced_b, "victim", "sealed"),
-        (target, "target", "marked"),
-        (settled, "victim", "deleted"),
+    for (person_id, role, status, active) in [
+        (fenced_a, "source", "marked", true),
+        (fenced_b, "victim", "sealed", true),
+        (target, "target", "marked", true),
+        (settled, "victim", "deleted", false),
     ] {
         sqlx::query(
-            "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-             VALUES ($1, $2, $3, gen_random_uuid(), $4, $5)",
+            "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+             VALUES ($1, $2, $3, gen_random_uuid(), $4, $5, $6)",
         )
         .bind(op_id)
         .bind(team_id as i32)
         .bind(person_id)
         .bind(role)
         .bind(status)
+        .bind(active)
         .execute(&pool)
         .await
         .expect("insert mark");
@@ -1035,7 +1359,12 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
 
     let partition_a = partition_for_person(team_id, fenced_a, NUM_PARTITIONS);
     let fences: FenceMap = Arc::new(DashMap::new());
-    let installed = rebuild_partition_fences(&pool, &fences, partition_a, NUM_PARTITIONS)
+    let fallback = PgFallback {
+        pool: pool.clone(),
+        table: "posthog_person".to_string(),
+        lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+    };
+    let installed = rebuild_partition_fences(&fallback, &fences, partition_a, NUM_PARTITIONS)
         .await
         .expect("scan runs");
 
@@ -1070,9 +1399,10 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
         personhog_leader::fence::FenceState {
             op_id: Uuid::now_v7(),
             op_type: personhog_proto::personhog::types::v1::LifecycleOpType::Delete,
+            sealed_at: None,
         },
     );
-    let reinstalled = rebuild_partition_fences(&pool, &fences, ghost_partition, NUM_PARTITIONS)
+    let reinstalled = rebuild_partition_fences(&fallback, &fences, ghost_partition, NUM_PARTITIONS)
         .await
         .expect("re-warm runs");
     assert!(
@@ -1113,19 +1443,17 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
-        test_recovery(&_mock_cluster.bootstrap_servers()),
+        test_recovery(&_mock_cluster.topic, &_mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await,
+        common::live_authority(),
         Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     )
     .with_fence_capacity(1);
@@ -1258,6 +1586,7 @@ async fn seed_target_mark(
     team_id: i64,
     person_id: i64,
     status: &str,
+    mark_active: bool,
 ) {
     // A far-future lease keeps these never-completed ops out of the
     // identity sweeper's abandoned-op scan (it resumes NULL-lease and
@@ -1273,13 +1602,14 @@ async fn seed_target_mark(
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'target', $4)",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'target', $4, $5)",
     )
     .bind(op)
     .bind(team_id as i32)
     .bind(person_id)
     .bind(status)
+    .bind(mark_active)
     .execute(pool)
     .await
     .expect("insert target mark");
@@ -1295,10 +1625,19 @@ async fn start_marked_fold_harness(seed: CachedPerson, op: &Uuid) -> FenceHarnes
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
-    seed_target_mark(&pool, op, harness.team_id, harness.person_id, "marked").await;
+    seed_target_mark(
+        &pool,
+        op,
+        harness.team_id,
+        harness.person_id,
+        "marked",
+        true,
+    )
+    .await;
     harness
 }
 
@@ -1307,7 +1646,8 @@ async fn a_fold_applies_precedence_and_scalars_and_lands_in_the_changelog() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"a": "target", "b": "target"}),
+            properties: serde_json::to_vec(&serde_json::json!({"a": "target", "b": "target"}))
+                .unwrap(),
             created_at: 1_700_000_000,
             version: 3,
             is_identified: false,
@@ -1426,7 +1766,7 @@ async fn event_set_overrides_and_set_once_respects_snapshot_contributed_keys() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"target_only": "t"}),
+            properties: serde_json::to_vec(&serde_json::json!({"target_only": "t"})).unwrap(),
             version: 2,
             ..test_cached_person()
         },
@@ -1473,7 +1813,7 @@ async fn fold_with_empty_target_properties_fills_from_snapshots_and_event() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({}),
+            properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
             created_at: 1_700_000_000,
             version: 10,
             ..test_cached_person()
@@ -1516,7 +1856,7 @@ async fn created_at_ignores_non_positive_snapshot_timestamps_and_target_can_be_e
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({}),
+            properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
             created_at: 1_500_000_000,
             version: 1,
             ..test_cached_person()
@@ -1768,6 +2108,7 @@ async fn a_fold_whose_op_holds_no_live_target_mark_is_refused() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -1799,7 +2140,15 @@ async fn a_fold_whose_op_holds_no_live_target_mark_is_refused() {
     );
 
     // A settled op: the target row was cleared when the saga completed.
-    seed_target_mark(&pool, &op, harness.team_id, harness.person_id, "cleared").await;
+    seed_target_mark(
+        &pool,
+        &op,
+        harness.team_id,
+        harness.person_id,
+        "cleared",
+        false,
+    )
+    .await;
     let status = harness
         .client
         .fold_person_document(with_partition(request.clone(), harness.partition))
@@ -1810,7 +2159,7 @@ async fn a_fold_whose_op_holds_no_live_target_mark_is_refused() {
     // The wrong role: the op holds the person, but not as its target —
     // folding into it would be a saga bug.
     sqlx::query(
-        "UPDATE lifecycle_op_person SET role = 'victim', status = 'marked' WHERE op_id = $1",
+        "UPDATE lifecycle_op_person SET role = 'victim', status = 'marked', mark_active = true WHERE op_id = $1",
     )
     .bind(op)
     .execute(&pool)
@@ -1861,7 +2210,8 @@ async fn an_oversized_fold_trims_the_contribution_not_the_targets_keys() {
     let target_value = "x".repeat(500_000);
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"aa_target": target_value.clone()}),
+            properties: serde_json::to_vec(&serde_json::json!({"aa_target": target_value.clone()}))
+                .unwrap(),
             version: 3,
             ..test_cached_person()
         },
@@ -1911,7 +2261,8 @@ async fn an_unremediable_fold_keeps_the_targets_document_untouched() {
     let target_value = "x".repeat(600_000);
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"tt_target": target_value.clone()}),
+            properties: serde_json::to_vec(&serde_json::json!({"tt_target": target_value.clone()}))
+                .unwrap(),
             version: 3,
             is_identified: false,
             ..test_cached_person()
@@ -1967,7 +2318,7 @@ async fn an_oversized_targets_fold_trims_to_the_hard_ceiling() {
         CachedPerson {
             // email is protected and alone overshoots the trim target;
             // tt_target is trimmable overflow above the ceiling.
-            properties: serde_json::json!({"email": email_value.clone(), "tt_target": "x".repeat(200_000)}),
+            properties: serde_json::to_vec(&serde_json::json!({"email": email_value.clone(), "tt_target": "x".repeat(200_000)})).unwrap(),
             version: 3,
             ..test_cached_person()
         },
@@ -2017,7 +2368,8 @@ async fn an_unapplyable_fold_completes_without_producing() {
     let email_value = "e".repeat(700_000);
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"email": email_value.clone()}),
+            properties: serde_json::to_vec(&serde_json::json!({"email": email_value.clone()}))
+                .unwrap(),
             version: 3,
             is_identified: false,
             ..test_cached_person()
@@ -2067,7 +2419,7 @@ async fn a_non_object_target_stays_an_object_through_the_unremediable_path() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!("legacy-scalar"),
+            properties: serde_json::to_vec(&serde_json::json!("legacy-scalar")).unwrap(),
             ..test_cached_person()
         },
         &op,
@@ -2110,7 +2462,7 @@ async fn precedence_follows_ordinals_not_request_order() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({}),
+            properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
             version: 1,
             ..test_cached_person()
         },
@@ -2168,7 +2520,7 @@ async fn a_folds_target_cache_dirt_is_sanitized() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"dirty": "a\u{0000}b"}),
+            properties: serde_json::to_vec(&serde_json::json!({"dirty": "a\u{0000}b"})).unwrap(),
             ..test_cached_person()
         },
         &op,
@@ -2198,4 +2550,890 @@ async fn a_folds_target_cache_dirt_is_sanitized() {
         person_properties(&folded),
         serde_json::json!({"dirty": "a\u{FFFD}b"})
     );
+}
+
+/// The saga's unmap writes the person tombstone straight to PG before the
+/// release runs, and cache pressure can evict the fenced victim in that
+/// window (nothing pins fenced entries). The release's cache miss must not
+/// mistake that direct tombstone for an already-emitted death document.
+/// Today this holds because the PG fallback load filters `is_deleted =
+/// false`, so the release sees no person and takes the cold-leader path,
+/// re-deriving the document from the sealed version — this test pins that
+/// composed behavior against either side changing (the load filter, or the
+/// duplicate-release absorb).
+#[tokio::test]
+async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'unmapped', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, $4::uuid, 'victim', 'sealed', true)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .bind(&person_uuid)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .unwrap();
+    let sealed_version = sealed.version;
+
+    // The unmap transaction's direct tombstone: scrubbed, parked at
+    // sealed + 1.
+    sqlx::query(
+        "INSERT INTO posthog_person \
+             (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
+         VALUES ($1, $2, $3::uuid, '{}'::jsonb, now(), $4, false, true)",
+    )
+    .bind(person_id)
+    .bind(team_id as i32)
+    .bind(&person_uuid)
+    .bind(sealed_version + 1)
+    .execute(&pool)
+    .await
+    .expect("insert unmap tombstone");
+
+    // The eviction: Foyer may drop any entry under capacity pressure, and
+    // nothing pins a fenced victim.
+    harness.cache.remove(
+        partition,
+        &personhog_leader::cache::PersonCacheKey { team_id, person_id },
+    );
+
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id,
+                person_uuid: person_uuid.clone(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(sealed_version),
+                created_at: sealed.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("committed release succeeds");
+
+    let records = changelog_records(&harness);
+    let death = records.last().expect("the death document must be produced");
+    assert!(death.is_deleted);
+    assert_eq!(death.uuid, person_uuid);
+    assert_eq!(
+        death.version,
+        sealed_version + 1,
+        "the death document confirms the direct tombstone at the same version"
+    );
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup person");
+}
+
+/// The mark rows a committed release verifies against — committed by the
+/// saga before the fence in the real flow.
+async fn insert_delete_marks(
+    pool: &sqlx::postgres::PgPool,
+    op: Uuid,
+    team_id: i64,
+    person_ids: &[i64],
+) {
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .execute(pool)
+    .await
+    .expect("insert op");
+    for person_id in person_ids {
+        sqlx::query(
+            "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+             VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+        )
+        .bind(op)
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(pool)
+        .await
+        .expect("insert mark");
+    }
+}
+
+/// A person id on a partition other than the harness person's, with that
+/// partition.
+fn person_on_other_partition(harness: &FenceHarness) -> (i64, u32) {
+    let mut id = harness.person_id + 1;
+    loop {
+        let partition = partition_for_person(harness.team_id, id, NUM_PARTITIONS);
+        if partition != harness.partition {
+            return (id, partition);
+        }
+        id += 1;
+    }
+}
+
+/// A person id above `after` on the harness person's partition.
+fn another_person_on_harness_partition(harness: &FenceHarness, after: i64) -> i64 {
+    let mut id = after + 1;
+    loop {
+        if partition_for_person(harness.team_id, id, NUM_PARTITIONS) == harness.partition {
+            return id;
+        }
+        id += 1;
+    }
+}
+
+/// One `FencePersons` call fences every listed person of the routed
+/// partition, sealing each exactly as a single fence would, and reports a
+/// destroyed person in its answer instead of failing the batch for it.
+#[tokio::test]
+async fn a_batched_fence_seals_every_person_of_the_routed_partition() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let first_id = harness.person_id;
+    let second_id = another_person_on_harness_partition(&harness, first_id);
+    seed_person(
+        &harness.cache,
+        partition,
+        CachedPerson {
+            id: second_id,
+            uuid: Uuid::now_v7().to_string(),
+            team_id,
+            version: 5,
+            ..test_cached_person()
+        },
+    );
+    let destroyed_id = another_person_on_harness_partition(&harness, second_id);
+    seed_person(
+        &harness.cache,
+        partition,
+        CachedPerson {
+            id: destroyed_id,
+            uuid: Uuid::now_v7().to_string(),
+            team_id,
+            is_deleted: true,
+            ..test_cached_person()
+        },
+    );
+    let op = Uuid::now_v7();
+
+    let response = harness
+        .client
+        .fence_persons(with_partition(
+            FencePersonsRequest {
+                team_id,
+                op_id: op.to_string(),
+                op_type: LifecycleOpType::Delete.into(),
+                person_ids: vec![first_id, second_id, destroyed_id],
+            },
+            partition,
+        ))
+        .await
+        .expect("batched fence succeeds")
+        .into_inner();
+
+    let mut sealed: Vec<(i64, i64)> = response
+        .sealed
+        .iter()
+        .map(|seal| (seal.person_id, seal.version))
+        .collect();
+    sealed.sort_unstable();
+    assert_eq!(
+        sealed,
+        vec![(first_id, 1), (second_id, 5)],
+        "each seal is that person's current version"
+    );
+    assert_eq!(response.not_found, vec![destroyed_id]);
+    assert_eq!(
+        response.sealed[0].created_at,
+        test_cached_person().created_at
+    );
+
+    // Both persons are fenced by the op: writes are rejected with the
+    // typed fence, and a same-op re-fence re-seals.
+    for person_id in [first_id, second_id] {
+        let status = harness
+            .client
+            .update_person_properties(with_partition(
+                update_request(team_id, person_id),
+                partition,
+            ))
+            .await
+            .expect_err("a batch-fenced person rejects writes");
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        assert_eq!(
+            status.metadata().get(FENCED_OP_ID_METADATA_KEY).unwrap(),
+            op.to_string().as_str()
+        );
+        harness
+            .client
+            .fence_person(with_partition(
+                fence_request(team_id, person_id, &op),
+                partition,
+            ))
+            .await
+            .expect("a same-op re-fence re-seals");
+    }
+}
+
+/// Every member of a batch must hash to the routed partition: one that
+/// hashes elsewhere refuses the whole call before anything is fenced, even
+/// when this pod serves that partition too.
+#[tokio::test]
+async fn a_batched_fence_with_a_person_off_the_routed_partition_is_refused_whole() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let (foreign_id, foreign_partition) = person_on_other_partition(&harness);
+    harness.cache.create_partition(foreign_partition);
+    seed_person(
+        &harness.cache,
+        foreign_partition,
+        CachedPerson {
+            id: foreign_id,
+            uuid: Uuid::now_v7().to_string(),
+            team_id,
+            ..test_cached_person()
+        },
+    );
+
+    let status = harness
+        .client
+        .fence_persons(with_partition(
+            FencePersonsRequest {
+                team_id,
+                op_id: Uuid::now_v7().to_string(),
+                op_type: LifecycleOpType::Delete.into(),
+                person_ids: vec![person_id, foreign_id],
+            },
+            partition,
+        ))
+        .await
+        .expect_err("a batch with a person off the routed partition is refused");
+    assert_eq!(status.code(), Code::InvalidArgument);
+    assert!(status.metadata().get(FENCED_METADATA_KEY).is_none());
+
+    // Neither person was fenced: the local one still takes writes and the
+    // foreign one is free for another op.
+    harness
+        .client
+        .update_person_properties(with_partition(
+            update_request(team_id, person_id),
+            partition,
+        ))
+        .await
+        .expect("the local person is still writable");
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, foreign_id, &Uuid::now_v7()),
+            foreign_partition,
+        ))
+        .await
+        .expect("the foreign person carries no fence from the refused batch");
+}
+
+/// One `ReleaseFences` call closes every fence of an op on the routed
+/// partition, producing each death document exactly as a single release
+/// would.
+#[tokio::test]
+async fn a_batched_release_closes_every_fence_of_the_routed_partition() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let first_id = harness.person_id;
+    let second_id = another_person_on_harness_partition(&harness, first_id);
+    let second_uuid = Uuid::now_v7().to_string();
+    seed_person(
+        &harness.cache,
+        partition,
+        CachedPerson {
+            id: second_id,
+            uuid: second_uuid.clone(),
+            team_id,
+            ..test_cached_person()
+        },
+    );
+    let op = Uuid::now_v7();
+    insert_delete_marks(&pool, op, team_id, &[first_id, second_id]).await;
+
+    let mut persons = Vec::new();
+    for (person_id, uuid) in [
+        (first_id, test_cached_person().uuid),
+        (second_id, second_uuid),
+    ] {
+        let sealed = harness
+            .client
+            .fence_person(with_partition(
+                fence_request(team_id, person_id, &op),
+                partition,
+            ))
+            .await
+            .expect("fence succeeds")
+            .into_inner()
+            .sealed
+            .expect("sealed state returned");
+        persons.push(ReleaseFenceItem {
+            person_id,
+            person_uuid: uuid,
+            sealed_version: Some(sealed.version),
+            created_at: sealed.created_at,
+        });
+    }
+
+    harness
+        .client
+        .release_fences(with_partition(
+            ReleaseFencesRequest {
+                team_id,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                persons: persons.clone(),
+            },
+            partition,
+        ))
+        .await
+        .expect("batched release succeeds");
+
+    let records = changelog_records(&harness);
+    for person in &persons {
+        let death = records
+            .iter()
+            .find(|r| r.id == person.person_id && r.is_deleted)
+            .expect("a death document per released person");
+        assert_eq!(death.version, person.sealed_version.unwrap() + 1);
+        // The fence is gone: a new op finds a destroyed person, not a fence.
+        let status = harness
+            .client
+            .fence_person(with_partition(
+                fence_request(team_id, person.person_id, &Uuid::now_v7()),
+                partition,
+            ))
+            .await
+            .expect_err("a destroyed person cannot be fenced");
+        assert_eq!(status.code(), Code::NotFound);
+    }
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+}
+
+/// Every member of a release batch must hash to the routed partition. One
+/// that hashes elsewhere refuses the whole call before anything is
+/// destroyed, even when this pod serves that partition too.
+#[tokio::test]
+async fn a_batched_release_with_a_person_off_the_routed_partition_is_refused_whole() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let (foreign_id, foreign_partition) = person_on_other_partition(&harness);
+    harness.cache.create_partition(foreign_partition);
+    let op = Uuid::now_v7();
+    insert_delete_marks(&pool, op, team_id, &[person_id]).await;
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .expect("sealed state returned");
+
+    let status = harness
+        .client
+        .release_fences(with_partition(
+            ReleaseFencesRequest {
+                team_id,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                persons: vec![
+                    ReleaseFenceItem {
+                        person_id,
+                        person_uuid: test_cached_person().uuid,
+                        sealed_version: Some(sealed.version),
+                        created_at: sealed.created_at,
+                    },
+                    ReleaseFenceItem {
+                        person_id: foreign_id,
+                        person_uuid: Uuid::now_v7().to_string(),
+                        sealed_version: Some(0),
+                        created_at: sealed.created_at,
+                    },
+                ],
+            },
+            partition,
+        ))
+        .await
+        .expect_err("a batch with a person off the routed partition is refused");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    // The local person is untouched and still fenced by the op.
+    let read = harness
+        .client
+        .get_person(with_partition(
+            GetPersonRequest {
+                team_id,
+                person_id,
+                read_options: None,
+            },
+            partition,
+        ))
+        .await
+        .expect("the person is still alive");
+    assert_eq!(read.into_inner().person.unwrap().version, sealed.version);
+    let refenced = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &Uuid::now_v7()),
+            partition,
+        ))
+        .await
+        .expect_err("the op's fence still stands");
+    assert!(refenced.metadata().contains_key(FENCED_METADATA_KEY));
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+}
+
+/// A fence the takeover scan installed can postdate a release the previous
+/// owner acked, so a replayed release must read the settled row, not the
+/// op's snapshot, or it destroys a person recreated under the same key.
+#[tokio::test]
+async fn a_takeover_fence_reads_the_row_not_the_snapshot() {
+    let pool = common::create_persons_pool().await;
+    let fallback = PgFallback {
+        pool: pool.clone(),
+        table: "posthog_person".to_string(),
+        lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+    };
+    let mut harness = start_fence_harness(test_cached_person(), Some(fallback.clone())).await;
+    let (team_id, partition, victim) = (harness.team_id, harness.partition, harness.person_id);
+    let key = |person_id| PersonCacheKey { team_id, person_id };
+
+    let sibling = another_person_on_harness_partition(&harness, victim);
+    let sibling_uuid = Uuid::now_v7().to_string();
+    seed_person(
+        &harness.cache,
+        partition,
+        CachedPerson {
+            id: sibling,
+            team_id,
+            uuid: sibling_uuid.clone(),
+            ..test_cached_person()
+        },
+    );
+
+    let op = Uuid::now_v7();
+    insert_delete_marks(&pool, op, team_id, &[victim, sibling]).await;
+    sqlx::query("UPDATE lifecycle_op_person SET mark_active = true WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("activate marks");
+
+    // The previous owner sealed the victim; its release carries these values.
+    let victim_seal = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, victim, &op),
+            partition,
+        ))
+        .await
+        .expect("seal succeeds")
+        .into_inner()
+        .sealed
+        .expect("sealed");
+
+    // This pod takes the partition over and rebuilds both fences from the rows.
+    rebuild_partition_fences(&fallback, &harness.fences, partition, NUM_PARTITIONS)
+        .await
+        .expect("scan runs");
+
+    // The sibling's release loads the op's snapshot before the rows settle.
+    let sibling_seal = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, sibling, &op),
+            partition,
+        ))
+        .await
+        .expect("seal succeeds")
+        .into_inner()
+        .sealed
+        .expect("sealed");
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id: sibling,
+                person_uuid: sibling_uuid,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(sibling_seal.version),
+                created_at: sibling_seal.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("the sibling's release succeeds");
+
+    // The op settles, and the victim is recreated under the same key.
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'deleted', mark_active = false WHERE op_id = $1",
+    )
+    .bind(op)
+    .execute(&pool)
+    .await
+    .expect("settle");
+    seed_person(
+        &harness.cache,
+        partition,
+        CachedPerson {
+            team_id,
+            ..test_cached_person()
+        },
+    );
+
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id: victim,
+                person_uuid: test_cached_person().uuid,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(victim_seal.version),
+                created_at: victim_seal.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("a settled release is absorbed");
+
+    match harness.cache.get(partition, &key(victim)) {
+        CacheLookup::Found(entry) => assert!(
+            !entry.is_deleted,
+            "a settled release must not destroy the recreated person"
+        ),
+        _ => panic!("the recreated person stays cached"),
+    }
+    assert!(
+        harness.fences.get(&key(victim)).is_none(),
+        "the settled fence is dropped"
+    );
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+}
+
+#[tokio::test]
+async fn a_same_op_re_fence_leaves_a_takeover_fence_unsealed() {
+    let pool = common::create_persons_pool().await;
+    let fallback = PgFallback {
+        pool: pool.clone(),
+        table: "posthog_person".to_string(),
+        lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+    };
+    let mut harness = start_fence_harness(test_cached_person(), Some(fallback.clone())).await;
+    let (team_id, partition, victim) = (harness.team_id, harness.partition, harness.person_id);
+    let key = PersonCacheKey {
+        team_id,
+        person_id: victim,
+    };
+
+    let op = Uuid::now_v7();
+    insert_delete_marks(&pool, op, team_id, &[victim]).await;
+    sqlx::query("UPDATE lifecycle_op_person SET mark_active = true WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("activate marks");
+
+    rebuild_partition_fences(&fallback, &harness.fences, partition, NUM_PARTITIONS)
+        .await
+        .expect("scan runs");
+    assert!(harness
+        .fences
+        .get(&key)
+        .expect("takeover fence")
+        .sealed_at
+        .is_none());
+
+    // The identity replays the op's fence call against the new owner.
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, victim, &op),
+            partition,
+        ))
+        .await
+        .expect("the re-fence succeeds");
+    assert!(
+        harness
+            .fences
+            .get(&key)
+            .expect("fence survives")
+            .sealed_at
+            .is_none(),
+        "a same-op re-fence must not stamp a takeover fence with a seal time"
+    );
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+}
+
+#[tokio::test]
+async fn a_release_trusts_the_snapshot_only_under_a_fence_sealed_before_it() {
+    let pool = common::create_persons_pool().await;
+    let fallback = PgFallback {
+        pool: pool.clone(),
+        table: "posthog_person".to_string(),
+        lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+    };
+    let mut harness = start_fence_harness(test_cached_person(), Some(fallback)).await;
+    let (team_id, partition, victim) = (harness.team_id, harness.partition, harness.person_id);
+    let key = |person_id| PersonCacheKey { team_id, person_id };
+
+    let sibling = another_person_on_harness_partition(&harness, victim);
+    let sibling_uuid = Uuid::now_v7().to_string();
+    seed_person(
+        &harness.cache,
+        partition,
+        CachedPerson {
+            id: sibling,
+            team_id,
+            uuid: sibling_uuid.clone(),
+            ..test_cached_person()
+        },
+    );
+
+    let op = Uuid::now_v7();
+    insert_delete_marks(&pool, op, team_id, &[victim, sibling]).await;
+    sqlx::query("UPDATE lifecycle_op_person SET mark_active = true WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("activate marks");
+
+    let victim_seal = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, victim, &op),
+            partition,
+        ))
+        .await
+        .expect("seal succeeds")
+        .into_inner()
+        .sealed
+        .expect("sealed");
+    let sibling_seal = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, sibling, &op),
+            partition,
+        ))
+        .await
+        .expect("seal succeeds")
+        .into_inner()
+        .sealed
+        .expect("sealed");
+
+    // The sibling's release loads the op's snapshot; the victim's answers
+    // from it and drops the victim's fence.
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id: sibling,
+                person_uuid: sibling_uuid,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(sibling_seal.version),
+                created_at: sibling_seal.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("the sibling's release succeeds");
+    // The victim's row settles under its standing seal fence, which cannot
+    // happen in service; it shows which arm the release answered from.
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'deleted' WHERE op_id = $1 AND person_id = $2",
+    )
+    .bind(op)
+    .bind(victim)
+    .execute(&pool)
+    .await
+    .expect("settle the victim's row");
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id: victim,
+                person_uuid: test_cached_person().uuid,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(victim_seal.version),
+                created_at: victim_seal.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("the victim's release succeeds");
+    match harness.cache.get(partition, &key(victim)) {
+        CacheLookup::Found(entry) => assert!(
+            entry.is_deleted,
+            "a fence sealed before the snapshot answers from it"
+        ),
+        _ => panic!("the victim stays cached"),
+    }
+
+    // The op settles, the victim is recreated under the same key, and a
+    // late same-op fence call seals the recreated person.
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'deleted', mark_active = false WHERE op_id = $1",
+    )
+    .bind(op)
+    .execute(&pool)
+    .await
+    .expect("settle");
+    seed_person(
+        &harness.cache,
+        partition,
+        CachedPerson {
+            team_id,
+            ..test_cached_person()
+        },
+    );
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, victim, &op),
+            partition,
+        ))
+        .await
+        .expect("the late fence succeeds");
+
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id: victim,
+                person_uuid: test_cached_person().uuid,
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(victim_seal.version),
+                created_at: victim_seal.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("a settled release is absorbed");
+
+    match harness.cache.get(partition, &key(victim)) {
+        CacheLookup::Found(entry) => assert!(
+            !entry.is_deleted,
+            "a settled release must not destroy the recreated person"
+        ),
+        _ => panic!("the recreated person stays cached"),
+    }
+    assert!(
+        harness.fences.get(&key(victim)).is_none(),
+        "the settled fence is dropped"
+    );
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
 }

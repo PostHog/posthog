@@ -1,7 +1,11 @@
 import { existsSync, renameSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { LEGACY_DATA_DIRS, WORKTREES_DIR } from "@shared/constants";
+import {
+  LEGACY_DATA_DIRS,
+  PREVIOUS_WORKTREES_DIR,
+  WORKTREES_DIR,
+} from "@shared/constants";
 import Store from "electron-store";
 import { getUserDataDir, isDevBuild } from "../utils/env";
 
@@ -14,12 +18,34 @@ interface SettingsSchema {
   discordPresenceEnabled: boolean;
   discordPresenceShowTaskTitle: boolean;
   discordPresenceShowRepoName: boolean;
+  missionControlOverlayEnabled: boolean;
+  customCloudUrl: string;
+  customCloudOauthClientId: string;
+  customCloudGatewayUrl: string;
+}
+
+function getWorktreePath(dir: string): string {
+  const isDev = isDevBuild();
+  return path.join(os.homedir(), isDev ? `${dir}-dev` : dir);
+}
+
+function getCurrentDefaultWorktreeLocation(): string {
+  return getWorktreePath(WORKTREES_DIR);
+}
+
+function getPreviousDefaultWorktreeLocation(): string {
+  return getWorktreePath(PREVIOUS_WORKTREES_DIR);
 }
 
 function getDefaultWorktreeLocation(): string {
-  const isDev = isDevBuild();
-  const dir = isDev ? `${WORKTREES_DIR}-dev` : WORKTREES_DIR;
-  return path.join(os.homedir(), dir);
+  const currentDefault = getCurrentDefaultWorktreeLocation();
+  const previousDefault = getPreviousDefaultWorktreeLocation();
+
+  if (!existsSync(currentDefault) && existsSync(previousDefault)) {
+    return previousDefault;
+  }
+
+  return currentDefault;
 }
 
 function getLegacyWorktreeLocations(): string[] {
@@ -99,6 +125,22 @@ const schema = {
     type: "boolean" as const,
     default: false,
   },
+  missionControlOverlayEnabled: {
+    type: "boolean" as const,
+    default: true,
+  },
+  customCloudUrl: {
+    type: "string" as const,
+    default: "",
+  },
+  customCloudOauthClientId: {
+    type: "string" as const,
+    default: "",
+  },
+  customCloudGatewayUrl: {
+    type: "string" as const,
+    default: "",
+  },
 };
 
 export const settingsStore = new Store<SettingsSchema>({
@@ -114,6 +156,10 @@ export const settingsStore = new Store<SettingsSchema>({
     discordPresenceEnabled: false,
     discordPresenceShowTaskTitle: false,
     discordPresenceShowRepoName: false,
+    missionControlOverlayEnabled: true,
+    customCloudUrl: "",
+    customCloudOauthClientId: "",
+    customCloudGatewayUrl: "",
   },
 });
 
@@ -146,6 +192,11 @@ export function getWorktreeLocation(): string {
 export function getAllWorktreeLocations(): string[] {
   const primary = getWorktreeLocation();
   const locations = [primary];
+
+  const previousDefault = getPreviousDefaultWorktreeLocation();
+  if (previousDefault !== primary && existsSync(previousDefault)) {
+    locations.push(previousDefault);
+  }
 
   // Add legacy locations if they exist and aren't the primary
   for (const legacyPath of getLegacyWorktreeLocations()) {
@@ -191,4 +242,12 @@ export function getPreventSleepWhileRunning(): boolean {
 
 export function setPreventSleepWhileRunning(value: boolean): void {
   settingsStore.set("preventSleepWhileRunning", value);
+}
+
+export function getMissionControlOverlayEnabled(): boolean {
+  return settingsStore.get("missionControlOverlayEnabled", true);
+}
+
+export function setMissionControlOverlayEnabled(value: boolean): void {
+  settingsStore.set("missionControlOverlayEnabled", value);
 }

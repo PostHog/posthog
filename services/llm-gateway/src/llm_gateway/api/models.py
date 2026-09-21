@@ -1,17 +1,22 @@
+from decimal import Decimal
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
-from llm_gateway.auth.service import get_auth_service
+from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError, get_auth_service
 from llm_gateway.config import get_settings
+from llm_gateway.flags import evaluate_flags
 from llm_gateway.products.config import (
     FREE_TIER_RESTRICTION_REASON,
     CreditBucket,
     filter_to_free_tier_models,
+    get_required_model_flag,
     validate_product,
 )
+from llm_gateway.rate_limiting.model_cost_service import ModelCostService
 from llm_gateway.rate_limiting.throttles import is_usage_unlimited
 from llm_gateway.services.model_registry import get_available_models
 from llm_gateway.services.quota_resolver import resolve_quota_status
@@ -28,6 +33,13 @@ class TruncationPolicyConfig(BaseModel):
     # Default: bytes(10_000), matches codex fallback. Override with tool_output_token_limit.
     mode: Literal["bytes", "tokens"] = "bytes"
     limit: int = 10_000
+
+
+class ModelPricing(BaseModel):
+    prompt: str
+    completion: str
+    input_cache_read: str | None = None
+    input_cache_write: str | None = None
 
 
 class ModelObject(BaseModel):
@@ -52,6 +64,7 @@ class ModelObject(BaseModel):
     truncation_policy: TruncationPolicyConfig = TruncationPolicyConfig()
     supports_parallel_tool_calls: bool = True
     experimental_supported_tools: list[str] = []
+    pricing: ModelPricing | None = None
     # Free-tier gate (posthog_code): restricted models are marked, not omitted.
     allowed: bool = True
     restriction_reason: str | None = None
@@ -61,6 +74,35 @@ class ModelsResponse(BaseModel):
     object: Literal["list"] = "list"
     data: list[ModelObject]
     models: list[ModelObject] = []  # Alias for `data` — codex-acp expects this field
+
+
+def _models_response(models: list[ModelObject]) -> ModelsResponse:
+    return ModelsResponse(data=models, models=models)
+
+
+def _format_rate(rate: float) -> str:
+    return format(Decimal(str(rate)), "f")
+
+
+def _get_model_pricing(cost_model_id: str) -> ModelPricing | None:
+    costs = ModelCostService.get_instance().get_costs(cost_model_id)
+    if costs is None:
+        return None
+
+    input_cost = costs.get("input_cost_per_token")
+    output_cost = costs.get("output_cost_per_token")
+    if input_cost is None or output_cost is None:
+        return None
+
+    supports_prompt_caching = bool(costs.get("supports_prompt_caching", False))
+    cache_read_cost = costs.get("cache_read_input_token_cost", input_cost) if supports_prompt_caching else None
+    cache_write_cost = costs.get("cache_creation_input_token_cost", input_cost) if supports_prompt_caching else None
+    return ModelPricing(
+        prompt=_format_rate(input_cost),
+        completion=_format_rate(output_cost),
+        input_cache_read=_format_rate(cache_read_cost) if cache_read_cost is not None else None,
+        input_cache_write=_format_rate(cache_write_cost) if cache_write_cost is not None else None,
+    )
 
 
 def _build_response(product: str) -> ModelsResponse:
@@ -74,36 +116,71 @@ def _build_response(product: str) -> ModelsResponse:
             context_window=m.context_window,
             supports_streaming=m.supports_streaming,
             supports_vision=m.supports_vision,
+            pricing=_get_model_pricing(m.cost_model_id),
         )
         for m in models
     ]
-    return ModelsResponse(data=model_objects, models=model_objects)
+    return _models_response(model_objects)
 
 
-async def _caller_confirmed_free_tier(request: Request) -> bool:
+async def _authenticated_caller(request: Request) -> AuthenticatedUser | None:
+    """Resolve the caller when credentials are present, translating
+    project-scope errors into responses. Runs on every product listing,
+    independent of the model gate: a caller that selected a project it cannot
+    use must get an error, never a list it could read as valid for that
+    project. Anonymous callers and auth failures resolve to None."""
+    try:
+        return await get_auth_service().authenticate_request(request, request.app.state.db_pool)
+    except InvalidProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid project scope") from exc
+    except UnauthorizedProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project access denied") from exc
+    except Exception:
+        logger.warning("models_caller_resolution_failed", exc_info=True)
+        return None
+
+
+async def _caller_confirmed_free_tier(request: Request, user: AuthenticatedUser | None) -> bool:
     """Caller is authenticated, non-staff, and their org isn't billed for Code
     usage. Unidentifiable callers (anonymous, auth failure) are never marked;
     quota-fetch failures read the same last-known billing bit as enforcement,
     so marks match what requests would do. Enforcement stays the gate."""
+    if user is None:
+        return False
+    if is_usage_unlimited(user):
+        return False
+    if user.team_id is None:
+        # no team to bill: enforcement reads this caller as unbilled too
+        return True
     try:
-        user = await get_auth_service().authenticate_request(request, request.app.state.db_pool)
-        if user is None:
-            return False
-        if is_usage_unlimited(user):
-            return False
-        if user.team_id is None:
-            # no team to bill: enforcement reads this caller as unbilled too
-            return True
         quota_status = await resolve_quota_status(request, user.team_id, CreditBucket.POSTHOG_CODE_CREDITS.value)
-        return not quota_status.code_usage_billing_active
     except Exception:
         logger.warning("models_free_tier_resolution_failed", exc_info=True)
         return False
+    return not quota_status.code_usage_billing_active
+
+
+async def _drop_flag_gated_models(models: list[ModelObject], user: AuthenticatedUser | None) -> list[ModelObject]:
+    """Models behind an access flag the caller does not hold, removed from the listing.
+    Enforcement rejects them on the request path, so listing one only offers a pick that
+    fails after a picker already committed to it. Dropped rather than marked `allowed: False`:
+    a mark reads as a plan restriction, and no plan change clears a rollout flag.
+    Unidentifiable callers keep the full list — there is no identity to evaluate."""
+    if user is None or get_settings().debug:
+        return models
+    required_flag = {m.id: flag for m in models if (flag := get_required_model_flag(m.id)) is not None}
+    if not required_flag:
+        return models
+    flags = sorted(set(required_flag.values()))
+    enabled = await evaluate_flags(flags, user.distinct_id)
+    return [m for m in models if m.id not in required_flag or enabled.get(required_flag[m.id]) is True]
 
 
 @models_router.get("/v1/models")
-async def list_models() -> ModelsResponse:
-    return _build_response("llm_gateway")
+async def list_models(request: Request) -> ModelsResponse:
+    user = await _authenticated_caller(request)
+    response = _build_response("llm_gateway")
+    return _models_response(await _drop_flag_gated_models(response.data, user))
 
 
 @models_router.get("/{product}/v1/models")
@@ -111,9 +188,12 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
     resolved = validate_product(product)
     response = _build_response(product)
 
-    if resolved != "posthog_code" or not get_settings().posthog_code_model_gate_enabled:
+    user = await _authenticated_caller(request)
+    response = _models_response(await _drop_flag_gated_models(response.data, user))
+
+    if resolved != "posthog_code":
         return response
-    if not await _caller_confirmed_free_tier(request):
+    if not await _caller_confirmed_free_tier(request, user):
         return response
 
     free_ids = set(filter_to_free_tier_models([m.id for m in response.data]))
@@ -123,4 +203,4 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
         else m.model_copy(update={"allowed": False, "restriction_reason": FREE_TIER_RESTRICTION_REASON})
         for m in response.data
     ]
-    return ModelsResponse(data=annotated, models=annotated)
+    return _models_response(annotated)

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.errors import QueryError
 
 if TYPE_CHECKING:
     from posthog.hogql.database.models import DatabaseField
@@ -35,7 +36,7 @@ type RuntimeTypeFamily = Literal[
     "enum",
     "aggregate_state",
 ]
-type RuntimeTypeDialect = Literal["common", "clickhouse", "postgres", "duckdb", "mysql"]
+type RuntimeTypeDialect = Literal["common", "clickhouse", "postgres", "duckdb", "mysql", "trino"]
 
 
 class ComparisonCompatibility(StrEnum):
@@ -159,6 +160,14 @@ INTEGER_RUNTIME_TYPE = RuntimeType(family="integer", signed=True, bits=64)
 FLOAT_RUNTIME_TYPE = RuntimeType(family="float", bits=64)
 DATE_RUNTIME_TYPE = RuntimeType(family="date")
 DATETIME_RUNTIME_TYPE = RuntimeType(family="datetime")
+
+# Families least_common_runtime_type() already unifies with boolean (bool literals read as 0/1).
+_BOOLEAN_COMPATIBLE_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset({"boolean", "integer", "float", "decimal"})
+
+# JSON is what a property access falls back to when no property-definition metadata is available,
+# and it also covers native JSON/Dynamic columns. Either way the family says nothing about the type
+# ClickHouse ends up with, so a mismatch against it is never trustworthy enough to raise on.
+_UNTRUSTWORTHY_BRANCH_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset({"json"})
 
 
 _INTEGER_RE = re.compile(r"^(U?Int)(8|16|32|64|128|256)$", re.IGNORECASE)
@@ -726,6 +735,72 @@ def least_common_supertype(types: Sequence[ast.ConstantType], dialect: HogQLDial
     return constant_type_from_runtime_type(least_common_runtime_type(runtime_types, dialect=dialect))
 
 
+def _branch_type_is_untrustworthy(branch_type: ast.ConstantType, expr: Optional[ast.Expr]) -> bool:
+    """Whether a branch's inferred type is too weak a signal to raise a user-facing error over.
+
+    A property access (`properties.blocked`) is typed from property-definition metadata, which the
+    resolver frequently does not have loaded - it then falls back to the JSON type of the parent
+    `properties` column, regardless of what the property actually holds. The printer resolves the
+    physical read separately, so `coalesce(properties.blocked, false)` reaches ClickHouse with two
+    compatible branches even though inference reports JSON and Boolean.
+
+    Every property access is skipped, not only the metadata-missing fallback: a loaded property
+    definition types the property from the values seen so far, which is still a guess about what a
+    given row holds, so it is no safer to raise on than the JSON fallback."""
+    if runtime_type_from_constant_type(branch_type).family in _UNTRUSTWORTHY_BRANCH_FAMILIES:
+        return True
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    return expr is not None and isinstance(expr.type, ast.PropertyType)
+
+
+def _branch_supertype_or_raise(
+    branch_types: list[ast.ConstantType],
+    branch_args: Sequence[Optional[ast.Expr]],
+    dialect: HogQLDialect,
+    function_name: str,
+) -> ast.ConstantType:
+    """Like least_common_supertype, but raises a user-facing error naming the conflicting branch
+    types and their source span when a boolean branch is mixed with a non-numeric branch, rather
+    than silently degrading to UnknownType and failing downstream in ClickHouse.
+
+    Scoped to boolean mismatches specifically (the reported symptom: `if(cond, false, someDate)`)
+    rather than raising on every family combination with no explicit unification rule: many
+    generated queries elsewhere in the codebase mix families (e.g. DateTime with a String
+    placeholder, JSON with a String default) that silently degrade to UnknownType today and work
+    fine against ClickHouse, so raising there would be a false positive. Branches whose inferred
+    type is a guess rather than a fact are skipped for the same reason - see
+    _branch_type_is_untrustworthy."""
+    result = least_common_supertype(branch_types, dialect=dialect)
+    if not isinstance(result, ast.UnknownType) or result.unanalyzable:
+        return result
+    known = [
+        (branch_type, branch_args[index] if index < len(branch_args) else None)
+        for index, branch_type in enumerate(branch_types)
+        if not isinstance(branch_type, ast.UnknownType)
+    ]
+    if len(known) < 2:
+        return result
+    if any(_branch_type_is_untrustworthy(branch_type, expr) for branch_type, expr in known):
+        return result
+    families = {runtime_type_from_constant_type(branch_type).family for branch_type, _ in known}
+    if "boolean" not in families or not (families - _BOOLEAN_COMPATIBLE_FAMILIES):
+        return result
+    type_names = sorted({branch_type.print_type() for branch_type, _ in known})
+    positions = [
+        (expr.start, expr.end)
+        for _, expr in known
+        if expr is not None and expr.start is not None and expr.end is not None
+    ]
+    start = min((position[0] for position in positions), default=None)
+    end = max((position[1] for position in positions), default=None)
+    raise QueryError(
+        f"Cannot find a common type between `{function_name}` branches of type {' and '.join(type_names)}",
+        start=start,
+        end=end,
+    )
+
+
 def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDialect = "clickhouse") -> RuntimeType:
     nullable = any(type_.nullable for type_ in runtime_types)
     # An unanalyzable branch could be any type, so it poisons the result; a vacuous unknown
@@ -947,6 +1022,82 @@ def infer_tuple_name_access_constant_type(tuple_type: ast.ConstantType, field_na
     return dataclasses.replace(item_type, nullable=tuple_type.nullable or item_type.nullable)
 
 
+def _infer_trino_function_type(
+    normalized_name: str,
+    arg_types: list[ast.ConstantType],
+    args: Optional[list[ast.Expr]],
+) -> ast.ConstantType | None:
+    if normalized_name == "roundtoexp2" and arg_types and isinstance(arg_types[0], (ast.IntegerType, ast.FloatType)):
+        return dataclasses.replace(arg_types[0])
+
+    if (
+        normalized_name in {"gcd", "lcm"}
+        and len(arg_types) == 2
+        and all(isinstance(arg_type, ast.IntegerType) for arg_type in arg_types)
+    ):
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "arrayauc" and len(arg_types) == 2:
+        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "uuidv7todatetime" and arg_types:
+        return ast.DateTimeType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "tupletonamevaluepairs" and arg_types and isinstance(arg_types[0], ast.TupleType):
+        tuple_type = arg_types[0]
+        value_type = least_common_supertype(tuple_type.item_types, dialect="trino")
+        return ast.ArrayType(
+            nullable=tuple_type.nullable,
+            item_type=ast.TupleType(
+                nullable=False,
+                item_types=[ast.StringType(nullable=False), value_type],
+            ),
+        )
+
+    if normalized_name == "pointinellipses":
+        return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "ifnotfinite" and len(arg_types) == 2:
+        return least_common_supertype(arg_types, dialect="trino")
+
+    if normalized_name == "mappopulateseries" and arg_types and isinstance(arg_types[0], ast.MapType):
+        return dataclasses.replace(arg_types[0])
+
+    if normalized_name == "ipv4numtostring":
+        return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "extractipv4substrings":
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types), item_type=ast.StringType(nullable=False)
+        )
+
+    if normalized_name in {"isipv4string", "isipv6string", "isipaddressinrange"}:
+        return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "ipv4stringtonumornull":
+        return ast.IntegerType(nullable=True)
+
+    if normalized_name in {"ipv4stringtonum", "ipv4stringtonumordefault"}:
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "totime":
+        return ast.DateTimeType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in _VECTOR_ARRAY_RESULT_FUNCTIONS and arg_types:
+        if isinstance(arg_types[0], ast.TupleType):
+            return dataclasses.replace(
+                arg_types[0], item_types=[ast.FloatType(nullable=item.nullable) for item in arg_types[0].item_types]
+            )
+        if isinstance(arg_types[0], ast.ArrayType):
+            return dataclasses.replace(arg_types[0], item_type=ast.FloatType(nullable=arg_types[0].item_type.nullable))
+        return dataclasses.replace(arg_types[0])
+
+    if normalized_name in {"arraycumsum", "arraycumsumnonnegative"} and args and isinstance(args[0], ast.Lambda):
+        return _infer_higher_order_array_type(arg_types, args=args, dialect="trino", use_lambda_return=True)
+
+    return None
+
+
 def _infer_generic_function_type(
     normalized_name: str,
     arg_types: list[ast.ConstantType],
@@ -954,6 +1105,11 @@ def _infer_generic_function_type(
     dialect: HogQLDialect,
     meta: Optional[HogQLFunctionMeta] = None,
 ) -> ast.ConstantType | None:
+    if dialect == "trino":
+        trino_type = _infer_trino_function_type(normalized_name, arg_types, args)
+        if trino_type is not None:
+            return trino_type
+
     if normalized_name in {
         "equals",
         "notequals",
@@ -987,17 +1143,28 @@ def _infer_generic_function_type(
         return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
     if normalized_name == "if":
-        return least_common_supertype(arg_types[1:], dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
+        if len(arg_types) <= 1:
+            return ast.UnknownType()
+        branch_types = arg_types[1:]
+        return _branch_supertype_or_raise(branch_types, (args or [])[1:], dialect=dialect, function_name="if")
 
     if normalized_name == "ifnull":
-        return least_common_supertype(arg_types, dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
+        if len(arg_types) <= 1:
+            return ast.UnknownType()
+        return _branch_supertype_or_raise(arg_types, args or [], dialect=dialect, function_name="ifNull")
 
     if normalized_name == "multiif":
         if len(arg_types) < 3:
             return ast.UnknownType()
-        return least_common_supertype([*arg_types[1::2], arg_types[-1]], dialect=dialect)
+        branch_indices = [*range(1, len(arg_types) - 1, 2), len(arg_types) - 1]
+        branch_types = [arg_types[i] for i in branch_indices]
+        branch_args = [args[i] if args is not None and i < len(args) else None for i in branch_indices]
+        return _branch_supertype_or_raise(branch_types, branch_args, dialect=dialect, function_name="multiIf")
 
-    if normalized_name in {"coalesce", "least", "greatest"}:
+    if normalized_name == "coalesce":
+        return _branch_supertype_or_raise(arg_types, args or [], dialect=dialect, function_name="coalesce")
+
+    if normalized_name in {"least", "greatest"}:
         return least_common_supertype(arg_types, dialect=dialect)
 
     if normalized_name == "nullif" and arg_types:
@@ -1264,7 +1431,7 @@ def _infer_generic_function_type(
         return item_type
 
     if normalized_name == "arrayreduce":
-        return _infer_array_reduce_type(arg_types=arg_types, args=args)
+        return _infer_array_reduce_type(arg_types=arg_types, args=args, dialect=dialect)
 
     if (
         normalized_name
@@ -1331,7 +1498,7 @@ def _infer_generic_function_type(
             return infer_tuple_name_access_constant_type(arg_types[0], field_name)
         return ast.UnknownType()
 
-    aggregate_type = _infer_aggregate_function_type(normalized_name, arg_types)
+    aggregate_type = _infer_aggregate_function_type(normalized_name, arg_types, dialect)
     if aggregate_type is not None:
         return aggregate_type
 
@@ -1492,7 +1659,9 @@ def _array_element_type(array_type: ast.ConstantType) -> ast.ConstantType:
     return ast.UnknownType()
 
 
-def _infer_array_reduce_type(arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]]) -> ast.ConstantType:
+def _infer_array_reduce_type(
+    arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]], dialect: HogQLDialect
+) -> ast.ConstantType:
     if not args or len(args) < 2:
         return ast.UnknownType()
 
@@ -1505,24 +1674,122 @@ def _infer_array_reduce_type(arg_types: list[ast.ConstantType], args: Optional[l
         return ast.UnknownType()
 
     normalized_aggregate = _normalize_array_reduce_aggregate_name(aggregate_name)
-    return _infer_aggregate_function_type(normalized_aggregate, array_item_types) or ast.UnknownType()
+    return _infer_aggregate_function_type(normalized_aggregate, array_item_types, dialect) or ast.UnknownType()
 
 
 def _normalize_array_reduce_aggregate_name(aggregate_name: str) -> str:
     return aggregate_name.split("(", 1)[0].strip().lower()
 
 
-def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.ConstantType]) -> ast.ConstantType | None:
+def _infer_trino_aggregate_function_type(
+    normalized_name: str, arg_types: list[ast.ConstantType]
+) -> ast.ConstantType | None:
+    if normalized_name == "simplelinearregressionif":
+        return ast.TupleType(
+            nullable=False,
+            item_types=[ast.FloatType(nullable=False), ast.FloatType(nullable=False)],
+            field_names=["k", "b"],
+        )
+
+    if normalized_name in {"maxintersections", "maxintersectionsif"}:
+        value_types = arg_types[:2]
+        return ast.IntegerType(nullable=any(value_type.nullable for value_type in value_types))
+
+    if normalized_name in {"maxintersectionsposition", "maxintersectionspositionif"} and arg_types:
+        value_types = arg_types[:2]
+        return dataclasses.replace(arg_types[0], nullable=any(value_type.nullable for value_type in value_types))
+
+    median_container_suffixes = {"", "if", "ordefault", "ordefaultif", "ornull", "ornullif"}
+
+    if (
+        normalized_name.startswith("medianmap")
+        and normalized_name.removeprefix("medianmap") in median_container_suffixes
+        and arg_types
+        and isinstance(arg_types[0], ast.MapType)
+    ):
+        return ast.MapType(
+            nullable=False,
+            key_type=dataclasses.replace(arg_types[0].key_type),
+            value_type=ast.FloatType(nullable=False),
+        )
+
+    if (
+        normalized_name.startswith("medianforeach")
+        and normalized_name.removeprefix("medianforeach") in median_container_suffixes
+        and arg_types
+        and isinstance(arg_types[0], ast.ArrayType)
+    ):
+        return ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False))
+
+    if normalized_name in {"groupuniqarrayarray", "groupuniqarrayarrayif"} and arg_types:
+        source_type = arg_types[0]
+        if isinstance(source_type, ast.ArrayType):
+            return ast.ArrayType(
+                nullable=False,
+                item_type=dataclasses.replace(source_type.item_type, nullable=False),
+            )
+
+    if (
+        normalized_name
+        in {
+            "quantileexact",
+            "medianexact",
+            "medianexactlow",
+            "medianexacthigh",
+            "medianexactweighted",
+        }
+        and arg_types
+    ):
+        return dataclasses.replace(arg_types[0])
+
+    if normalized_name == "simplelinearregression":
+        return ast.TupleType(
+            nullable=any(arg_type.nullable for arg_type in arg_types),
+            item_types=[ast.FloatType(nullable=False), ast.FloatType(nullable=False)],
+            field_names=["k", "b"],
+        )
+
+    if normalized_name == "deltasum" and arg_types:
+        return dataclasses.replace(arg_types[0], nullable=False)
+
+    if normalized_name == "grouparrayinsertat" and arg_types:
+        return ast.ArrayType(
+            nullable=False,
+            item_type=dataclasses.replace(arg_types[0], nullable=False),
+        )
+
+    if normalized_name in {"grouparraymovingavg", "grouparraymovingsum"} and arg_types:
+        item_type = (
+            ast.FloatType(nullable=False)
+            if normalized_name.endswith("avg") or isinstance(arg_types[0], ast.FloatType)
+            else ast.IntegerType(nullable=False)
+        )
+        return ast.ArrayType(nullable=False, item_type=item_type)
+
+    if normalized_name in {"avgweighted", "skewpop", "skewsamp", "kurtpop", "kurtsamp"}:
+        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    return None
+
+
+def _infer_aggregate_function_type(
+    normalized_name: str, arg_types: list[ast.ConstantType], dialect: HogQLDialect
+) -> ast.ConstantType | None:
     # A ClickHouse aggregate is a base aggregate plus zero or more stackable combinator suffixes
     # (-If, -Array, -ForEach, -OrNull, -OrDefault, -Distinct, -State, -Merge). Peel known combinators
     # first so the base return type is computed once and each suffix transforms it, instead of
     # enumerating every base×combinator permutation. This must run before the base checks below so a
     # greedy `startswith` match (e.g. "quantiles") can't swallow a combinator such as -ForEach.
-    combinator_type = _infer_aggregate_combinator_type(normalized_name, arg_types)
+    if dialect == "trino":
+        trino_type = _infer_trino_aggregate_function_type(normalized_name, arg_types)
+        if trino_type is not None:
+            return trino_type
+
+    combinator_type = _infer_aggregate_combinator_type(normalized_name, arg_types, dialect)
     if combinator_type is not None:
         return combinator_type
 
-    state_or_merge_type = _infer_aggregate_state_or_merge_type(normalized_name, arg_types)
+    state_or_merge_type = _infer_aggregate_state_or_merge_type(normalized_name, arg_types, dialect)
     if state_or_merge_type is not None:
         return state_or_merge_type
 
@@ -1568,7 +1835,7 @@ _AGGREGATE_COMBINATOR_SUFFIXES: tuple[str, ...] = ("ordefault", "ornull", "disti
 
 
 def _infer_aggregate_combinator_type(
-    normalized_name: str, arg_types: list[ast.ConstantType]
+    normalized_name: str, arg_types: list[ast.ConstantType], dialect: HogQLDialect
 ) -> ast.ConstantType | None:
     for suffix in _AGGREGATE_COMBINATOR_SUFFIXES:
         if not normalized_name.endswith(suffix) or len(normalized_name) <= len(suffix):
@@ -1578,7 +1845,7 @@ def _infer_aggregate_combinator_type(
         # Only accept the peel if what remains is itself a known aggregate (possibly with further
         # combinators). Otherwise the suffix was a coincidence — try the next, then fall through to
         # Unknown. This keeps the rule conservative: a wrong type is worse than no type.
-        base_type = _infer_aggregate_function_type(base_name, base_arg_types)
+        base_type = _infer_aggregate_function_type(base_name, base_arg_types, dialect)
         if base_type is None:
             continue
         return _apply_aggregate_combinator(suffix, base_type)
@@ -1611,12 +1878,12 @@ def _is_aggregate_state_or_merge(normalized_name: str) -> bool:
 
 
 def _infer_aggregate_state_or_merge_type(
-    normalized_name: str, arg_types: list[ast.ConstantType]
+    normalized_name: str, arg_types: list[ast.ConstantType], dialect: HogQLDialect
 ) -> ast.ConstantType | None:
     state_base_name = _strip_aggregate_suffix(normalized_name, ("stateif", "state"))
     if state_base_name is not None:
         state_arg_types = arg_types[:-1] if normalized_name.endswith("stateif") else arg_types
-        wrapped_type = _infer_aggregate_function_type(state_base_name, state_arg_types)
+        wrapped_type = _infer_aggregate_function_type(state_base_name, state_arg_types, dialect)
         if wrapped_type is None:
             return None
         return ast.AggregateStateType(nullable=False, wrapped_type=wrapped_type)

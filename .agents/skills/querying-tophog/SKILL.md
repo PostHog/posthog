@@ -30,7 +30,7 @@ deliberately **no ClickHouse datasource for agents in Grafana**. The
 sanctioned path is the internal Metabase using the **engineer's own SSO
 session** — per-person identity, attributable in Metabase's query history, no
 standing credential. General mechanics live in the
-`query-clickhouse-via-metabase` skill; the short version:
+`querying-production-databases-via-metabase` skill; the short version:
 
 1. **The user must run login themselves** (the agent shell cannot access the
    Keychain): `hogli metabase:login --region eu` (or `us`). macOS will prompt

@@ -2,13 +2,15 @@ import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { SourceReleaseTag } from '../../shared/components/SourceReleaseTag'
@@ -21,7 +23,7 @@ const TILE_CLASS =
     'flex flex-row items-center gap-4 p-5 min-h-[8.5rem] rounded-lg border border-border bg-surface-primary'
 
 export interface SourceCatalogProps {
-    allowedSources?: ExternalDataSourceType[]
+    allowedSources?: ExternalDataSourceTypeEnumApi[]
 }
 
 // Memoized so the whole grid doesn't re-render per keystroke in the search input or request
@@ -163,7 +165,16 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
             </div>
 
             <div className="flex flex-col gap-4 flex-1">
-                <WarehouseWizardHint />
+                {/* The wizard CLI creates sources through the same API, so it can't help a user
+                    who lacks the access — show what unblocks them instead. */}
+                {accessDisabledReason ? (
+                    <LemonBanner type="info">
+                        You don't have permission to connect a data warehouse source. Ask a project admin for editor
+                        access to data warehouse sources.
+                    </LemonBanner>
+                ) : (
+                    <WarehouseWizardHint />
+                )}
                 <LemonInput
                     type="search"
                     placeholder="Search sources..."
@@ -172,27 +183,36 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                     autoFocus
                 />
 
-                {filteredItems.length === 0 &&
-                    (hasCrossCategoryMatches ? (
+                {filteredItems.length === 0 && (
+                    <div className="flex flex-col gap-1">
+                        {hasCrossCategoryMatches ? (
+                            <div className="text-muted text-sm">
+                                No sources match "{search.trim()}" in {selectedCategory}.{' '}
+                                <Link onClick={() => setSelectedCategory('all')}>Search all categories</Link> or request
+                                one below.
+                            </div>
+                        ) : (
+                            <div className="text-muted text-sm">
+                                No sources match.{' '}
+                                <Link
+                                    onClick={() => {
+                                        setSearch('')
+                                        setSelectedCategory('all')
+                                    }}
+                                >
+                                    Clear filters
+                                </Link>{' '}
+                                or request one below.
+                            </div>
+                        )}
+                        {/* Sources bring data into PostHog; users after an export (e.g. searching
+                            "webhook") land here by mistake, so point them at destinations. */}
                         <div className="text-muted text-sm">
-                            No sources match "{search.trim()}" in {selectedCategory}.{' '}
-                            <Link onClick={() => setSelectedCategory('all')}>Search all categories</Link> or request one
-                            below.
+                            Trying to send data out to another tool?{' '}
+                            <Link to={urls.destinations()}>Set up a destination</Link>.
                         </div>
-                    ) : (
-                        <div className="text-muted text-sm">
-                            No sources match.{' '}
-                            <Link
-                                onClick={() => {
-                                    setSearch('')
-                                    setSelectedCategory('all')
-                                }}
-                            >
-                                Clear filters
-                            </Link>{' '}
-                            or request one below.
-                        </div>
-                    ))}
+                    </div>
+                )}
 
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
                     {filteredItems.map((item) => (

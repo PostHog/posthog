@@ -138,9 +138,9 @@ exports[`marketing analytics utils createMarketingTile snapshots BingAds - roas 
 exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - clicks 1`] = `
 {
   "custom_name": "prefix.campaign_overview_stats clicks",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_id",
   "id": "GoogleAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(metrics_clicks), 0))",
@@ -153,9 +153,9 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - cli
 exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - cost 1`] = `
 {
   "custom_name": "prefix.campaign_overview_stats cost",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_id",
   "id": "GoogleAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(toFloat(convertCurrency(coalesce(customer_currency_code, 'USD'), 'USD', toFloat(metrics_cost_micros / 1000000))))",
@@ -168,9 +168,9 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - cos
 exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - impressions 1`] = `
 {
   "custom_name": "prefix.campaign_overview_stats impressions",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_id",
   "id": "GoogleAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(metrics_impressions), 0))",
@@ -183,9 +183,9 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - imp
 exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - reported_conversion (missing conversion fields) 1`] = `
 {
   "custom_name": "prefix.campaign_overview_stats reported_conversion",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_id",
   "id": "GoogleAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(metrics_conversions), 0))",
@@ -198,9 +198,9 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - rep
 exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - reported_conversion 1`] = `
 {
   "custom_name": "prefix.campaign_overview_stats reported_conversion",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_id",
   "id": "GoogleAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(metrics_conversions), 0))",
@@ -213,9 +213,9 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - rep
 exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - reported_conversion_value (missing conversion fields) 1`] = `
 {
   "custom_name": "prefix.campaign_overview_stats reported_conversion_value",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_id",
   "id": "GoogleAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(toFloat(convertCurrency(coalesce(customer_currency_code, 'USD'), 'USD', ifNull(toFloat(metrics_conversions_value), 0))))",
@@ -228,9 +228,9 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - rep
 exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - reported_conversion_value 1`] = `
 {
   "custom_name": "prefix.campaign_overview_stats reported_conversion_value",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_id",
   "id": "GoogleAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(toFloat(convertCurrency(coalesce(customer_currency_code, 'USD'), 'USD', ifNull(toFloat(metrics_conversions_value), 0))))",
@@ -243,9 +243,9 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - rep
 exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - roas (missing conversion fields) 1`] = `
 {
   "custom_name": "prefix.campaign_overview_stats roas",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_id",
   "id": "GoogleAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "0",
@@ -258,9 +258,9 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - roa
 exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - roas 1`] = `
 {
   "custom_name": "prefix.campaign_overview_stats roas",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_id",
   "id": "GoogleAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(metrics_conversions_value), 0)) / nullIf(SUM(toFloat(metrics_cost_micros / 1000000)), 0)",
@@ -273,9 +273,9 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - roa
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - clicks 1`] = `
 {
   "custom_name": "prefix.campaign_group_stats clicks",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_group_id",
   "id": "LinkedinAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_group_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(clicks), 0))",
@@ -288,9 +288,9 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - c
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - cost 1`] = `
 {
   "custom_name": "prefix.campaign_group_stats cost",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_group_id",
   "id": "LinkedinAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_group_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "toFloat(convertCurrency('USD', 'USD', SUM(toFloat(cost_in_usd))))",
@@ -303,9 +303,9 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - c
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - impressions 1`] = `
 {
   "custom_name": "prefix.campaign_group_stats impressions",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_group_id",
   "id": "LinkedinAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_group_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(impressions), 0))",
@@ -318,9 +318,9 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - i
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - reported_conversion (missing conversion fields) 1`] = `
 {
   "custom_name": "prefix.campaign_group_stats reported_conversion",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_group_id",
   "id": "LinkedinAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_group_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(external_website_conversions), 0))",
@@ -333,9 +333,9 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - reported_conversion 1`] = `
 {
   "custom_name": "prefix.campaign_group_stats reported_conversion",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_group_id",
   "id": "LinkedinAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_group_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(external_website_conversions), 0))",
@@ -348,9 +348,9 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - reported_conversion_value (missing conversion fields) 1`] = `
 {
   "custom_name": "prefix.campaign_group_stats reported_conversion_value",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_group_id",
   "id": "LinkedinAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_group_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "0",
@@ -363,9 +363,9 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - reported_conversion_value 1`] = `
 {
   "custom_name": "prefix.campaign_group_stats reported_conversion_value",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_group_id",
   "id": "LinkedinAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_group_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "toFloat(convertCurrency('USD', 'USD', SUM(ifNull(toFloat(conversion_value_in_local_currency), 0))))",
@@ -378,9 +378,9 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - roas (missing conversion fields) 1`] = `
 {
   "custom_name": "prefix.campaign_group_stats roas",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_group_id",
   "id": "LinkedinAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_group_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "0",
@@ -393,9 +393,9 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - roas 1`] = `
 {
   "custom_name": "prefix.campaign_group_stats roas",
-  "distinct_id_field": "id",
+  "distinct_id_field": "campaign_group_id",
   "id": "LinkedinAds-stats-table-id",
-  "id_field": "id",
+  "id_field": "campaign_group_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(conversion_value_in_local_currency), 0)) / nullIf(SUM(toFloat(cost_in_usd)), 0)",

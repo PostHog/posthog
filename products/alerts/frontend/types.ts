@@ -14,6 +14,10 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
+import type { AlertDeliveryApi } from './generated/api.schemas'
+
+export type AlertCheckDelivery = AlertDeliveryApi
+
 export type AlertConfig = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig | MetricsAlertConfig
 
 export const isTrendsAlertConfig = (config: AlertConfig | null | undefined): config is TrendsAlertConfig =>
@@ -113,6 +117,7 @@ export interface AlertTypeBase {
     config: AlertConfig
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null
+    schedule_start_time?: string | null
     detector_config?: DetectorConfig | null
     investigation_agent_enabled?: boolean
     investigation_gates_notifications?: boolean
@@ -134,6 +139,7 @@ export interface AlertCheck {
     created_at: string
     calculated_value: number | null
     state: AlertState
+    error?: { code?: string; message?: string } | null
     targets_notified: boolean
     anomaly_scores?: (number | null)[] | null
     triggered_points?: number[] | null
@@ -146,6 +152,7 @@ export interface AlertCheck {
     investigation_notebook_short_id?: string | null
     notification_sent_at?: string | null
     notification_suppressed_by_agent?: boolean
+    deliveries: AlertCheckDelivery[] | null
 }
 
 export interface AlertType extends AlertTypeBase {

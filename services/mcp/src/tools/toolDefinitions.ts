@@ -4,6 +4,7 @@ import { hasScope, hasScopes } from '@/lib/api'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { isStaffOnlyTool } from '@/lib/staff-only-tools'
+import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
@@ -29,6 +30,14 @@ export const ToolDefinitionSchema = z
          * flag while the tool keeps its own gating flag.
          */
         hidden_when_flag_on: z.string().optional(),
+        /**
+         * Tool names that took over this tool's job. Declared next to the gate
+         * that retires the tool, so a call to the retired name can name its
+         * successor instead of reporting the name as unknown.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
         /**
          * AvailableFeature the org's plan must include for this tool to be
          * advertised (e.g. `'audit_logs'`), matching the backend's
@@ -68,6 +77,25 @@ let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
 
+const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'] as const
+
+function addNotebookWidgetCatalog(definitions: ToolDefinitions): ToolDefinitions {
+    const widgetCatalog = formatNotebookWidgetCatalogForAgents()
+    const enrichedDefinitions = { ...definitions }
+
+    for (const toolName of NOTEBOOK_BUILDER_TOOL_NAMES) {
+        const definition = enrichedDefinitions[toolName]
+        if (definition) {
+            enrichedDefinitions[toolName] = {
+                ...definition,
+                description: `${definition.description}\n\n${widgetCatalog}`,
+            }
+        }
+    }
+
+    return enrichedDefinitions
+}
+
 function getGeneratedToolDefinitions(): ToolDefinitions {
     if (!_generatedToolDefinitions) {
         _generatedToolDefinitions = toolDefinitionsSchema.parse(generatedToolDefinitionsJson)
@@ -83,7 +111,7 @@ export function getToolDefinitions(): ToolDefinitions {
         if (!_toolDefinitions) {
             _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
         }
-        _mergedToolDefinitions = { ..._toolDefinitions, ...getGeneratedToolDefinitions() }
+        _mergedToolDefinitions = addNotebookWidgetCatalog({ ..._toolDefinitions, ...getGeneratedToolDefinitions() })
     }
     return _mergedToolDefinitions
 }
@@ -249,7 +277,11 @@ export function toolPassesEntitlementGate(
     return availableFeatures.includes(definition.feature_entitlement)
 }
 
-export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+/**
+ * Every catalog filter, with the flag gate optional: {@link getToolsForFeatures}
+ * drops what the flags hide, {@link getFlagGatedTools} keeps exactly that set.
+ */
+function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate: boolean): [string, ToolDefinition][] {
     const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams, availableFeatures, isCloud } =
         options || {}
     const toolDefinitions = getToolDefinitions()
@@ -290,7 +322,9 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     }
 
     // Filter by feature flags — see {@link toolPassesFlagGate} for the predicate.
-    entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+    if (applyFlagGate) {
+        entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+    }
 
     // Filter by billing entitlement — see {@link toolPassesEntitlementGate}.
     entries = entries.filter(([_, definition]) => toolPassesEntitlementGate(definition, availableFeatures, isCloud))
@@ -303,7 +337,49 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         )
     }
 
-    return entries.map(([toolName, _]) => toolName)
+    return entries
+}
+
+export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+    return filterToolEntries(options, true).map(([toolName, _]) => toolName)
+}
+
+export interface FlagGatedTool {
+    name: string
+    /** Tool names the definition declares as this tool's successors, in the order it lists them. */
+    supersededBy: string[]
+    /** Free-text guidance the definition adds to the redirect. */
+    redirectHint?: string
+}
+
+/**
+ * Tools a feature flag removed from the active catalog, while every other filter
+ * kept them. The exec dispatcher reads this so a call to a retired name reports
+ * the successor, or reports that the tool is not enabled — never that the name
+ * is unknown, which reads to an agent as a removed capability.
+ *
+ * Staff-only tools are left out for the same reason {@link getScopeGatedTools}
+ * leaves them out: the hint would advertise a staff surface to a customer.
+ */
+export function getFlagGatedTools(options?: ToolFilterOptions): FlagGatedTool[] {
+    const excluded = new Set(options?.excludeTools ?? [])
+    const gated: FlagGatedTool[] = []
+
+    for (const [name, definition] of filterToolEntries(options, false)) {
+        if (excluded.has(name) || toolPassesFlagGate(definition, options?.featureFlags)) {
+            continue
+        }
+        if (isStaffOnlyTool(definition.required_scopes ?? [])) {
+            continue
+        }
+        gated.push({
+            name,
+            supersededBy: definition.superseded_by ?? [],
+            ...(definition.redirect_hint ? { redirectHint: definition.redirect_hint } : {}),
+        })
+    }
+
+    return gated
 }
 
 export interface ScopeGatedTool {

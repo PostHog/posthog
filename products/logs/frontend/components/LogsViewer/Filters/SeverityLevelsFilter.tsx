@@ -15,14 +15,43 @@ const SEVERITY_OPTIONS: { key: LogMessage['severity_text']; label: string }[] = 
 interface SeverityLevelsFilterProps {
     value: LogMessage['severity_text'][]
     onChange: (levels: LogMessage['severity_text'][]) => void
+    showBulkActions?: boolean
 }
 
-export const SeverityLevelsFilter = ({ value, onChange }: SeverityLevelsFilterProps): JSX.Element => {
+export const SeverityLevelsFilter = ({
+    value,
+    onChange,
+    showBulkActions = false,
+}: SeverityLevelsFilterProps): JSX.Element => {
+    const allSelected = SEVERITY_OPTIONS.every((option) => value.includes(option.key))
+
     return (
         <LemonDropdown
             closeOnClickInside={false}
             overlay={
                 <div className="space-y-px p-1">
+                    {showBulkActions && (
+                        <div className="flex gap-1 px-1 pb-1">
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                onClick={() => onChange(SEVERITY_OPTIONS.map((option) => option.key))}
+                                disabledReason={allSelected ? 'All severity levels are selected' : undefined}
+                                data-attr="logs-severity-select-all"
+                            >
+                                Select all
+                            </LemonButton>
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                onClick={() => onChange([])}
+                                disabledReason={value.length === 0 ? 'No severity levels are selected' : undefined}
+                                data-attr="logs-severity-clear-all"
+                            >
+                                Clear all
+                            </LemonButton>
+                        </div>
+                    )}
                     {SEVERITY_OPTIONS.map((option) => (
                         <LemonButton
                             key={option.key}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -8,8 +9,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
-from posthog.schema import SourceConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceConfig
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
@@ -46,7 +46,7 @@ def _fake_filter(
 
 
 @dataclasses.dataclass
-class _FakeImplData:
+class _FakeIntrospection:
     columns_by_table: dict[str, list[tuple[str, str, bool]]] = dataclasses.field(default_factory=dict)
     primary_keys_by_table: dict[str, list[str] | None] = dataclasses.field(default_factory=dict)
     row_counts_by_table: dict[str, int | None] = dataclasses.field(default_factory=dict)
@@ -58,15 +58,17 @@ class _FakeImplData:
 class _FakeImplementation(SQLSourceImplementation[_FakeConfig, object, Any]):
     """Records the arguments it receives so tests can assert on the wiring."""
 
-    def __init__(self, data: _FakeImplData | None = None) -> None:
-        self.data = data or _FakeImplData()
+    def __init__(self, data: _FakeIntrospection | None = None) -> None:
+        self.data = data or _FakeIntrospection()
         self.get_columns_calls: list[tuple[list[str] | None]] = []
         self.get_primary_keys_called = False
         self.get_row_counts_called = False
         self.get_foreign_keys_called = False
+        self.connect_team_ids: list[int | None] = []
 
     @contextmanager
-    def connect(self, config: _FakeConfig):
+    def connect(self, config: _FakeConfig, *, team_id: int | None = None) -> Iterator[object]:
+        self.connect_team_ids.append(team_id)
         yield object()
 
     def get_columns(
@@ -122,11 +124,16 @@ class _FakeSQLSource(SQLSource[_FakeConfig]):
 
 
 def _make_source(**data: Any) -> tuple[_FakeSQLSource, _FakeImplementation]:
-    impl = _FakeImplementation(_FakeImplData(**data))
+    impl = _FakeImplementation(_FakeIntrospection(**data))
     return _FakeSQLSource(impl), impl
 
 
 class TestGetSchemas:
+    def test_connect_receives_the_team(self) -> None:
+        source, impl = _make_source(columns_by_table={"messages": [("id", "int", False)]})
+        source.get_schemas(_FakeConfig(), team_id=7)
+        assert impl.connect_team_ids == [7]
+
     def test_returns_one_source_schema_per_table(self) -> None:
         source, _ = _make_source(
             columns_by_table={

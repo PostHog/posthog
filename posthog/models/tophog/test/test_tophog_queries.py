@@ -143,6 +143,6 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        pipelines, lanes = query_tophog_filter_options(DATE_FROM, DATE_TO)
-        self.assertEqual(pipelines, ["events", "recordings"])
-        self.assertEqual(lanes, ["fast", "slow"])
+        options = query_tophog_filter_options(DATE_FROM, DATE_TO)
+        self.assertEqual(options.pipelines, ["events", "recordings"])
+        self.assertEqual(options.lanes, ["fast", "slow"])

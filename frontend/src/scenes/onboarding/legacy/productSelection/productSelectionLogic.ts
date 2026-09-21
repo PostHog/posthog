@@ -79,8 +79,10 @@ export interface productSelectionLogicActions {
         recommendationSource: string
         selected: boolean
     } // eventUsageLogic
-    reportOnboardingStarted: (entrypoint: string) => {
-        entrypoint: string
+    reportOnboardingStarted: (
+        properties?: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
+    ) => {
+        properties: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
     } // eventUsageLogic
     setOnCompleteOnboardingRedirectUrl: (url: string | null) => {
         url: string | null
@@ -451,6 +453,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             }
         }
 
-        actions.reportOnboardingStarted('product_selection')
+        actions.reportOnboardingStarted()
     }),
 ])

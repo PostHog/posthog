@@ -144,12 +144,21 @@ export const VariableInput = ({
     })
     const [isNull, setIsNull] = useState<boolean>(variable.isNull ?? false)
 
+    // A fixed date is committed by the calendar's own Apply button, so a second one would be redundant.
+    // The relative-date tab has no such button, and still needs ours.
+    const calendarOwnsApply = variable.type === 'Date' && !isRelativeDateValue(String(localInputValue))
+
     const inputRef = useRef<HTMLInputElement>(null)
     const codeRef = useRef<HTMLElement>(null)
 
     useEffect(() => {
         inputRef.current?.focus()
     }, [])
+
+    const commit = (value: any): void => {
+        onChange(variable.id, value, isNull)
+        closePopover()
+    }
 
     const variableAsHogQL = `{variables.${variable.code_name}}`
 
@@ -163,10 +172,7 @@ export const VariableInput = ({
                         className="flex flex-1"
                         value={String(localInputValue)}
                         onChange={(value) => setLocalInputValue(value)}
-                        onPressEnter={() => {
-                            onChange(variable.id, localInputValue, isNull)
-                            closePopover()
-                        }}
+                        onPressEnter={() => commit(localInputValue)}
                     />
                 )}
                 {variable.type === 'Number' && (
@@ -177,10 +183,7 @@ export const VariableInput = ({
                         className="flex flex-1"
                         value={Number(localInputValue)}
                         onChange={(value) => setLocalInputValue(String(value ?? 0))}
-                        onPressEnter={() => {
-                            onChange(variable.id, Number(localInputValue), isNull)
-                            closePopover()
-                        }}
+                        onPressEnter={() => commit(Number(localInputValue))}
                     />
                 )}
                 {variable.type === 'Boolean' && (
@@ -211,30 +214,34 @@ export const VariableInput = ({
                 )}
                 {variable.type === 'Date' && (
                     <DateField
+                        // The calendar is narrower than the popover, so grow to fill it rather than
+                        // leaving dead space down the right-hand side.
+                        className="grow"
                         variable={{ ...variable, default_value: String(localInputValue) } as DateVariable}
                         updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value)}
+                        onApply={commit}
                         onSave={() => {}}
                     />
                 )}
-                <LemonButton
-                    type="primary"
-                    onClick={() => {
-                        onChange(
-                            variable.id,
-                            variable.type === 'Number' ? Number(localInputValue) : localInputValue,
-                            isNull
-                        )
-                        closePopover()
-                    }}
-                >
-                    {showEditingUI ? 'Save' : 'Update'}
-                </LemonButton>
+                {!calendarOwnsApply && (
+                    <LemonButton
+                        type="primary"
+                        // Without this the button stretches to the tallest sibling, which for a date
+                        // variable is the relative-date column.
+                        className="self-start"
+                        onClick={() => commit(variable.type === 'Number' ? Number(localInputValue) : localInputValue)}
+                    >
+                        {showEditingUI ? 'Save' : 'Update'}
+                    </LemonButton>
+                )}
             </div>
             {showEditingUI ? (
                 <>
                     <LemonDivider className="m1" />
 
-                    <div className="flex p-1">
+                    {/* Sized off the popover rather than its own content, so a long variable
+                        reference wraps instead of stretching the field above it. */}
+                    <div className="flex p-1 w-0 min-w-full">
                         <code
                             ref={codeRef}
                             onClick={() => {
@@ -249,7 +256,9 @@ export const VariableInput = ({
                                     }
                                 }
                             }}
-                            className="text-xs flex flex-1 items-center mr-2"
+                            // The reference is one unbreakable token, so without this a long code
+                            // name widens the whole popover instead of wrapping.
+                            className="text-xs flex flex-1 items-center mr-2 min-w-0 break-all"
                         >
                             {variableAsHogQL}
                         </code>

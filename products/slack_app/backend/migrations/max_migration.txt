@@ -1,1 +1,1 @@
-0012_slackthreadtaskmapping_workspace_created_idx
+0017_remove_slacksettings_ai_preferences

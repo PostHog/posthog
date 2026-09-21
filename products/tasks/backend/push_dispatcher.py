@@ -31,12 +31,18 @@ from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
-from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
+from products.tasks.backend.metrics import (
+    PUSH_DISPATCHER_FAILURES_TOTAL,
+    PUSH_DISPATCHER_OUTCOMES_TOTAL,
+    TURN_COMPLETED_SUPPRESSED_TOTAL,
+)
 from products.tasks.backend.models import Task, TaskPresence
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from products.tasks.backend.models import TaskRun, TaskThreadMessage
 
 logger = structlog.get_logger(__name__)
@@ -48,7 +54,7 @@ FEATURE_FLAG_KEY = "posthog-code-mobile-push"
 # they should only fire once per run lifetime — anything more is a retry.
 # Interactive turn-end can legitimately fire again after the user replies,
 # so a short cooldown is enough to absorb rapid duplicate triggers.
-PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed", "thread_message"]
+PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed", "thread_message", "handoff"]
 _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "completed": 600,
     "failed": 600,
@@ -56,6 +62,7 @@ _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "awaiting": 30,
     "turn_completed": 30,
     "thread_message": 600,
+    "handoff": 600,
 }
 
 
@@ -84,6 +91,43 @@ def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
     _project_completed_activity(task_run)
     _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
+
+
+def dispatch_task_run_turn_completed(task_run: TaskRun, *, turn_completed: bool = True) -> bool:
+    if task_run.mode != "interactive":
+        return False
+    if not turn_completed:
+        TURN_COMPLETED_SUPPRESSED_TOTAL.labels(reason="idle_resume").inc()
+        return False
+    notify_task_run_turn_completed(task_run)
+    return True
+
+
+def notify_task_handoff(task: Task, *, recipient: User, actor: User | None, message_id: UUID) -> None:
+    """Fire a push notification when a task is handed off to ``recipient``.
+
+    The announcement ID separates new handoffs from retries for cooldown purposes.
+    """
+    try:
+        actor_name = ((actor.first_name.strip() or actor.email) if actor else None) or "A colleague"
+        task_title = (task.title or "").strip() or "Untitled task"
+        _enqueue_user(
+            recipient,
+            task=task,
+            kind="handoff",
+            cooldown_subject=f"task_handoff:{message_id}:{recipient.id}",
+            body=f'{actor_name} handed you "{task_title}"',
+            data={"taskId": str(task.id)},
+        )
+    except Exception as exc:
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind="handoff", reason=_failure_reason(exc)).inc()
+        logger.warning(
+            "push_dispatcher.enqueue_failed",
+            task_id=str(task.id),
+            user_id=recipient.id,
+            kind="handoff",
+            exc_info=True,
+        )
 
 
 def notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:

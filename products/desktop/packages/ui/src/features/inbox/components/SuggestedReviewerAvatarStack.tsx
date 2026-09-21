@@ -1,63 +1,184 @@
+import { toSuggestedReviewerWriteContent } from "@posthog/core/inbox/artefacts";
+import { selectSuggestedReviewersArtefact } from "@posthog/core/inbox/reportArtefacts";
 import {
-  extractSuggestedReviewers,
-  suggestedReviewerDisplayName,
-} from "@posthog/core/inbox/artefacts";
-import type { SignalReportArtefactsResponse } from "@posthog/shared/types";
+  Button,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@posthog/quill";
+import type { InboxReportActionSurface } from "@posthog/shared";
+import type {
+  SignalReport,
+  SignalReportArtefactsResponse,
+  SuggestedReviewer,
+} from "@posthog/shared/types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { SuggestedReviewersList } from "@posthog/ui/features/inbox/components/SuggestedReviewersList";
 import { SuggestedReviewerAvatar } from "@posthog/ui/features/inbox/components/utils/SuggestedReviewerAvatar";
-import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { Flex, Tooltip } from "@radix-ui/themes";
+import {
+  useInboxReportArtefacts,
+  useUpdateSuggestedReviewers,
+} from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import {
+  useReportActionResultTracker,
+  useReportActionTracker,
+} from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 
 const MAX_VISIBLE = 4;
+// Keep this stable because autocapture insights and UI tests can depend on it.
+const REMOVE_SELF_DATA_ATTR = "inbox-remove-self-from-reviewers";
+const REMOVE_SELF_LABEL = "Remove me from reviewers";
 
 interface SuggestedReviewerAvatarStackProps {
-  reportId: string;
+  report: SignalReport;
   artefacts?: SignalReportArtefactsResponse | null;
+  /** Analytics surface for the remove-self action; the stack lives on list
+   * cards by default, but the detail header reuses it. */
+  surface?: InboxReportActionSurface;
+  triageId?: string;
 }
 
 export function SuggestedReviewerAvatarStack({
-  reportId,
+  report,
   artefacts,
+  surface = "list_row",
+  triageId,
 }: SuggestedReviewerAvatarStackProps) {
-  const { data } = useInboxReportArtefacts(reportId, {
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
+  const { data } = useInboxReportArtefacts(report.id, {
     enabled: artefacts === undefined,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
-  const reviewers = extractSuggestedReviewers(
-    artefacts?.results ?? data?.results,
-  ).filter((reviewer) => reviewer.github_login);
+  const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
+    report.id,
+  );
+  const fireAction = useReportActionTracker(report, surface, triageId);
+  const trackResult = useReportActionResultTracker(report, surface, triageId);
+  const reviewerArtefact = selectSuggestedReviewersArtefact(
+    artefacts?.results ?? data?.results ?? [],
+  );
+  const allReviewers = reviewerArtefact?.content ?? [];
+  // The stack draws GitHub profile avatars, so it can only show reviewers who have a login. A
+  // reviewer identified by PostHog user alone still routes the report and belongs in the list;
+  // they just have no avatar to draw here yet.
+  const reviewers = allReviewers.filter(
+    (reviewer): reviewer is SuggestedReviewer & { github_login: string } =>
+      !!reviewer.github_login,
+  );
   if (reviewers.length === 0) {
     return null;
   }
 
+  const currentReviewer = reviewers.find(
+    (reviewer) => reviewer.user?.uuid === currentUser?.uuid,
+  );
   const visible = reviewers.slice(0, MAX_VISIBLE);
   const overflow = reviewers.length - visible.length;
+  const reviewerCountLabel = `${reviewers.length} suggested reviewer${reviewers.length === 1 ? "" : "s"}`;
+  // The avatars overlap, so each one needs a ring in the color of the surface
+  // behind it to keep an apparent gap. Rows publish that color as
+  // `--inbox-row-surface`; anything else falls back to the panel background.
+  // The overflow badge fills in `--gray-4`, which no row state uses, so it
+  // keeps its shape when its ring matches the row behind it.
+  const avatarStack = (
+    <span className="-space-x-1.5 flex items-center">
+      <span className="sr-only">{reviewerCountLabel}</span>
+      {visible.map((reviewer) => (
+        <SuggestedReviewerAvatar
+          key={reviewer.github_login}
+          githubLogin={reviewer.github_login}
+          size="sm"
+          className="ring-2 ring-[var(--inbox-row-surface,var(--color-panel-solid))]"
+        />
+      ))}
+      {overflow > 0 ? (
+        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-(--gray-4) px-1 font-semibold text-[9px] text-gray-11 leading-none ring-2 ring-[var(--inbox-row-surface,var(--color-panel-solid))]">
+          +{overflow}
+        </span>
+      ) : null}
+    </span>
+  );
+
+  const removeSelf = () => {
+    if (!currentReviewer || !reviewerArtefact) return;
+    const nextReviewers = reviewerArtefact.content.filter(
+      (reviewer) => reviewer.user?.uuid !== currentUser?.uuid,
+    );
+    const startedAt = Date.now();
+    fireAction("remove_suggested_reviewer");
+    updateReviewers(
+      {
+        content: toSuggestedReviewerWriteContent(nextReviewers),
+        optimisticReviewers: nextReviewers,
+      },
+      {
+        onSuccess: () =>
+          trackResult("remove_suggested_reviewer", "succeeded", startedAt),
+        onError: () =>
+          trackResult(
+            "remove_suggested_reviewer",
+            "failed",
+            startedAt,
+            "request_failed",
+          ),
+      },
+    );
+  };
 
   return (
-    <Flex
-      align="center"
-      className="shrink-0"
-      aria-label={`${reviewers.length} suggested reviewer${reviewers.length === 1 ? "" : "s"}`}
-    >
-      <Flex align="center" className="-space-x-1.5">
-        {visible.map((reviewer) => {
-          const name = suggestedReviewerDisplayName(reviewer);
-          return (
-            <Tooltip key={reviewer.github_login} content={name}>
-              <SuggestedReviewerAvatar
-                githubLogin={reviewer.github_login}
-                size="sm"
-                className="ring-(--color-panel-solid) ring-2"
-              />
-            </Tooltip>
-          );
-        })}
-        {overflow > 0 ? (
-          <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-(--gray-3) px-1 font-semibold text-[9px] text-gray-11 leading-none ring-(--color-panel-solid) ring-2">
-            +{overflow}
-          </span>
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="link-muted"
+            size="xs"
+            className="h-auto p-0 no-underline hover:no-underline"
+            aria-label="View suggested reviewer rationale"
+            onClick={(event) => event.stopPropagation()}
+          />
+        }
+      >
+        {avatarStack}
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        sideOffset={8}
+        className="flex w-96 flex-col gap-0 overflow-hidden p-0"
+      >
+        <div className="border-(--gray-6) border-b px-3 py-2 font-medium text-[13px]">
+          Suggested reviewers
+        </div>
+        <div className="max-h-80 overflow-y-auto overscroll-contain p-2">
+          <SuggestedReviewersList
+            reviewers={allReviewers}
+            disabled={isPending}
+          />
+        </div>
+        {currentReviewer && reviewerArtefact ? (
+          <div className="border-(--gray-6) border-t p-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="w-full"
+              data-attr={REMOVE_SELF_DATA_ATTR}
+              loading={isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                removeSelf();
+              }}
+            >
+              {REMOVE_SELF_LABEL}
+            </Button>
+          </div>
         ) : null}
-      </Flex>
-    </Flex>
+      </PopoverContent>
+    </Popover>
   );
 }

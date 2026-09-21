@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { sceneLogic } from 'scenes/sceneLogic'
+import { emptySceneParams } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -52,6 +54,34 @@ describe('customerAnalyticsSceneLogic', () => {
     })
 
     describe('URL sync', () => {
+        it('activates the Requests tab for its scene key', () => {
+            sceneLogic.actions.setScene(Scene.CustomerAnalytics, 'customerAnalyticsFeatureRequests', emptySceneParams)
+
+            expectLogic(logic).toMatchValues({ activeTab: 'feature_requests' })
+        })
+
+        it('activates the Tasks tab for its scene key', () => {
+            sceneLogic.actions.setScene(Scene.CustomerAnalytics, 'customerAnalyticsTasks', emptySceneParams)
+
+            expectLogic(logic).toMatchValues({ activeTab: 'tasks' })
+        })
+
+        it('activates the Accounts tab for the account detail scene key', () => {
+            sceneLogic.actions.setScene(Scene.CustomerAnalyticsAccount, 'customerAnalyticsAccount', emptySceneParams)
+
+            expectLogic(logic).toMatchValues({ activeTab: 'accounts' })
+        })
+
+        // Regression: the date and test-account writers rebuilt the URL from the path and the
+        // search params alone, so they silently dropped the Accounts tab's `#view=` state.
+        it('keeps the view hash when writing filter_test_accounts back to the URL', () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignmentStatus: 'assigned' } })
+
+            logic.actions.setFilterTestAccounts(false)
+
+            expect(router.values.hashParams.view).toEqual({ assignmentStatus: 'assigned' })
+        })
+
         it('reads filter_test_accounts from URL', () => {
             expectLogic(logic).toMatchValues({
                 filterTestAccounts: true,

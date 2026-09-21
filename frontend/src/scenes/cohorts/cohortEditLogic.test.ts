@@ -7,7 +7,8 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { CohortLogicProps, REALTIME_POLL_INTERVAL_MS, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -29,7 +30,10 @@ import {
     TimeUnitType,
 } from '~/types'
 
-import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type {
+    CohortRealtimeReadinessApi,
+    CohortUsedInResponseApi,
+} from 'products/cohorts/frontend/generated/api.schemas'
 
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
@@ -168,6 +172,213 @@ describe('cohortEditLogic', () => {
             await expectLogic(logic).toDispatchActions(['setCohort'])
 
             expect(api.get).toHaveBeenCalledTimes(0)
+        })
+    })
+
+    describe('calculation polling', () => {
+        // The final poll response is the only thing that refreshes these fields while the page
+        // stays open, so a field the merge drops keeps its stale value until a reload.
+        it.each([
+            ['import counts', { last_import_total_count: 5, last_import_unmatched_count: 3 }],
+            [
+                'failure reason',
+                {
+                    errors_calculating: 1,
+                    last_error_message: 'Cohort calculation was terminated for reading too much data.',
+                },
+            ],
+        ])('refreshes %s when calculation finishes', async (_, finishedFields) => {
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.checkIfFinishedCalculating({
+                    ...mockCohort,
+                    is_calculating: false,
+                    ...finishedFields,
+                })
+            }).toMatchValues({
+                cohort: partial(finishedFields),
+            })
+        })
+    })
+
+    describe('realtime history build polling', () => {
+        // No feature flag setup: the API only sends `realtime` inside the rollout, so gating the
+        // poll on the flag as well would strand a build whose flags resolve after the page fetch.
+        afterEach(() => {
+            // One case varies the generated criteria keys; the rest of the file reads the constant.
+            ;(uuidv4 as jest.Mock).mockReturnValue('mocked-uuid')
+        })
+
+        const buildingRealtime: CohortRealtimeReadinessApi = {
+            state: 'building',
+            ready_at: null,
+            build: { phase: 'scanning', percent_complete: 40, updated_at: '2026-09-15T10:00:00Z' },
+        }
+        const readyRealtime: CohortRealtimeReadinessApi = {
+            state: 'ready',
+            ready_at: '2026-09-15T10:20:00Z',
+            build: null,
+        }
+        const criteriaGroupKeys = (): (string | undefined)[] =>
+            logic.values.cohort.filters.properties.values.map((group) => (group as CohortCriteriaGroupFilter).sort_key)
+        const setPageHidden = (hidden: boolean): void => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+
+        it('merges the readiness without discarding unsaved criteria', async () => {
+            // The build runs for tens of minutes, so every poll lands on a form the user may be
+            // part-way through editing. Merging the whole cohort back would throw those edits away,
+            // and re-keying the criteria groups would remount the fields they are typing in.
+            let nextKey = 0
+            ;(uuidv4 as jest.Mock).mockImplementation(() => `criteria-key-${nextKey++}`)
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
+                logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
+            }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+            const keysBeforePoll = criteriaGroupKeys()
+
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+            })
+                .toDispatchActions(['pollRealtimeReadiness', 'armRealtimeReadinessPoll'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    cohort: partial({
+                        realtime: readyRealtime,
+                        filters: partial({ properties: partial({ type: FilterLogicalOperator.And }) }),
+                    }),
+                })
+            expect(criteriaGroupKeys()).toEqual(keysBeforePoll)
+        })
+
+        it('drops a readiness the save it crossed has already replaced', async () => {
+            // A poll in flight answers for the definition before the save, so letting it land would
+            // report the old build as ready and stop watching the one the save just started.
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
+            }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+
+            const rebuildingRealtime: CohortRealtimeReadinessApi = { ...buildingRealtime, state: 'rebuilding' }
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+                logic.actions.saveCohortSuccess({ ...mockCohort, realtime: rebuildingRealtime })
+            }).toFinishAllListeners()
+
+            expect(logic.values.cohort.realtime).toEqual(rebuildingRealtime)
+            expect(lemonToast.success).not.toHaveBeenCalled()
+        })
+
+        it('keeps checking while the build runs, and stops once it is ready', async () => {
+            // Both halves matter. A loop that never stops refetches the cohort every 15 seconds for
+            // as long as the tab is open; one that stops early freezes the progress row until reload.
+            let served: CohortRealtimeReadinessApi = buildingRealtime
+            let detailFetches = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/': () => {
+                        detailFetches += 1
+                        return [200, { ...mockCohort, realtime: served }]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            const afterMount = detailFetches
+
+            jest.useFakeTimers()
+            try {
+                // The mount armed the poll on a real timer. Arming again replaces that disposable
+                // with one on the fake clock, which is the same timer the loop re-arms below.
+                logic.actions.armRealtimeReadinessPoll()
+
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 1)
+
+                served = readyRealtime
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 2)
+                // The flag picker rows and the condition link read readiness off the shared model,
+                // so without this push they keep showing the cohort as unprepared all session.
+                expect(cohortsModel.values.cohortsById[mockCohort.id]?.realtime).toEqual(readyRealtime)
+
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS * 4)
+                expect(detailFetches).toBe(afterMount + 2)
+
+                // Stopping means disposing, not just declining to re-arm. The disposables manager
+                // re-runs every registered setup when the tab comes back, so a poll left on it
+                // refetches the cohort 15 seconds after each return to a page that is long done.
+                setPageHidden(true)
+                setPageHidden(false)
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 2)
+            } finally {
+                jest.useRealTimers()
+                delete (document as any).hidden
+            }
+        })
+
+        it('keeps watching across the gap between the queued build and its run row', async () => {
+            // The debounce key expires exactly when the run-creation task fires, and the run row
+            // lands a moment later. A poll in between answers `needs_attention` for a build that is
+            // fine, so stopping there would leave the page on "Unavailable" until a reload.
+            let served: CohortRealtimeReadinessApi = buildingRealtime
+            let detailFetches = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/': () => {
+                        detailFetches += 1
+                        return [200, { ...mockCohort, realtime: served }]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            const afterMount = detailFetches
+
+            jest.useFakeTimers()
+            try {
+                logic.actions.armRealtimeReadinessPoll()
+
+                served = { state: 'needs_attention', ready_at: null, build: null }
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 1)
+
+                served = readyRealtime
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 2)
+                expect(logic.values.cohort.realtime).toEqual(readyRealtime)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('announces the ready moment once, not on every check after it', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
+            }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+            }).toFinishAllListeners()
+            expect(lemonToast.success).toHaveBeenCalledWith('This cohort is ready. Feature flags can target it now.')
+
+            ;(lemonToast.success as jest.Mock).mockClear()
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+            }).toFinishAllListeners()
+            expect(lemonToast.success).not.toHaveBeenCalled()
         })
     })
 

@@ -10,13 +10,28 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine
 
-DUCKGRES_SHADOW_FLAG = "duckgres-data-modeling-shadow"
+MANAGED_WAREHOUSE_SHADOW_FLAG = "managed-warehouse-data-modeling-shadow"
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
     updated_at = serializers.DateTimeField(
         read_only=True,
         help_text="When the job row last changed. For finished jobs this is when the run reached its terminal status.",
+    )
+    run_mode = serializers.ChoiceField(
+        choices=DataModelingJob.RunMode.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="What this run wrote: full_refresh rebuilt the whole table, so rows_materialized "
+        "is the table's size; incremental wrote only its window, so rows_materialized counts just "
+        "the rows synced. Null for runs from before modes were recorded, or that failed before "
+        "the plan resolved.",
+    )
+    full_refresh_reason = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Why this run rebuilt the whole table instead of updating only new rows, for "
+        "example first run, definition changed, or table missing. Null when the run was incremental.",
     )
 
     class Meta:
@@ -25,6 +40,8 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
             "id",
             "saved_query_id",
             "status",
+            "run_mode",
+            "full_refresh_reason",
             "rows_materialized",
             "error",
             "created_at",
@@ -52,15 +69,15 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     pagination_class = DataModelingJobPagination
     queryset = DataModelingJob.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["saved_query_id"]
+    filterset_fields = ["saved_query_id", "status"]
     search_fields = ["saved_query_id"]
     ordering_fields = ["created_at"]
     ordering = "-created_at"
 
-    def _is_duckgres_shadow_enabled(self) -> bool:
+    def _is_managed_warehouse_shadow_enabled(self) -> bool:
         try:
             return feature_enabled_or_false(
-                DUCKGRES_SHADOW_FLAG,
+                MANAGED_WAREHOUSE_SHADOW_FLAG,
                 str(self.team.pk),
                 groups={
                     "organization": str(self.team.organization_id),
@@ -78,8 +95,8 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team_id=self.team_id)
-        if not self._is_duckgres_shadow_enabled():
-            qs = qs.exclude(engine=DataModelingJobEngine.DUCKGRES)
+        if not self._is_managed_warehouse_shadow_enabled():
+            qs = qs.filter(engine=DataModelingJobEngine.CLICKHOUSE)
         return qs.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)

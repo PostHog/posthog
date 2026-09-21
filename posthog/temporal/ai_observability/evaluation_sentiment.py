@@ -60,10 +60,7 @@ def _build_sentiment_activity_result(
     }
 
 
-@activity.defn
-async def execute_sentiment_eval_activity(
-    evaluation: dict[str, Any], event_data: dict[str, Any]
-) -> EvaluationActivityResult:
+async def run_sentiment_eval(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
     """Classify sentiment for the target event's user messages."""
     if evaluation["evaluation_type"] != "sentiment":
         raise ApplicationError(
@@ -90,10 +87,10 @@ async def execute_sentiment_eval_activity(
     if isinstance(properties, str):
         properties = json.loads(properties)
 
-    input_raw, _output_raw = extract_event_io(event_data["event"], properties)
+    io = extract_event_io(event_data["event"], properties)
     event_uuid = event_data["uuid"]
     trace_id = properties.get("$ai_trace_id", event_uuid)
-    user_messages = extract_sentiment_eval_messages(input_raw)
+    user_messages = extract_sentiment_eval_messages(io.input_raw)
     if not user_messages:
         return _skipped_sentiment_activity_result(
             "no_user_messages", "No user messages found; sentiment evaluation skipped."
@@ -105,3 +102,11 @@ async def execute_sentiment_eval_activity(
 
     classification_results = await asyncio.to_thread(classify, texts)
     return _build_sentiment_activity_result(event_uuid, trace_id, user_messages, classification_results)
+
+
+@activity.defn
+async def execute_sentiment_eval_activity(
+    evaluation: dict[str, Any], event_data: dict[str, Any]
+) -> EvaluationActivityResult:
+    """Classify sentiment for the target event's user messages."""
+    return await run_sentiment_eval(evaluation, event_data)

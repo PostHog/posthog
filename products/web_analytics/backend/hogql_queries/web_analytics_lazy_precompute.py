@@ -8,6 +8,7 @@ here so both `web_overview_lazy_precompute.py` and `web_stats_lazy_precompute.py
 share one implementation.
 """
 
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Optional, Protocol, Union
@@ -15,12 +16,12 @@ from typing import Optional, Protocol, Union
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery
+from posthog.schema import HogQLQueryModifiers, WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
-from posthog.hogql.property import get_property_type, property_to_expr
+from posthog.hogql.property import get_property_key, get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -29,7 +30,10 @@ from posthog.models.team import Team
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
+    channel_ttl_schedule,  # noqa: F401 — re-exported alongside the channel constants below
     is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
+    set_lazy_precompute_ineligible_reason,
 )
 
 logger = structlog.get_logger(__name__)
@@ -70,6 +74,13 @@ SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 # enough daily jobs that the first request burns INSERT slots for minutes.
 MAX_PRECOMPUTE_DAYS = 90
 
+# Channel-filtered shapes accept a full year (+leap): the whole point of admitting
+# the `$channel_type` filter is the long-range dashboards it appears on, and
+# `channel_ttl_schedule`'s job-width cap bounds each insert regardless of span.
+# Cold spans build behind the live fallback, so the first request never burns
+# the slots itself.
+CHANNEL_MAX_PRECOMPUTE_DAYS = 366
+
 # Forward pad on the per-job event-scan window. The lazy_computation framework
 # chunks the precompute span into daily UTC jobs; each job covers
 # `[time_window_min, time_window_max)`. A session starting at 23:50 with events
@@ -108,6 +119,9 @@ class LazyPrecomputeRunner(Protocol):
     @property
     def events_session_property(self) -> ast.Expr: ...
 
+    @property
+    def modifiers(self) -> HogQLQueryModifiers: ...
+
 
 class LazyPrecomputeIneligible(Exception):
     """Base class for reasons the lazy precompute path is not eligible.
@@ -126,6 +140,18 @@ class PerQueryOptedOut(LazyPrecomputeIneligible):
     """The user explicitly turned the "Allow precompute" toggle off."""
 
     pass
+
+
+class BelowVolumeFloor(LazyPrecomputeIneligible):
+    """The team's 7-day event volume is under the precompute floor — its live
+    path is sub-second and always fresh, so the query stays live.
+
+    Deliberately duplicated from `web_lazy_precompute_common.BelowVolumeFloor`:
+    the two modules keep parallel `LazyPrecomputeIneligible` hierarchies, so each
+    gate must raise its own module's class to be caught by its own `except`.
+    Keep the two in sync. Both share the name, so logs/metrics keyed on
+    `type(exc).__name__` collapse to one label regardless of which gate fired.
+    """
 
 
 class NonIntegerTimezone(LazyPrecomputeIneligible):
@@ -187,9 +213,9 @@ class MissingDateRange(LazyPrecomputeIneligible):
 
 
 class DateRangeOverMax(LazyPrecomputeIneligible):
-    def __init__(self, days: int):
+    def __init__(self, days: int, max_days: int = MAX_PRECOMPUTE_DAYS):
         self.days = days
-        super().__init__(f"days={days} max={MAX_PRECOMPUTE_DAYS}")
+        super().__init__(f"days={days} max={max_days}")
 
 
 def can_use_lazy_precompute(
@@ -198,6 +224,9 @@ def can_use_lazy_precompute(
     log_prefix: str,
     extra_check: Optional[Callable[[LazyPrecomputeRunner], None]] = None,
     require_integer_timezone: bool = True,
+    allow_channel_type_filter: bool = False,
+    allow_uuid_session_join: bool = False,
+    max_days: int = MAX_PRECOMPUTE_DAYS,
 ) -> bool:
     """Return True iff the lazy precompute gate is eligible. Logs the rejection
     reason at INFO level so every fall-through can be attributed.
@@ -210,12 +239,19 @@ def can_use_lazy_precompute(
     timezone (and therefore aligns cleanly for half-hour-offset teams too).
     """
     try:
-        check_common_eligible(runner, require_integer_timezone=require_integer_timezone)
+        check_common_eligible(
+            runner,
+            require_integer_timezone=require_integer_timezone,
+            allow_channel_type_filter=allow_channel_type_filter,
+            allow_uuid_session_join=allow_uuid_session_join,
+            max_days=max_days,
+        )
         if extra_check is not None:
             extra_check(runner)
     except LazyPrecomputeIneligible as exc:
         reason = type(exc).__name__
         WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED.labels(family=log_prefix, reason=reason).inc()
+        set_lazy_precompute_ineligible_reason(reason)
         logger.info(
             f"{log_prefix}_lazy_precompute_rejected",
             team_id=runner.team.pk,
@@ -223,6 +259,7 @@ def can_use_lazy_precompute(
             detail=str(exc) or None,
         )
         return False
+    set_lazy_precompute_ineligible_reason(None)
     logger.info(
         f"{log_prefix}_lazy_precompute_eligible",
         team_id=runner.team.pk,
@@ -230,7 +267,14 @@ def can_use_lazy_precompute(
     return True
 
 
-def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timezone: bool = True) -> None:
+def check_common_eligible(
+    runner: LazyPrecomputeRunner,
+    *,
+    require_integer_timezone: bool = True,
+    allow_channel_type_filter: bool = False,
+    allow_uuid_session_join: bool = False,
+    max_days: int = MAX_PRECOMPUTE_DAYS,
+) -> None:
     """Raise a `LazyPrecomputeIneligible` subclass if the query can't go through
     the lazy path on grounds that apply to every web analytics runner. Returns
     None on success.
@@ -256,6 +300,13 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     if query.useWebAnalyticsPrecompute is False:
         raise PerQueryOptedOut()
 
+    # Below-floor teams serve live (sub-second, always fresh). Checked here too,
+    # not only in `check_common_eligibility`: overview, stats, and trends reach
+    # the gate through this function, so without it the floor never covers the
+    # primary dashboard tiles. Deliberately checked for background warming too.
+    if not is_team_above_volume_floor(runner.team.pk):
+        raise BelowVolumeFloor()
+
     # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
     # can't be served by UTC hourly buckets without sub-hour precision. Skip them
     # rather than return wrong totals on the boundary days. Runners that bucket
@@ -275,7 +326,9 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     # web stats table has no session-uniq column (it stores `uniq, UUID` user
     # state only), so this gate is conservative there — kept shared for
     # simplicity until the web overview column is re-typed in a follow-up.
-    if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
+    # Only the overview channel path may bypass this: its insert template carries
+    # the UUID-safe session-id handling; the stats template does not.
+    if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid" and not allow_uuid_session_join:
         raise SessionsV2UuidMode()
 
     # Any event/person filter shape is accepted (any key, operator, count), translated
@@ -286,6 +339,12 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     # them entirely), so precomputing them would serve a different population than the
     # live fallback. Those queries fall through to the live path, which applies them right.
     for prop in query.properties or []:
+        if (
+            allow_channel_type_filter
+            and get_property_type(prop) == "session"
+            and get_property_key(prop) == "$channel_type"
+        ):
+            continue
         if get_property_type(prop) not in ("event", "person"):
             raise UnsupportedFilterType(get_property_type(prop))
 
@@ -302,14 +361,73 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
         raise MissingDateRange()
 
     days = (date_to - date_from).days
-    if days > MAX_PRECOMPUTE_DAYS:
-        raise DateRangeOverMax(days)
+    if days > max_days:
+        raise DateRangeOverMax(days, max_days)
 
 
 def is_constant_true(expr: ast.Expr) -> bool:
     """True when a substituted filter placeholder is the trivial `Constant(True)` —
     i.e. the cache key carries no user or test-account filter."""
     return isinstance(expr, ast.Constant) and expr.value is True
+
+
+def has_channel_type_filter(runner: LazyPrecomputeRunner) -> bool:
+    """True when the query carries the one admitted session filter, `$channel_type`.
+
+    False when first-pageview attribution rewrites the filter: the live path then
+    serves first-pageview semantics while the insert would apply raw session
+    attribution, so the query must stay live rather than diverge. The rewritten
+    list is empty unless the team's flag is on, so this is a no-op elsewhere.
+    """
+    if getattr(runner, "rewritten_first_pageview_filters", None):
+        return False
+    return any(
+        get_property_type(prop) == "session" and get_property_key(prop) == "$channel_type"
+        for prop in runner.query.properties or []
+    )
+
+
+# Modifier fields that change what a channel-filtered INSERT stores: channel
+# classification rules, the bounce computation, and the session-id join mode.
+CHANNEL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
+    "customChannelTypeRules",
+    "bounceRateDurationSeconds",
+    "bounceRatePageViewMode",
+    "sessionsV2JoinMode",
+    "sessionTableVersion",
+)
+
+
+def channel_rules_shape_key(runner: LazyPrecomputeRunner) -> str:
+    """The request's effective modifiers, serialized deterministically.
+
+    The channel INSERT resolves `session.$channel_type` (and bounce state on the
+    paths/overview templates) through the request's effective modifiers — custom
+    channel rules, bounce thresholds — but modifiers are absent from the lazy
+    job hash. Folding this whole serialization into the job identity (via
+    `with_channel_rules_key`), the shape-cap key (`shape_key_extra`) and the
+    revalidation debounce key means a request with different semantics gets its
+    OWN buckets instead of contaminating or reusing another member's: a default
+    dashboard resolves to the team-default modifiers and shares one namespace,
+    while an explicit override is keyed apart. A team rules edit rotates the
+    buckets the same way.
+
+    The list is the modifiers the channel INSERT templates actually read —
+    channel classification, bounce computation, and the session-id join mode —
+    rather than the whole modifiers object, whose incidental execution fields
+    would fragment the namespace without changing any stored value."""
+    dump = runner.modifiers.model_dump(mode="json")
+    return json.dumps(
+        {field: dump.get(field) for field in CHANNEL_SEMANTIC_MODIFIER_FIELDS},
+        sort_keys=True,
+    )
+
+
+def with_channel_rules_key(user_filter: ast.Expr, runner: LazyPrecomputeRunner) -> ast.Expr:
+    """AND a no-op `rules = rules` predicate onto the insert's user filter so the
+    channel rules join the executor's query hash without changing what it scans."""
+    rules = ast.Constant(value=channel_rules_shape_key(runner))
+    return ast.And(exprs=[user_filter, ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=rules, right=rules)])
 
 
 # The line every no-join insert template's sessions-side WHERE ends with; the

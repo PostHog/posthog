@@ -38,6 +38,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     REVIEW_HOG_AUTHORING_PREFIX,
     REVIEW_HOG_BLIND_SPOTS_PREFIX,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
+    REVIEW_HOG_RESOLUTION_PREFIX,
     REVIEW_HOG_VALIDATION_PREFIX,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -238,6 +239,11 @@ def discover_canonical_blind_spots(skills_dir: Path | None = None) -> tuple[Cano
     return _discover_canonical(REVIEW_HOG_BLIND_SPOTS_PREFIX, skills_dir)
 
 
+def discover_canonical_resolution(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
+    """Every parsed `review-hog-resolution-*` skill on disk (the single criteria skill today)."""
+    return _discover_canonical(REVIEW_HOG_RESOLUTION_PREFIX, skills_dir)
+
+
 def discover_canonical_authoring(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
     """Every parsed `review-hog-authoring*` skill on disk (the single companion guide today)."""
     return _discover_canonical(REVIEW_HOG_AUTHORING_PREFIX, skills_dir)
@@ -434,7 +440,8 @@ def _sync_canonicals(
             # The sync owns the category tag; re-stamp a seeded row whose category drifted (e.g. after
             # the canonical category was changed). In-place — it's our metadata, not user content, so
             # no version bump. Idempotent: only writes on actual drift.
-            LLMSkill.objects.filter(pk=live.pk).update(category=category)
+            # QuerySet.update() skips auto_now, but the shared marketplace version uses updated_at.
+            LLMSkill.objects.filter(pk=live.pk).update(category=category, updated_at=timezone.now())
 
         live_files = list(live.files.all())
         live_hash = _compute_row_hash(live, live_files)
@@ -538,6 +545,17 @@ def sync_canonical_blind_spots(team: Team, *, prune: bool = False) -> SyncResult
         canonicals=discover_canonical_blind_spots(),
         category=REVIEW_HOG_SKILL_CATEGORY,
         prefix=REVIEW_HOG_BLIND_SPOTS_PREFIX,
+        prune=prune,
+    )
+
+
+def sync_canonical_resolution(team: Team, *, prune: bool = False) -> SyncResult:
+    """Reconcile a team's rows with the canonical `review-hog-resolution-*` criteria skill on disk."""
+    return _sync_canonicals(
+        team,
+        canonicals=discover_canonical_resolution(),
+        category=REVIEW_HOG_SKILL_CATEGORY,
+        prefix=REVIEW_HOG_RESOLUTION_PREFIX,
         prune=prune,
     )
 

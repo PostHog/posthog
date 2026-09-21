@@ -10,9 +10,12 @@ from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
     MCPToolCallsAndErrorsQueryRunner,
 )
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
+from products.mcp_analytics.backend.hogql_queries.model_breakdown import MCPModelBreakdownQueryRunner
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
     MCPToolCategoryCountsQueryRunner,
+    MCPToolCategoryMapQueryRunner,
     MCPToolQualityDailyStatsQueryRunner,
     MCPToolQualityRowsQueryRunner,
 )
@@ -29,10 +32,12 @@ from products.mcp_analytics.backend.hogql_queries.tool_tables import (
 
 __all__ = [
     "MCPHarnessBreakdownQueryRunner",
+    "MCPModelBreakdownQueryRunner",
     "MCPToolCallBreakdownQueryRunner",
     "MCPToolCallsAndErrorsQueryRunner",
     "MCPToolCategoriesQueryRunner",
     "MCPToolCategoryCountsQueryRunner",
+    "MCPToolCategoryMapQueryRunner",
     "MCPToolDailyStatsQueryRunner",
     "MCPToolDescriptionsQueryRunner",
     "MCPToolFailureOccurrencesQueryRunner",
@@ -43,4 +48,5 @@ __all__ = [
     "MCPToolSampleIntentsQueryRunner",
     "MCPToolStatsQueryRunner",
     "MCPToolTopUsersQueryRunner",
+    "MCPMissingCapabilitiesQueryRunner",
 ]

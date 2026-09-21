@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand
 
 from structlog import get_logger
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -18,7 +18,6 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -175,6 +174,22 @@ class SourceConfigGenerator:
         self, field: SourceFieldSelectConfig, parent_class: str, source_config: SourceConfig
     ) -> tuple[list[str], list[str]]:
         has_option_fields = any(option.fields for option in field.options if option.fields)
+
+        if field.multiple:
+            if field.converter:
+                raise ValueError(f"Select field '{field.name}' cannot combine `multiple` with a converter")
+            if has_option_fields:
+                raise ValueError(f"Select field '{field.name}' cannot combine `multiple` with per-option fields")
+
+            python_field_name, should_alias = self._make_python_identifier(field.name)
+            # Always optional on the dataclass, even when the form field is required: configs
+            # stored before the field existed must keep parsing. "At least one value" is the
+            # source's job (validate_credentials / effective_* helpers).
+            field_parts = ["converter=config.str_to_optional_list"]
+            if should_alias:
+                field_parts.append(f'alias="{field.name}"')
+            field_parts.append("default_factory=lambda: None")
+            return [f"    {python_field_name}: list[str] | None = config.value({', '.join(field_parts)})"], []
 
         field_parts = []
 

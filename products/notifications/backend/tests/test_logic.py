@@ -7,8 +7,9 @@ from django.core.cache import cache
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
@@ -51,6 +52,50 @@ class TestCreateNotification(BaseTest):
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_deduplicates_idempotency_key(self, mock_publish, mock_ff):
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Test notification",
+            body="Test body",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+            idempotency_key="test-notification",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = create_notification(data)
+        with self.captureOnCommitCallbacks(execute=True):
+            second = create_notification(data)
+
+        assert first is not None
+        assert second is not None
+        assert second.id == first.id
+        assert NotificationEvent.objects.count() == 1
+        mock_publish.assert_called_once()
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_scopes_idempotency_key_to_team(self, mock_publish, mock_ff):
+        second_team = Team.objects.create(organization=self.organization, name="Second team")
+
+        for team in (self.team, second_team):
+            create_notification(
+                NotificationData(
+                    team_id=team.id,
+                    notification_type=NotificationType.COMMENT_MENTION,
+                    title="Test notification",
+                    body="Test body",
+                    target_type=TargetType.USER,
+                    target_id=str(self.user.id),
+                    idempotency_key="shared-key",
+                )
+            )
+
+        assert NotificationEvent.objects.filter(idempotency_key="shared-key").count() == 2
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
     def test_create_notification_for_organization(self, mock_publish, mock_ff):
         user2 = User.objects.create_and_join(self.organization, "test2@test.com", "password")
 
@@ -89,7 +134,7 @@ class TestCreateNotification(BaseTest):
     def test_resolve_team_excludes_org_members_without_project_access(self):
         from posthog.models import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -286,6 +331,22 @@ class TestAccessControlFiltering(BaseTest):
         self.user = User.objects.create_and_join(self.organization, "ac1@test.com", "password")
         self.user2 = User.objects.create_and_join(self.organization, "ac2@test.com", "password")
         self.resolver = RecipientsResolver()
+
+    def test_role_recipient_ignores_membership_from_another_organization(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user,
+            organization_member=OrganizationMembership.objects.get(
+                organization=self.organization,
+                user=self.user,
+            ),
+        )
+
+        result = self.resolver.resolve(TargetType.ROLE, str(role.id), self.team.id)
+
+        assert result == []
 
     def test_passthrough_when_org_lacks_access_control(self):
         self.organization.available_product_features = []

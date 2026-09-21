@@ -20,9 +20,12 @@ class FeatureFlagsConfig(AppConfig):
         # because the flag viewset pulls scipy via the dashboard -> error-tracking query runners.
         # flag_version_sync wires here for the same reason: cohort edits happen in
         # non-web processes too, and its version bump must land wherever cohorts save.
+        # session_recording_links likewise: a rename from the admin or a shell must keep each
+        # linking team's replay gate pointing at the new key, or that team stops recording.
         from products.feature_flags.backend import (  # noqa: F401, PLC0415
             activity_logging,  # noqa: F401, PLC0415
             flag_version_sync,
             flags_cache,
             local_evaluation,
+            session_recording_links,
         )

@@ -22,7 +22,7 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
-from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
+from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
@@ -32,18 +32,20 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
+from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
+from posthog.helpers.oauth_pending_connection import read_pending_oauth_connection
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
-from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
+from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -59,15 +61,18 @@ def _save_session_with_recovery(session: SessionBase) -> None:
 
 def verify_email_or_login(request: Request, user: User) -> None:
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        next_url = request.data.get("next_url") if request and request.data else None
-
-        # We only want to redirect to a relative url so that we don't redirect away from the current domain
-        if is_relative_url(next_url):
-            EmailVerifier.create_token_and_send_email_verification(user, next_url)
-        else:
-            EmailVerifier.create_token_and_send_email_verification(user)
+        email_verification_code_verifier.send_code(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+
+def requested_next_url(request) -> str | None:
+    """The `next_url` the client asked to land on, or None.
+
+    Only a relative url is honored, so a signup response cannot redirect away from this domain.
+    """
+    next_url = request.data.get("next_url") if request and request.data else None
+    return next_url if next_url and is_relative_url(next_url) else None
 
 
 def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
@@ -183,8 +188,15 @@ class SignupSerializer(serializers.Serializer):
 
             value = session_email
 
-        if not settings.DEMO and EmailValidationHelper.user_exists(value):
-            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        if not settings.DEMO:
+            if not self.is_social_signup:
+                reject_plus_addressed_email(value)
+                if EmailValidationHelper.user_exists_with_stripped_alias(value):
+                    raise serializers.ValidationError(
+                        "There is already an account with this email address.", code="unique"
+                    )
+            elif EmailValidationHelper.user_exists(value):
+                raise serializers.ValidationError("There is already an account with this email address.", code="unique")
         return value
 
     def is_email_auto_verified(self):
@@ -303,6 +315,7 @@ class SignupSerializer(serializers.Serializer):
             role_at_organization=role_at_organization,
             referral_source=referral_source,
             referral_source_ai_prompt=referral_source_ai_prompt,
+            oauth_connection=read_pending_oauth_connection(request),
         )
 
         # Fire-and-forget real-time enrichment for onboarding routing. Fully guarded and
@@ -348,12 +361,7 @@ class SignupSerializer(serializers.Serializer):
         return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
     def to_representation(self, instance) -> dict:
-        request = self.context.get("request")
-        next_url = request.data.get("next_url") if request and request.data else None
-        # We only want to redirect to a relative url so that we don't redirect away from the current domain
-        if next_url and not is_relative_url(next_url):
-            next_url = None
-
+        next_url = requested_next_url(self.context.get("request"))
         data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data
@@ -391,7 +399,12 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
-        email_exists = False if settings.DEMO else EmailValidationHelper.user_exists(email)
+        email_exists = False
+        if not settings.DEMO:
+            # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
+            # the user fills in the rest, and only then hits the rejection on submit.
+            reject_plus_addressed_email(email)
+            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(email)
         if email_exists:
             return response.Response(
                 {
@@ -468,11 +481,13 @@ class InviteSignupSerializer(serializers.Serializer):
         return validate_display_name(value)
 
     def to_representation(self, instance):
-        data = UserBasicSerializer(instance=instance).data
-        # Setup-delegation invites hand off onboarding to the invitee — route them straight into
+        next_url = requested_next_url(self.context.get("request"))
+        # Setup-delegation invites hand off onboarding to the invitee - route them straight into
         # onboarding instead of the default post-signup landing page, otherwise the sceneLogic
         # redirect race can drop them on the homepage.
-        next_url = "/onboarding" if self.context.get("delegated_onboarding") else None
+        if self.context.get("delegated_onboarding"):
+            next_url = "/onboarding"
+        data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data
 
@@ -659,6 +674,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 user_analytics_metadata=user.get_analytics_metadata(),
                 org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
                 role_at_organization=role_at_organization,
+                oauth_connection=read_pending_oauth_connection(request),
                 referral_source="signed up from invite link",
             )
 
@@ -806,13 +822,17 @@ class CompanyNameForm(forms.Form):
     emailOptIn = forms.BooleanField(required=False)
 
 
-def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[OrganizationInvite]:
-    # nosemgrep: idor-lookup-without-org (ID from SAML response)
-    organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
-    if not organization_domain:
+def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[OrganizationInvite]:
+    # The assertion round-trips the IdP config's `saml_relay_state`, which the SAML backend has
+    # already resolved to a config to validate the response. Resolve the organization the same way:
+    # the identifier holds a domain id on configs created before it moved onto the config, and that
+    # domain may since have been deleted out from under a config its siblings still back.
+    # nosemgrep: idor-lookup-without-org (identifier from an already-verified SAML response)
+    config = IdentityProviderConfig.objects.filter(saml_relay_state=saml_relay_state).first()
+    if config is None:
         return None
     return (
-        OrganizationInvite.objects.filter(target_email=email, organization=organization_domain.organization)
+        OrganizationInvite.objects.filter(target_email=email, organization_id=config.organization_id)
         .order_by("-created_at")
         .first()
     )
@@ -876,12 +896,15 @@ def process_social_domain_jit_provisioning_signup(
         )
         return user
     else:
+        scim_enabled = (
+            domain_instance.identity_provider_configs_for_scope(ConfigScope.SCIM).filter(scim_enabled=True).exists()
+        )
         logger.info(
             f"process_social_domain_jit_provisioning_signup_domain_exists",
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
-            scim_enabled=domain_instance.idp_config.scim_enabled,
+            scim_enabled=scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -932,7 +955,7 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
-                    scim_enabled=domain_instance.idp_config.scim_enabled,
+                    scim_enabled=scim_enabled,
                 )
 
     return user
@@ -968,10 +991,10 @@ def social_create_user(
         or details.get("username")
     )
 
-    # Handle SAML invites (organization_domain_id is the relay_state)
-    organization_domain_id = kwargs.get("response", {}).get("idp_name")
-    if not invite_id and organization_domain_id:
-        invite = lookup_invite_for_saml(email, organization_domain_id)
+    # Handle SAML invites (idp_name is the IdP config's relay state)
+    saml_relay_state = kwargs.get("response", {}).get("idp_name")
+    if not invite_id and saml_relay_state:
+        invite = lookup_invite_for_saml(email, saml_relay_state)
         invite_id = invite.id if invite else None
 
     # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
@@ -1095,6 +1118,7 @@ def social_create_user(
         user_analytics_metadata=user.get_analytics_metadata(),
         org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
         referral_source="social signup - no info",
+        oauth_connection=read_pending_oauth_connection(request),
     )
 
     return {"is_new": True, "user": user}

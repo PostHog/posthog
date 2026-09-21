@@ -27,6 +27,7 @@ jest.mock('lib/utils/accessControlUtils', () => ({
 
 jest.mock('../../widgetProductAccess', () => ({
     userHasDashboardWidgetProductAccess: jest.fn(() => true),
+    userCanMutateConversationsTicketsOnDashboard: jest.fn(() => true),
     userCanMutateErrorTrackingIssuesOnDashboard: jest.fn(() => true),
 }))
 

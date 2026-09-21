@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from django.db import OperationalError
@@ -13,10 +13,12 @@ from requests.exceptions import (
     JSONDecodeError as RequestsJSONDecodeError,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
@@ -40,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _is_transient_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
+    _next_smaller_chunk_size,
     _next_smaller_limit,
     _override_limit,
     _raise_meta_api_error,
@@ -52,7 +55,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
     BREAKDOWN_STATS_ENDPOINTS,
     ENDPOINTS,
-    RESOURCE_SCHEMAS,
     MetaAdsResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
@@ -920,6 +922,24 @@ class TestNextSmallerLimit:
         assert _next_smaller_limit(current) == expected
 
 
+class TestNextSmallerChunkSize:
+    @pytest.mark.parametrize(
+        "current,expected",
+        [
+            (30, 7),
+            (7, 1),
+            # Smallest rung, so no further fallback is available.
+            (1, None),
+            # A resumed sync can carry a size between rungs; it picks the largest below it.
+            (14, 7),
+            # A resumed size above the largest rung steps down to that rung.
+            (60, 30),
+        ],
+    )
+    def test_step(self, current: int, expected: int | None) -> None:
+        assert _next_smaller_chunk_size(current) == expected
+
+
 class TestMidChunkLimitFallback:
     URL = "https://graph.facebook.com/v20/act_1/insights"
     PARAMS: dict[str, Any] = {"fields": "ad_id", "limit": 500, "level": "ad", "access_token": "tok"}
@@ -1035,9 +1055,11 @@ class TestMidChunkLimitFallback:
         sent_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert sent_params["limit"] == 100
 
-    def test_exhausting_limit_ladder_raises(self) -> None:
+    def test_exhausting_limit_ladder_falls_back_to_smaller_chunk(self) -> None:
         manager = _build_manager()
         timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        # 04-01..04-08 is one 30-day attempt clamped to the range end. Once the limit
+        # ladder bottoms out mid-chunk, 7-day chunks cover it: 04-01..04-07, 04-08.
         responses = [
             # Initial chunk: page 1 + cursor.
             _mock_response(
@@ -1049,6 +1071,59 @@ class TestMidChunkLimitFallback:
             ),
             # All limits in PAGE_LIMIT_FALLBACK_SIZES time out.
             *[_mock_response(500, timeout_body) for _ in PAGE_LIMIT_FALLBACK_SIZES],
+            _mock_response(200, {"data": [{"ad_id": "2"}], "paging": {}}),
+            _mock_response(200, {"data": [{"ad_id": "3"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-01", "until": "2026-04-08"}, None, manager
+                )
+            )
+
+        assert [b[0]["ad_id"] for b in batches] == ["1", "2", "3"]
+
+        # Every rung was tried on the same cursor before the chunk narrowed.
+        cursor_calls = [c.args[0] for c in mock_get.return_value.get.call_args_list[1:4]]
+        assert cursor_calls == [
+            f"https://graph.facebook.com/v20/act_1/insights?after=p1&limit={limit}"
+            for limit in PAGE_LIMIT_FALLBACK_SIZES
+        ]
+
+        # The restarted chunk re-requests the window from its first day, at 7 days,
+        # keeping the smallest limit so the request only ever gets cheaper.
+        restart_params = mock_get.return_value.get.call_args_list[4].kwargs["params"]
+        assert json.loads(restart_params["time_range"]) == {"since": "2026-04-01", "until": "2026-04-07"}
+        assert restart_params["limit"] == PAGE_LIMIT_FALLBACK_SIZES[-1]
+
+        # The restart drops the saved cursor, which still encodes the wider window.
+        restart_save: MetaAdsResumeConfig = next(
+            s.args[0] for s in manager.save_state.call_args_list if s.args[0].chunk_size_days == 7
+        )
+        assert restart_save.chunk_since == "2026-04-01"
+        assert restart_save.chunk_next_url is None
+
+    def test_exhausting_both_ladders_mid_chunk_raises(self) -> None:
+        manager = _build_manager()
+        timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        responses = [
+            # Initial chunk: page 1 + cursor.
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            # Every page limit on the cursor times out, and so does the restarted
+            # chunk at each remaining size (7 days, then 1 day).
+            *[_mock_response(500, timeout_body) for _ in PAGE_LIMIT_FALLBACK_SIZES],
+            _mock_response(500, timeout_body),
+            _mock_response(500, timeout_body),
         ]
 
         with mock.patch(
@@ -1062,6 +1137,9 @@ class TestMidChunkLimitFallback:
             assert next(gen) == [{"ad_id": "1"}]
             with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
                 list(gen)
+
+        # Both ladders terminate rather than looping on the smallest request.
+        assert mock_get.return_value.get.call_count == len(responses)
 
     def test_non_timeout_mid_chunk_error_does_not_retry(self) -> None:
         manager = _build_manager()
@@ -1266,6 +1344,14 @@ class TestNonRetryableErrors:
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.
             'Meta API request failed: 400 - {"error":{"message":"(#100) This endpoint cannot be loaded due to missing permissions."}}',
+            # 400 with the shorter, generic sibling message for the same missing-permission condition.
+            'Meta API request failed: 400 - {"error":{"message":"(#100) Missing perms","type":"OAuthException","code":100}}',
+            # 400 when a business_management-gated field is requested without that scope.
+            'Meta API request failed: 400 - {"error":{"message":"(#200) Requires business_management permission to manage the object.","type":"OAuthException","code":200}}',
+            # 400 when the source's configured attribution windows include a value Meta's
+            # Insights API doesn't recognise.
+            'Meta API request failed: 400 - {"error":{"message":"(#100) action_attribution_windows[0] must be '
+            'one of the following values: 1d_view, 7d_view, 28d_view, 1d_click, 7d_click, 28d_click","type":"OAuthException","code":100}}',
             # 500 when Meta's backend refuses to service the query even after adaptive
             # chunking has shrunk the window to its smallest size.
             'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
@@ -1288,6 +1374,15 @@ class TestNonRetryableErrors:
         patterns = MetaAdsSource().get_non_retryable_errors()
         assert any(pattern in error_message for pattern in patterns), (
             f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
+        )
+
+    def test_missing_perms_has_reconnect_guidance(self) -> None:
+        # `error_message` isn't surfaced to the user as-is — the friendly value here is, so a
+        # blank or wrong one would leak the raw Graph API JSON instead of actionable guidance.
+        assert MetaAdsSource().get_non_retryable_errors()["Missing perms"] == (
+            "Meta blocked this request because the connected account is missing a permission "
+            "required to read your ads data. Please reconnect the Meta Ads integration and grant "
+            "all requested permissions."
         )
 
     @pytest.mark.parametrize(
@@ -1393,7 +1488,6 @@ class TestRetryableErrors:
         assert not any(pattern in str(exc_info.value) for pattern in patterns)
 
 
-@freeze_time("2026-06-16")
 class TestTimeRangeClamping:
     """Meta rejects insights time ranges starting beyond ~37 months (error 3018).
 
@@ -1403,6 +1497,11 @@ class TestTimeRangeClamping:
     The date is frozen so the ``today`` captured in the test and the
     ``dt.date.today()`` read inside ``get_rows`` always agree (no midnight race).
     """
+
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-06-16", tick=False):
+            yield
 
     def _capture_time_range(self, monkeypatch, **source_kwargs: Any) -> dict | None:
         integration = mock.MagicMock()
@@ -1693,12 +1792,22 @@ class TestEndpointCatalog:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_every_advertised_endpoint_has_a_resource_schema(self, endpoint: str) -> None:
         # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
-        # without a `RESOURCE_SCHEMAS` entry only fails at sync time with a KeyError.
+        # without a `RESOURCE_SCHEMAS` entry only fails at sync time, once a customer selects it.
         assert endpoint in get_meta_ads_schemas()
 
-    def test_source_advertises_the_whole_catalog(self) -> None:
-        advertised = {schema.name for schema in MetaAdsSource().get_schemas(cast(Any, None), team_id=1)}
-        assert advertised == set(RESOURCE_SCHEMAS)
+    def test_resource_the_worker_does_not_know_raises_a_named_error(self) -> None:
+        # The web pods and the workers deploy separately, so a newly shipped table is selectable in
+        # the schema picker about an hour before every worker can resolve it. A bare KeyError there
+        # reports as a bug and reaches the customer as raw Python; the named error is classified
+        # retryable instead.
+        with pytest.raises(UnknownResourceError, match="ad_stats_by_a_future_breakdown"):
+            meta_ads_source(
+                resource_name="ad_stats_by_a_future_breakdown",
+                config=_source_config(),
+                team_id=1,
+                resumable_source_manager=_build_manager(),
+                api_version=META_ADS_API_VERSION_V26,
+            )
 
 
 class TestBreakdownStatsSchemas:
@@ -1708,10 +1817,16 @@ class TestBreakdownStatsSchemas:
     def test_breakdown_dimensions_are_part_of_the_primary_key(self, endpoint: str) -> None:
         schema = get_meta_ads_schemas()[endpoint]
         breakdowns = schema.extra_params["breakdowns"].split(",")
+        # A dimension Meta returns as an object stands in the key through a column hoisted out of
+        # it, because the JSON string the object is stored as makes the merge key depend on Meta's
+        # key ordering.
+        keyed = set(schema.primary_keys) | {
+            hoisted.source_field for hoisted in schema.hoisted_columns if hoisted.column in schema.primary_keys
+        }
 
         # Without the dimensions in the key, every combination for a campaign/day collapses onto
         # one key: duplicate rows seed the Delta table and each later merge multi-matches them.
-        assert set(breakdowns) <= set(schema.primary_keys)
+        assert set(breakdowns) <= keyed
 
     @pytest.mark.parametrize(
         "endpoint,level,grain_column",
@@ -1748,13 +1863,15 @@ class TestBreakdownStatsSchemas:
         # up unless the user asks for them.
         assert schemas[endpoint].should_sync_default is False
 
-    def test_hourly_table_omits_metrics_meta_cannot_report_hourly(self) -> None:
+    @pytest.mark.parametrize("endpoint", [MetaAdsResource.CampaignStatsHourly, MetaAdsResource.AdStatsByLinkUrl])
+    def test_tables_without_unique_metric_support_omit_them(self, endpoint: str) -> None:
         # "Hourly breakdowns do not support unique fields, which are any fields prepended with
         # `unique_*`, `reach` or `frequency`" — requesting them stores columns Meta zeroes out.
+        # The creative-asset breakdowns split one ad's delivery the same way.
         unique_metrics = {"reach", "frequency", "cpp", "cost_per_unique_click", "unique_clicks", "unique_ctr"}
         schemas = get_meta_ads_schemas()
 
-        assert unique_metrics.isdisjoint(schemas[MetaAdsResource.CampaignStatsHourly].field_names)
+        assert unique_metrics.isdisjoint(schemas[endpoint].field_names)
         assert unique_metrics <= set(schemas[MetaAdsResource.CampaignStatsByCountry].field_names)
 
 
@@ -1835,6 +1952,59 @@ class TestBreakdownStatsRequests:
         assert "use_unified_attribution_setting" not in captured["params"]
 
 
+class TestHoistedColumns:
+    """Scalar columns lifted out of the nested objects the Graph API returns."""
+
+    def _emit_rows(self, monkeypatch, resource_name: str, rows: list[dict]) -> list[dict]:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            yield rows
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        response = meta_ads_source(
+            resource_name=resource_name,
+            config=_source_config(),
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
+        )
+        return [row for batch in cast(Any, response.items()) for row in batch]
+
+    @pytest.mark.parametrize(
+        "endpoint,row,expected",
+        [
+            (
+                MetaAdsResource.Ads,
+                {"id": "ad-1", "creative": {"id": "creative-1"}},
+                {"creative_id": "creative-1"},
+            ),
+            (
+                MetaAdsResource.Ads,
+                {"id": "ad-1"},
+                {"creative_id": None},
+            ),
+            (
+                MetaAdsResource.AdStatsByLinkUrl,
+                {"ad_id": "ad-1", "link_url_asset": {"id": "asset-1", "website_url": "https://example.com/pricing"}},
+                {"link_url": "https://example.com/pricing", "link_url_asset_id": "asset-1"},
+            ),
+        ],
+    )
+    def test_nested_objects_become_scalar_columns(self, monkeypatch, endpoint: str, row: dict, expected: dict) -> None:
+        # The pipeline stores a nested object as a JSON string. Without these columns an ad has no
+        # join key to `ad_creatives`, and spend cannot be grouped by landing page without unpacking
+        # JSON, which is the whole reason the breakdown table exists.
+        emitted = self._emit_rows(monkeypatch, endpoint, [row])
+
+        assert {column: emitted[0][column] for column in expected} == expected
+        # The nested field stays, because it carries more than the hoisted keys.
+        assert {column: emitted[0][column] for column in row} == row
+
+
 class TestSingleObjectEndpoint:
     """`GET /act_<id>` returns the account node itself, not a paged `data` list."""
 
@@ -1875,6 +2045,15 @@ class TestSingleObjectEndpoint:
         assert "business" not in field_names
         assert {"business_name", "business_country_code"} <= set(field_names)
 
+    def test_field_list_omits_fields_gated_behind_business_management(self) -> None:
+        # These four live in the same business_management-gated family as `business` above, but
+        # each was pruned only from `AD_ACCOUNT_FIELDS` in meta_ads.py, not from this list — Meta
+        # rejects the whole field set when any one field needs a scope beyond `ads_read`, so any
+        # one of them sneaking back in fails every sync of this table, not just that field.
+        gated_fields = {"owner", "funding_source_details", "is_prepay_account", "tos_accepted"}
+        field_names = get_meta_ads_schemas()[MetaAdsResource.AdAccount].field_names
+        assert gated_fields.isdisjoint(field_names)
+
 
 class TestApiVersionDispatch:
     """The resolved source pin must reach the request URL — otherwise a pinned source silently
@@ -1912,3 +2091,14 @@ class TestApiVersionDispatch:
     def test_new_sources_default_to_latest_while_previous_stays_supported(self) -> None:
         assert MetaAdsSource.default_version == META_ADS_API_VERSION_V26
         assert set(MetaAdsSource.supported_versions) == {META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26}
+
+    def test_v25_is_deprecated_with_vendor_sunset_date(self) -> None:
+        # The deprecation metadata (not just membership in `supported_versions`) drives the
+        # in-product warning banner and the sunset countdown, so lock in the exact version and date.
+        source = MetaAdsSource()
+        assert source.get_version_deprecation(META_ADS_API_VERSION_V25) == VersionDeprecation(
+            version=META_ADS_API_VERSION_V25, sunset_at=dt.date(2028, 7, 29)
+        )
+        # The default must never be deprecated — a pinned-off-default warning on every new source
+        # would be the drift the framework prevents.
+        assert source.get_version_deprecation(META_ADS_API_VERSION_V26) is None

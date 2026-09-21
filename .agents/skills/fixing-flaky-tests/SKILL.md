@@ -2,12 +2,14 @@
 name: fixing-flaky-tests
 description: >
   Guides an agent through reproducing, root-causing, fixing, and validating flaky tests in the PostHog monorepo.
-  Use when a test fails intermittently in CI but passes on rerun or locally, when `hogli ci:insights` or the debugging-ci-failures skill classifies a failure as a flaky test, when given a GitHub Actions URL for a flaky job, or when asked to deflake, stabilize, or fix a flaky Jest, pytest, or Playwright test.
+  Use when a test fails intermittently in CI but passes on rerun or locally, when `hogli ci:insights` or the debugging-ci-failures skill classifies a failure as a flaky test, when given a GitHub Actions URL for a flaky job, when asked to check Trunk Flaky Tests for a test, PR, or master, or when asked to deflake, stabilize, or fix a flaky Jest, pytest, or Playwright test.
   Core discipline: reproduce locally before changing anything, fix the root cause (never mask it with sleeps, retries, or bigger timeouts), and prove the fix with an N-run validation loop sized to the observed failure rate.
   Stabilizing is not the only valid outcome — the skill also gates whether the test should exist, so deleting a test that catches nothing real, or re-leveling one that flakes because of the level it runs at, are first-class endings.
 ---
 
 # Fixing flaky tests
+
+Before you propose a change to how the suite runs in CI, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records measured verdicts on test parallelism, sharding, and coverage-based selection, so a rejected approach is not rebuilt.
 
 Three non-negotiables, in order:
 
@@ -25,10 +27,11 @@ Before any of these: **measure, don't assume.** Flaky-vs-deterministic, and the 
 
 For triaging a red CI run (finding and classifying the failure), use the `debugging-ci-failures` skill first — this skill takes over once the failure is classified as a flaky test.
 For writing new Playwright tests that aren't flaky, use the `playwright-test` skill.
+`investigating-ci-failures` (green/red boundary) and `diagnosing-ci-and-merge-bottlenecks` (the `engineering-analytics-flaky-tests` tool's caveats) are product skills under `products/engineering_analytics/skills/`, not invocable here: read their `SKILL.md` at that path.
 
 ## 1. Measure the failure rate — from GitHub, not from a digest
 
-The GitHub Actions API (or GitHub MCP) is the source of truth. `hogli ci:insights` is a digest, not an oracle — it can mislabel flaky-vs-deterministic, misstate the rate, and lag the API. Use it to _validate_ a hypothesis or pull historical context, never as the first move or the classification authority.
+The GitHub Actions API (or GitHub MCP) is the source of truth. `hogli ci:insights` is a digest, not an oracle — it can mislabel flaky-vs-deterministic, it lags the API until GitHub's webhook settles, and it cannot give you a rate at all: it reports absolute counts, because CI emits failures but omits ordinary passing runs, so there is no denominator. Use it to _validate_ a hypothesis or pull historical context, never as the first move or the classification authority.
 
 Establish the timeline yourself from raw run data:
 
@@ -49,7 +52,8 @@ Read the timeline before you classify:
 
 - **Interleaved pass/fail on adjacent commits** — the same unchanged test verified passing in some runs, failing in others → genuinely **flaky**; continue here.
 - **A long unbroken failure streak** (say 30+ consecutive) is statistically incompatible with a flake — at any per-run rate below ~95%, `p^30 ≈ 0`. That is a **deterministic regression**: go to `debugging-ci-failures` and find the introducing commit (step 4).
-- **Both at once** is common: a latent flake whose rate jumped to ~100%. Find the transition (last green → first red); that boundary, not the digest's one-line guess, is what tells you what tipped it.
+- **Every rerun fails on one runner, yet `master` passes the same code** → an **environment-dependent race**, not a regression: kernel clock granularity, filesystem, runner speed. Retrying on the same runner cannot help, so "failed 3/3 attempts" says nothing about whether the PR caused it. A merge-queue failure hands you the control for free: the `trunk-merge/**` test PR's body names the master SHA it is based on, so read master's run at that SHA (`gh api repos/PostHog/posthog/commits/<sha>/check-runs`) and confirm the same test ran and passed there.
+- **Both at once** is common: a latent flake whose rate jumped to ~100%. Find the transition (last green → first red); that boundary, not the digest's one-line verdict, is what tells you what tipped it. `products/engineering_analytics/skills/investigating-ci-failures/` has the boundary query if the failure reached master.
 
 If a failure is reported as (or you suspect it is) **consistent**, don't serialize — measure the rate and attempt a repro **in parallel**.
 
@@ -59,10 +63,35 @@ Then confirm it is not already handled:
 
 ```bash
 git log --oneline -10 -- <test_file_path>          # recently fixed already?
-hogli ci:insights search "<test name or error>"    # historical context / existing fix — corroborate against the run data, do not trust blindly
+hogli ci:insights search "<test name or error>"    # cross-run history — corroborate against the run data, do not trust blindly
 ```
 
-An insight with a **merged fix** means the flake may already be resolved — read the fix, confirm _against the run data_ that it covers this failure, and report instead of re-fixing.
+`search` reports two surfaces; read each for what it actually claims:
+
+- **broken tests** (recent failure fingerprints, last 2 days). A `potentially_resolved` state means that job's latest default-branch run is green again — weak evidence a fix landed, not proof. Confirm _against the run data_ that it covers this failure before reporting instead of re-fixing.
+- **test health** (ranked by blast radius; the same spans the `engineering-analytics-flaky-tests` MCP tool reads). `confirmed_flake` is the only classification backed by proof: one commit both failed and passed the test in the same matrix job, via a re-run attempt going green or an in-job retry. A pass in a different matrix leg is not recovery. `suspected_regression` means no recovery was recorded — absence of proof, not proof of a regression, so treat it as real until your own run data says otherwise.
+
+### Corroborate with Trunk Flaky Tests
+
+CI uploads test results to [Trunk Flaky Tests](https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog), which tracks per-test failure history across `master` and PR runs.
+On a PR, the `trunk-io` bot's "Trunk Test Analytics" comment links that PR's slice (`https://app.trunk.io/posthog-inc/flaky-tests/pr/<number>?repo=PostHog/posthog`).
+
+The `trunk` MCP server in `.mcp.json` queries it (tools are marked experimental by Trunk):
+
+- `search-test` (`repoName: "PostHog/posthog"`, `testNameSearch: "<test name, no filepath>"`) → the test case ID.
+- `fix-flaky-test` (`repoName`, `testCaseId`) → failure history, first-seen commit, git blame, and Trunk's root-cause investigation; `createNewInvestigation: true` triggers a fresh analysis (takes up to a minute).
+
+Authenticate once via `/mcp` → `trunk` (browser OAuth); headless environments instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org token to the server entry.
+
+Two limits worth knowing before you start here.
+AI investigations are not enabled for this repo, so `fix-flaky-test` returns history or nothing, never a root cause.
+And lookup only goes name to ID: a bare dashboard link identifies a test you cannot name, so ask for the test name rather than guessing at the ID.
+
+Trunk attributes each test to a team through CODEOWNERS, which cannot express the `owners.yaml` map.
+`.github/scripts/trunk-codeowners.sh` projects the map into a generated CODEOWNERS before each upload (`hogli owners:codeowners` builds the same file locally), so a test's owner in Trunk should match `hogli owners:who`.
+Where it does not, the projection dropped a spelling two teams would both claim.
+
+Like `ci:insights`, this is corroboration and history, not the classification authority — flaky-vs-deterministic and the rate still come from the run data above.
 
 ## 2. Extract the failure from CI
 
@@ -123,20 +152,23 @@ Two cost notes for the loop:
   Inside a loop, build once, then iterate with `pnpm --filter=@posthog/frontend exec jest ...`, which skips the rebuild.
 
 **If nothing reproduces after the full ladder**, the flake is CI-environment-specific.
-Proceed with a fix grounded in the CI evidence and root-cause analysis, and say so explicitly in the report — the validation in step 7 is then analytical, not empirical.
+Before settling for that, ask what the runner has that your machine lacks: Linux mtimes from a coarse clock where macOS gives nanoseconds, a case-sensitive filesystem, a different timezone, `/tmp` on a different filesystem.
+Often you can force the CI condition instead of waiting for it — `os.utime` the files into the ordering the coarse clock produced, run under `TZ=UTC` — and then validate empirically after all.
+Otherwise proceed with a fix grounded in the CI evidence and root-cause analysis, and say so explicitly in the report — the validation in step 7 is then analytical, not empirical.
 
 ## 4. Root-cause the flake
 
 Match the symptom to a cause class; never patch the symptom.
 
-| Symptom                                                | Likely cause class                                           |
-| ------------------------------------------------------ | ------------------------------------------------------------ |
-| Timeout waiting for promise/listener/element           | Unawaited async work, missing mock, hidden pending request   |
-| Passes alone, fails with neighbors (or vice versa)     | Shared state: module cache, DB rows, global config, ordering |
-| Fails near midnight/UTC boundaries, or on slow runners | Real clock usage — missing `freeze_time` / fake timers       |
-| Assertion on list order or generated IDs               | Nondeterministic ordering/IDs asserted as deterministic      |
-| Query can't see just-written data                      | Eventual consistency (ClickHouse), missing flush/commit      |
-| Only fails under `--maxWorkers=2` / contention         | Race condition surfaced by scheduling, too-tight timeout     |
+| Symptom                                                | Likely cause class                                             |
+| ------------------------------------------------------ | -------------------------------------------------------------- |
+| Timeout waiting for promise/listener/element           | Unawaited async work, missing mock, hidden pending request     |
+| Passes alone, fails with neighbors (or vice versa)     | Shared state: module cache, DB rows, global config, ordering   |
+| Fails near midnight/UTC boundaries, or on slow runners | Real clock usage — missing `time_machine.travel` / fake timers |
+| Assertion on list order or generated IDs               | Nondeterministic ordering/IDs asserted as deterministic        |
+| Query can't see just-written data                      | Eventual consistency (ClickHouse), missing flush/commit        |
+| Only fails under `--maxWorkers=2` / contention         | Race condition surfaced by scheduling, too-tight timeout       |
+| Every attempt fails on one runner, passes on another   | Clock-granularity race: cutoff read from an earlier write      |
 
 ### When the cause isn't obvious, bisect
 
@@ -172,7 +204,8 @@ PostHog-specific patterns:
 ### Backend (pytest)
 
 - **DB state leakage**: shared rows across tests without isolation — check fixture scope and whether the test needs `@pytest.mark.django_db(transaction=True)`.
-- **Real time**: use `freeze_time`; never assert on `now()`-derived values.
+- **Real time**: use `time_machine.travel(..., tick=False)`; never assert on `now()`-derived values.
+- **Timestamp-derived cutoffs**: pinning or filtering "as of" the previous write's recorded time — stamp the times explicitly instead (`/writing-tests`, "Two writes in a row are not ordered in time").
 - **ClickHouse eventual consistency**: a query may not see just-inserted data — flush explicitly in the test setup rather than sleeping.
 
 ## 5. Decide the outcome — fixing is one of three
@@ -258,7 +291,7 @@ Run the surrounding file/suite once to confirm nothing depended on it, and carry
 
 ```text
 Test:            <file path>::<test name>
-Observed in CI:  <measured rate from run data, e.g. 8/45 runs over 3h (gh run list); ci:insights corroborates>
+Observed in CI:  <measured rate from run data, e.g. 8/45 runs over 3h (gh run list); ci:insights state corroborates>
 Local repro:     <command + conditions, e.g. 3/20 failures with neighbor X, maxWorkers=2 | not reproducible locally>
 Root cause:      <one or two sentences>
 Outcome:         fixed | re-leveled (<from> → <to>) | deleted

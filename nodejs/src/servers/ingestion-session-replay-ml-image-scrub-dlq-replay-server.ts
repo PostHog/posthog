@@ -1,17 +1,13 @@
-import { initializePrometheusLabels } from '~/common/api/router'
 import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { logger } from '~/common/utils/logger'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { replayBatch } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dlq-replay'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
-import { logger } from '../common/utils/logger'
-import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import {
-    IngestionSessionReplayMlMirrorServerConfig,
-    buildMlMirrorServerConfig,
-} from './ingestion-session-replay-ml-mirror-server'
+import { CleanupResources } from './base-server'
+import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 
 /**
  * Pushes images the scrub sidecar could not process back onto the topic they came from.
@@ -26,30 +22,10 @@ import {
  * same images between the two topics and spend scrub capacity on work already known to fail. The
  * lane has no capacity to spare for that.
  */
-export class IngestionSessionReplayMlImageScrubDlqReplayServer implements NodeServer {
-    readonly lifecycle: ServerLifecycle
-    private config: IngestionSessionReplayMlMirrorServerConfig
+export class IngestionSessionReplayMlImageScrubDlqReplayServer extends MlMirrorConsumerServer {
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
-    constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
-        this.config = buildMlMirrorServerConfig(config)
-        this.lifecycle = new ServerLifecycle(this.config)
-    }
-
-    async start(): Promise<void> {
-        return this.lifecycle.start(
-            () => this.startServices(),
-            () => this.getCleanupResources()
-        )
-    }
-
-    async stop(error?: Error): Promise<void> {
-        return this.lifecycle.stop(() => this.getCleanupResources(), error)
-    }
-
-    private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
-
+    protected async startServices(): Promise<void> {
         const dlqTopic = this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC
         if (!dlqTopic) {
             throw new Error('SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC must be set to replay from it')
@@ -59,15 +35,22 @@ export class IngestionSessionReplayMlImageScrubDlqReplayServer implements NodeSe
 
         // A separate group from the scrub consumer's, and its own topic, so a replay run cannot
         // disturb the offsets of the lane it is feeding.
-        const consumer = new KafkaConsumer({
-            topic: dlqTopic,
-            groupId: `${this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID}-dlq-replay`,
-            autoCommit: true,
-            autoOffsetStore: true,
-            // Committing as it goes means an interrupted run resumes rather than starting over and
-            // replaying images the fixed sidecar has already taken.
-            callEachBatchWhenEmpty: true,
-        })
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
+        const consumer = new KafkaConsumer(
+            {
+                topic: dlqTopic,
+                groupId: `${this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID}-dlq-replay`,
+                autoCommit: true,
+                autoOffsetStore: true,
+                // Committing as it goes means an interrupted run resumes rather than starting over and
+                // replaying images the fixed sidecar has already taken.
+                callEachBatchWhenEmpty: true,
+            },
+            {
+                'fetch.message.max.bytes': maximumRecordBytes,
+                'max.partition.fetch.bytes': maximumRecordBytes,
+            }
+        )
 
         let idlePolls = 0
         let replayed = 0
@@ -102,7 +85,7 @@ export class IngestionSessionReplayMlImageScrubDlqReplayServer implements NodeSe
         })
     }
 
-    private getCleanupResources(): CleanupResources {
+    protected getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
             redisPools: [],

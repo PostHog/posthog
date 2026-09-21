@@ -7,6 +7,7 @@ export { FlutterInstallation } from './flutter'
 export { GoInstallation } from './go'
 export { HonoInstallation } from './hono'
 export { IOSInstallation } from './ios'
+export { KMPErrorTrackingInstallation } from './kmp'
 export { WebInstallation } from './web'
 export { APIInstallation } from './api'
 export { NextJSInstallation } from './nextjs'
@@ -23,8 +24,4 @@ export { SvelteInstallation } from './svelte'
 export { RustInstallation } from './rust'
 export { UnityInstallation } from './unity'
 export { RobloxInstallation } from './roblox'
-export {
-    ConvexErrorTrackingInstallation,
-    JavaErrorTrackingInstallation,
-    KMPErrorTrackingInstallation,
-} from './library-docs'
+export { ConvexErrorTrackingInstallation, JavaErrorTrackingInstallation } from './library-docs'

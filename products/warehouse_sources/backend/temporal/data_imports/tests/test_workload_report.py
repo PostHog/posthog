@@ -65,7 +65,12 @@ class TestWorkloadReporting:
         # Clean completion: dropped from the running set (it is no longer a live co-tenant), but the
         # final sample survives for a death that happens moments later on the same pod.
         assert not redis.sismember(host_key("pod-rt"), "run-rt")
-        assert json.loads(redis.get(run_key("run-rt")))["phase"] == "finished"
+        final = json.loads(redis.get(run_key("run-rt")))
+        assert final["phase"] == "finished"
+        # A stale current buffer here inflates `co_tenant_sum_buffer_bytes` for a neighbour that
+        # dies afterwards; the peak stays because that is what blame is judged on.
+        assert final["buffer_bytes"] == 0
+        assert final["peak_buffer_bytes"] == 500
 
     def test_enrichment_attaches_own_report_and_aggregates_co_tenants_without_identifiers(self):
         # A pod is multi-tenant, so co-tenant reports belong to other teams: the event may carry only
@@ -87,6 +92,34 @@ class TestWorkloadReporting:
         assert properties["co_tenant_extract_count"] == 1
         serialized = json.dumps(properties)
         assert "s-big" not in serialized and "s-small" not in serialized and "run-big" not in serialized
+
+    def test_enrichment_correlated_max_ignores_peaks_not_near_the_death(self):
+        # Run keys live for hours and peaks are lifetime-high-water marks, so the raw co-tenant max
+        # can carry a neighbour's crash from an hour ago (or a long-released peak on a refreshed
+        # report) into blame for a death it had nothing to do with. The correlated max — what the
+        # durable row snapshots for the culprit rule — may only include reports sampled around the
+        # death itself.
+        redis = workload_report._redis_client()
+        death_ts = 10_000.0
+        _seed_report(redis, run_id="run-dead2", host="pod-b", schema_id="s-dead", phase="merge", peak=900, ts=death_ts)
+        # Died alongside us: last sample one interval before the shared death.
+        _seed_report(
+            redis, run_id="run-with", host="pod-b", schema_id="s-w", phase="merge", peak=5000, ts=death_ts - 25
+        )
+        # Crashed an hour earlier; its key and huge peak linger until the TTL.
+        _seed_report(
+            redis, run_id="run-old", host="pod-b", schema_id="s-o", phase="merge", peak=9_000_000, ts=death_ts - 3600
+        )
+        # Survivor still sampling minutes after the death: its lifetime peak is not evidence either.
+        _seed_report(
+            redis, run_id="run-later", host="pod-b", schema_id="s-l", phase="merge", peak=7000, ts=death_ts + 300
+        )
+
+        properties: dict = {}
+        enrich_death_event_properties(properties, run_id="run-dead2", host="pod-b", death_ts=death_ts)
+
+        assert properties["co_tenant_max_peak_buffer_bytes"] == 9_000_000  # raw telemetry keeps history
+        assert properties["co_tenant_correlated_max_peak_buffer_bytes"] == 5000
 
     def test_enrichment_is_silent_when_no_reports_exist(self):
         # Rollout reality: workers without the reporter (old deploys, disabled fleet) must produce

@@ -12,7 +12,6 @@ import { SelfDrivingOnboardingFlow } from './SelfDrivingOnboardingFlow'
 export function SelfDrivingOnboarding(): JSX.Element | null {
     return (
         <div className="OnboardingDottedBg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
-            {/* Logo above the card, group centered (paper-desk positioning). Gradient in light, white in dark. */}
             <span className="block mb-6">
                 <Logo size="lg" />
             </span>

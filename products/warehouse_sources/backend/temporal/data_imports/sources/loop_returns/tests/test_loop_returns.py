@@ -396,6 +396,38 @@ class TestLoopReturnsSource:
 
         assert [row["id"] for row in rows] == expected_ids * states
 
+    @pytest.mark.parametrize("api_version", ["v1", "2026-07"])
+    def test_the_pinned_version_is_the_url_path_segment(self, api_version: str) -> None:
+        # Loop carries the version in the URL path, so the resolved pin must land in every request:
+        # a v1-pinned source keeps hitting `/api/v1` and a 2026-07 source hits `/api/2026-07`.
+        sent_urls: list[str] = []
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent_urls.append(request.url)
+            return _http_response({"destinations": []})
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            source_response = loop_returns_source(
+                api_key=API_KEY,
+                endpoint="destinations",
+                team_id=1,
+                job_id="job-1",
+                api_version=api_version,
+                resumable_source_manager=FakeResumableSourceManager(),
+                now=WINDOW_START,
+            )
+            list(cast(Iterable[Any], source_response.items()))
+
+        assert sent_urls
+        assert all(url.startswith(f"https://api.loopreturns.com/api/{api_version}/") for url in sent_urls)
+
     def test_a_returns_sync_covers_every_state(self) -> None:
         sent_params, _, _ = self._drive(
             "returns",
@@ -550,6 +582,17 @@ class TestCredentialValidation:
 
         assert (is_valid, error) == (True, None)
         assert session.get.call_args.args[0] == "https://api.loopreturns.com/api/v1/destinations"
+
+    @pytest.mark.parametrize("api_version", ["v1", "2026-07"])
+    def test_probe_uses_the_pinned_version_in_the_url(self, api_version: str) -> None:
+        session = self._session([_http_response({"returns": [], "nextPageUrl": None})])
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns.make_tracked_session",
+            return_value=session,
+        ):
+            probe_endpoint(API_KEY, api_version, "returns")
+
+        assert session.get.call_args.args[0] == f"https://api.loopreturns.com/api/{api_version}/warehouse/return/list"
 
     def test_a_network_failure_is_reported_not_raised(self) -> None:
         session = MagicMock()

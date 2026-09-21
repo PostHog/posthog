@@ -17,6 +17,7 @@ use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tokio::sync::Notify;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tonic::codec::CompressionEncoding;
@@ -28,19 +29,18 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use metrics::{counter, gauge};
-use personhog_leader::cache::{DirtyIndex, PartitionedCache};
+use personhog_leader::cache::{DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::fencing::{
     preregister_fencing_metrics, FencedChangelogProducers, FencedProducerConfig,
 };
 use personhog_leader::inflight::InflightTracker;
-use personhog_leader::pg::{validate_table_name, PgFallback};
+use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
-use personhog_leader::warming::{
-    fetch_writer_committed_offsets, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
-};
+use personhog_leader::settle::prune_and_settle_tick;
+use personhog_leader::warming::{WarmClientPools, WarmingConfig, WarmingRetryPolicy};
 use personhog_leader::warnings::WarningsProducer;
 
 common_alloc::used!();
@@ -62,7 +62,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config
         .validate_fencing_timescales()
         .expect("Invalid fencing configuration");
+    config
+        .validate_shutdown_budgets()
+        .expect("Invalid shutdown configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
+    validate_table_name(&config.lifecycle_op_table).expect("Invalid LIFECYCLE_OP_TABLE");
+    validate_table_name(&config.lifecycle_op_person_table)
+        .expect("Invalid LIFECYCLE_OP_PERSON_TABLE");
 
     // Initialize tracing
     let log_layer = fmt::layer()
@@ -98,16 +104,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // stop in phase 1, only after the drain finishes — signalling them
     // together with coordination black-holed every partition for the whole
     // drain (dead server, still the registered owner). The coordination
-    // graceful window must exceed the pod's drain timeout (30s) plus the pre-revoke fence's short bound (3s), and the
-    // global timeout must fit both phases.
+    // window must fit the pod's whole teardown — drain, fence, keepalive
+    // join, revoke — and the global timeout both phases;
+    // `validate_lease_timescales` refuses a configuration that breaks
+    // the first relation at startup.
     let mut manager = Manager::builder("personhog-leader")
-        .with_global_shutdown_timeout(Duration::from_secs(60))
+        .with_global_shutdown_timeout(config.global_shutdown_timeout())
         .build();
 
     let grpc_handle = manager.register(
         "grpc-server",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(15))
+            .with_graceful_shutdown(config.phase1_graceful_shutdown())
             .with_shutdown_phase(1),
     );
     let metrics_handle = manager.register(
@@ -116,11 +124,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let coordination_handle = manager.register(
         "coordination",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(35)),
+        ComponentOptions::new().with_graceful_shutdown(config.coordination_graceful_shutdown()),
     );
     let kafka_handle = manager.register(
         "kafka-producer",
-        ComponentOptions::new().with_shutdown_phase(1),
+        // The graceful window is the ceiling; the bounded flush task
+        // spawned after the producer is built normally completes well
+        // inside it.
+        ComponentOptions::new()
+            .with_graceful_shutdown(config.phase1_graceful_shutdown())
+            .with_shutdown_phase(1),
     );
 
     let authority_metrics_handle = manager.register(
@@ -147,6 +160,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         )
         .route("/_liveness", get(move || async move { liveness.check() }));
+    // Changelog payload sizes: dense through the small-person range,
+    // with the top boundaries straddling the broker's message.max.bytes
+    // (typically 1 MiB) so p99 creeping toward the produce limit is
+    // visible before messages start getting rejected.
+    const CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES: &[f64] = &[
+        256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 524288.0, 1048576.0, 2097152.0,
+    ];
     // The write path and warms are tuned in single-digit milliseconds;
     // the default ladder's 10 → 50 ms step blurs exactly the spans the
     // fencing and warm work steers by, and pins interpolated quantiles
@@ -184,6 +204,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_release_phase_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fallback_pool_acquire_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fenced_producer_window_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("grpc_server_request_duration_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
@@ -198,6 +230,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 Matcher::Full("personhog_leader_warm_span_ms".into()),
                 WARM_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
+                CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
             ),
         ],
     );
@@ -247,13 +283,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
 
-    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
+    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
         Ok(producer) => producer,
         Err(e) => {
             tracing::error!(error = %e, "failed to create Kafka producer");
             return Err(e.into());
         }
     };
+    // Runs at phase 1, after the coordination drain, so the drain's last
+    // records are in the queue it flushes.
+    personhog_leader::kafka::spawn_bounded_flush_on_shutdown(
+        kafka_producer.clone(),
+        kafka_handle,
+        Duration::from_secs(10),
+    );
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
     let fallback = if config.fallback_database_url.is_empty() {
@@ -268,13 +311,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             statement_timeout_ms: Some(5_000),
             ..Default::default()
         };
-        Some(PgFallback {
+        let fallback = PgFallback {
             pool: common_database::get_pool_with_config(
                 &config.fallback_database_url,
                 pool_config,
             )?,
             table: config.fallback_table.clone(),
-        })
+            lifecycle: LifecycleTables::new(
+                &config.lifecycle_op_table,
+                &config.lifecycle_op_person_table,
+            ),
+        };
+        personhog_common::spawn_pool_monitor(
+            vec![personhog_common::MonitoredPool {
+                pool: fallback.pool.clone(),
+                label: "fallback".to_string(),
+                max_connections: config.fallback_pg_max_connections,
+            }],
+            Duration::from_secs(10),
+        );
+        Some(fallback)
     };
 
     // Connect to etcd for coordination and the partition count
@@ -321,46 +377,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_producer.clone(),
         config.ingestion_warnings_topic.clone(),
     );
-    let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
-    let fenced = if config.kafka_transactional_fencing {
-        // Every one of these is derived from LEASE_TTL rather than set
-        // directly, so an operator debugging a fenced-write timeout has
-        // no way to recover them without re-running the derivation by
-        // hand.
-        tracing::info!(
-            window_ms = config.fencing_window_ms,
-            message_timeout_ms = config.fencing_message_timeout().as_millis(),
-            txn_timeout_ms = config.fencing_txn_timeout().as_millis(),
-            broker_txn_timeout_ms = config.fencing_broker_txn_timeout().as_millis(),
-            lease_runway_ms = config.lease_fence_runway().as_millis(),
-            "broker-enforced epoch fencing enabled for the changelog"
-        );
-        preregister_fencing_metrics(num_partitions);
-        // The fenced producer runs on a tighter message timeout than the
-        // shared one: its writes must resolve inside the lease runway.
-        let fencing_kafka = common_kafka::config::KafkaConfig {
-            kafka_message_timeout_ms: config.fencing_message_timeout().as_millis() as u32,
-            // One producer per owned partition, so the shared producer's
-            // queue limits are an aggregate to divide rather than a
-            // per-producer figure to copy.
-            kafka_producer_queue_mib: config.fencing_queue_mib(num_partitions),
-            kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
-            ..config.kafka.clone()
-        };
-        Some(Arc::new(FencedChangelogProducers::new(
-            FencedProducerConfig {
-                kafka: fencing_kafka,
-                topic: config.kafka_person_state_topic.clone(),
-                init_timeout: config.fencing_init_timeout(),
-                commit_timeout: config.fencing_txn_timeout(),
-                broker_txn_timeout: config.fencing_broker_txn_timeout(),
-                window: Duration::from_millis(config.fencing_window_ms),
-                settle_budget: config.fencing_settle_budget(),
-            },
-        )))
-    } else {
-        None
+    let fence_scan = fallback.clone();
+    // All derived from LEASE_TTL, so an operator debugging a timeout
+    // cannot recover them without redoing the derivation.
+    tracing::info!(
+        window_ms = config.fencing_window_ms,
+        message_timeout_ms = config.fencing_message_timeout().as_millis(),
+        txn_timeout_ms = config.fencing_txn_timeout().as_millis(),
+        broker_txn_timeout_ms = config.fencing_broker_txn_timeout().as_millis(),
+        lease_runway_ms = config.lease_fence_runway().as_millis(),
+        "producing the changelog through per-partition transactional producers"
+    );
+    preregister_fencing_metrics(num_partitions);
+    // A condemned producer's repair otherwise waits for the next
+    // reconcile tick; this nudge lets the condemnation itself
+    // trigger the repair pass that heals it.
+    let fence_repair_nudge = Arc::new(Notify::new());
+    // The fenced producer runs on a tighter message timeout than the
+    // shared one: its writes must resolve inside the lease runway.
+    let fencing_kafka = common_kafka::config::KafkaConfig {
+        kafka_message_timeout_ms: config.fencing_message_timeout().as_millis() as u32,
+        // One producer per lane per owned partition, so the shared
+        // producer's queue limits are an aggregate to divide rather
+        // than a per-producer figure to copy.
+        kafka_producer_queue_mib: config.fencing_queue_mib(num_partitions),
+        kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
+        ..config.kafka.clone()
     };
+    let fenced = Arc::new(
+        FencedChangelogProducers::new(FencedProducerConfig {
+            kafka: fencing_kafka,
+            topic: config.kafka_person_state_topic.clone(),
+            init_timeout: config.fencing_init_timeout(),
+            commit_timeout: config.fencing_txn_timeout(),
+            broker_txn_timeout: config.fencing_broker_txn_timeout(),
+            window: Duration::from_millis(config.fencing_window_ms),
+            window_max_writes: config.fencing_window_max_writes,
+            settle_budget: config.fencing_settle_budget(),
+            lanes: config.fencing_lanes,
+        })
+        .with_repair_nudge(Arc::clone(&fence_repair_nudge)),
+    );
 
     // One clock for the process: the coordination session claims and
     // surrenders it, the data plane reads it per request.
@@ -409,20 +466,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let gated_authority = if config.lease_gated_authority {
-        tracing::info!(
-            "lease-gated authority enabled: reads and fence acquisition require a \
-                        confirmed lease renewal within the keepalive margin"
-        );
-        Some(Arc::clone(&authority))
-    } else {
-        None
-    };
-
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        config.kafka_person_state_topic.clone(),
         fallback,
         Arc::clone(&locks),
         Arc::clone(&inflight),
@@ -435,8 +480,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         warnings.clone(),
         Arc::clone(&fences),
-        fenced.clone(),
-        gated_authority.clone(),
+        Arc::clone(&fenced),
+        Arc::clone(&authority),
         Arc::clone(&emitted_versions),
     )
     .with_fence_capacity(config.fence_map_max_entries);
@@ -470,11 +515,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
         Arc::clone(&fences),
-        fence_scan_pool,
+        fence_scan,
         num_partitions,
         Arc::clone(&warm_pools),
-        fenced.clone(),
-        gated_authority.clone(),
+        Arc::clone(&fenced),
+        Arc::clone(&authority),
         Arc::clone(&emitted_versions),
     );
     let advertise_address =
@@ -519,17 +564,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (None, String::new(), None)
     };
 
+    // Timescale and concurrency knobs come from `base_pod_config`, the
+    // same values `validate_lease_timescales` summed at startup; only
+    // the identity fields, which no validation reads, are filled here.
     let pod_config = PodConfig {
         pod_name: config.pod_name.clone(),
         generation,
         controller,
-        lease_ttl: config.lease_ttl,
-        heartbeat_interval: config.heartbeat_interval(),
         advertise_address: Some(advertise_address),
-        // Zero would park every warm on an unobtainable permit and wedge
-        // handoffs; treat it as fully sequential instead.
-        warm_concurrency: config.warm_concurrency.max(1),
-        ..Default::default()
+        ..config.base_pod_config()
     };
 
     // Open connections up front: warms cluster in deploy bursts, and a
@@ -564,13 +607,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let pod = PodHandle::new(
+    let mut pod = PodHandle::new(
         store,
         pod_config,
         Arc::new(handler),
         k8s_awareness,
         Arc::clone(&authority),
     );
+    pod = pod.with_repair_nudge(fence_repair_nudge);
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
@@ -579,21 +623,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Periodic sweep of idle per-key locks and refilled warning-throttle keys
+    // Periodic sweep of idle per-key locks, refilled warning-throttle
+    // keys, and parked fence connections nothing consumed (a cancelled
+    // inbound handoff leaves no convergence behind to discard them).
     let sweep_locks = Arc::clone(&locks);
     let sweep_warnings = warnings.clone();
+    let sweep_fenced = Arc::clone(&fenced);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
             sweep_idle_locks(&sweep_locks);
             sweep_warnings.sweep_throttle();
+            sweep_fenced.sweep_prepared();
         }
     });
 
     tokio::spawn(run_dirty_index_prune_loop(
         Arc::clone(&dirty_index),
         Arc::clone(&cache),
+        Arc::clone(&locks),
         Arc::clone(&warm_pools),
         config.kafka_person_state_topic.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
@@ -688,6 +737,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_dirty_index_prune_loop(
     dirty_index: Arc<DirtyIndex>,
     cache: Arc<PartitionedCache>,
+    locks: Arc<DashMap<PersonCacheKey, Arc<tokio::sync::Mutex<()>>>>,
     pools: Arc<WarmClientPools>,
     topic: String,
     offsets_timeout: Duration,
@@ -700,31 +750,23 @@ async fn run_dirty_index_prune_loop(
         // marks actually reclaimed — a tick never scans the index, which
         // is what makes the 1s interval affordable even when a lagging
         // writer has made the index large.
-        let partitions = dirty_index.partitions_with_marks();
         gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
         gauge!("personhog_leader_dirty_index_max_entries").set(dirty_index.max_entries() as f64);
         gauge!("personhog_leader_cache_weight_bytes").set(cache.usage_bytes() as f64);
-        if partitions.is_empty() {
-            continue;
-        }
-        let committed_offsets = match fetch_writer_committed_offsets(
+        let Some((partitions, committed_offsets)) = prune_and_settle_tick(
+            &dirty_index,
+            &cache,
+            &locks,
             &pools.offsets,
             &topic,
-            &partitions,
             offsets_timeout,
         )
         .await
-        {
-            Ok(offsets) => offsets,
-            Err(e) => {
-                tracing::warn!(error = %e, "dirty-index prune offset fetch failed");
-                continue;
-            }
+        else {
+            continue;
         };
-
-        let pruned = dirty_index.prune_applied(&committed_offsets);
-        if pruned > 0 {
-            counter!("personhog_leader_dirty_index_pruned_total").increment(pruned as u64);
+        if partitions.is_empty() {
+            continue;
         }
         // A partition absent from the committed offsets has no writer
         // commit yet: nothing is applied, every mark stays, and its lag
@@ -787,6 +829,7 @@ fn preregister_metrics() {
         counter!("personhog_leader_indeterminate_outcomes_total", "fenced" => fenced).increment(0);
     }
     counter!("personhog_leader_unresolved_versions_total").increment(0);
+    counter!("personhog_leader_death_documents_settled_total").increment(0);
     gauge!("personhog_leader_unresolved_versions").set(0.0);
     counter!("personhog_leader_warmed_messages_total").increment(0);
     counter!("personhog_leader_warm_retries_exhausted_total", "stage" => "committed_offset")

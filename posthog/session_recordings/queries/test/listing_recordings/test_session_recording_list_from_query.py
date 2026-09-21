@@ -2,10 +2,10 @@ import re
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from itertools import product
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -24,9 +24,10 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized, parameterized_class
+from rest_framework.exceptions import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from posthog.schema import PersonsOnEventsMode, RecordingsQuery
+from posthog.schema import ActionsNode, EventsNode, PersonsOnEventsMode, RecordingsQuery
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
@@ -36,10 +37,12 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
+from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
 )
+from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     create_event,
@@ -58,7 +61,7 @@ from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
 
 
 @parameterized_class([{"allow_event_property_expansion": True}, {"allow_event_property_expansion": False}])
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     # set by parameterized_class decorator
     allow_event_property_expansion: bool
@@ -121,6 +124,27 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team=team,
             event_name="$pageleave",
             properties={"$session_id": session_id, "$window_id": "1"},
+        )
+
+    def test_filters_recommended_recordings_by_surfacing_score(self) -> None:
+        recommended_session_id = str(uuid7())
+        for session_id, surfacing_score in (
+            (recommended_session_id, 0.8),
+            (str(uuid7()), 0.36),
+            (str(uuid7()), 0.2),
+            (str(uuid7()), None),
+        ):
+            produce_replay_summary(
+                distinct_id="user",
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+                surfacing_score=surfacing_score,
+            )
+
+        self._assert_query_matches_session_ids(
+            {"recommended_only": True},
+            [recommended_session_id],
         )
 
     @property
@@ -264,6 +288,48 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
 
         assert more_recordings_available is False
+
+    @parameterized.expand(
+        [
+            # Concurrent tabs give overlapping blocks whose active time sums past the elapsed span,
+            # which used to surface as a negative inactive time and a score above 100.
+            ("active_time_exceeds_span", 20, 1, 100 * 1000, 0, 100),
+            # Nothing to divide by: no mouse activity, no console output, no duration. The ratio was
+            # 0/0, which reached the API as NaN and is not valid JSON.
+            ("no_denominator", 0, 0, 0, 0, 0),
+        ]
+    )
+    def test_duration_metrics_stay_in_valid_range(
+        self,
+        _name: str,
+        span_seconds: int,
+        mouse_activity_count: int,
+        active_milliseconds: int,
+        expected_inactive: int,
+        expected_score: int,
+    ):
+        user = "test_duration_metrics-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id = f"test_duration_metrics-{str(uuid4())}"
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=span_seconds)),
+            distinct_id=user,
+            click_count=0,
+            keypress_count=0,
+            mouse_activity_count=mouse_activity_count,
+            active_milliseconds=active_milliseconds,
+        )
+
+        session_recordings, _, _, _ = self._filter_recordings_by()
+
+        assert len(session_recordings) == 1
+        recording = session_recordings[0]
+        assert recording["inactive_seconds"] == expected_inactive
+        assert recording["activity_score"] == expected_score
 
     @snapshot_clickhouse_queries
     def test_basic_query_active_sessions(
@@ -792,6 +858,426 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
+    def test_event_filter_session_subquery_has_no_ordering(self) -> None:
+        subquery = ReplayFiltersEventsSubQuery(
+            team=self.team,
+            query=RecordingsQuery(
+                properties=[{"key": "$pathname", "value": "/", "operator": "exact", "type": "event"}]
+            ),
+        )
+
+        queries = subquery.get_queries_for_session_id_matching()
+
+        assert len(queries) == 1
+        assert queries[0].order_by is None
+
+    @parameterized.expand(
+        [
+            ("events without a type", "events", None, EventsNode, "event_entities"),
+            ("actions without a type", "actions", None, ActionsNode, "action_entities"),
+            ("events with an unaccepted type", "events", "event", EventsNode, "event_entities"),
+            ("actions with an unaccepted type", "actions", "action", ActionsNode, "action_entities"),
+        ]
+    )
+    def test_entity_dicts_fall_back_to_their_source_list_type(
+        self,
+        _name: str,
+        source_list: str,
+        raw_type: str | None,
+        expected_node: type,
+        entities_property: str,
+    ) -> None:
+        # API callers can omit the entity type or send one Entity rejects; both used to 500.
+        entity_id = (
+            Action.objects.create(team=self.team, name="untyped action").id if source_list == "actions" else "$pageview"
+        )
+        raw_entity: dict[str, Any] = {"id": entity_id}
+        if raw_type is not None:
+            raw_entity["type"] = raw_type
+
+        positive = ReplayFiltersEventsSubQuery(team=self.team, query=RecordingsQuery(**{source_list: [raw_entity]}))
+        assert isinstance(getattr(positive, entities_property)[0], expected_node)
+
+        negated = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery(**{source_list: [{**raw_entity, "negation": True}]})
+        )
+        assert isinstance(negated.negated_entities[0], expected_node)
+
+    @parameterized.expand(
+        [
+            ("an action in another project", True),
+            ("an action id that does not exist", False),
+        ]
+    )
+    def test_action_filter_outside_the_project_is_rejected(self, _name: str, action_exists: bool) -> None:
+        # The lookup used to be unscoped, so a foreign action's steps compiled into the caller's
+        # filter and an unknown id escaped as an uncaught Action.DoesNotExist.
+        if action_exists:
+            other_team = Team.objects.create(organization=self.organization)
+            action_id = Action.objects.create(team=other_team, name="other project action").id
+        else:
+            action_id = 0
+
+        sub_query = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery(actions=[{"id": action_id, "type": "actions"}])
+        )
+        with self.assertRaises(ValidationError):
+            sub_query.get_query_for_event_id_matching()
+
+    @parameterized.expand(
+        [
+            ("an event name in the actions list", "actions", "$pageview"),
+            ("a number in the events list", "events", 7),
+            ("no id at all", "actions", None),
+        ]
+    )
+    def test_entity_dict_the_node_cannot_hold_is_rejected(self, _name: str, source_list: str, entity_id: Any) -> None:
+        # ActionsNode.id is an int and EventsNode.event is a str, so the wrong id type used to
+        # raise a pydantic ValidationError here and escape as a 500.
+        sub_query = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery(**{source_list: [{"id": entity_id}]})
+        )
+        with self.assertRaises(ValidationError):
+            sub_query.get_query_for_event_id_matching()
+
+    def test_action_filter_in_the_same_project_is_accepted(self) -> None:
+        sibling_environment = Team.objects.create(organization=self.organization, project=self.team.project)
+        action = Action.objects.create(team=sibling_environment, name="sibling environment action")
+
+        sub_query = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery(actions=[{"id": action.id, "type": "actions"}])
+        )
+        assert sub_query.get_query_for_event_id_matching() is not None
+
+    @parameterized.expand([("AND",), ("OR",)])
+    def test_negated_event_filter_excludes_sessions_containing_event(self, operand: str) -> None:
+        user = "test_negated_event_filter-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_with_purchase = f"with-purchase-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_with_purchase,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_with_purchase, "$window_id": "1"},
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            event_name="purchase",
+            properties={"$session_id": session_with_purchase, "$window_id": "1"},
+        )
+
+        session_without_purchase = f"without-purchase-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_without_purchase,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_without_purchase, "$window_id": "1"},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "operand": operand,
+                "events": [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {"id": "purchase", "type": "events", "order": 1, "name": "purchase", "negation": True},
+                ],
+            },
+            [session_without_purchase],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "operand": operand,
+                "events": [
+                    {"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True},
+                ],
+            },
+            [session_without_purchase],
+        )
+
+    def test_negated_event_filter_respects_entity_property_filters(self) -> None:
+        user = "test_negated_event_props-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_success = f"success-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_success,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={
+                "$session_id": session_success,
+                "$window_id": "1",
+                "$current_url": "https://app.io/checkout/success",
+            },
+        )
+
+        session_other = f"other-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_other,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={
+                "$session_id": session_other,
+                "$window_id": "1",
+                "$current_url": "https://app.io/pricing",
+            },
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "negation": True,
+                        "properties": [
+                            {
+                                "key": "$current_url",
+                                "value": "/checkout/success",
+                                "operator": "icontains",
+                                "type": "event",
+                            }
+                        ],
+                    }
+                ],
+            },
+            [session_other],
+        )
+
+    def test_negated_action_filter_excludes_sessions_containing_action(self) -> None:
+        user = "test_negated_action-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        action = self.create_action("custom-event")
+
+        session_with_action = f"with-action-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_with_action,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            event_name="custom-event",
+            properties={"$session_id": session_with_action, "$window_id": "1"},
+        )
+
+        session_without_action = f"without-action-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_without_action,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_without_action, "$window_id": "1"},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "actions": [
+                    {"id": action.id, "type": "actions", "order": 0, "name": action.name, "negation": True},
+                ],
+            },
+            [session_without_action],
+        )
+
+    def test_negated_event_filter_does_not_affect_matching_events(self) -> None:
+        user = "test_negated_matching-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        session_id = f"matching-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        pageview_uuid = create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_id, "$window_id": "1"},
+        )
+
+        query = RecordingsQuery.model_validate(
+            {
+                "session_ids": [session_id],
+                "events": [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {"id": "purchase", "type": "events", "order": 1, "name": "purchase", "negation": True},
+                ],
+            }
+        )
+        result = ReplayFiltersEventsSubQuery(team=self.team, query=query).get_event_ids_for_session()
+        assert [str(row[0]) for row in result.results] == [pageview_uuid]
+
+    def test_exclusion_only_filter_returns_no_matching_events(self) -> None:
+        # with only negated entities there are no positive predicates, so the matching-events
+        # query must execute and return empty rather than erroring on an empty operand wrapper
+        user = "test_exclusion_only_matching-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        session_id = f"exclusion-only-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_id, "$window_id": "1"},
+        )
+
+        query = RecordingsQuery.model_validate(
+            {
+                "session_ids": [session_id],
+                "events": [
+                    {"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True},
+                ],
+            }
+        )
+        result = ReplayFiltersEventsSubQuery(team=self.team, query=query).get_event_ids_for_session()
+        assert result.results == []
+
+    def test_multiple_negated_event_filters_exclude_sessions_matching_any(self) -> None:
+        user = "test_multiple_negated-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_purchase = f"purchase-{str(uuid4())}"
+        session_signup = f"signup-{str(uuid4())}"
+        session_neither = f"neither-{str(uuid4())}"
+        for session_id, extra_event in [
+            (session_purchase, "purchase"),
+            (session_signup, "signup"),
+            (session_neither, None),
+        ]:
+            produce_replay_summary(
+                distinct_id=user, session_id=session_id, first_timestamp=self.an_hour_ago, team_id=self.team.id
+            )
+            create_event(
+                team=self.team,
+                distinct_id=user,
+                timestamp=self.an_hour_ago,
+                properties={"$session_id": session_id, "$window_id": "1"},
+            )
+            if extra_event:
+                create_event(
+                    team=self.team,
+                    distinct_id=user,
+                    timestamp=self.an_hour_ago,
+                    event_name=extra_event,
+                    properties={"$session_id": session_id, "$window_id": "1"},
+                )
+
+        # The blocklist unions both negated entities, so matching either one excludes the session.
+        self._assert_query_matches_session_ids(
+            {
+                "events": [
+                    {"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True},
+                    {"id": "signup", "type": "events", "order": 1, "name": "signup", "negation": True},
+                ],
+            },
+            [session_neither],
+        )
+
+    def test_negated_entity_and_negative_property_share_one_blocklist(self) -> None:
+        user = "test_negated_combined-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_purchase = f"purchase-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user, session_id=session_purchase, first_timestamp=self.an_hour_ago, team_id=self.team.id
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_purchase, "$window_id": "1", "$current_url": "https://app.io/home"},
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            event_name="purchase",
+            properties={"$session_id": session_purchase, "$window_id": "1"},
+        )
+
+        session_internal = f"internal-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user, session_id=session_internal, first_timestamp=self.an_hour_ago, team_id=self.team.id
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={
+                "$session_id": session_internal,
+                "$window_id": "1",
+                "$current_url": "https://app.io/internal/dashboard",
+            },
+        )
+
+        session_clean = f"clean-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user, session_id=session_clean, first_timestamp=self.an_hour_ago, team_id=self.team.id
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_clean, "$window_id": "1", "$current_url": "https://app.io/home"},
+        )
+
+        # A negated entity and a negative event property both feed the single AND blocklist. A session
+        # matching either (did purchase, or visited /internal) is excluded.
+        self._assert_query_matches_session_ids(
+            {
+                "events": [
+                    {"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True},
+                ],
+                "properties": [
+                    {"key": "$current_url", "value": "/internal", "operator": "not_icontains", "type": "event"},
+                ],
+            },
+            [session_clean],
+        )
+
     @snapshot_clickhouse_queries
     def test_event_filter_has_ttl_applied_too(self):
         user = "test_event_filter_has_ttl_applied_too-user"
@@ -834,23 +1320,23 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_listing_ignores_future_replays(self):
-        with freeze_time("2023-08-29T12:00:01Z"):
+        with time_machine.travel("2023-08-29T12:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="29th Aug")
 
-        with freeze_time("2023-08-30T14:00:01Z"):
+        with time_machine.travel("2023-08-30T14:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="30th Aug 1400")
 
-        with freeze_time("2023-09-01T12:00:01Z"):
+        with time_machine.travel("2023-09-01T12:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="1st-sep")
 
-        with freeze_time("2023-09-02T12:00:01Z"):
+        with time_machine.travel("2023-09-02T12:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="2nd-sep")
 
-        with freeze_time("2023-09-03T12:00:01Z"):
+        with time_machine.travel("2023-09-03T12:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="3rd-sep")
 
         # before the recording on the thirtieth so should exclude it
-        with freeze_time("2023-08-30T12:00:01Z"):
+        with time_machine.travel("2023-08-30T12:00:01Z", tick=False):
             # recordings in the future don't show
             self._assert_query_matches_session_ids(None, ["29th Aug"])
 
@@ -1459,7 +1945,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$session_id", "$browser"], person_properties=["email"])
-    @freeze_time("2023-01-04")
+    @time_machine.travel("2023-01-04", tick=False)
     def test_action_filter(self):
         user = "test_action_filter-user"
         create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -2059,7 +2545,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     )
     @snapshot_clickhouse_queries
     def test_date_from_filter_respects_ttl(self, _name: str, days_ago: int):
-        with freeze_time(self.an_hour_ago):
+        with time_machine.travel(self.an_hour_ago, tick=False):
             user = "test_date_from_filter_cannot_search_before_ttl-user"
             create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
@@ -2518,7 +3004,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(["$current_url", "$browser"])
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_any_event_filter_with_properties(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -2650,7 +3136,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_with_console_logs(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -2706,7 +3192,40 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_filter_for_recordings_with_console_logs_and_explicit_date_range(self):
+        """The console logs subquery is clamped to the query's date range (with a ±1 day
+        buffer), including an explicit `date_to` — sessions inside the range still match."""
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        with_logs_session_id = f"with-logs-session-{str(uuid4())}"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_logs_session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_log_count=4,
+            log_messages={
+                "info": [
+                    "info",
+                    "info",
+                    "info",
+                ],
+            },
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+                "date_from": "-3d",
+                "date_to": "2021-01-01",
+            },
+            [with_logs_session_id],
+        )
+
+    @snapshot_clickhouse_queries
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_with_console_warns(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -2758,7 +3277,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_with_console_errors(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -2810,7 +3329,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_with_mixed_console_counts(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -2938,7 +3457,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_by_console_text(
         self,
         console_log_filters: str,
@@ -3253,6 +3772,47 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_one, session_id_two],
         )
 
+    def test_filter_for_recordings_by_visited_page_negative_operator(self):
+        user = "test_visited_page_negative_filter-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        pricing_only = "pricing only session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=pricing_only,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/pricing"],
+        )
+        pricing_and_billing = "pricing and billing session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=pricing_and_billing,
+            team_id=self.team.id,
+            all_urls=["https://example.com/pricing", "https://example.com/billing"],
+        )
+        no_urls = "no urls session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=no_urls,
+            team_id=self.team.id,
+            all_urls=[],
+        )
+
+        # A negative filter applies to the whole recording: one visit to a matching page excludes it,
+        # and a recording with no pages cannot have visited one
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "billing", "operator": "not_icontains", "type": "recording"}]'
+            },
+            [pricing_only, no_urls],
+        )
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "billing", "operator": "icontains", "type": "recording"}]'
+            },
+            [pricing_and_billing],
+        )
+
     def test_duration_always_anded_with_visited_page_under_or(self):
         user = "test_duration_visited_page-user"
         create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -3295,7 +3855,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         person_properties=["email"],
         verify_no_jsonextract=False,
     )
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_with_test_accounts_excluded(self):
         self.team.test_account_filters = [
@@ -3377,7 +3937,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         person_properties=["email"],
         verify_no_jsonextract=False,
     )
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_event_properties_test_accounts_excluded(self):
         self.team.test_account_filters = [
@@ -3478,7 +4038,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     # TRICKY: we had to disable use of materialized columns for part of the query generation
     # due to RAM usage issues on the EU cluster
     @also_test_with_materialized_columns(event_properties=["is_internal_user"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_event_property_test_account_filter(self):
         """
@@ -3571,7 +4131,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     # TRICKY: we had to disable use of materialized columns for part of the query generation
     # due to RAM usage issues on the EU cluster
     @also_test_with_materialized_columns(event_properties=["is_internal_user"], verify_no_jsonextract=True)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_event_property_test_account_filter_allowing_denormalized_props(self):
         """
@@ -3662,7 +4222,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     @also_test_with_materialized_columns(event_properties=["is_internal_user"])
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_hogql_event_property_test_account_filter(self):
         """
@@ -3748,7 +4308,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_hogql_person_property_test_account_filter(self):
         """
@@ -3834,7 +4394,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_person_property_test_account_filter(self):
         """
@@ -3930,7 +4490,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ["1"],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_with_two_events_and_multiple_teams(self):
         another_team = Team.objects.create(organization=self.organization)
@@ -3963,7 +4523,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ["1"],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_with_group_filter(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -4079,7 +4639,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ordering(self):
         session_id_one = f"test_ordering-one"
@@ -4118,7 +4678,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(event_properties=["$host"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_event_host_property_test_account_filter(self):
         """
@@ -4389,7 +4949,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_filter_users_from_excluded_cohort(self):
         """
@@ -4488,7 +5048,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_filter_users_from_excluded_cohort_no_events(self):
         """
@@ -4556,7 +5116,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _print_query(self, query: SelectQuery) -> str:
         return prepare_and_print_ast(

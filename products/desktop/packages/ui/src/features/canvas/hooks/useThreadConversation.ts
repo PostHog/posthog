@@ -36,12 +36,17 @@ type SessionEvents = ReturnType<typeof useSessionViewState>["events"];
 
 export interface ThreadConversation {
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
+  /** Every thread message, unfiltered. `timeline` is the human-facing subset, so a surface
+   *  that draws agent and system rows has to start here instead. */
+  messages: TaskThreadMessage[];
   agentStatus: ThreadAgentStatus | null;
   events: SessionEvents;
   isPromptPending: boolean;
-  isReady: boolean;
+  /** The thread's own durable content has arrived. Unlike the live session's
+   *  connect state, this never goes back to false once true. */
+  hasLoadedThread: boolean;
   members: UserBasic[];
-  currentUser: { uuid?: string; email?: string } | undefined;
+  currentUser: { id?: number; uuid?: string; email?: string } | undefined;
   isTaskAuthor: boolean;
   canForward: boolean;
   draft: string;
@@ -61,7 +66,7 @@ export function useThreadConversation(
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
 
-  const { messages, isLoading } = useTaskThread(taskId);
+  const { messages, hasLoaded: hasLoadedThread } = useTaskThread(taskId);
   const { postMessage, isPosting } = usePostTaskThreadMessage(taskId);
   const { postMessageToAgent, isPostingToAgent } =
     usePostTaskThreadMessageToAgent(taskId);
@@ -194,10 +199,11 @@ export function useThreadConversation(
 
   return {
     timeline,
+    messages,
     agentStatus,
     events,
     isPromptPending,
-    isReady: !isInitializing && !isLoading,
+    hasLoadedThread,
     members,
     currentUser,
     isTaskAuthor,

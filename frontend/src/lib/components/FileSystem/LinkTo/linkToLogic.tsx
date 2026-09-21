@@ -7,7 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { calculateMovePath, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { calculateMovePath, parentPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { ProjectTreeRef } from '../../../../types'
@@ -164,7 +164,7 @@ export const linkToLogic = kea<linkToLogicType>([
                 actions.setFormValue('folder', values.lastNewFolder)
             } else {
                 const itemPath = items[0].path
-                const itemFolder = joinPath(splitPath(itemPath).slice(0, -1))
+                const itemFolder = parentPath(itemPath)
                 actions.setFormValue('folder', itemFolder)
             }
         },

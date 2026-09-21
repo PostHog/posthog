@@ -9,11 +9,11 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import FeatureFlagGroupType
 
 from posthog.exceptions_capture import capture_exception
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.feature_flags.backend.facade.api import create_flag
 from products.feature_flags.backend.models.evaluation_context import TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -49,7 +49,8 @@ class FeatureFlagCreationSchema(BaseModel):
     )
     tags: list[str] = Field(
         default_factory=list,
-        description="Tags for organizing and categorizing the flag",
+        description="Tags for organizing and categorizing the flag. Some projects require at least one "
+        "tag on every new flag, and reject a create that carries none.",
     )
     variants: list[MultivariateVariant] | None = Field(
         default=None,
@@ -267,7 +268,6 @@ class CreateFeatureFlagTool(MaxTool):
                 "active": flag_schema.active,
                 "filters": filters,
                 "tags": flag_schema.tags,
-                "_should_create_usage_dashboard": False,
             }
 
             # Unspecified (None) falls back to the project defaults; an explicit empty list is left as-is.
@@ -282,26 +282,19 @@ class CreateFeatureFlagTool(MaxTool):
                 user=self._user,
                 method="POST",
                 successful_authenticator=None,
+                is_posthog_ai=True,
                 session={},
                 data=serializer_data,
                 META={},
                 headers={},
             )
             team = self._team
-            context = {
-                "request": mock_request,
-                "team_id": team.id,
-                "project_id": team.project_id,
-                "get_team": lambda: team,
-            }
 
             @database_sync_to_async
-            def create_flag_via_serializer() -> FeatureFlag:
-                serializer = FeatureFlagSerializer(data=serializer_data, context=context)
-                serializer.is_valid(raise_exception=True)
-                return serializer.save()
+            def create_flag_through_facade() -> FeatureFlag:
+                return create_flag(serializer_data, team=team, user=self._user, request=mock_request)
 
-            flag = await create_flag_via_serializer()
+            flag = await create_flag_through_facade()
 
             flag_url = f"/project/{self._team.project_id}/feature_flags/{flag.id}"
             targeting_info = self._format_targeting_info(flag_schema, group_type_display_name)

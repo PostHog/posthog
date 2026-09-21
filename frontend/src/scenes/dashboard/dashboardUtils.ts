@@ -1,3 +1,4 @@
+import { deepEqual as equal } from 'fast-equals'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -10,7 +11,7 @@ import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -25,6 +26,7 @@ import {
     DashboardTile,
     DashboardType,
     DashboardWidgetType,
+    InsightFilterOverrideContext,
     InsightModel,
     QueryBasedInsightModel,
     TileLayout,
@@ -67,6 +69,7 @@ export function dashboardToSaveableTemplate(
                         body: tile.text.body,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.insight) {
@@ -77,6 +80,7 @@ export function dashboardToSaveableTemplate(
                         query: tile.insight.query,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.button_tile) {
@@ -90,6 +94,7 @@ export function dashboardToSaveableTemplate(
                         },
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.widget) {
@@ -99,6 +104,7 @@ export function dashboardToSaveableTemplate(
                         config: tile.widget.config,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 throw new Error('Unknown tile type')
@@ -173,7 +179,7 @@ export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
-export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
+export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
@@ -381,10 +387,8 @@ export async function getInsightWithRetry(
                 throw e // Re-throw cancellation errors
             }
 
-            // A 4xx response (e.g. a query validation error) is deterministic, so retrying
-            // would only replay the same failure — 429 excepted, which means "retry later"
-            if (e instanceof ApiError && e.status && e.status >= 400 && e.status < 500 && e.status !== 429) {
-                throw e
+            if (isDeterministicClientError(e)) {
+                throw e // A 4xx won't change on retry, so surface it immediately
             }
 
             attempt++
@@ -400,8 +404,8 @@ export async function getInsightWithRetry(
     return null
 }
 
-export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
-    const variables: Record<string, Partial<HogQLVariable>> = {}
+export const parseURLVariables = (searchParams: Record<string, any>): Record<string, HogQLVariable['value']> => {
+    const variables: Record<string, HogQLVariable['value']> = {}
 
     const raw = searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
     if (raw) {
@@ -418,7 +422,7 @@ export const parseURLVariables = (searchParams: Record<string, any>): Record<str
     return variables
 }
 
-export const encodeURLVariables = (variables: Record<string, string>): Record<string, string> => {
+export const encodeURLVariables = (variables: Record<string, HogQLVariable['value']>): Record<string, string> => {
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
@@ -456,6 +460,64 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
     return encodedFilters
 }
 
+/**
+ * An insight opened from a dashboard keys its variable overrides by variable id, while the dashboard URL keys them
+ * by code name. Convert them back so a link to the dashboard reopens it with the same filters and variable values.
+ */
+export const dashboardSearchParamsFromOverrides = (
+    variablesOverride: Record<string, HogQLVariable> | null | undefined,
+    filtersOverride: DashboardFilter | null | undefined
+): Record<string, string> => {
+    const urlVariables: Record<string, any> = {}
+
+    for (const variable of Object.values(variablesOverride ?? {})) {
+        if (!variable?.code_name) {
+            continue
+        }
+        const value = variable.isNull ? null : variable.value
+        if (value !== undefined) {
+            urlVariables[variable.code_name] = value
+        }
+    }
+
+    return { ...encodeURLVariables(urlVariables), ...encodeURLFilters(filtersOverride ?? {}) }
+}
+
+/**
+ * An empty override must stay in the URL when it clears a saved dashboard filter. Without that explicit
+ * value, a reload restores the saved filter. Empty overrides on unfiltered dashboards can be removed.
+ */
+export function searchParamsWithUrlFilters(
+    searchParams: Record<string, any>,
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter = {}
+): Record<string, any> {
+    const nextSearchParams = { ...searchParams }
+    if (!dashboardFilterOverrideChangesFilters(filters, persistedFilters)) {
+        delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
+        return nextSearchParams
+    }
+    return { ...nextSearchParams, ...encodeURLFilters(filters) }
+}
+
+export function dashboardFilterOverrideChangesFilters(
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter
+): boolean {
+    return Object.entries(filters).some(([key, value]) => {
+        const persistedValue = (persistedFilters as Record<string, unknown>)[key]
+        if (key === 'properties') {
+            const properties = Array.isArray(value) ? value : []
+            const persistedProperties = Array.isArray(persistedValue) ? persistedValue : []
+            return !equal(properties, persistedProperties)
+        }
+        if (value == null && persistedValue == null) {
+            return false
+        }
+        return !equal(value, persistedValue)
+    })
+}
+
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {
     return filters.reduce((combined, filter) => {
         Object.keys(filter).forEach((key) => {
@@ -468,6 +530,24 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
     }, {} as DashboardFilter)
 }
 
+export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | undefined
+): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
+    return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
+}
+
 const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
     DashboardEventSource.SceneCommonButtons,
     DashboardEventSource.CardEdgeHover,
@@ -477,15 +557,4 @@ const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
 
 export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
     return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
-}
-
-export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
-    return (
-        source !== null &&
-        (isLayoutEditEventSource(source) ||
-            source === DashboardEventSource.DashboardFilters ||
-            source === DashboardEventSource.DashboardVariableOverride ||
-            source === DashboardEventSource.DashboardInsightColorsModal ||
-            source === DashboardEventSource.DashboardHeaderOverridesBanner)
-    )
 }

@@ -6,7 +6,7 @@ import { PostHog } from "posthog-node";
 import { getAppVersion } from "../utils/env";
 import { uuidv7 } from "../utils/uuidv7";
 
-export class PosthogNodeAnalytics implements IAnalytics {
+class PosthogNodeAnalytics implements IAnalytics {
   private client: PostHog | null = null;
   private currentUserId: string | null = null;
   private sessionId: string | null = null;
@@ -60,6 +60,8 @@ export class PosthogNodeAnalytics implements IAnalytics {
         team: "posthog-code",
         ...properties,
         app_version: getAppVersion(),
+        os_platform: process.platform,
+        os_arch: process.arch,
         $process_person_profile: !!this.currentUserId,
       },
     });
@@ -96,6 +98,8 @@ export class PosthogNodeAnalytics implements IAnalytics {
       ...additionalProperties,
       ...(this.sessionId ? { $session_id: this.sessionId } : {}),
       app_version: getAppVersion(),
+      os_platform: process.platform,
+      os_arch: process.arch,
     });
   }
 

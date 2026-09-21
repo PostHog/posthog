@@ -1,9 +1,13 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -18,12 +22,14 @@ describe('timeSensitiveAuthenticationLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        jest.spyOn(lemonToast, 'error').mockImplementation(() => null as any)
         logic = timeSensitiveAuthenticationLogic()
         logic.mount()
     })
 
     afterEach(() => {
         logic.unmount()
+        jest.restoreAllMocks()
     })
 
     describe('initial state', () => {
@@ -58,6 +64,21 @@ describe('timeSensitiveAuthenticationLogic', () => {
                     token: 'Please enter your 2FA code',
                 },
             })
+        })
+
+        it('should clear the gate even when the sensitive action throws', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            const onSuccess = jest.fn(() => {
+                throw new Error('sensitive action failed')
+            })
+            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+
+            logic.actions.setReauthenticationValues({ password: 'test', token: undefined })
+            logic.actions.submitReauthentication()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onSuccess).toHaveBeenCalledTimes(1)
+            await expectLogic(logic).toMatchValues({ showAuthenticationModal: false })
         })
 
         it('should handle successful reauthentication', async () => {
@@ -150,6 +171,26 @@ describe('timeSensitiveAuthenticationLogic', () => {
             await pending
 
             await expectLogic(logic).toMatchValues({ showAuthenticationModal: false })
+        })
+    })
+
+    describe('failed SSO re-authentication', () => {
+        it('should report the error the backend sent back and drop it from the URL', async () => {
+            router.actions.push('/settings/user', { error_code: 'reauth_user_mismatch' })
+
+            logic.actions.showSsoReauthenticationError()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(ERROR_MESSAGES.reauth_user_mismatch)
+            expect(router.values.searchParams).toEqual({})
+        })
+
+        it('should leave unrelated query params alone', async () => {
+            router.actions.push('/settings/user', { tab: 'danger-zone' })
+
+            logic.actions.showSsoReauthenticationError()
+
+            expect(lemonToast.error).not.toHaveBeenCalled()
+            expect(router.values.searchParams).toEqual({ tab: 'danger-zone' })
         })
     })
 })

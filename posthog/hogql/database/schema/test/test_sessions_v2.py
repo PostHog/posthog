@@ -1,8 +1,10 @@
 import uuid
 from time import time_ns
+from typing import cast
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,12 +17,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.sessions_v2 import (
     get_lazy_session_table_properties_v2,
     get_lazy_session_table_values_v2,
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 
 from posthog.uuidt import uuid7
 
@@ -753,6 +758,33 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [(2,)]
 
+    @parameterized.expand(
+        [
+            ("v1", SessionTableVersion.V1),
+            ("v2", SessionTableVersion.V2),
+            ("v3", SessionTableVersion.V3),
+        ]
+    )
+    def test_is_bounce_resolves_as_nullable(self, _name: str, session_table_version: SessionTableVersion):
+        # Every sessions table builds $is_bounce as `if(<no pageviews>, NULL, ...)` so a session with
+        # nothing to bounce on stays out of the average. Declaring the field non-nullable makes the
+        # NULL guards around bounce rate (`coalesce(bounce.bounce_rate, 0)` in the web stats table)
+        # look redundant to type-aware rewrites; dropping them reports NULL instead of 0%.
+        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database.create_for(team=self.team, modifiers=modifiers),
+            modifiers=modifiers,
+        )
+        node = cast(
+            ast.SelectQuery,
+            resolve_types(parse_select("SELECT `$is_bounce` FROM sessions"), context, dialect="clickhouse"),
+        )
+        column_type = node.select[0].type
+        assert column_type is not None
+        assert column_type.resolve_constant_type(context).nullable is True
+
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
@@ -846,6 +878,25 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         results = get_lazy_session_table_properties_v2(None)
         for prop in results:
             get_lazy_session_table_values_v2(key=prop["id"], team=self.team, search_term=None)
+
+    @parameterized.expand([(None,), ("tub",)])
+    def test_values_query_samples_raw_rows(self, search_term):
+        with (
+            patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
+            self.capture_select_queries() as queries,
+        ):
+            get_lazy_session_table_values_v2(key="$entry_utm_source", team=self.team, search_term=search_term)
+
+        assert len(queries) == 1
+        sql = " ".join(queries[0].split())
+        assert "FROM raw_sessions" in sql
+        assert "finalizeAggregation(raw_sessions.initial_utm_source)" in sql
+        assert "ORDER BY raw_sessions.session_id_v7 DESC" in sql
+        assert "LIMIT 100000" in sql
+        # The `sessions` lazy table would merge every row of the team first.
+        assert "argMinMerge" not in sql
+        assert sql.count("GROUP BY") == 1
+        assert ("ilike(" in sql) == (search_term is not None)
 
     def test_custom_channel_types(self):
         self.team.modifiers = {

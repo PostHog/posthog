@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
+from posthog.product_db_migrations import collect_unapplied_product_migrations, configured_product_databases
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.logger import configure_logger
 
@@ -205,6 +206,11 @@ class Command(BaseCommand):
             help="Comma-separated sync types this consumer claims (e.g. 'cdc'). Default: all",
         )
         parser.add_argument(
+            "--skip-migrations-check",
+            action="store_true",
+            help="Skip the startup check that the queue DB has this image's migrations applied (emergency escape hatch)",
+        )
+        parser.add_argument(
             "--claim-exclude-sync-types",
             type=str,
             default=None,
@@ -215,6 +221,28 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Defense-in-depth behind the wave-1 ArgoCD migration-check hook: an image
+        # that expects queue-DB migrations the DB doesn't have would otherwise start
+        # and fail at runtime (UndefinedColumn), so refuse startup instead. Requires
+        # the PRODUCT_DB_WAREHOUSE_SOURCES_QUEUE_* env (a no-op where it is absent).
+        if not options.get("skip_migrations_check"):
+            if not configured_product_databases(databases={"warehouse_sources_queue"}):
+                # Legacy config: consumer reaches the queue DB via WAREHOUSE_SOURCES_DATABASE_URL
+                # alone, so the schema can't be verified. Warn instead of failing so those
+                # deployments keep working, but make the blind spot visible to operators.
+                logger.warning(
+                    "migrations_check_skipped_unconfigured",
+                    note="PRODUCT_DB_WAREHOUSE_SOURCES_QUEUE_* env not set; queue schema not verified against this image",
+                )
+            unapplied = collect_unapplied_product_migrations(databases={"warehouse_sources_queue"})
+            if unapplied:
+                for alias, migrations in unapplied.items():
+                    logger.error("unapplied_product_migrations", database_alias=alias, migrations=migrations)
+                raise CommandError(
+                    "Queue database is missing migrations this image expects: "
+                    + "; ".join(f"{alias}: {', '.join(migrations)}" for alias, migrations in unapplied.items())
+                )
+
         health_port = options["health_port"]
         health_timeout = options["health_timeout"]
 

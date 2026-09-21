@@ -4,7 +4,12 @@ import {
   sanitizeMcpServerName,
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
-import type { McpServerConnection, McpToolPolicy } from "@posthog/shared";
+import {
+  isCustomCloudHost,
+  type McpServerConnection,
+  type McpToolPolicy,
+} from "@posthog/shared";
+import { POSTHOG_PROJECT_ID_HEADER } from "@posthog/shared/posthog-property-headers";
 import { inject, injectable } from "inversify";
 import type { AuthProxyService } from "../auth-proxy/auth-proxy";
 import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
@@ -13,6 +18,16 @@ import type { McpProxyService } from "../mcp-proxy/mcp-proxy";
 import { AGENT_AUTH, AGENT_LOGGER } from "./identifiers";
 import type { AgentAuth, AgentLogger, AgentScopedLogger } from "./ports";
 import type { Credentials } from "./schemas";
+
+/**
+ * Names capabilities rather than describing the server, because the agent's tool search
+ * reads this before the PostHog MCP has ever connected. Mirrors POSTHOG_MCP_DESCRIPTION
+ * in products/tasks, which does the same for cloud runs.
+ */
+const POSTHOG_MCP_DESCRIPTION =
+  "Query and manage a PostHog project: events, insights, dashboards, SQL queries, " +
+  "feature flags, experiments, surveys, error tracking, session replay, logs, " +
+  "LLM analytics, and the data warehouse.";
 
 const VALID_APPROVAL_STATES = new Set([
   "approved",
@@ -99,9 +114,15 @@ export class AgentAuthAdapter {
     const policyInstallationIds = new Set(
       configuration.toolPolicies.map((policy) => policy.installationId),
     );
-    const servers = configuration.servers.filter((server) => {
+    // pi mounts these lazily and never dials one to answer "what can it do", so a server
+    // without a description is only findable by searching its exact name.
+    const servers = configuration.servers.flatMap((server) => {
       const installationId = configuration.serverInstallationIds.get(server);
-      return !installationId || policyInstallationIds.has(installationId);
+      if (installationId && !policyInstallationIds.has(installationId)) {
+        return [];
+      }
+      const description = configuration.serverDescriptions.get(server);
+      return [description ? { ...server, description } : server];
     });
 
     return { servers, policies: configuration.toolPolicies };
@@ -116,9 +137,13 @@ export class AgentAuthAdapter {
     toolInstallations: McpToolInstallations;
     toolPolicies: McpToolPolicy[];
     serverInstallationIds: Map<McpServerConnection, string>;
+    serverDescriptions: Map<McpServerConnection, string>;
   }> {
     const servers: McpServerConnection[] = [];
     const serverInstallationIds = new Map<McpServerConnection, string>();
+    // Kept beside the servers rather than on them: this list also goes to claude and
+    // codex as ACP session params, whose McpServer schema doesn't declare a description.
+    const serverDescriptions = new Map<McpServerConnection, string>();
     const mcpUrl = this.getPostHogMcpUrl(credentials.apiHost);
     // Warm the token so authenticatedFetch() has something cached, but do not
     // bake it into the MCP config — the proxy injects a fresh one on every
@@ -126,21 +151,26 @@ export class AgentAuthAdapter {
     await this.getValidToken();
 
     await this.mcpProxy.start();
-    const proxiedPosthogUrl = this.mcpProxy.register("posthog", mcpUrl);
 
-    servers.push({
-      name: "posthog",
-      type: "http",
-      url: proxiedPosthogUrl,
-      headers: [
-        {
-          name: "x-posthog-project-id",
-          value: String(credentials.projectId),
-        },
-        { name: "x-posthog-mcp-version", value: "2" },
-        { name: "x-posthog-mcp-consumer", value: "posthog-code" },
-      ],
-    });
+    if (mcpUrl) {
+      const proxiedPosthogUrl = this.mcpProxy.register("posthog", mcpUrl);
+
+      const posthogServer: McpServerConnection = {
+        name: "posthog",
+        type: "http",
+        url: proxiedPosthogUrl,
+        headers: [
+          {
+            name: POSTHOG_PROJECT_ID_HEADER,
+            value: String(credentials.projectId),
+          },
+          { name: "x-posthog-mcp-version", value: "2" },
+          { name: "x-posthog-mcp-consumer", value: "posthog-code" },
+        ],
+      };
+      servers.push(posthogServer);
+      serverDescriptions.set(posthogServer, POSTHOG_MCP_DESCRIPTION);
+    }
 
     const installations = await this.fetchMcpInstallations(credentials);
 
@@ -153,6 +183,7 @@ export class AgentAuthAdapter {
       const proxiedUrl = this.mcpProxy.register(
         `installation-${installation.id}`,
         installation.proxy_url,
+        { credentialOwner: "installation" },
       );
       const server: McpServerConnection = {
         name,
@@ -162,6 +193,9 @@ export class AgentAuthAdapter {
       };
       servers.push(server);
       serverInstallationIds.set(server, installation.id);
+      if (installation.description) {
+        serverDescriptions.set(server, installation.description);
+      }
     }
 
     const {
@@ -180,6 +214,7 @@ export class AgentAuthAdapter {
       toolInstallations,
       toolPolicies,
       serverInstallationIds,
+      serverDescriptions,
     };
   }
 
@@ -198,6 +233,26 @@ export class AgentAuthAdapter {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Token that may reach agent subprocesses (e.g. the context wiki publish
+   * token). Null for impersonated sessions: an impersonation credential must
+   * never reach a subprocess.
+   */
+  async gatewayPublishToken(): Promise<string | null> {
+    if (this.authService.getState().sessionType === "impersonated") {
+      return null;
+    }
+    return this.gatewayAuthToken();
+  }
+
+  authenticatedFetch(input: string, init?: RequestInit): Promise<Response> {
+    return this.authService.authenticatedFetch(fetch, input, init);
+  }
+
+  gatewayProjectId(): number | null {
+    return this.authService.getState().currentProjectId;
   }
 
   async configureProcessEnv({
@@ -222,32 +277,28 @@ export class AgentAuthAdapter {
     }
   }
 
-  private syncTokenEnvironment(token: string): void {
-    if (this.authService.getState().sessionType === "impersonated") {
-      delete process.env.POSTHOG_API_KEY;
-      delete process.env.POSTHOG_AUTH_HEADER;
-      return;
-    }
-    process.env.POSTHOG_API_KEY = token;
-    process.env.POSTHOG_AUTH_HEADER = `Bearer ${token}`;
-  }
-
   private async getValidToken(): Promise<string> {
     const { accessToken } = await this.authService.getValidAccessToken();
-    this.syncTokenEnvironment(accessToken);
     return accessToken;
   }
 
   private async refreshToken(): Promise<string> {
     const { accessToken } = await this.authService.refreshAccessToken();
-    this.syncTokenEnvironment(accessToken);
     return accessToken;
   }
 
-  private getPostHogMcpUrl(apiHost: string): string {
+  private getPostHogMcpUrl(apiHost: string): string | null {
     const overrideUrl = process.env.POSTHOG_MCP_URL;
     if (overrideUrl) {
       return overrideUrl;
+    }
+    // The Cloud MCP cannot read a token from another instance, and the proxy
+    // adds that token to every forwarded request. So a custom instance gets no
+    // PostHog MCP server unless POSTHOG_MCP_URL names one it can use. This
+    // check runs before the loopback branch, because a custom target may
+    // itself live on a loopback host.
+    if (isCustomCloudHost(apiHost)) {
+      return null;
     }
     if (apiHost.includes("localhost") || apiHost.includes("127.0.0.1")) {
       return "http://localhost:8787/mcp";
@@ -398,6 +449,7 @@ export class AgentAuthAdapter {
       proxy_url: string;
       name: string;
       display_name: string;
+      description?: string;
       auth_type: string;
     }>
   > {
@@ -425,6 +477,7 @@ export class AgentAuthAdapter {
           proxy_url?: string;
           name: string;
           display_name: string;
+          description?: string;
           auth_type: string;
           is_enabled?: boolean;
           pending_oauth: boolean;

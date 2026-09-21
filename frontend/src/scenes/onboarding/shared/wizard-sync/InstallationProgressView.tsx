@@ -19,6 +19,7 @@ export function InstallationProgressView({
     taskId,
     workflowId,
     continueHint,
+    docsUrl,
     floating = false,
     onDismiss,
     onRetryLocally,
@@ -31,6 +32,7 @@ export function InstallationProgressView({
     workflowId?: string
     /** Shown while the run is in flight, to say it keeps going if the user navigates away. */
     continueHint?: ReactNode
+    docsUrl?: string
     /** Rendered in the floating FAB rather than inline on the install step. */
     floating?: boolean
     onDismiss?: () => void
@@ -84,6 +86,7 @@ export function InstallationProgressView({
         <InstallationProgressContent
             workflowId={workflowId}
             continueHint={continueHint}
+            docsUrl={docsUrl}
             progress={installationProgress}
             mode={mode}
             onViewReport={handleViewReport}

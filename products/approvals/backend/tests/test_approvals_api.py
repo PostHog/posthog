@@ -348,7 +348,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert response.json()["can_cancel"] is True
 
     def test_can_approve_true_when_user_in_approver_role(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(organization=self.organization, name="Approvers")
         approver = User.objects.create(email="approver@posthog.com")
@@ -366,7 +366,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert response.json()["can_approve"] is True
 
     def test_can_approve_false_when_user_not_in_approver_role(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(organization=self.organization, name="Approvers")
         outsider = User.objects.create(email="outsider@posthog.com")
@@ -384,7 +384,7 @@ class TestChangeRequestViewSet(APIBaseTest):
 
     @patch("products.approvals.backend.services.apply_change_request")
     def test_approve_succeeds_when_user_in_approver_role(self, mock_apply):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         mock_apply.return_value = type("obj", (object,), {"id": 123, "version": 1})()
 
@@ -425,12 +425,22 @@ class TestApprovalPolicyViewSet(APIBaseTest):
             approver_config={"quorum": 1, "users": [self.user.id]},
             created_by=self.user,
         )
+        # TODO(experiment-approval-policies): remove the mirror row with the sync.
+        mirror = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="experiment.launch",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
 
         response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/")
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["id"] == str(policy.id)
+        mirror_response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/{mirror.id}/")
+        assert mirror_response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_create_policy(self):
         response = self.client.post(
@@ -549,6 +559,26 @@ class TestApprovalPolicyViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in response.json()["detail"]
+
+    # TODO(experiment-approval-policies): remove with the sync.
+    def test_create_experiment_policy_is_rejected(self):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="experiment.launch",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {"action_key": "experiment.launch", "approver_config": {"quorum": 1, "users": [self.user.id]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "action_key"
+        assert response.json()["detail"] == "This approval action isn't available yet."
 
     @parameterized.expand(
         [

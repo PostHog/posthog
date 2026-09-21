@@ -63,7 +63,7 @@ export function ToolErrorRateChart({
             tooltip: { placement: 'cursor' },
             margins: { top: 4, right: 20, bottom: 22 },
             barCornerRadius: 4,
-            bars: { minBandSize: 30, valueDomain: [0, axisMax] },
+            bars: { minBandSize: 30, valueDomain: { min: 0, max: axisMax } },
         }
     }, [sorted])
     const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])
@@ -101,7 +101,7 @@ export function ToolErrorRateChart({
                 }
                 empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}
             >
-                <div className="flex flex-1 flex-col">
+                <div className="flex min-h-80 flex-1 flex-col">
                     <BarChart series={series} labels={labels} config={config} theme={theme} tooltip={renderTooltip}>
                         <ValueLabels
                             valueFormatter={(value) => formatPercentage(value, { compact: true })}

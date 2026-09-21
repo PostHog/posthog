@@ -1,0 +1,216 @@
+// Unauthenticated auth scenes paint their own backdrop and card instead of using the app
+// surfaces, so every color they use has to be declared for both themes.
+// Only rules that cannot be expressed in Tailwind utilities live here:
+// pseudo-elements, interactive pseudo-class combinators, child selectors, keyframes.
+
+.AuthScene {
+    --primary-3000-button-bg: var(--warning);
+    --primary-3000-frame-bg: var(--primary-3000-button-border-light);
+    --primary-3000-button-border: var(--primary-3000-button-border-light);
+    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+    --color-text-warning: var(--color-text-primary);
+
+    // The four blocks below are the only things that repaint these: one per referrer, per theme.
+    --auth-scene-backdrop-top: #eef4fa;
+    --auth-scene-backdrop-mid: #dbe8f4;
+    --auth-scene-backdrop-bottom: #c4d8ea;
+    --auth-scene-backdrop-glow: rgb(255 255 255 / 55%);
+    --auth-scene-backdrop-ink: rgb(30 56 84 / 62%);
+    --auth-scene-card-bg: #f6f5f0;
+    --auth-scene-card-border: #e3e0d4;
+    --auth-scene-card-shadow: rgb(20 44 72 / 18%);
+    --auth-scene-card-ink: #111;
+    --auth-scene-card-ink-muted: rgb(17 17 17 / 58%);
+    --auth-scene-note-bg: #fbfbf9;
+    --auth-scene-note-border: #c5c6bd;
+
+    background-color: var(--auth-scene-backdrop-mid);
+    background-image:
+        radial-gradient(80% 70% at 50% 30%, var(--auth-scene-backdrop-glow), transparent 70%),
+        linear-gradient(
+            180deg,
+            var(--auth-scene-backdrop-top) 0%,
+            var(--auth-scene-backdrop-mid) 55%,
+            var(--auth-scene-backdrop-bottom) 100%
+        );
+    background-repeat: no-repeat;
+    background-size: auto;
+
+    // The cream OS-window card the new website (and the self-driving onboarding) uses.
+    .AuthScene__card,
+    .AuthScene__cardSurface {
+        background: var(--auth-scene-card-bg);
+    }
+
+    .AuthScene__card {
+        border-color: var(--auth-scene-card-border);
+        border-radius: 1rem;
+        box-shadow: 0 16px 40px var(--auth-scene-card-shadow);
+    }
+
+    // Corner notes read as ink on the backdrop rather than gray on parchment.
+    .AuthScene__notes div {
+        color: var(--auth-scene-backdrop-ink);
+    }
+}
+
+// Continues the green posthog.com just showed the visitor.
+.AuthScene--fromWebsite {
+    --auth-scene-backdrop-top: #cfe0ae;
+    --auth-scene-backdrop-mid: #b5cd8f;
+    --auth-scene-backdrop-bottom: #9dbb78;
+    --auth-scene-backdrop-glow: rgb(255 253 240 / 45%);
+    --auth-scene-backdrop-ink: rgb(45 74 22 / 65%);
+    --auth-scene-card-shadow: rgb(30 50 10 / 25%);
+}
+
+// The backdrop and the card are both opaque, so dark mode has to repaint them. Without this the
+// scene keeps its light sheets under the light-on-dark text the app tokens switch to. The card
+// and the ink are the same whatever the visitor came from, so only the ramp splits again below.
+[theme='dark'] .AuthScene {
+    --auth-scene-backdrop-top: #16232f;
+    --auth-scene-backdrop-mid: #101a24;
+    --auth-scene-backdrop-bottom: #0a1119;
+    --auth-scene-backdrop-glow: rgb(150 185 220 / 12%);
+    --auth-scene-backdrop-ink: rgb(186 210 232 / 65%);
+    --auth-scene-card-bg: var(--color-bg-surface-primary);
+    --auth-scene-card-border: var(--color-border-primary);
+    --auth-scene-card-shadow: rgb(0 0 0 / 45%);
+    --auth-scene-card-ink: var(--color-text-primary);
+    --auth-scene-card-ink-muted: var(--color-text-secondary);
+    --auth-scene-note-bg: var(--color-bg-fill-primary);
+    --auth-scene-note-border: var(--color-border-primary);
+}
+
+// Reads as the same green the website showed, dimmed for a dark room. It has to follow the block
+// above, because the two selectors have equal specificity.
+[theme='dark'] .AuthScene--fromWebsite {
+    --auth-scene-backdrop-top: #1b2a10;
+    --auth-scene-backdrop-mid: #14200b;
+    --auth-scene-backdrop-bottom: #0d1707;
+    --auth-scene-backdrop-glow: rgb(157 187 120 / 12%);
+    --auth-scene-backdrop-ink: rgb(207 224 174 / 65%);
+}
+
+// A band that sits flush inside a card, such as a sticky section header. It repeats the card's
+// own background so it does not read as a second sheet stacked on the first.
+.AuthScene__cardSurface {
+    background: var(--auth-scene-card-bg, #fff);
+}
+
+// Paper sheet resting on the desk — the login card and the dev login panel share it.
+.AuthScene__card {
+    background: var(--auth-scene-card-bg, #fff);
+    border: 1px solid var(--auth-scene-card-border, #e0e1d9);
+    border-radius: var(--radius-lg);
+    box-shadow:
+        0 20px 44px -26px rgb(40 38 30 / 35%),
+        0 3px 0 var(--auth-scene-card-border, #e0e1d9);
+}
+
+// Child SVG sizing — child selector, no Tailwind equivalent
+.AuthScene__logo {
+    svg {
+        display: block;
+        width: auto;
+        height: 28px;
+
+        @media (min-width: 576px) {
+            height: 40px;
+        }
+    }
+}
+
+// Invite header mark SVG sizing
+.AuthScene__inviteHeader-mark {
+    svg {
+        width: auto;
+        height: 30px;
+    }
+}
+
+// Sub paragraph — code and mono spans inside it share styles
+.AuthScene__sub {
+    code,
+    .AuthScene__mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--auth-scene-card-ink, #111);
+    }
+}
+
+// Terms text — nested link style
+.AuthScene__terms {
+    a {
+        font-weight: 600;
+        color: var(--auth-scene-card-ink-muted, rgb(17 17 17 / 58%));
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+}
+
+// Note callout. Its sheet has to repaint for dark mode, because the text inside it uses the app
+// tokens, which turn light.
+.AuthScene__note {
+    background: var(--auth-scene-note-bg, #fbfbf9);
+    border-color: var(--auth-scene-note-border, #c5c6bd);
+
+    b {
+        color: var(--auth-scene-card-ink, #111);
+    }
+}
+
+// Blink animation for typewriter caret
+.AuthScene__caret {
+    animation: AuthScene__blink 1.05s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .AuthScene__column {
+        animation: AuthScene__rise 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .AuthScene__progress-fill {
+        animation: AuthScene__progress 2.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .AuthScene__caret {
+        animation: none;
+    }
+}
+
+@keyframes AuthScene__blink {
+    0%,
+    50% {
+        opacity: 1;
+    }
+
+    50.01%,
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes AuthScene__rise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes AuthScene__progress {
+    from {
+        width: 0%;
+    }
+
+    to {
+        width: 100%;
+    }
+}

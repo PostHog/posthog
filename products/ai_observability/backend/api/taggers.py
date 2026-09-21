@@ -1,6 +1,7 @@
 import json
 from typing import Any, cast
 
+from django.core.validators import EMPTY_VALUES
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
@@ -29,11 +30,12 @@ from posthog.clickhouse.query_tagging import (
     tag_queries,
 )
 from posthog.event_usage import report_user_action
-from posthog.permissions import AccessControlPermission
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io
 from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
+
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration
@@ -308,10 +310,21 @@ class TaggerSerializer(TaggerBaseWriteSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
 
+class StableOrderingFilter(django_filters.OrderingFilter):
+    """Append the primary key so tied rows keep a total order across paginated requests."""
+
+    def filter(self, qs: QuerySet, value: Any) -> QuerySet:
+        ordering = [self.get_ordering_value(param) for param in value or [] if param not in EMPTY_VALUES]
+        if not ordering:
+            return qs
+
+        return qs.order_by(*ordering, "id")
+
+
 class TaggerFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
-    order_by = django_filters.OrderingFilter(
+    order_by = StableOrderingFilter(
         fields=(
             ("created_at", "created_at"),
             ("updated_at", "updated_at"),
@@ -390,7 +403,8 @@ class TestHogTaggerResponseSerializer(serializers.Serializer):
 
 class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "tagger"
-    permission_classes = [IsAuthenticated, AccessControlPermission]
+    permission_classes = [IsAuthenticated, AccessControlPermission, PostHogFeatureFlagPermission]
+    posthog_feature_flag = "llm-analytics-tags"
     serializer_class = TaggerSerializer
     queryset = Tagger.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -407,7 +421,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         queryset = (
             queryset.filter(team_id=self.team_id)
             .select_related("created_by", "model_configuration", "model_configuration__provider_key")
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)
@@ -614,9 +628,9 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
 
             result = run_hog_tagger(bytecode, event_data, valid_tag_names)
 
-            input_raw, output_raw = extract_event_io(event_type, properties)
-            input_preview = extract_text_from_messages(input_raw)[:200]
-            output_preview = extract_text_from_messages(output_raw)[:200]
+            io = extract_event_io(event_type, properties)
+            input_preview = extract_text_from_messages(io.input_raw)[:200]
+            output_preview = extract_text_from_messages(io.output_raw)[:200]
 
             results.append(
                 {

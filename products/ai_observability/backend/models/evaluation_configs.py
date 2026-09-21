@@ -51,10 +51,19 @@ class BooleanOutputConfig(BaseModel):
     """Configuration for boolean output type"""
 
     allows_na: bool = False
+    # Detector-style evaluations look for a problem, so their true result is the undesirable one and
+    # must be reported as a fail. Defaulting to False keeps stored configs written before this field
+    # reading exactly as they did, with no backfill and no default to re-supply at each read site.
+    true_is_failure: bool = False
 
 
 class SentimentEvalConfig(BaseModel):
-    """Configuration for sentiment evaluations."""
+    """Configuration for sentiment evaluations.
+
+    The classifier is an English-trained model, so labels are unreliable for other languages. A
+    multilingual agent should use an llm_judge evaluation instead. See
+    posthog/temporal/ai_observability/sentiment/README.md.
+    """
 
     source: Literal["user_messages"] = Field(
         default="user_messages",

@@ -4,13 +4,22 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.schema import (
+    ActionsNode,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    FunnelsQuery,
+    InsightVizNode,
+    PropertyOperator,
+)
+
 from posthog.models import EventDefinition, Person, PropertyDefinition
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from .data_generator import DataGenerator
 
@@ -64,27 +73,21 @@ class RevenueDataGenerator(DataGenerator):
         insight = Insight.objects.create(
             team=self.team,
             name="Entered Free Trial -> Purchase (Premium)",
-            filters={
-                "events": [
-                    {
-                        "id": "$pageview",
-                        "name": "Pageview",
-                        "order": 0,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    }
-                ],
-                "actions": [
-                    {
-                        "id": purchase_action.id,
-                        "name": "Purchase",
-                        "order": 1,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                        "properties": {"plan": "premium"},
-                    }
-                ],
-                "insight": "FUNNELS",
-                "date_from": "all",
-            },
+            query=InsightVizNode(
+                source=FunnelsQuery(
+                    series=[
+                        EventsNode(event="$pageview", name="Pageview"),
+                        ActionsNode(
+                            id=purchase_action.id,
+                            name="Purchase",
+                            properties=[
+                                EventPropertyFilter(key="plan", value="premium", operator=PropertyOperator.EXACT)
+                            ],
+                        ),
+                    ],
+                    dateRange=DateRange(date_from="all"),
+                )
+            ).model_dump(),
             short_id="TEST1234",
         )
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)

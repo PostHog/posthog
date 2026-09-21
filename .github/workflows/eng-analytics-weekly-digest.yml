@@ -29,7 +29,7 @@ permissions:
 
 jobs:
     digest:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # Covers the script's worst case: 3 endpoint attempts x 150s abort plus 2 x 30s
         # backoffs (~8.5min; it retries transient 5xxs from a contended warehouse cluster), plus setup.
         timeout-minutes: 12

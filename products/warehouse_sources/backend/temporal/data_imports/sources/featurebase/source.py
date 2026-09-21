@@ -1,14 +1,12 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -65,7 +63,7 @@ class FeaturebaseSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FEATUREBASE,
+            name=ExternalDataSourceType.FEATUREBASE,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Featurebase",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -148,6 +146,16 @@ class FeaturebaseSource(
                 "Featurebase rejected your API key. Create a new API key in your Featurebase "
                 "dashboard under Settings > API, then reconnect."
             ),
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page` (featurebase.py) already retries `FeaturebaseRetryableError` (429/5xx),
+        # read timeouts, connection errors, and chunked-encoding errors with backoff; if that
+        # budget still exhausts, Temporal retries the whole activity, so the failure is transient
+        # and self-recovering rather than a bug to page on.
+        return {
+            "Featurebase API error (retryable)",
+            "HTTPSConnectionPool(host='do.featurebase.app', port=443)",
         }
 
     def get_schemas(

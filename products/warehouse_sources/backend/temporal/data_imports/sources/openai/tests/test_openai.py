@@ -458,7 +458,9 @@ class TestProjectFanOut:
         # The framework's parent-key column must not leak into the row shape.
         assert all("_projects_id" not in r for r in rows)
         assert params[0]["url"].endswith("/v1/organization/projects")
-        assert params[0]["params"]["include_archived"] == "true"
+        # OpenAI rejects a project-scoped read under an archived project, which would fail the
+        # whole schema, so the fan-out must not ask for archived projects.
+        assert "include_archived" not in params[0]["params"]
         assert params[1]["url"].endswith("/v1/organization/projects/proj_1/users")
         assert params[2]["url"].endswith("/v1/organization/projects/proj_2/users")
 
@@ -551,6 +553,30 @@ class TestProjectFanOut:
 
         assert [(r["project_id"], r["id"]) for r in rows] == [("proj_1", "user_1")]
 
+    @mock.patch(TENACITY_SLEEP_PATCH, return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_one_project_500ing_is_skipped_and_others_land(self, MockSession, _sleep) -> None:
+        # proj_1's resource keeps returning 500 past the client's retry budget; without per-project
+        # tolerance that would fail the whole schema. The fan-out must skip proj_1 and still yield
+        # proj_2's rows.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _entity_page([{"id": "proj_1"}, {"id": "proj_2"}], has_more=False, last_id="proj_2"),
+                *[_response({}, status=500) for _ in range(5)],
+                _entity_page([{"id": "user_2"}], has_more=False, last_id="user_2"),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("project_users", manager))
+
+        assert [(r["project_id"], r["id"]) for r in rows] == [("proj_2", "user_2")]
+        # The skipped project stays off the completed checkpoint so a later run re-attempts it.
+        final = [call.args[0] for call in manager.save_state.call_args_list][-1].fanout_state
+        assert final["completed"] == [PROJECT_USERS_PATH.format(project_id="proj_2")]
+
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
@@ -596,19 +622,36 @@ class TestRetries:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key.
+    @parameterized.expand(
+        [
+            ("ok", 200, True, None),
+            ("forbidden_scope", 403, True, None),
+            ("unauthorized", 401, False, "rejected your Admin API key"),
+            ("service_unavailable", 503, False, "couldn't check your Admin API key"),
+        ]
+    )
+    def test_status_mapping(self, _name: str, status: int, expected: bool, fragment: str | None) -> None:
+        # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key. Anything
+        # else leaves the key unjudged, so it must not read as a rejection.
         session = mock.MagicMock()
         session.get.return_value = mock.MagicMock(status_code=status)
         with mock.patch(OPENAI_SESSION_PATCH, return_value=session):
-            assert validate_credentials("sk-admin-test") is expected
+            is_valid, message = validate_credentials("sk-admin-test")
+
+        assert is_valid is expected
+        if fragment is None:
+            assert message is None
+        else:
+            assert message is not None and fragment in message
 
     def test_network_error_is_invalid(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         with mock.patch(OPENAI_SESSION_PATCH, return_value=session):
-            assert validate_credentials("sk-admin-test") is False
+            is_valid, message = validate_credentials("sk-admin-test")
+
+        assert is_valid is False
+        assert message is not None and "couldn't check your Admin API key" in message
 
 
 class TestNonRetryableErrors:
@@ -640,6 +683,34 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = OpenAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
+
+
+class TestRetryableErrors:
+    @parameterized.expand(
+        [
+            ("server_error", "HTTP 500 for https://api.openai.com/v1/organization/projects/proj_1/api_keys"),
+            ("rate_limited", "HTTP 429 for https://api.openai.com/v1/organization/costs"),
+            ("connection_error", "Connection error (ConnectionError) for https://api.openai.com/v1/organization/users"),
+            ("timeout", "Request timed out (ReadTimeout) for https://api.openai.com/v1/organization/usage/completions"),
+            (
+                "malformed_json",
+                "Malformed JSON response from https://api.openai.com/v1/organization/costs: Expecting value: line 1 column 1 (char 0)",
+            ),
+        ]
+    )
+    def test_exhausted_transient_failures_are_recognized(self, _name: str, observed_error: str) -> None:
+        retryable = OpenAISource().get_retryable_errors()
+        assert any(pattern in observed_error for pattern in retryable)
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.openai.com/v1/organization/users"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.openai.com/v1/organization/costs"),
+        ]
+    )
+    def test_credential_errors_are_not_misclassified(self, _name: str, other_error: str) -> None:
+        retryable = OpenAISource().get_retryable_errors()
+        assert not any(pattern in other_error for pattern in retryable)
 
 
 class TestToolCallUsageGroupBy:

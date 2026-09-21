@@ -2,9 +2,9 @@ import { MakeLogicType, kea } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isValidRegexp } from 'lib/utils/regexp'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -133,12 +133,7 @@ export function applyPathCleaningToFilters(
 }
 
 export function cleanPathnameForDisplay(pathname: string, filters: PathCleaningFilter[]): string {
-    return filters.reduce((cleaned, filter) => {
-        if (!filter.regex || !isValidRegexp(filter.regex)) {
-            return cleaned
-        }
-        return cleaned.replace(new RegExp(filter.regex, 'gi'), filter.alias ?? '')
-    }, pathname)
+    return applyPathCleaning(pathname, filters)
 }
 
 export function cleanPageURLForDisplay(url: string, filters: PathCleaningFilter[]): string {
@@ -667,7 +662,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         pagesUrls: [
             [] as PageURLSearchResult[],
             {
-                loadPagesUrls: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                loadPagesUrls: async (
+                    { searchTerm }: { searchTerm: string },
+                    breakpoint
+                ): Promise<PageURLSearchResult[]> => {
                     await breakpoint(100) // debounce the typing
                     const dateRange = {
                         date_from: values.dateFilter.dateFrom,
@@ -1088,7 +1086,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_PATHS_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
+                            className: 'grid-cols-1 md:grid-cols-3',
                         },
                         tiles: [
                             createQueryTile(
@@ -1121,7 +1119,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_TRAFFIC_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
+                            className: 'grid-cols-1 md:grid-cols-3',
                         },
                         tiles: [
                             createQueryTile(
@@ -1178,7 +1176,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
+                            className: 'grid-cols-1 md:grid-cols-3',
                         },
                         tiles: [
                             createQueryTile(
@@ -1205,7 +1203,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
+                            className: 'grid-cols-1 md:grid-cols-3',
                         },
                         tiles: [
                             createQueryTile(
@@ -1245,7 +1243,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         tileId: TileId.PAGE_REPORTS_TOP_EVENTS_SECTION,
                         title: '',
                         layout: {
-                            className: 'grid-cols-1 gap-2',
+                            className: 'grid-cols-1',
                         },
                         tiles: [
                             createQueryTile(

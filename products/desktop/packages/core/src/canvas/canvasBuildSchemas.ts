@@ -56,6 +56,27 @@ export function historicalCanvasBuild(
   );
 }
 
+/**
+ * The build a grid placement renders: the component's live build when the
+ * placement follows the latest version, or the pinned version's own retained
+ * artifact. A pin resolves to nothing rather than falling back to the live
+ * build — the placement's config was written against the version it names, and
+ * retention can sweep an unpinned artifact, so the caller must say the pinned
+ * version is unavailable instead of quietly rendering a different widget.
+ */
+export function placementComponentBuild(
+  lifecycle: CanvasBuildLifecycle,
+  pinnedVersionId: string | null,
+): CanvasBuildRecord | null {
+  if (pinnedVersionId) {
+    return historicalCanvasBuild(lifecycle, pinnedVersionId);
+  }
+  return (
+    lifecycle.builds.find((build) => build.id === lifecycle.publishedBuildId) ??
+    null
+  );
+}
+
 export const canvasBuildLifecycleSchema = z.object({
   /** The live (last successful, still-eligible) build, null until one completes. */
   publishedBuildId: z.string().nullable(),

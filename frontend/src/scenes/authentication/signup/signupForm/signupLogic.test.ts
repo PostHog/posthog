@@ -1,3 +1,5 @@
+import { setPendingOAuthConnectionCookie } from 'scenes/authentication/shared/pendingOAuthConnection.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -142,6 +144,91 @@ describe('signupLogic — pending invite banner', () => {
     })
 })
 
+describe('signupLogic — retrying a panel after a failed submit', () => {
+    let logic: ReturnType<typeof signupLogic.build>
+    let signupRequestCount: number
+
+    const advanceToOnboardingPanel = async (): Promise<void> => {
+        logic.actions.setSignupPanelEmailValue('email', 'free@example.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSignupPanelAuthValue('password', 'Str0ng-Test-Pass!')
+        logic.actions.submitSignupPanelAuth()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.panel).toBe(2)
+    }
+
+    beforeEach(() => {
+        signupRequestCount = 0
+        useMocks({
+            post: {
+                '/api/signup/precheck': async (info) => {
+                    const { email } = (await info.request.clone().json()) as { email: string }
+                    return email === 'taken@example.com'
+                        ? [
+                              409,
+                              {
+                                  type: 'validation_error',
+                                  code: 'account_exists',
+                                  detail: 'There is already an account with this email address.',
+                              },
+                          ]
+                        : [200, { email_exists: false, pending_invite: null }]
+                },
+                '/api/signup/': () => {
+                    signupRequestCount++
+                    return [400, { type: 'validation_error', code: 'error', detail: 'Mocked failure', attr: null }]
+                },
+            },
+        })
+        initKeaTests()
+        router.actions.push('/signup')
+        logic = signupLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('advances when a different email is submitted after an account-exists error', async () => {
+        logic.actions.setSignupPanelEmailValue('email', 'taken@example.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.panel).toBe(0)
+        expect(logic.values.signupPanelEmailManualErrors.email).toBe(
+            'There is already an account with this email address.'
+        )
+
+        logic.actions.setSignupPanelEmailValue('email', 'free@example.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.panel).toBe(1)
+        expect(logic.values.signupPanelEmailManualErrors.email).toBeUndefined()
+    })
+
+    it('reissues the signup request when onboarding is submitted again after a generic error', async () => {
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'John Smith',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: '',
+            referral_source_ai_prompt: '',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(signupRequestCount).toBe(1)
+        expect(logic.values.signupPanelOnboardingManualErrors.generic).not.toBeUndefined()
+
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signupRequestCount).toBe(2)
+    })
+})
+
 describe('signupLogic — name handling', () => {
     let logic: ReturnType<typeof signupLogic.build>
     let signupRequestBody: Record<string, any> | null
@@ -259,5 +346,27 @@ describe('signupLogic — name handling', () => {
         // failed submit (a successful submit resets showErrors and would hide it)
         expect(logic.values.signupPanelOnboardingErrors.name).toBe('This field may not be blank.')
         expect(logic.values.panel).toBe(2)
+    })
+})
+
+describe('signupLogic - pending OAuth connection', () => {
+    afterEach(() => {
+        setPendingOAuthConnectionCookie(null)
+    })
+
+    it.each([
+        ['prefills the referral source with the client name', 'Claude', 'Claude'],
+        ['leaves the referral source empty without a connection', null, ''],
+    ])('%s', async (_name, clientName, expected) => {
+        setPendingOAuthConnectionCookie(clientName ? { client_name: clientName, client_id: 'client' } : null)
+        initKeaTests()
+        router.actions.push('/signup')
+        const logic = signupLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            signupPanelOnboarding: expect.objectContaining({ referral_source: expected }),
+        })
+        logic.unmount()
     })
 })

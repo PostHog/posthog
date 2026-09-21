@@ -4,6 +4,7 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -17,7 +18,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
     const { lastRefresh, response, query } = useValues(dataNodeLogic)
 
     const { insightProps } = useValues(insightLogic)
-    const { getInsightRefreshButtonDisabledReason } = useValues(insightDataLogic(insightProps))
+    const { getInsightRefreshButtonDisabledReason, insightDataLoading } = useValues(insightDataLogic(insightProps))
     const { loadData } = useActions(insightDataLogic(insightProps))
     const disabledReason = getInsightRefreshButtonDisabledReason()
 
@@ -33,25 +34,38 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
 
     return (
         <div className="flex items-center text-secondary z-10">
-            Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+            {/* Both halves get their own element so neither is a bare text node React tracks: once a
+                page-translation extension replaces such a node with a <font> element, React's writes
+                land on the detached node and the time freezes, and removing it throws
+                removeChild NotFoundError (react#11538). The relative time also opts out of
+                translation, since it is rewritten every 15s. */}
+            <span>Computed&nbsp;</span>
+            <span translate="no">{lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}</span>
             {!disableRefresh && (
                 <>
                     <span className="px-1">•</span>
-                    <Tooltip
-                        title={
-                            canBypassRefreshDisabled && disabledReason
-                                ? `${disabledReason} (you can bypass this due to dev env / staff permissions)`
-                                : undefined
-                        }
-                    >
-                        <Link
-                            onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
-                            className={disabledReason ? 'opacity-50' : ''}
-                            disabledReason={canBypassRefreshDisabled ? '' : disabledReason}
+                    {insightDataLoading ? (
+                        <span className="flex items-center gap-1.5">
+                            <Spinner textColored />
+                            Refreshing
+                        </span>
+                    ) : (
+                        <Tooltip
+                            title={
+                                canBypassRefreshDisabled && disabledReason
+                                    ? `${disabledReason} (you can bypass this due to dev env / staff permissions)`
+                                    : undefined
+                            }
                         >
-                            Refresh
-                        </Link>
-                    </Tooltip>
+                            <Link
+                                onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
+                                className={disabledReason ? 'opacity-50' : ''}
+                                disabledReason={canBypassRefreshDisabled ? '' : disabledReason}
+                            >
+                                Refresh
+                            </Link>
+                        </Tooltip>
+                    )}
                 </>
             )}
         </div>

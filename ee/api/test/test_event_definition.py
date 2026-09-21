@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -11,7 +11,7 @@ import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.test.test_event_definition import EventData, capture_event
+from posthog.api.test.test_event_definition import EventFixture, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
@@ -23,7 +23,7 @@ from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
 
 
-@freeze_time("2020-01-02")
+@time_machine.travel("2020-01-02", tick=False)
 class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
     user: User = None  # type: ignore
@@ -48,7 +48,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             EnterpriseEventDefinition.objects.create(name=event_definition["name"], team_id=cls.demo_team.pk)
             capture_event(
-                event=EventData(
+                event=EventFixture(
                     event=event_definition["name"],
                     team_id=cls.demo_team.pk,
                     distinct_id="abc",
@@ -542,7 +542,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] == "2020-01-02T00:00:00Z"
         assert response.json()["updated_at"] == "2020-01-02T00:00:00Z"
 
-        with freeze_time("2020-01-02T00:01:00Z"):
+        with time_machine.travel("2020-01-02T00:01:00Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/event_definitions/{event.id}",
                 {"verified": True},
@@ -568,7 +568,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
-        with freeze_time("2020-01-02T00:01:00Z"):
+        with time_machine.travel("2020-01-02T00:01:00Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/event_definitions/{event.id}",
                 {

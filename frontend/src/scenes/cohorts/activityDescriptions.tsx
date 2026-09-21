@@ -1,14 +1,15 @@
+import { summarizeDescriptionChange } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import { describeChangeMappings } from 'lib/components/ActivityLog/activityDescriptions/describeChangeMappings'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
-    Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -44,12 +45,20 @@ const cohortFieldMapping: Record<string, (change?: ActivityChange) => ChangeMapp
         const before = (change?.before as string | null | undefined) || ''
         const after = (change?.after as string | null | undefined) || ''
         if (!before && after) {
-            return { description: [<>added a description</>] }
+            return {
+                description: [<>added a description</>],
+                summary: summarizeDescriptionChange(change),
+                preview: after,
+            }
         }
         if (before && !after) {
-            return { description: [<>cleared the description</>] }
+            return { description: [<>cleared the description</>], summary: summarizeDescriptionChange(change) }
         }
-        return { description: [<>updated the description</>] }
+        return {
+            description: [<>updated the description</>],
+            summary: summarizeDescriptionChange(change),
+            preview: after,
+        }
     },
     filters: function onFilters(change) {
         const before = countCohortCriteria(change?.before as CohortType['filters'])
@@ -103,17 +112,60 @@ const cohortFieldMapping: Record<string, (change?: ActivityChange) => ChangeMapp
     last_error_at: () => null,
 }
 
+function describeCohortField(change: ActivityChange): ChangeMapping | null {
+    const handler = cohortFieldMapping[change.field!]
+    if (handler) {
+        return handler(change)
+    }
+    // unknown field — surface it generically rather than dumping JSON
+    return {
+        description: [
+            <>
+                updated <strong>{change.field}</strong>
+            </>,
+        ],
+    }
+}
+
+function describeCohortUpdate(
+    logItem: ActivityLogItem,
+    asNotification: boolean | undefined,
+    cohortLink: string | JSX.Element
+): HumanizedChange | null {
+    const detailChanges = logItem.detail.changes || []
+    // is_static and cohort_type both render as "changed the cohort type to X" — when a flip
+    // co-emits both, drop is_static so we don't print the line twice.
+    const fieldsPresent = new Set(detailChanges.map((change) => change?.field))
+    const mappings = detailChanges.flatMap((change) => {
+        if (!change?.field || (change.field === 'is_static' && fieldsPresent.has('cohort_type'))) {
+            return []
+        }
+        const result = describeCohortField(change)
+        return result?.description ? [result] : []
+    })
+    return describeChangeMappings(
+        logItem,
+        mappings,
+        cohortLink,
+        <>
+            on {asNotification ? 'the cohort ' : ''}
+            {cohortLink}
+        </>
+    )
+}
+
 export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'Cohort') {
         console.error('cohort describer received a non-cohort activity')
         return { description: null }
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const cohortLink = nameOrLinkToCohort(logItem?.item_id, logItem?.detail.name)
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the cohort', cohortLink),
             description: (
                 <>
                     {actor} created the cohort: {cohortLink}
@@ -124,6 +176,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the cohort', cohortLink),
             description: (
                 <>
                     {actor} deleted the cohort: {cohortLink}
@@ -134,6 +187,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'restored') {
         return {
+            summary: activityLogSummary(logItem, 'Restored the cohort', cohortLink),
             description: (
                 <>
                     {actor} restored the cohort: {cohortLink}
@@ -144,6 +198,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'persons_added_manually') {
         return {
+            summary: activityLogSummary(logItem, 'Added people to the cohort', cohortLink),
             description: (
                 <>
                     {actor} added users to the cohort: {cohortLink}
@@ -154,6 +209,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'person_removed_manually') {
         return {
+            summary: activityLogSummary(logItem, 'Removed a person from the cohort', cohortLink),
             description: (
                 <>
                     {actor} removed a user from the cohort: {cohortLink}
@@ -163,50 +219,12 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity == 'updated') {
-        const detailChanges = logItem.detail.changes || []
-        // is_static and cohort_type both render as "changed the cohort type to X" — when a flip
-        // co-emits both, drop is_static so we don't print the line twice.
-        const fieldsPresent = new Set(detailChanges.map((c) => c?.field))
-        const changes: Description[] = []
-        for (const change of detailChanges) {
-            if (!change?.field) {
-                continue
-            }
-            if (change.field === 'is_static' && fieldsPresent.has('cohort_type')) {
-                continue
-            }
-            const handler = cohortFieldMapping[change.field]
-            const result = handler ? handler(change) : null
-            if (result?.description) {
-                changes.push(...result.description)
-            } else if (!handler) {
-                // unknown field — surface it generically rather than dumping JSON
-                changes.push(
-                    <>
-                        updated <strong>{change.field}</strong>
-                    </>
-                )
-            }
+        const changes = describeCohortUpdate(logItem, asNotification, cohortLink)
+        if (changes) {
+            return changes
         }
-
-        if (changes.length) {
-            return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={actor}
-                        suffix={
-                            <>
-                                on {asNotification ? 'the cohort ' : ''}
-                                {cohortLink}
-                            </>
-                        }
-                    />
-                ),
-            }
-        }
-
         return {
+            summary: activityLogSummary(logItem, 'Updated the cohort', cohortLink),
             description: (
                 <>
                     {actor} updated the cohort: {cohortLink}

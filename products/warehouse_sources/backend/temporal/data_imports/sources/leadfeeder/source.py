@@ -1,15 +1,17 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -28,7 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LEADFEEDER_API_LEGACY,
+    LEADFEEDER_DEFAULT_VERSION,
     LEADFEEDER_ENDPOINTS,
+    LEADFEEDER_SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -39,6 +44,13 @@ class LeadfeederSource(ResumableSource[LeadfeederSourceConfig, LeadfeederResumeC
 
     api_docs_url = "https://docs.leadfeeder.com/api/"
 
+    supported_versions = LEADFEEDER_SUPPORTED_VERSIONS
+    default_version = LEADFEEDER_DEFAULT_VERSION
+    # The vendor has deprecated the legacy Token API (maintenance-only, no new tokens issued) in favor
+    # of the unified Dealfront API. No removal date is announced, so this is advisory (sunset_at=None):
+    # existing legacy-pinned sources keep working and are not migrated automatically.
+    deprecated_versions = (VersionDeprecation(version=LEADFEEDER_API_LEGACY, sunset_at=None),)
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LEADFEEDER
@@ -46,16 +58,18 @@ class LeadfeederSource(ResumableSource[LeadfeederSourceConfig, LeadfeederResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LEADFEEDER,
+            name=ExternalDataSourceType.LEADFEEDER,
             category=DataWarehouseSourceCategory.CRM,
             label="Leadfeeder",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["dealfront"],
-            caption="""Enter your Leadfeeder (Dealfront) API token to pull your website visitor and lead data into the PostHog Data warehouse.
+            caption="""Enter your Dealfront (Leadfeeder) API key to pull your website visitor and lead data into the PostHog data warehouse. This syncs the **Accounts**, **Leads**, and **Visits** tables.
 
-Generate a token in your [Leadfeeder API settings](https://app.leadfeeder.com/settings/api). This uses the legacy Leadfeeder API (`Authorization: Token`), which syncs the **Accounts**, **Leads**, and **Visits** tables.
+New connections use the unified Dealfront API. Create an API key in your Dealfront platform settings, under Personal, API keys.
 
-Optionally set a **Start date** to bound the initial sync — leave it blank to pull the last year of leads and visits.""",
+The older Leadfeeder API (a token from your [Leadfeeder API settings](https://app.leadfeeder.com/settings/api)) is deprecated and no longer issues new tokens. Existing connections on it keep working.
+
+Optionally set a **Start date** to bound the initial sync. Leave it blank to pull the last year of leads and visits.""",
             iconPath="/static/services/leadfeeder.png",
             docsUrl="https://posthog.com/docs/cdp/sources/leadfeeder",
             fields=cast(
@@ -63,7 +77,7 @@ Optionally set a **Start date** to bound the initial sync — leave it blank to 
                 [
                     SourceFieldInputConfig(
                         name="api_token",
-                        label="API token",
+                        label="API key",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
@@ -106,6 +120,8 @@ Optionally set a **Start date** to bound the initial sync — leave it blank to 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # Discovery is version-independent: both generations expose the same accounts / leads / visits
+        # tables with the same incremental fields, so the static catalog is identical whatever the pin.
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LEADFEEDER_ENDPOINTS[endpoint]
             # Only endpoints with a server-side start_date/end_date filter are genuinely incremental.
@@ -131,7 +147,9 @@ Optionally set a **Start date** to bound the initial sync — leave it blank to 
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_leadfeeder_credentials(config.api_token):
+        # Pre-creation calls pass no pin and resolve to `default_version` (the unified API, what new
+        # rows are stamped with); a legacy-pinned source revalidates against its own Token API.
+        if validate_leadfeeder_credentials(config.api_token, self.resolve_api_version(api_version)):
             return True, None
 
         return (
@@ -160,4 +178,5 @@ Optionally set a **Start date** to bound the initial sync — leave it blank to 
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

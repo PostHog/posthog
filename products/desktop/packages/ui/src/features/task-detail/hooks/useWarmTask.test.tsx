@@ -1,9 +1,9 @@
-import type { WorkspaceMode } from "@posthog/shared";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockClient = vi.hoisted(() => ({
   warmTask: vi.fn(),
+  cancelTaskRun: vi.fn().mockResolvedValue({}),
 }));
 const flagState = vi.hoisted(() => ({ enabled: true }));
 
@@ -17,23 +17,10 @@ vi.mock("../../../shell/logger", () => ({
   logger: { scope: () => ({ warn: vi.fn(), error: vi.fn() }) },
 }));
 
-import { useWarmTask } from "./useWarmTask";
+import { type UseWarmTaskOptions, useWarmTask } from "./useWarmTask";
 import { takeWarmTaskLease } from "./warmTaskLease";
 
-interface Props {
-  workspaceMode: WorkspaceMode;
-  selectedRepository?: string | null;
-  repositories?: string[];
-  githubIntegrationId?: number;
-  allowNoRepo?: boolean;
-  branch?: string | null;
-  editorIsEmpty: boolean;
-  runtimeAdapter?: string | null;
-  model?: string | null;
-  reasoningEffort?: string | null;
-  sandboxEnvironmentId?: string | null;
-  customImageId?: string | null;
-}
+type Props = UseWarmTaskOptions;
 
 const cloudTyping: Props = {
   workspaceMode: "cloud",
@@ -71,6 +58,63 @@ describe("useWarmTask", () => {
     });
   }
 
+  it.each<{ reason: string; invalidate: Partial<Props>; late: boolean }>([
+    {
+      reason: "the claude plan",
+      invalidate: { claudeModelAccess: "own-subscription" },
+      late: false,
+    },
+    {
+      reason: "the claude plan",
+      invalidate: { claudeModelAccess: "own-subscription" },
+      late: true,
+    },
+    {
+      reason: "a switch to Pi",
+      invalidate: { agentRuntime: "pi" },
+      late: false,
+    },
+    {
+      reason: "a switch to Pi",
+      invalidate: { agentRuntime: "pi" },
+      late: true,
+    },
+  ])(
+    "releases an unused warm run after $reason and permits another (late: $late)",
+    async ({ invalidate, late }) => {
+      let finishWarm:
+        | ((value: { task_id: string; run_id: string }) => void)
+        | undefined;
+      if (late)
+        mockClient.warmTask.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishWarm = resolve;
+            }),
+        );
+      const { rerender } = renderHook((props: Props) => useWarmTask(props), {
+        initialProps: cloudTyping,
+      });
+      await flushDebounce();
+      rerender({ ...cloudTyping, ...invalidate });
+      if (finishWarm)
+        await act(async () => {
+          finishWarm?.({ task_id: "task-1", run_id: "run-1" });
+        });
+      await flushDebounce();
+      expect(mockClient.warmTask).toHaveBeenCalledTimes(1);
+      expect(mockClient.cancelTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        undefined,
+        true,
+      );
+      rerender(cloudTyping);
+      await flushDebounce();
+      expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("fires a debounced warm when cloud + repo + typing", async () => {
     renderHook((props: Props) => useWarmTask(props), {
       initialProps: cloudTyping,
@@ -97,6 +141,7 @@ describe("useWarmTask", () => {
       props: { githubIntegrationId: undefined },
     },
     { name: "the editor is empty", props: { editorIsEmpty: true } },
+    { name: "the composer sits on Pi", props: { agentRuntime: "pi" } },
   ])("does not fire when $name", async ({ props, flagEnabled }) => {
     if (flagEnabled === false) {
       flagState.enabled = false;
@@ -286,6 +331,37 @@ describe("useWarmTask", () => {
       reasoning_effort: "high",
     });
     expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the warm lease when only reasoning effort changes", async () => {
+    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
+      initialProps: {
+        ...cloudTyping,
+        runtimeAdapter: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+      },
+    });
+    await flushDebounce();
+
+    rerender({
+      ...cloudTyping,
+      runtimeAdapter: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+    });
+    await flushDebounce();
+
+    expect(mockClient.warmTask).toHaveBeenCalledOnce();
+    expect(
+      takeWarmTaskLease({
+        repository: "acme/repo",
+        branch: "main",
+        runtimeAdapter: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "xhigh",
+      }),
+    ).toEqual({ taskId: "task-1", runId: "run-1" });
   });
 
   it("forwards sandbox configuration and re-warms when the image changes", async () => {

@@ -31,7 +31,7 @@ export function useTaskDeepLink() {
           log.info(
             `Found pending deep link: taskId=${pending.taskId}, taskRunId=${pending.taskRunId ?? "none"}`,
           );
-          handleOpenTask(pending.taskId, pending.taskRunId);
+          handleOpenTask(pending.taskId, pending.taskRunId, pending.comment);
         }
       } catch (error) {
         log.error("Failed to check for pending deep link:", error);
@@ -49,7 +49,7 @@ export function useTaskDeepLink() {
           `Received deep link event: taskId=${data.taskId}, taskRunId=${data.taskRunId ?? "none"}`,
         );
         if (!data?.taskId) return;
-        handleOpenTask(data.taskId, data.taskRunId);
+        handleOpenTask(data.taskId, data.taskRunId, data.comment);
       },
     });
     return () => subscription.unsubscribe();

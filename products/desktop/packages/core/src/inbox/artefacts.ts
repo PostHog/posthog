@@ -43,7 +43,135 @@ export function suggestedReviewerDisplayName(
     if (name) return name;
     if (reviewer.user.email) return reviewer.user.email;
   }
-  return reviewer.github_name ?? reviewer.github_login;
+  return (
+    reviewer.github_name ??
+    reviewer.github_login ??
+    reviewer.user?.email ??
+    "Reviewer"
+  );
+}
+
+const OTHER_REVIEWER_SOURCE_LABELS = new Set([
+  "Code history",
+  "Added by teammate",
+  "Agent suggestion",
+]);
+
+export function suggestedReviewerSourceLabel(
+  reviewer: SuggestedReviewer,
+): string {
+  if (reviewer.source_label) return reviewer.source_label;
+  if (reviewer.relevant_commits.length > 0) return "Code history";
+  if (reviewer.reason?.startsWith("Added as a reviewer by ")) {
+    return "Added by teammate";
+  }
+  return "Agent suggestion";
+}
+
+export function suggestedReviewerExplanation(
+  reviewer: SuggestedReviewer,
+): string | null {
+  if ("explanation" in reviewer) return reviewer.explanation ?? null;
+  return reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null;
+}
+
+export function isScoutSuggestedReviewer(reviewer: SuggestedReviewer): boolean {
+  if (reviewer.source_skill !== undefined) {
+    return Boolean(
+      reviewer.source_skill && reviewer.relevant_commits.length === 0,
+    );
+  }
+  return !OTHER_REVIEWER_SOURCE_LABELS.has(
+    suggestedReviewerSourceLabel(reviewer),
+  );
+}
+
+export interface SuggestedReviewerPersonItem {
+  kind: "person";
+  key: string;
+  reviewer: SuggestedReviewer;
+}
+
+export interface SuggestedReviewerReasonGroupItem {
+  kind: "reason-group";
+  key: string;
+  reason: string;
+  reviewers: SuggestedReviewer[];
+}
+
+export type SuggestedReviewerItem =
+  | SuggestedReviewerPersonItem
+  | SuggestedReviewerReasonGroupItem;
+
+function suggestedReviewerKey(reviewer: SuggestedReviewer): string {
+  return (
+    reviewer.user?.uuid ??
+    reviewer.user_uuid ??
+    reviewer.github_login ??
+    reviewer.github_name ??
+    reviewer.user?.email ??
+    "unknown-reviewer"
+  );
+}
+
+function suggestedReviewerReasonGroupKey(
+  reviewer: SuggestedReviewer,
+  reason: string,
+): string {
+  const isScout = isScoutSuggestedReviewer(reviewer);
+  return JSON.stringify([
+    "reason-group",
+    reason,
+    isScout ? "scout" : "other",
+    isScout ? null : suggestedReviewerSourceLabel(reviewer),
+  ]);
+}
+
+export function buildSuggestedReviewerItems(
+  reviewers: SuggestedReviewer[],
+): SuggestedReviewerItem[] {
+  const items: SuggestedReviewerItem[] = [];
+  const reasonCounts = new Map<string, number>();
+  const reasonGroups = new Map<string, SuggestedReviewerReasonGroupItem>();
+
+  for (const reviewer of reviewers) {
+    const reason = suggestedReviewerExplanation(reviewer);
+    if (reason) {
+      const groupKey = suggestedReviewerReasonGroupKey(reviewer, reason);
+      reasonCounts.set(groupKey, (reasonCounts.get(groupKey) ?? 0) + 1);
+    }
+  }
+
+  for (const reviewer of reviewers) {
+    const reason = suggestedReviewerExplanation(reviewer);
+    const groupKey = reason
+      ? suggestedReviewerReasonGroupKey(reviewer, reason)
+      : null;
+    if (!reason || !groupKey || reasonCounts.get(groupKey) === 1) {
+      items.push({
+        kind: "person",
+        key: suggestedReviewerKey(reviewer),
+        reviewer,
+      });
+      continue;
+    }
+
+    const existing = reasonGroups.get(groupKey);
+    if (existing) {
+      existing.reviewers.push(reviewer);
+    } else {
+      const item: SuggestedReviewerReasonGroupItem = {
+        kind: "reason-group",
+        key: groupKey,
+        reason,
+        reviewers: [reviewer],
+      };
+      reasonGroups.set(groupKey, item);
+      items.push(item);
+    }
+  }
+
+  return items;
 }
 
 export function extractSuggestedReviewers(
@@ -127,48 +255,10 @@ export function toSuggestedReviewerWriteContent(
 ): SuggestedReviewerWriteEntry[] {
   return reviewers
     .map((reviewer): SuggestedReviewerWriteEntry | null => {
+      const userUuid = reviewer.user_uuid ?? reviewer.user?.uuid;
+      if (userUuid) return { user_uuid: userUuid };
       if (reviewer.github_login) return { github_login: reviewer.github_login };
-      if (reviewer.user?.uuid) return { user_uuid: reviewer.user.uuid };
       return null;
     })
     .filter((entry): entry is SuggestedReviewerWriteEntry => entry !== null);
-}
-
-const AVATAR_PALETTE = [
-  "bg-(--orange-9) text-white",
-  "bg-(--blue-9) text-white",
-  "bg-(--purple-9) text-white",
-  "bg-(--green-9) text-white",
-  "bg-(--pink-9) text-white",
-  "bg-(--teal-9) text-white",
-] as const;
-
-export function reviewerAvatarToneClass(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash + seed.charCodeAt(i) * (i + 1)) % 9973;
-  }
-  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
-}
-
-export function reviewerInitials(
-  name: string | null | undefined,
-  email: string | null | undefined,
-): string {
-  const trimmedName = name?.trim() ?? "";
-  if (trimmedName) {
-    const parts = trimmedName.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
-    }
-    return trimmedName.slice(0, 2).toUpperCase();
-  }
-
-  const trimmedEmail = email?.trim() ?? "";
-  if (trimmedEmail) {
-    const local = trimmedEmail.split("@")[0] ?? trimmedEmail;
-    return local.slice(0, 2).toUpperCase();
-  }
-
-  return "??";
 }

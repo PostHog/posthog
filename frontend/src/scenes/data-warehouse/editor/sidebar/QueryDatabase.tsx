@@ -38,6 +38,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { PropertyDefinitionEditModal } from 'scenes/data-management/properties/PropertyDefinitionEditModal'
 import { biEditorLogic } from 'scenes/data-warehouse/editor/bi/biEditorLogic'
 import {
     BI_FIELD_DRAG_MIME_TYPE,
@@ -55,17 +56,20 @@ import { expressionModalLogic } from 'scenes/data-warehouse/expressionModalLogic
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
+import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
+import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
+import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
+import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export function getSidebarAddJoinSourceTableName(
@@ -94,6 +98,9 @@ export function getSidebarAddJoinSourceTableName(
 export function getColumnInsertText(record: Record<string, any> | undefined): string | null {
     if (record?.type !== 'column' || !record.columnName) {
         return null
+    }
+    if (typeof record.hogqlExpression === 'string') {
+        return record.hogqlExpression
     }
     return escapeDottedHogQLIdentifier(record.columnName)
 }
@@ -141,6 +148,7 @@ export const QueryDatabase = ({
         highlightedDropFolderId,
         highlightViewsSectionDrop,
         featureFlags,
+        editingPropertyDefinition,
     } = useValues(queryDatabaseLogic)
     const { config: biConfig, editorView } = useValues(biEditorLogic({ tabId }))
     const isBIEditor = editorView === BIEditorView.BI
@@ -159,6 +167,10 @@ export const QueryDatabase = ({
         renameDraft,
         openUnsavedQuery,
         deleteUnsavedQuery,
+        setPropertyDefinitionSearch,
+        openPropertyDefinitionEditor,
+        closePropertyDefinitionEditor,
+        updatePropertyDefinition,
     } = useActions(queryDatabaseLogic)
     const {
         createDataWarehouseSavedQueryFolder,
@@ -166,7 +178,7 @@ export const QueryDatabase = ({
         updateDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQuery,
     } = useActions(dataWarehouseViewsLogic)
-    const { deleteJoin } = useActions(sourceManagementLogic)
+    const { deleteJoin } = useActions(joinsDataLogic)
     const { expressionsByFieldName } = useValues(expressionModalLogic)
     const { openNewExpressionModal, openEditExpressionModal, deleteExpression } = useActions(expressionModalLogic)
     const { deleteDraft } = useActions(draftsLogic)
@@ -358,16 +370,7 @@ export const QueryDatabase = ({
         router.actions.push(url)
     }
 
-    const getEndpointUrl = (item: TreeDataItem): string => {
-        const endpointName = item.record?.table?.name ?? item.name
-        const versionMatch = endpointName.match(/^(.+)_v(\d+)$/)
-
-        if (versionMatch) {
-            return urls.endpoint(versionMatch[1], parseInt(versionMatch[2], 10))
-        }
-
-        return urls.endpoint(item.name)
-    }
+    const getEndpointUrl = (item: TreeDataItem): string => endpointModelUrl(item.record?.table?.name ?? item.name)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -385,7 +388,7 @@ export const QueryDatabase = ({
         return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
     }, [extraTreeSections, displayedTreeData, searchTerm])
 
-    return (
+    const tree = (
         <LemonTree
             ref={treeRef}
             data={treeData}
@@ -458,14 +461,13 @@ export const QueryDatabase = ({
                                   connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined,
                           }
                         : null
-                const columnName =
-                    isColumn && typeof item.record?.columnName === 'string' ? item.record.columnName : null
+                const columnExpression = isColumn ? getColumnInsertText(item.record) : null
                 const biField: BIField | null =
-                    biFieldSource && columnName
+                    biFieldSource && columnExpression
                         ? {
-                              id: getBIFieldId(biFieldSource, columnName),
+                              id: getBIFieldId(biFieldSource, columnExpression),
                               name: item.name,
-                              expression: columnName,
+                              expression: columnExpression,
                               type: item.record?.field.type,
                               source: biFieldSource,
                           }
@@ -572,6 +574,26 @@ export const QueryDatabase = ({
                 )
             }}
             itemSideAction={(item) => {
+                if (item.record?.type === 'property-field') {
+                    return null
+                }
+
+                if (item.record?.propertyDefinition) {
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    openPropertyDefinitionEditor(item.record?.propertyDefinition)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Edit definition</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
                 const joinMenu =
                     item.record?.field && item.record?.table
                         ? (() => {
@@ -975,27 +997,6 @@ export const QueryDatabase = ({
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
-                            {addJoinSourceTableName ? (
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (addJoinAccessDisabledReason) {
-                                            return
-                                        }
-                                        openNewExpressionModal(addJoinSourceTableName)
-                                    }}
-                                >
-                                    <ButtonPrimitive
-                                        menuItem
-                                        disabledReasons={
-                                            addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
-                                        }
-                                    >
-                                        Add expression
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
-                            ) : null}
                             {item.record.type === 'view' ? (
                                 <DropdownMenuItem
                                     asChild
@@ -1124,7 +1125,7 @@ export const QueryDatabase = ({
                 // External source folders get an actions menu: edit the source and add a new one of this type
                 if (
                     item.record?.type === 'source-folder' &&
-                    externalDataSources.includes(item.record?.sourceType as (typeof externalDataSources)[number])
+                    Object.values(ExternalDataSourceTypeEnumApi).includes(item.record?.sourceType)
                 ) {
                     const sourceType = item.record?.sourceType
                     const sources: { id: string; label: string }[] = item.record?.sources ?? []
@@ -1233,6 +1234,17 @@ export const QueryDatabase = ({
                 return undefined
             }}
             itemSideActionButton={(item) => {
+                if (item.record?.type === 'property-field') {
+                    return (
+                        <PropertyDefinitionFilter
+                            propertyDefinitionKey={item.record.propertyDefinitionKey}
+                            propertyDefinitionSearch={item.record.propertyDefinitionSearch ?? ''}
+                            propertyDefinitionTarget={item.record.propertyDefinitionTarget}
+                            setPropertyDefinitionSearch={setPropertyDefinitionSearch}
+                        />
+                    )
+                }
+
                 if (item.record?.type === 'sources') {
                     return (
                         <ButtonPrimitive
@@ -1288,6 +1300,14 @@ export const QueryDatabase = ({
                 return undefined
             }}
             renderItemIcon={(item) => {
+                if (item.record?.type === 'property-field') {
+                    return (
+                        <TreeNodeDisplayIcon
+                            item={{ ...item, record: { ...item.record, type: 'table' } }}
+                            expandedItemIds={expandedItemIds}
+                        />
+                    )
+                }
                 if (item.record?.type === 'column') {
                     const icon = getFieldTypeIcon(item.record.field?.type)
                     const savedExpression =
@@ -1312,5 +1332,18 @@ export const QueryDatabase = ({
             virtualized
             virtualizationScrollContainerRef={virtualizationScrollContainerRef}
         />
+    )
+
+    return (
+        <>
+            {tree}
+            {editingPropertyDefinition ? (
+                <PropertyDefinitionEditModal
+                    propertyDefinition={editingPropertyDefinition}
+                    onClose={closePropertyDefinitionEditor}
+                    onSave={updatePropertyDefinition}
+                />
+            ) : null}
+        </>
     )
 }

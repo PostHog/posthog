@@ -17,6 +17,7 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -33,7 +35,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
+    RESOURCE_SCHEMAS,
+    HoistedColumn,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
@@ -186,7 +191,7 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
-@dataclass
+@frozen
 class MetaAdsSchema:
     name: str
     primary_keys: list[str]
@@ -201,6 +206,8 @@ class MetaAdsSchema:
     is_stats: bool = False
     # The Graph API returns the node itself rather than a paged `data` list (`GET /act_<id>`).
     single_object: bool = False
+    # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
+    hoisted_columns: tuple[HoistedColumn, ...] = ()
 
 
 # Note: can make this static but keeping schemas.py to match other schema files for now
@@ -220,6 +227,7 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
             partition_format=schema_def.get("partition_format"),
             is_stats=schema_def.get("is_stats", False),
             single_object=schema_def.get("single_object", False),
+            hoisted_columns=schema_def.get("hoisted_columns", ()),
         )
 
         schemas[resource_name] = schema
@@ -247,9 +255,11 @@ TIME_RANGE_CHUNK_SIZES = [30, 7, 1]
 # Per-page row limits for adaptive pagination. When the Graph API times out
 # mid-chunk (i.e. on a paging.next cursor request, after we've already yielded
 # rows from the chunk), shrinking the chunk's date range would force us to
-# re-issue earlier pages and re-emit rows we've already produced. Instead we
-# shrink the per-page ``limit`` and retry the same cursor URL — Meta accepts
-# ``limit`` as a query param on cursor URLs.
+# re-issue earlier pages and re-emit rows we've already produced. So we prefer
+# to shrink the per-page ``limit`` and retry the same cursor URL, which Meta
+# accepts as a query param on cursor URLs. Only once this ladder bottoms out
+# does the chunk ladder take over, because a re-emit costs less than a dead sync
+# and every stats table keys on its breakdown columns, so the rows upsert.
 PAGE_LIMIT_FALLBACK_SIZES = [500, 100, 50]
 
 # Meta's Graph API intermittently returns HTTP 200 with a truncated/partial JSON
@@ -286,6 +296,22 @@ def _next_smaller_limit(current: int) -> int | None:
             return None
         return PAGE_LIMIT_FALLBACK_SIZES[idx + 1]
     smaller = [s for s in PAGE_LIMIT_FALLBACK_SIZES if s < current]
+    return max(smaller) if smaller else None
+
+
+def _next_smaller_chunk_size(current: int) -> int | None:
+    """Return the next smaller value in ``TIME_RANGE_CHUNK_SIZES``.
+
+    Returns ``None`` if ``current`` is already at or below the smallest rung. A
+    resumed sync can carry a chunk size that predates the current ladder, so an
+    off-ladder value steps to the largest rung below it rather than giving up.
+    """
+    if current in TIME_RANGE_CHUNK_SIZES:
+        idx = TIME_RANGE_CHUNK_SIZES.index(current)
+        if idx >= len(TIME_RANGE_CHUNK_SIZES) - 1:
+            return None
+        return TIME_RANGE_CHUNK_SIZES[idx + 1]
+    smaller = [s for s in TIME_RANGE_CHUNK_SIZES if s < current]
     return max(smaller) if smaller else None
 
 
@@ -686,13 +712,14 @@ def _iter_time_range_pagination(
     follows ``paging.next`` within each chunk. There are two adaptive-fallback
     dimensions:
 
-    - **Chunk size** (``TIME_RANGE_CHUNK_SIZES``): shrunk only when the
-      *initial* chunk request times out, before any rows are yielded.
-    - **Page limit** (``PAGE_LIMIT_FALLBACK_SIZES``): shrunk when a *cursor*
-      request inside the chunk times out, after we've already yielded earlier
-      pages from this chunk. We must not re-shrink the chunk here — that would
-      force re-yielding rows we already produced. Instead we override the
-      ``limit`` query param on the same cursor URL and retry.
+    - **Chunk size** (``TIME_RANGE_CHUNK_SIZES``): shrunk when the *initial*
+      chunk request times out, before any rows are yielded, and as the last
+      resort for a *cursor* timeout once the page limit bottoms out.
+    - **Page limit** (``PAGE_LIMIT_FALLBACK_SIZES``): the first lever for a
+      *cursor* request that times out after we already yielded earlier pages
+      from this chunk. Overriding the ``limit`` on the same cursor URL leaves
+      those pages alone, so we exhaust this ladder before restarting the chunk
+      at a smaller size and re-yielding them.
 
     Resume state captures both levels: ``chunk_since`` + ``chunk_size_days``
     for the outer loop, ``chunk_next_url`` when the crash happened mid-chunk,
@@ -740,6 +767,9 @@ def _iter_time_range_pagination(
         # Params of the initial chunk request, kept so a truncated 200 body can be
         # re-fetched. Only set on the non-resume path; unused once we're on a cursor.
         chunk_params: dict | None = None
+        # Set when the page-limit ladder bottoms out mid-chunk and a smaller chunk
+        # takes over, so the outer loop restarts this chunk instead of advancing.
+        restart_chunk = False
 
         if pending_next_url:
             # Mid-chunk resume: re-attach a fresh access_token at request time
@@ -759,11 +789,10 @@ def _iter_time_range_pagination(
             if response.status_code != 200:
                 # Fallback only happens on the initial chunk request (before any data is yielded).
                 if _should_shrink_request(response):
-                    if chunk_size_days in TIME_RANGE_CHUNK_SIZES:
-                        current_index = TIME_RANGE_CHUNK_SIZES.index(chunk_size_days)
-                        if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
-                            chunk_size_days = TIME_RANGE_CHUNK_SIZES[current_index + 1]
-                            continue
+                    smaller_chunk = _next_smaller_chunk_size(chunk_size_days)
+                    if smaller_chunk is not None:
+                        chunk_size_days = smaller_chunk
+                        continue
                     # The date range is already a single day, so the page size
                     # is the only dimension left. Re-issuing the same chunk at a
                     # smaller limit is safe: nothing has been yielded yet.
@@ -787,6 +816,20 @@ def _iter_time_range_pagination(
                         retry_url = _override_limit(last_paging_url, current_limit)
                         response = _fetch_paging_url(retry_url, access_token)
                         continue
+                    # The page limit cannot go lower, so narrow the window instead and
+                    # restart this chunk from its first day. Meta prices an insights
+                    # request on the window and the breakdown, not on the page size, so
+                    # a chunk this heavy keeps timing out at every limit. Re-yielding
+                    # the chunk's earlier pages costs a merge that the primary key
+                    # already dedupes, which beats failing the whole sync.
+                    smaller_chunk = _next_smaller_chunk_size(chunk_size_days)
+                    if smaller_chunk is not None:
+                        chunk_size_days = smaller_chunk
+                        # Drop the saved cursor. It encodes the wider window, so a
+                        # resume has to re-enter this chunk at the new size.
+                        _save(current_start, chunk_size_days, None)
+                        restart_chunk = True
+                        break
                     _raise_shrink_exhausted_error(response)
                 _raise_meta_api_error(response)
 
@@ -824,6 +867,9 @@ def _iter_time_range_pagination(
             last_paging_url = stripped_next_url
             response = _fetch_paging_url(_override_limit(stripped_next_url, current_limit), access_token)
 
+        if restart_chunk:
+            continue
+
         current_start = current_end + dt.timedelta(days=1)
         # Always save the chunk-boundary state, even when we've advanced past
         # end_date. This clears any stale mid-chunk next_url from the previous
@@ -843,6 +889,30 @@ def _fetch_single_object(url: str, params: dict, access_token: str) -> collectio
     if response.status_code != 200:
         _raise_meta_api_error(response)
     yield [response.json()]
+
+
+def _hoisted_values(row: dict, hoisted_columns: tuple[HoistedColumn, ...]) -> dict:
+    values = {}
+    for hoisted in hoisted_columns:
+        nested = row.get(hoisted.source_field)
+        values[hoisted.column] = nested.get(hoisted.key) if isinstance(nested, dict) else None
+    return values
+
+
+def _hoist_columns(
+    batches: collections.abc.Iterable[list[dict]], hoisted_columns: tuple[HoistedColumn, ...]
+) -> collections.abc.Generator[list[dict]]:
+    """Add each hoisted column to every row, read out of the row's nested object.
+
+    The column is always written, as ``None`` when the nested object is missing or is not an
+    object, so every row of the table carries the same columns whatever Meta returns for it.
+    """
+    if not hoisted_columns:
+        yield from batches
+        return
+
+    for batch in batches:
+        yield [{**row, **_hoisted_values(row, hoisted_columns)} for row in batch]
 
 
 def _make_paginated_api_request(
@@ -907,7 +977,7 @@ def meta_ads_source(
 ) -> SourceResponse:
     """A data warehouse Meta Ads source. ``api_version`` is the source instance's resolved pin."""
     name = NamingConvention.normalize_identifier(resource_name)
-    schema = get_schemas()[resource_name]
+    schema = schema_for_resource(get_schemas(), resource_name)
 
     sync_lookback_days = getattr(config, "sync_lookback_days", None)
     if sync_lookback_days is None or sync_lookback_days < 1:
@@ -955,7 +1025,10 @@ def meta_ads_source(
         formatted_url = schema.url.format(API_VERSION=api_version, account_id=_clean_account_id(config.account_id))
 
         if schema.single_object:
-            yield from _fetch_single_object(formatted_url, {"fields": ",".join(schema.field_names)}, access_token)
+            yield from _hoist_columns(
+                _fetch_single_object(formatted_url, {"fields": ",".join(schema.field_names)}, access_token),
+                schema.hoisted_columns,
+            )
             return
 
         params = {
@@ -968,8 +1041,9 @@ def meta_ads_source(
         if schema.is_stats:
             params.update(_attribution_params(config))
 
-        yield from _make_paginated_api_request(
-            formatted_url, params, access_token, time_range, resumable_source_manager
+        yield from _hoist_columns(
+            _make_paginated_api_request(formatted_url, params, access_token, time_range, resumable_source_manager),
+            schema.hoisted_columns,
         )
 
     return SourceResponse(

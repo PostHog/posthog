@@ -3,9 +3,8 @@ import type { LoopSchemas } from "@posthog/api-client/loops";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
-import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
+import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button } from "@posthog/ui/primitives/Button";
@@ -78,22 +77,10 @@ export function LoopsListView({
   headerContent?: ReactNode;
 }) {
   const { data: loops, isLoading, isError, error } = useLoops();
-  const authenticatedClient = useOptionalAuthenticatedClient();
-  const {
-    data: currentUser,
-    isLoading: currentUserLoading,
-    isError: currentUserError,
-    error: currentUserQueryError,
-  } = useCurrentUser({ client: authenticatedClient });
   const limits = useLoopLimits();
+  const workflowBacked = useLoopsHogFlowsEnabled();
   const limitReason =
     limits?.atLimit === true ? loopLimitReason(limits.max) : null;
-  let listError: unknown = null;
-  if (isError) {
-    listError = error;
-  } else if (currentUserError) {
-    listError = currentUserQueryError;
-  }
 
   // The standalone page names itself in-page and has no breadcrumb. When the
   // registry is hosted inside a space, its caller supplies that navigation
@@ -147,10 +134,10 @@ export function LoopsListView({
   return (
     <LoopsListViewPresentation
       loops={allLoops}
-      currentUserId={currentUser?.id ?? null}
-      isLoading={isLoading || currentUserLoading}
-      error={listError}
+      isLoading={isLoading}
+      error={isError ? error : null}
       limitReason={limitReason}
+      workflowBacked={workflowBacked}
       members={members}
       membersLoading={membersLoading}
       membersError={membersError}
@@ -166,10 +153,11 @@ export function LoopsListView({
 
 interface LoopsListViewPresentationProps {
   loops: LoopSchemas.Loop[];
-  currentUserId?: number | null;
   isLoading?: boolean;
   error?: unknown;
   limitReason?: string | null;
+  /** Loops backed by workflows are all team-visible and have no API trigger. */
+  workflowBacked?: boolean;
   members?: UserBasic[];
   membersLoading?: boolean;
   membersError?: boolean;
@@ -183,10 +171,10 @@ interface LoopsListViewPresentationProps {
 
 export function LoopsListViewPresentation({
   loops,
-  currentUserId = null,
   isLoading = false,
   error = null,
   limitReason = null,
+  workflowBacked = false,
   members = EMPTY_MEMBERS,
   membersLoading = false,
   membersError = false,
@@ -197,16 +185,8 @@ export function LoopsListViewPresentation({
   onResumeBuilderSession,
   onBuilderSessionStopped,
 }: LoopsListViewPresentationProps) {
-  const personalLoops = loops.filter(
-    (loop) =>
-      loop.visibility === "personal" ||
-      (currentUserId !== null && loop.created_by_id === currentUserId),
-  );
-  const teamLoops = loops.filter(
-    (loop) =>
-      loop.visibility === "team" &&
-      (currentUserId === null || loop.created_by_id !== currentUserId),
-  );
+  const personalLoops = loops.filter((loop) => loop.visibility === "personal");
+  const teamLoops = loops.filter((loop) => loop.visibility === "team");
 
   const createButton = (
     <Button
@@ -224,7 +204,9 @@ export function LoopsListViewPresentation({
 
   // Only the loaded, non-empty list has tabs to show — the skeleton, the error
   // notice and the empty state all render without them.
-  const hasTabs = !isLoading && !error && loops.length > 0;
+  // Workflow-backed loops are all team-visible, so the personal/team split
+  // would show one empty tab and one full one.
+  const hasTabs = !isLoading && !error && loops.length > 0 && !workflowBacked;
 
   const body = (
     <>
@@ -287,9 +269,12 @@ export function LoopsListViewPresentation({
 
   // One Tabs root spanning header and body: the trigger strip sits in the
   // header's sub-nav, its panels stay down in the scrolling body.
+  // The default tab is read once at mount, and the flag can flip after that.
+  // Remount on a mode change so workflow loops never sit behind a hidden tab.
   return (
     <Tabs
-      defaultValue="personal"
+      key={workflowBacked ? "workflow" : "loops"}
+      defaultValue={workflowBacked ? "team" : "personal"}
       className="flex h-full min-h-0 flex-col gap-0"
     >
       <PageHeader>
@@ -302,9 +287,9 @@ export function LoopsListViewPresentation({
             <PageHeaderActions>{createButton}</PageHeaderActions>
           </PageHeaderTitleRow>
           <PageHeaderDescription>
-            Put your work on autopilot. Loops run on a schedule, on an API call,
-            or when something happens on GitHub. You can finally close the
-            laptop!
+            {workflowBacked
+              ? "Put your work on autopilot. Loops run on a schedule or when something happens on GitHub. You can finally close the laptop!"
+              : "Put your work on autopilot. Loops run on a schedule, on an API call, or when something happens on GitHub. You can finally close the laptop!"}
           </PageHeaderDescription>
         </PageHeaderHeading>
         {hasTabs && (

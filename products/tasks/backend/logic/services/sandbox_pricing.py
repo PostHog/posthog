@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import ROUND_UP, Decimal
 
 from django.utils import timezone
@@ -49,7 +49,42 @@ class SandboxComputeCost:
         return self.cpu_cost_usd + self.memory_cost_usd
 
 
-COMPUTE_RATE_CARDS: tuple[ComputeRateCard, ...] = ()
+COMPUTE_RATE_CARDS: tuple[ComputeRateCard, ...] = (
+    ComputeRateCard(
+        version="v1",
+        effective_at=datetime(2026, 8, 21, 16, tzinfo=UTC),
+        expires_at=None,
+        cpu_core_second_usd=Decimal("0.000075"),
+        memory_gib_second_usd=Decimal("0.000008"),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class ComputeRateCardCatalog:
+    current: ComputeRateCard | None
+    history: tuple[ComputeRateCard, ...]
+
+
+def get_compute_rate_card_catalog(
+    *, at: datetime | None = None, rate_cards: Sequence[ComputeRateCard] | None = None
+) -> ComputeRateCardCatalog:
+    cards = tuple(COMPUTE_RATE_CARDS if rate_cards is None else rate_cards)
+    if not cards:
+        return ComputeRateCardCatalog(current=None, history=())
+
+    cards = validate_compute_rate_cards(cards)
+    effective_at = at or timezone.now()
+    if timezone.is_naive(effective_at):
+        raise ValueError("rate card lookup timestamp must be timezone-aware")
+
+    published_cards = tuple(card for card in cards if card.effective_at <= effective_at)
+    current = next(
+        (card for card in reversed(published_cards) if card.expires_at is None or effective_at < card.expires_at),
+        None,
+    )
+    history = tuple(card for card in reversed(published_cards) if card != current)
+    return ComputeRateCardCatalog(current=current, history=history)
 
 
 def validate_reporting_window(reporting_start: datetime, reporting_end: datetime) -> None:

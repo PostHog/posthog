@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     import requests
 
 from posthog.egress.limiter.outbound import get_outbound_rate_limiter
-from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy
+from posthog.egress.limiter.policies import DEFAULT_RESERVE, Priority, RatePolicy, register_policy
 
 GITHUB_DOMAIN = "github"
 GITHUB_SEARCH_DOMAIN = "github_search"
@@ -68,11 +68,25 @@ _RESOURCE_DOMAINS: dict[GitHubRateResource, str] = {
     GitHubRateResource.CODE_SEARCH: GITHUB_CODE_SEARCH_DOMAIN,
 }
 
-# Reserved-floor ladder: BATCH calls are denied once 70% of a window is consumed, NORMAL at 90%,
-# CRITICAL can use the full budget. Active now that deferrable callers declare their lane
-# (code-workstreams polling and the job-logs worker at BATCH) — shedding them first is what keeps
-# headroom for user-facing traffic as an installation's budget fills.
-_RESERVE: dict[Priority, float] = {Priority.BATCH: 0.30, Priority.NORMAL: 0.10}
+# Applied instead of DEFAULT_RESERVE when an installation has served no recent interactive traffic.
+# The default BATCH floor keeps headroom for user-facing calls; on an installation whose only consumer is a bulk one
+# — a warehouse backfill of a repository nothing else touches — it holds that headroom against
+# contention which never arrives, and forfeits a third of the budget for the whole run. The hourly
+# budget is what decides whether a large backfill finishes, so that third is the difference between
+# one run and several.
+#
+# BATCH keeps a floor rather than the entire budget, and that floor is never smaller than NORMAL's
+# own (0.10): a zero floor denies the first interactive call before its own marker can apply, and
+# anything smaller than NORMAL's floor lets an unopposed backfill saturate the window past the
+# point where that first interactive call would be admitted at all, regardless of the marker it
+# just wrote. NORMAL's floor itself stays unchanged, because CRITICAL traffic arrives with no
+# warning.
+_IDLE_RESERVE: dict[Priority, float] = {**DEFAULT_RESERVE, Priority.BATCH: DEFAULT_RESERVE[Priority.NORMAL]}
+
+# How long one interactive call holds the full reserve in place. Longer than a quiet gap in genuine
+# interactive use, so the budget does not flap part-way through a backfill, and far shorter than a
+# backfill, so a single configuration action does not reserve headroom for hours.
+INTERACTIVE_DEMAND_TTL_SECONDS = 15 * 60
 
 # Default under GitHub's real 15k/hr ceiling so the reactive backoff (GitHubRateLimitError in
 # posthog/egress/github/transport.py) absorbs drift between our local count and GitHub's actual
@@ -109,9 +123,22 @@ _observed_memo: dict[str, tuple[int | None, float]] = {}
 _REWRITE_INTERVAL_SECONDS = 3600.0
 _last_written: dict[str, tuple[int, float]] = {}
 
+# Same reasoning for the interactive-demand marker, with a shorter memo: this value flips within a
+# session rather than with a customer's GitHub plan, and a stale True only delays a budget the
+# backfill was not using a moment ago. The rewrite interval stays well inside the marker's TTL so a
+# steady stream of interactive calls keeps it alive.
+_INTERACTIVE_MEMO_TTL_SECONDS = 10.0
+_interactive_memo: dict[str, tuple[bool, float]] = {}
+_INTERACTIVE_REWRITE_INTERVAL_SECONDS = 60.0
+_interactive_last_written: dict[str, float] = {}
+
 
 def observed_core_limit_cache_key(installation_id: str) -> str:
     return f"github_egress:observed_core_limit:{installation_id}"
+
+
+def interactive_demand_cache_key(installation_id: str) -> str:
+    return f"github_egress:interactive_demand:{installation_id}"
 
 
 def installation_id_from_key(key: str) -> str:
@@ -175,6 +202,45 @@ def remember_observed_core_limit(installation_id: str | None, response: "request
         pass
 
 
+def note_interactive_demand(installation_id: str | int) -> None:
+    """Record that interactive traffic is using this installation's ``core`` budget.
+
+    Called on the attempt, not on the outcome: a denied interactive call is the strongest evidence
+    that the reserve is needed, so it has to count. Best-effort — a cache failure leaves the budget
+    unreserved, which is what an installation with no interactive traffic gets anyway.
+    """
+    key = str(installation_id)
+    now = time.monotonic()
+    _interactive_memo[key] = (True, now)
+    last_written = _interactive_last_written.get(key)
+    if last_written is not None and now - last_written < _INTERACTIVE_REWRITE_INTERVAL_SECONDS:
+        return
+    try:
+        cache.set(interactive_demand_cache_key(key), True, INTERACTIVE_DEMAND_TTL_SECONDS)
+        _interactive_last_written[key] = now
+    except Exception:
+        pass
+
+
+def has_interactive_demand(installation_id: str) -> bool:
+    """Whether interactive traffic used this installation's ``core`` budget recently.
+
+    An unreachable cache answers ``True``. Every other best-effort read here degrades toward the
+    safer default, and the safer default for a reserve that protects user-facing traffic is to keep
+    it — the cost is a slower backfill, against starving an interactive call.
+    """
+    now = time.monotonic()
+    memoized = _interactive_memo.get(installation_id)
+    if memoized is not None and now - memoized[1] < _INTERACTIVE_MEMO_TTL_SECONDS:
+        return memoized[0]
+    try:
+        present = bool(cache.get(interactive_demand_cache_key(installation_id)))
+    except Exception:
+        return True
+    _interactive_memo[installation_id] = (present, now)
+    return present
+
+
 def _hourly_budget() -> int:
     return int(getattr(settings, "GITHUB_EGRESS_HOURLY_BUDGET", _DEFAULT_HOURLY_BUDGET))
 
@@ -204,11 +270,12 @@ def _tier_budgets(observed_limit: int | None) -> tuple[int, int]:
 # spend. Registered as a provider so budgets are read at acquire time (settings + the observed tier
 # for the key's installation), not frozen at import.
 def _github_policy(key: str) -> RatePolicy:
-    hourly, per_minute = _tier_budgets(get_observed_core_limit(installation_id_from_key(key)))
+    installation_id = installation_id_from_key(key)
+    hourly, per_minute = _tier_budgets(get_observed_core_limit(installation_id))
     return RatePolicy(
         limits=((per_minute, 60.0), (hourly, 3600.0)),
         in_memory_divider=4,
-        reserve=_RESERVE,
+        reserve=DEFAULT_RESERVE if has_interactive_demand(installation_id) else _IDLE_RESERVE,
     )
 
 
@@ -217,15 +284,9 @@ register_policy(GITHUB_DOMAIN, _github_policy)
 # Static budgets, no observed-limit persistence: GitHub's search rate limits are fixed regardless
 # of the account's plan tier (unlike core), so there is no tier to observe. Both sit just under
 # GitHub's real per-installation ceilings (10/min and 30/min) so our reactive backoff absorbs
-# drift. Same reserve ladder as core so BATCH/NORMAL callers still shed first as the window fills.
-register_policy(
-    GITHUB_CODE_SEARCH_DOMAIN,
-    RatePolicy(limits=((8, 60.0),), in_memory_divider=4, reserve=_RESERVE),
-)
-register_policy(
-    GITHUB_SEARCH_DOMAIN,
-    RatePolicy(limits=((27, 60.0),), in_memory_divider=4, reserve=_RESERVE),
-)
+# drift. The default reserve ladder applies, so BATCH/NORMAL callers still shed first as the window fills.
+register_policy(GITHUB_CODE_SEARCH_DOMAIN, RatePolicy(limits=((8, 60.0),), in_memory_divider=4))
+register_policy(GITHUB_SEARCH_DOMAIN, RatePolicy(limits=((27, 60.0),), in_memory_divider=4))
 
 
 def github_installation_key(
@@ -235,6 +296,16 @@ def github_installation_key(
     budget is scoped to. The resource picks the domain (its own counter); the scope stays the
     installation."""
     return f"{_RESOURCE_DOMAINS[resource]}:installation:{installation_id}"
+
+
+def _note_demand_if_interactive(installation_id: str | int, priority: Priority, resource: GitHubRateResource) -> None:
+    """Stamp the demand marker for a non-BATCH ``core`` call.
+
+    Scoped to ``core`` because only the core policy consults the marker; the two search budgets are
+    static and metered on their own counters, so search demand says nothing about core headroom.
+    """
+    if resource is GitHubRateResource.CORE and priority is not Priority.BATCH:
+        note_interactive_demand(installation_id)
 
 
 async def acquire_github_installation(
@@ -248,6 +319,7 @@ async def acquire_github_installation(
     """Reserve ``n`` requests against an installation's budget for ``resource``. Returns False when the
     budget (or this ``priority``'s reserved floor) is exhausted — back off and retry rather than
     calling GitHub."""
+    _note_demand_if_interactive(installation_id, priority, resource)
     return await get_outbound_rate_limiter().acquire(
         github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
     )
@@ -263,6 +335,24 @@ def consume_github_installation_sync(
 ) -> bool:
     """Sync variant of :func:`acquire_github_installation` for callers outside an event loop (e.g. the
     warehouse source iterator, which runs in a thread pool)."""
+    _note_demand_if_interactive(installation_id, priority, resource)
     return get_outbound_rate_limiter().consume_sync(
         github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
+    )
+
+
+def github_installation_pace_seconds(
+    installation_id: str | int,
+    *,
+    priority: Priority = Priority.NORMAL,
+    resource: GitHubRateResource = GitHubRateResource.CORE,
+) -> float:
+    """Seconds to wait before the next call on this installation's budget for ``resource``.
+
+    For a caller that can wait rather than be shed, such as a bulk import walking pages. Zero means
+    the budget has room to spare. See ``OutboundRateLimiter.pace_seconds`` for what the wait means
+    and why it is not a wait for a reset.
+    """
+    return get_outbound_rate_limiter().pace_seconds(
+        github_installation_key(installation_id, resource=resource), priority=priority
     )

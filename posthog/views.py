@@ -15,17 +15,20 @@ from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
-from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseServerError, JsonResponse
 from django.shortcuts import redirect, render
+from django.template import loader
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.views.decorators.csrf import csrf_exempt, csrf_protect, requires_csrf_token
 from django.views.decorators.http import require_http_methods
 
 import structlog
 from opentelemetry import trace
+from prometheus_client import REGISTRY, CollectorRegistry, generate_latest, multiprocess
 
 from posthog.api.capture import capture_internal
+from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
@@ -87,7 +90,7 @@ def noop(*args, **kwargs) -> None:
 try:
     from ee.models.license import get_licensed_users_available
 except ImportError:
-    get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
+    get_licensed_users_available = noop
 
 
 def login_required(view):
@@ -273,7 +276,7 @@ MAX_VALUE_DISPLAY_LENGTH = 200
 
 
 @dataclass
-class RedisKeyInfo:
+class RedisKeySnapshot:
     key: str
     type: str
     ttl: timedelta | int
@@ -302,7 +305,7 @@ def truncate_value(value, max_length: int = MAX_VALUE_DISPLAY_LENGTH) -> str:
     return str_value[:max_length] + "..."
 
 
-def get_redis_key_info(key: bytes, redis_client) -> RedisKeyInfo:
+def get_redis_key_info(key: bytes, redis_client) -> RedisKeySnapshot:
     redis_key = key.decode("utf-8")
     redis_type = redis_client.type(redis_key).decode("utf8")
     redis_ttl = redis_client.ttl(redis_key)
@@ -327,7 +330,7 @@ def get_redis_key_info(key: bytes, redis_client) -> RedisKeyInfo:
     full_value = str(value)
     is_truncated = len(full_value) > MAX_VALUE_DISPLAY_LENGTH
 
-    return RedisKeyInfo(
+    return RedisKeySnapshot(
         key=redis_key,
         type=redis_type,
         ttl=redis_ttl,
@@ -467,12 +470,7 @@ def api_key_search_view(request: HttpRequest):
     personal_api_key_hash_mode = None
     # Legacy personal API keys predate the phx_ prefix, so any query without another known
     # prefix is also treated as a personal key candidate (matching authentication behavior).
-    non_personal_api_key_prefixes = (
-        SECRET_API_TOKEN_PREFIX,
-        OAUTH_ACCESS_TOKEN_PREFIX,
-        OAUTH_REFRESH_TOKEN_PREFIX,
-        PROJECT_API_TOKEN_PREFIX,
-    )
+    non_personal_api_key_prefixes = (*NON_PERSONAL_SECRET_PREFIXES, PROJECT_API_TOKEN_PREFIX)
     if query and not query.startswith(non_personal_api_key_prefixes):
         result = find_personal_api_key(query)
         if result is not None:
@@ -792,3 +790,42 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         capture_exception(e)
         return JsonResponse({"error": "Failed to update preferences"}, status=400)
+
+
+@xframe_options_exempt
+@never_cache
+def replay_player_frame(request: HttpRequest) -> HttpResponse:
+    """Empty shell the replay player mounts rrweb into.
+
+    rrweb builds its own `about:blank` iframe, and a frame on a local scheme inherits its parent's
+    whole policy, report-uri included. Mounting rrweb here rather than in the app document puts a
+    real document in that inheritance chain, so a recorded page is judged against this frame's
+    policy instead of the app's. CSPMiddleware supplies that policy.
+    """
+    return render(request, "replay_player_frame/index.html")
+
+
+@requires_csrf_token
+def handler500(request: HttpRequest) -> HttpResponse:
+    """
+    500 error handler.
+
+    Templates: :template:`500.html`
+    Context: request
+    """
+    template = loader.get_template("500.html")
+    return HttpResponseServerError(template.render({"request": request}, request))
+
+
+def metrics_view(request: HttpRequest) -> HttpResponse:
+    """Metrics endpoint that aggregates from all processes using multiprocess mode."""
+    registry = CollectorRegistry()
+    # If prometheus_multiproc_dir is set, collect from all processes
+    if "prometheus_multiproc_dir" in os.environ or "PROMETHEUS_MULTIPROC_DIR" in os.environ:
+        multiprocess.MultiProcessCollector(registry)
+    else:
+        # Fallback to default registry if multiprocess not configured
+        registry = REGISTRY
+
+    metrics_output = generate_latest(registry)
+    return HttpResponse(metrics_output, content_type="text/plain; charset=utf-8; version=0.0.4")

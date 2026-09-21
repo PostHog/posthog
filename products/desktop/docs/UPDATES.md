@@ -4,12 +4,12 @@ PostHog uses semantic versioning with git tags. Patch versions are automatically
 
 The version in `apps/code/package.json` is set to `0.0.0-dev` - this is intentional. CI injects the real version at build time from git tags.
 
-## Version Format: `major.minor.patch`
+## Version format: `major.minor.patch`
 
-- **major.minor**: Controlled by git tags (e.g., `v0.15.0`, `v1.0.0`)
-- **patch**: Auto-calculated as number of commits since the minor tag
+- **major.minor**: Controlled by desktop base tags (e.g., `desktop-v0.15`, `desktop-v1.0`)
+- **patch**: Auto-calculated as the number of commits since the base tag that touched `products/desktop/`
 
-**Important:** Releases must use proper three-part semver versions (e.g., `v0.22.1`, not `v0.22`). The auto-updater requires valid semver for version comparison. Two-part versions will break auto-updates.
+**Important:** Released versions are always three-part semver (e.g., `0.22.1`). The auto-updater requires valid semver for version comparison, and CI derives the three-part version from the base tag plus the patch count.
 
 ## Auto-Update Mechanism
 
@@ -22,63 +22,65 @@ GitHub Releases in `PostHog/posthog` remain the human-facing changelog and downl
 **macOS**: DMG + zip artifacts are uploaded; the merged `latest-mac.yml` covers both arm64 and x64 so the correct build is selected per architecture.
 
 **Windows**: A single NSIS installer is shipped and updated through electron-updater via `latest.yml`. The legacy Squirrel.Windows installer is no longer built; anyone still on an old Squirrel install must reinstall once via the NSIS installer to keep receiving updates.
+Release builds are signed through Azure Artifact Signing, and the certificate subject ships in `app-update.yml` as `publisherName`, so electron-updater rejects a downloaded installer that is not signed by the same publisher.
 
 **Linux**: No auto-update. AppImage, deb and rpm packages are manual downloads from the GitHub Release, also mirrored to the S3 feed.
 
 Remote announcements can drive this flow: a `required-update` announcement blocks apps below a version and reuses the updater; where the updater is unavailable it degrades to a manual download link. See [ANNOUNCEMENTS.md](./ANNOUNCEMENTS.md).
 
-## How It Works
+## In-app update surfaces
 
-1. A base tag like `v0.15.0` marks the start of a minor version
-2. Each push to `main` triggers a release with version `0.15.N` where N = commits since `v0.15.0`
-3. No manual `package.json` updates needed for patch releases
+- The sidebar footer shows the update banner while the sidebar is on screen. It covers the available, downloading, ready and installing states.
+- The title bar shows a compact chip for the same states while the sidebar is collapsed, peeked away or absent, so only one copy is on screen at a time.
+- Both surfaces open the update modal, which shows the release notes and holds the Download and Restart actions. The sidebar card also has its own Restart button for a staged update.
+- "Check for Updates..." in the app menu runs a check. It shows a toast when the app is up to date or the check fails, and opens the update modal when the check finds an available, downloading or staged update.
+- The modal is mounted in the app shell above the router, so it also opens from the sign-in, access and consent screens.
 
-## Releasing a Patch (Automatic)
+## How it works
 
-Just push to `main`. The workflow computes the version automatically:
+1. A base tag like `desktop-v0.15` marks the start of a minor version.
+2. `.github/workflows/desktop-tag.yml` (monorepo root) runs on a twice-daily schedule. It computes `desktop-vX.Y.PATCH`, where PATCH is the number of commits since the base tag that touched `products/desktop/`, waits for a quiet period, then pushes the tag.
+3. Before it tags, it runs `Desktop Tests` on master and tags the commit that run tested. It refuses to tag if that run fails. If the run has not finished within twenty-five minutes, it leaves the release to the next scheduled run. A manual dispatch with `ignore_master_ci` skips the check, for a break-glass release.
+4. The tag push triggers `desktop-release.yml`, which builds and publishes the release.
+5. No manual `package.json` updates are needed.
 
-```
-v0.15.0 tag exists
-Push commit #1 → releases 0.15.1
-Push commit #2 → releases 0.15.2
-Push commit #3 → releases 0.15.3
-```
+## Releasing a patch
 
-## Releasing a Minor Version
+Merge to `master` and wait for the next scheduled `desktop-tag.yml` run. To release sooner:
 
-Create a new base tag when you want to bump the minor version:
+- Add the `desktop-release` label to your PR before merging (the labeler must be a `team-posthog-desktop` member). The merge then tags immediately.
+- Or trigger `desktop-tag.yml` manually with `gh workflow run desktop-tag.yml`.
 
-```bash
-git tag v0.16.0
-git push origin v0.16.0
-```
+## Releasing a minor or major version
 
-The next push to `main` will release `0.16.1`.
-
-## Releasing a Major Version
-
-Same process, just increment the major:
+Create a new base tag to bump the minor or major version:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag desktop-v0.16
+git push origin desktop-v0.16
 ```
 
-## Checking Current Version
+The next `desktop-tag.yml` run releases `desktop-v0.16.N`.
+
+A tag ruleset protects `desktop-v*` and `agent-v*` tags, because pushing one publishes a release.
+Only a repository admin can push a base tag.
+`desktop-tag.yml` and `desktop-agent-tag.yml` push release tags through the Releaser GitHub App, which the ruleset allows.
+
+## Checking current version
 
 See what version would be released:
 
 ```bash
 # Find the current base tag
-git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.0$' | head -1
+git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.0)?$' | head -1
 
-# Count commits since base tag (this is the patch number)
-git rev-list v0.15.0..HEAD --count
+# Count desktop commits since the base tag (this is the patch number)
+git rev-list desktop-v0.15..HEAD --count -- products/desktop/
 ```
 
-## Tag Naming Convention
+## Tag naming convention
 
-- **Base tags** (manual): `vX.Y.0` - e.g., `v0.15.0`, `v1.0.0`
-- **Release tags** (auto): `vX.Y.Z` - e.g., `v0.15.3`, created by CI
+- **Base tags** (manual): `desktop-vX.Y` or `desktop-vX.Y.0`
+- **Release tags** (auto): `desktop-vX.Y.Z`, created by CI
 
-Only base tags (`vX.Y.0`) are used for version calculation. Release tags (`vX.Y.Z`) are created for GitHub releases but ignored when computing the next version.
+Only base tags are used for version calculation. Release tags are created for GitHub releases but ignored when computing the next version.

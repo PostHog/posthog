@@ -1,7 +1,10 @@
+from typing import Any
+
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
+from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import SocketTimeoutError
 from parameterized import parameterized
@@ -25,6 +28,7 @@ from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
+    ERROR_CODE_MESSAGES,
     CohortErrorCode,
     _recalculate_cohortpeople_for_team,
     _sanitize_query_for_cohort,
@@ -37,6 +41,7 @@ from products.cohorts.backend.models.util import (
     print_cohort_hogql_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
+    validate_actors_query_for_cohort,
 )
 
 MISSING_COHORT_ID = 12345
@@ -49,6 +54,40 @@ def _create_cohort(**kwargs):
     is_static = kwargs.pop("is_static", False)
     cohort = Cohort.objects.create(team=team, name=name, groups=groups, is_static=is_static)
     return cohort
+
+
+class TestCohortQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("time_series_trends_without_day", None, None, True),
+            ("time_series_trends_with_empty_day", None, "", True),
+            ("time_series_trends_with_whitespace_day", None, " ", True),
+            ("time_series_trends_with_malformed_day", None, "not-a-date", True),
+            ("time_series_trends_with_integer_day", None, 0, True),
+            ("time_series_trends_with_day", None, "2026-07-01", False),
+            ("total_value_trends_without_day", "BoldNumber", None, False),
+            ("total_value_trends_with_day", "BoldNumber", "2026-07-01", True),
+        ]
+    )
+    def test_validate_actors_query_for_cohort_requires_valid_day(
+        self, _name: str, display: str | None, day: str | int | None, should_raise: bool
+    ) -> None:
+        insight: dict[str, Any] = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+        if display:
+            insight["trendsFilter"] = {"display": display}
+        source: dict[str, Any] = {"kind": "InsightActorsQuery", "source": insight}
+        if day is not None:
+            source["day"] = day
+        query = {"kind": "ActorsQuery", "select": ["person"], "source": source}
+
+        if should_raise:
+            with self.assertRaises(DRFValidationError):
+                validate_actors_query_for_cohort(query)
+        else:
+            validate_actors_query_for_cohort(query)
 
 
 class TestCohortUtils(BaseTest):
@@ -365,30 +404,13 @@ class TestCohortUtils(BaseTest):
 
     def test_print_cohort_hogql_query_includes_settings(self):
         """Test that cohort queries include HogQL global settings"""
-        # Create a cohort with a HogQL query (simulating a funnel-to-cohort conversion)
+        # The settings come from the printer, so any actors-shaped cohort query reaches them.
         cohort = Cohort.objects.create(
             team=self.team,
-            name="Test Funnel Cohort",
+            name="Test Actors Cohort",
             query={
                 "kind": "ActorsQuery",
-                "source": {
-                    "kind": "FunnelsActorsQuery",
-                    "source": {
-                        "kind": "FunnelsQuery",
-                        "series": [
-                            {"kind": "EventsNode", "event": "$pageview"},
-                            {"kind": "EventsNode", "event": "$identify"},
-                        ],
-                        "interval": "day",
-                        "dateRange": {"date_from": "-30d"},
-                        "funnelsFilter": {
-                            "funnelVizType": "steps",
-                            "funnelWindowInterval": 1,
-                            "funnelWindowIntervalUnit": "day",
-                        },
-                    },
-                    "funnelStep": 2,
-                },
+                "source": {"kind": "HogQLQuery", "query": "SELECT id AS actor_id FROM persons"},
             },
         )
 
@@ -1205,6 +1227,7 @@ class TestParseErrorCode(BaseTest):
             ("value_error", "ValueError", CohortErrorCode.UNKNOWN),
             ("clickhouse_regex", "ClickHouseRegexError", CohortErrorCode.INVALID_REGEX),
             ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
+            ("clickhouse_too_many_bytes", "ClickHouseTooManyBytesError", CohortErrorCode.DATA_LIMIT),
             ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
             ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
             ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
@@ -1247,6 +1270,7 @@ class TestParseErrorCode(BaseTest):
         clickhouse_code_names = {
             "ClickHouseRegexError": "CANNOT_COMPILE_REGEXP",
             "ClickHouseMemoryError": "MEMORY_LIMIT_EXCEEDED",
+            "ClickHouseTooManyBytesError": "TOO_MANY_BYTES",
             "ClickHouseTimeoutError": "TIMEOUT_EXCEEDED",
             "ClickHouseTypeError": "NO_COMMON_TYPE",
         }
@@ -1266,6 +1290,7 @@ class TestGetFriendlyErrorMessage(BaseTest):
             (CohortErrorCode.INTERRUPTED, "interrupted"),
             (CohortErrorCode.TIMEOUT, "terminated for taking too long"),
             (CohortErrorCode.MEMORY_LIMIT, "terminated for using too much memory"),
+            (CohortErrorCode.DATA_LIMIT, "reading too much data"),
             (CohortErrorCode.QUERY_SIZE, "query that was too large"),
             (CohortErrorCode.VALIDATION_ERROR, "an error occurred"),
             (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
@@ -1278,6 +1303,23 @@ class TestGetFriendlyErrorMessage(BaseTest):
         message = get_friendly_error_message(error_code)
         assert message is not None
         self.assertIn(expected_substring, message.lower())
+
+    @parameterized.expand(
+        [
+            (CohortErrorCode.CAPACITY, "system was busy"),
+            (CohortErrorCode.INTERRUPTED, "interrupted"),
+        ]
+    )
+    def test_get_friendly_error_message_drops_the_retry_promise_when_nothing_will_retry(
+        self, error_code: str, expected_substring: str
+    ):
+        message = get_friendly_error_message(error_code, will_retry=False)
+        assert message is not None
+        self.assertIn(expected_substring, message.lower())
+        # Only the dynamic recalculation scheduler retries, so a cohort it never picks up must not
+        # be told to wait for one.
+        self.assertNotIn("automatically retry", message.lower())
+        self.assertIn("automatically retry", ERROR_CODE_MESSAGES[error_code].lower())
 
     def test_get_friendly_error_message_none(self):
         self.assertIsNone(get_friendly_error_message(None))

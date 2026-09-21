@@ -1,4 +1,5 @@
 import io
+from dataclasses import replace
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -77,12 +78,15 @@ def _make_compare_result(thumbnail: bytes = b"fake-webp") -> CompareResult:
         thumbnail_hash="thumb_hash_auto",
         size_mismatch=False,
         cluster_summary=None,
+        aligned_diff_pixel_count=100,
+        aligned_diff_percentage=5.0,
+        row_shift=None,
     )
 
 
 @pytest.mark.django_db(databases=list(PRODUCT_DATABASES))
 class TestStoreThumbnail:
-    @patch("products.visual_review.backend.logic.write_artifact_bytes")
+    @patch("products.visual_review.backend.logic.artifact_store.write_artifact_bytes")
     def test_stores_thumbnail_and_links_to_artifact(self, mock_write, team):
         repo = _make_repo(team)
         _run, snapshot = _make_run_with_snapshot(repo)
@@ -103,7 +107,7 @@ class TestStoreThumbnail:
         artifact.refresh_from_db()
         assert artifact.thumbnail == thumb_artifact
 
-    @patch("products.visual_review.backend.logic.write_artifact_bytes")
+    @patch("products.visual_review.backend.logic.artifact_store.write_artifact_bytes")
     def test_skips_when_thumbnail_already_exists(self, mock_write, team):
         repo = _make_repo(team)
         _run, snapshot = _make_run_with_snapshot(repo)
@@ -118,14 +122,12 @@ class TestStoreThumbnail:
 
         mock_write.assert_not_called()
 
-    @patch("products.visual_review.backend.logic.write_artifact_bytes")
+    @patch("products.visual_review.backend.logic.artifact_store.write_artifact_bytes")
     def test_skips_when_no_thumbnail_in_result(self, mock_write, team):
         repo = _make_repo(team)
         _run, snapshot = _make_run_with_snapshot(repo)
 
-        result = _make_compare_result()
-        result.thumbnail = None
-        result.thumbnail_hash = ""
+        result = replace(_make_compare_result(), thumbnail=None, thumbnail_hash="")
 
         _store_thumbnail(snapshot, result)
 

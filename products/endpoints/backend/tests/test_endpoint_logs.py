@@ -1,3 +1,4 @@
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -193,6 +194,7 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Endpoint execution failed", kwargs["message"])
         self.assertIn("refresh", kwargs["message"])
 
+    @time_machine.travel("2026-01-02 12:00:00", tick=False)
     def test_logs_action_returns_endpoint_entries(self):
         endpoint = self._create_hogql_endpoint("logs_read", "SELECT 1")
         create_log_entry(

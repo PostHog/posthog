@@ -13,6 +13,13 @@ use sqlx::{
 };
 use thiserror::Error;
 
+pub mod writer_guard;
+
+pub use writer_guard::{
+    install_writer_guard, WriterGuard, WriterGuardConfig, DB_WRITER_GUARD_CAPPED_COUNTER,
+    DB_WRITER_PROBE_COUNTER,
+};
+
 #[derive(Error, Debug)]
 pub enum CustomDatabaseError {
     #[error("Pg error: {0}")]
@@ -118,7 +125,9 @@ pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sql
         // Disable sqlx's default 30-min max_lifetime. Without this explicit None,
         // connections created together (e.g. during pod scale-up) all expire at the
         // same instant, causing a thundering herd of TLS reconnects that saturates
-        // the database. Connection health is handled by test_before_acquire instead.
+        // the database. test_before_acquire covers a severed socket, but not a server
+        // that stopped accepting writes: a pool that must reach a writer needs
+        // `writer_guard` as well, since nothing here will ever recycle a demoted reader.
         .max_lifetime(None);
 
     if let Some(idle_timeout) = config.idle_timeout {
@@ -260,6 +269,49 @@ pub fn extract_timeout_type(error: &SqlxError) -> Option<&'static str> {
         }
 
         _ => None,
+    }
+}
+
+/// Determines if a sqlx::Error is SQLSTATE 25006: the server refused a write because the
+/// session is read-only. On Aurora this is what a demoted writer returns, so retrying the same
+/// connection cannot help.
+pub fn is_read_only_error(error: &SqlxError) -> bool {
+    let SqlxError::Database(db) = error else {
+        return false;
+    };
+    db.code().as_deref() == Some("25006")
+}
+
+/// Coarse, bounded label for a failed query. Raw SQLSTATE has too many values to label a
+/// counter with.
+pub fn error_class(error: &SqlxError) -> &'static str {
+    // Pool-level cases first: `is_timeout_error` counts `PoolTimedOut`, but a saturated pool
+    // and a slow statement need different responses.
+    match error {
+        SqlxError::PoolTimedOut => return "pool_timeout",
+        SqlxError::PoolClosed => return "pool_closed",
+        _ => {}
+    }
+    if is_read_only_error(error) {
+        return "read_only";
+    }
+    if is_timeout_error(error) {
+        return "timeout";
+    }
+    if is_foreign_key_constraint_error(error) {
+        return "fk_violation";
+    }
+    match error {
+        SqlxError::Database(db) => match db.code().as_deref() {
+            Some("40P01") => "deadlock",
+            Some("40001") => "serialization",
+            Some("53300") => "too_many_connections",
+            Some("57P01" | "57P02" | "57P03") => "server_shutdown",
+            _ => "database",
+        },
+        SqlxError::Io(_) => "io",
+        SqlxError::Tls(_) => "tls",
+        _ => "other",
     }
 }
 
@@ -847,5 +899,26 @@ mod tests {
             extract_timeout_type(&SqlxError::ColumnNotFound("test".to_string())),
             None
         );
+    }
+
+    #[test]
+    fn error_class_separates_a_failover_from_ordinary_write_failures() {
+        assert_eq!(error_class(&SqlxError::PoolTimedOut), "pool_timeout");
+        assert_eq!(error_class(&SqlxError::PoolClosed), "pool_closed");
+        assert_eq!(
+            error_class(&SqlxError::Io(std::io::Error::other("x"))),
+            "io"
+        );
+        assert_eq!(error_class(&SqlxError::RowNotFound), "other");
+    }
+
+    #[test]
+    fn is_read_only_error_ignores_non_database_errors() {
+        assert!(!is_read_only_error(&SqlxError::PoolTimedOut));
+        // Only the SQLSTATE counts; matching message text would let any error impersonate a
+        // failover.
+        assert!(!is_read_only_error(&SqlxError::Protocol(
+            "cannot execute INSERT in a read-only transaction".to_string()
+        )));
     }
 }

@@ -1,0 +1,335 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.LinkPreview {
+    --link-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden link state. Direct children of .LinkPreview so `:checked ~` reaches all cards.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__app,
+    &__spark {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Link variants are stacked on one grid cell and crossfaded, so switching links
+    // never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__on-a,
+    &__on-b {
+        @include preview-swap-hidden;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.375rem 0.5rem;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        transition:
+            background-color 150ms ease,
+            border-color 150ms ease;
+    }
+
+    &__row--a,
+    &__row--b {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    &__row--a:hover,
+    &__row--b:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    // Radio dots make the selectable rows read as selectable; the static row keeps an
+    // empty spacer so all rows align.
+    &__vradio {
+        position: relative;
+        flex-shrink: 0;
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid var(--link-preview-accent);
+        border-radius: 50%;
+
+        &::after {
+            position: absolute;
+            inset: 2px;
+            content: '';
+            background: var(--link-preview-accent);
+            border-radius: 50%;
+            transition: transform 150ms ease;
+            transform: scale(0);
+        }
+    }
+
+    &__vradio--blank {
+        visibility: hidden;
+    }
+
+    &__link {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    &__key {
+        overflow: hidden;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__dest {
+        overflow: hidden;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__row-spark {
+        width: 40px;
+        height: 12px;
+
+        path {
+            fill: none;
+            stroke: color-mix(in oklab, var(--link-preview-accent) 55%, transparent);
+            stroke-linecap: round;
+            stroke-width: 1.5;
+        }
+    }
+
+    &__clicks {
+        min-width: 3rem;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__hint {
+        padding: 0 0.75rem 0.5rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-tertiary);
+    }
+
+    // Browser chrome for the landing-page card.
+    &__chrome {
+        display: flex;
+        gap: 0.3125rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        background: var(--color-bg-surface-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__redirect {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        padding: 0.3125rem 0.75rem;
+        font-size: 0.625rem;
+        color: var(--color-text-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__redirect-arrow {
+        font-weight: 700;
+
+        @include preview-accent-text(var(--link-preview-accent));
+    }
+
+    &__screen {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4375rem;
+        align-items: flex-start;
+        padding: 0.875rem;
+    }
+
+    &__page-title {
+        font-size: 0.9375rem;
+        font-weight: 700;
+    }
+
+    &__page-sub {
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__page-cta {
+        margin-top: 0.125rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+
+        > * {
+            padding: 0.3125rem 0.625rem;
+            color: var(--color-bg-surface-primary);
+            text-align: center;
+            background: var(--link-preview-accent);
+            border-radius: var(--radius);
+        }
+    }
+
+    // The podcast page's play button meeps (the inbox onboarding easter egg). The swap
+    // mixins keep it out of reach, and out of the tab order, while its half is hidden.
+    &__play {
+        font: inherit;
+        cursor: pointer;
+        border: none;
+
+        &:focus-visible {
+            outline: 2px solid var(--link-preview-accent);
+            outline-offset: 1px;
+        }
+    }
+
+    // Clicks stat card for the selected link.
+    &__spark {
+        padding: 0.75rem 0.875rem 0.875rem;
+    }
+
+    &__spark-note {
+        font-size: 0.6875rem;
+        font-weight: 400;
+        color: var(--color-text-tertiary);
+    }
+
+    &__spark-chart {
+        margin-top: 0.5rem;
+    }
+
+    &__spark-g {
+        transition: opacity 250ms ease;
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--link-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--link-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--link-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: LinkPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
+}
+
+// Selected link, driven purely by the hidden radios.
+
+#link-preview-a:checked ~ * .LinkPreview__on-a,
+#link-preview-b:checked ~ * .LinkPreview__on-b {
+    @include preview-swap-visible;
+}
+
+#link-preview-a:checked ~ .LinkPreview__panel .LinkPreview__row--a,
+#link-preview-b:checked ~ .LinkPreview__panel .LinkPreview__row--b {
+    background: color-mix(in oklab, var(--link-preview-accent) 8%, transparent);
+    border-color: color-mix(in oklab, var(--link-preview-accent) 40%, transparent);
+}
+
+#link-preview-a:checked ~ .LinkPreview__panel .LinkPreview__vradio--a::after,
+#link-preview-b:checked ~ .LinkPreview__panel .LinkPreview__vradio--b::after {
+    transform: scale(1);
+}
+
+// The radios stay keyboard-focusable while visually hidden, so the link row they
+// label needs a visible focus indicator (WCAG 2.4.7).
+#link-preview-a:focus-visible ~ .LinkPreview__panel .LinkPreview__row--a,
+#link-preview-b:focus-visible ~ .LinkPreview__panel .LinkPreview__row--b {
+    outline: 2px solid var(--link-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the unselected link's radio until it's been picked.
+.LinkPreview:not(.LinkPreview--static) #link-preview-b:not(:checked) ~ .LinkPreview__panel .LinkPreview__vradio--b {
+    animation: LinkPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes LinkPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--link-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--link-preview-accent) 20%, transparent);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes LinkPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; picking a link
+// still works (transitions only).
+@include preview-motion-guards('LinkPreview');

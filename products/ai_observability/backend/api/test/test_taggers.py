@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -8,10 +9,9 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.models.provider_keys import LLMProvider
 from products.ai_observability.backend.models.taggers import Tagger, TaggerType
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _setup_team():
@@ -50,6 +50,21 @@ def _make_tagger_config(**overrides):
 
 
 class TestTaggersApi(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        feature_flag_patch = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            return_value=True,
+        )
+        feature_flag_patch.start()
+        self.addCleanup(feature_flag_patch.stop)
+
+    def test_feature_flag_gates_the_api_server_side(self):
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
+            response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_unauthenticated_user_cannot_access_taggers(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
@@ -144,6 +159,41 @@ class TestTaggersApi(APIBaseTest):
         names = [t["name"] for t in response.data["results"]]
         assert "Tagger 1" in names
         assert "Tagger 2" in names
+
+    @parameterized.expand(
+        [
+            ("default", None, "-created_at"),
+            ("created_at_ascending", "created_at", "created_at"),
+        ]
+    )
+    def test_list_pages_are_stable_when_taggers_share_a_created_at(
+        self, _name: str, order_by: str | None, expected_order: str
+    ) -> None:
+        for index in range(5):
+            Tagger.objects.create(
+                name=f"Tagger {index}",
+                tagger_config=_make_tagger_config(),
+                team=self.team,
+                created_by=self.user,
+            )
+        Tagger.objects.filter(team=self.team).update(created_at="2026-01-01T00:00:00Z")
+
+        paged_ids = []
+        for offset in range(5):
+            query = {"limit": "1", "offset": str(offset)}
+            if order_by is not None:
+                query["order_by"] = order_by
+            response = self.client.get(f"/api/environments/{self.team.id}/taggers/", query)
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids.append(response.data["results"][0]["id"])
+
+        expected_ids = [
+            str(tagger_id)
+            for tagger_id in Tagger.objects.filter(team=self.team)
+            .order_by(expected_order, "id")
+            .values_list("id", flat=True)
+        ]
+        assert paged_ids == expected_ids
 
     def test_can_get_single_tagger(self):
         tagger = Tagger.objects.create(
@@ -377,10 +427,16 @@ class TestTaggersApi(APIBaseTest):
 
 class TestTaggersAccessControl(APIBaseTest):
     # Tagger has its own access control resource (see ACCESS_CONTROL_RESOURCES in
-    # posthog/rbac/user_access_control.py), independent of the `llm_analytics` resource
+    # products/access_control/backend/facade/user_access_control.py), independent of the `llm_analytics` resource
     # that Evaluations and Datasets inherit from.
     def setUp(self) -> None:
         super().setUp()
+        feature_flag_patch = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            return_value=True,
+        )
+        feature_flag_patch.start()
+        self.addCleanup(feature_flag_patch.stop)
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},

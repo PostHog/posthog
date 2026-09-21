@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -24,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LemlistSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.lemlist import (
+    LEMLIST_DEFAULT_VERSION,
+    LEMLIST_SUPPORTED_VERSIONS,
     LemlistResumeConfig,
     lemlist_source,
     validate_credentials as validate_lemlist_credentials,
@@ -38,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
     api_docs_url = "https://developer.lemlist.com/api-reference"
+    supported_versions = LEMLIST_SUPPORTED_VERSIONS
+    default_version = LEMLIST_DEFAULT_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -46,7 +48,7 @@ class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LEMLIST,
+            name=ExternalDataSourceType.LEMLIST,
             category=DataWarehouseSourceCategory.SALES,
             label="Lemlist",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -125,6 +127,7 @@ You can generate an API key in your lemlist **Settings > Integrations** page."""
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

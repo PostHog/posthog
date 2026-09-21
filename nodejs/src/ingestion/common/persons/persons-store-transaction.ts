@@ -1,20 +1,22 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
-import { PersonsStore } from './persons-store'
+import type { BatchWritingPersonsStore } from './batch-writing-person-store'
 
 /**
- * PersonsStoreTransaction that delegates to a store with a transaction.
- * This can be used by any store that implements PersonsStore.
+ * PersonsStoreTransaction that delegates to the Postgres store with a
+ * transaction. Transactional verbs are the pg backend's own surface: the
+ * cross-backend PersonsStore interface has no transactional member.
  */
 export class PersonsStoreTransaction {
     constructor(
-        private store: PersonsStore,
+        private store: BatchWritingPersonsStore,
         private tx: PersonRepositoryTransaction
     ) {}
 
@@ -79,6 +81,23 @@ export class PersonsStoreTransaction {
 
     async deletePerson(person: InternalPerson, distinctId: string): Promise<PersonMessage[]> {
         return await this.store.deletePerson(person, distinctId, this.tx)
+    }
+
+    async claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string
+    ): Promise<void> {
+        return await this.store.claimLifecycleMarks(opId, teamId, persons, distinctId, this.tx)
+    }
+
+    async releaseLifecycleMarks(opId: string, teamId: number, distinctId: string): Promise<void> {
+        return await this.store.releaseLifecycleMarks(opId, teamId, distinctId, this.tx)
+    }
+
+    async isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
+        return await this.store.isPersonLive(person, distinctId, this.tx)
     }
 
     async addDistinctId(
@@ -149,10 +168,6 @@ export class PersonsStoreTransaction {
             distinctId,
             this.tx
         )
-    }
-
-    async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, batchId: number): Promise<boolean> {
-        return await this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, this.tx, batchId)
     }
 
     async fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {

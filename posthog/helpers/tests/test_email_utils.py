@@ -1,8 +1,11 @@
+from datetime import timedelta
 from typing import Optional, cast
 
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 import requests
 from parameterized import parameterized
@@ -18,9 +21,11 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    reject_plus_addressed_email,
     sanitize_display_name,
     sanitize_email_string,
     sanitize_message_body,
+    strip_email_alias,
     validate_display_name,
     validate_message_body,
 )
@@ -44,6 +49,34 @@ class TestEmailNormalizer(TestCase):
             with self.subTest(input_email=input_email):
                 result = EmailNormalizer.normalize(input_email)
                 self.assertEqual(result, expected)
+
+    @parameterized.expand(
+        [
+            ("dotted_capital_i", "owner@İstanbul.example"),
+            ("dotless_i", "ownerı@example.com"),
+            ("long_s", "owner@ſtrasse.example"),
+            ("kelvin_sign", "owner@Klvin.example"),
+            ("capital_sharp_s", "owner@ẞtrasse.example"),
+            ("accented_capital", "ÖWNER@example.com"),
+            ("plain_ascii", "OWNER@Example.com"),
+        ]
+    )
+    def test_normalizing_does_not_change_what_postgres_folds_the_address_to(self, _name: str, typed: str) -> None:
+        # Every lookup resolves through Postgres LOWER. An address a person types must therefore
+        # still fold onto the row that normalizing wrote, whatever characters it holds.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT LOWER(%s), LOWER(%s)", [EmailNormalizer.normalize(typed), typed])
+            folded_stored, folded_typed = cursor.fetchone()
+
+        self.assertEqual(folded_stored, folded_typed)
+
+    def test_account_created_with_a_dotted_capital_i_resolves_from_the_typed_address(self) -> None:
+        user = User.objects.create_user(email="Owner@İstanbul.example", password="testpass123", first_name="Owner")
+
+        self.assertEqual(user.email, "owner@İstanbul.example")
+        self.assertEqual(EmailLookupHandler.get_user_by_email("Owner@İstanbul.example"), user)
+        # Postgres folds `İ` onto a plain `i`, so the ASCII spelling reaches the same row.
+        self.assertEqual(EmailLookupHandler.get_user_by_email("owner@istanbul.example"), user)
 
 
 class TestEmailLookupHandler(TestCase):
@@ -70,6 +103,88 @@ class TestEmailLookupHandler(TestCase):
         finally:
             user.delete()
 
+    def test_owner_finds_their_account_when_python_and_postgres_fold_differently(self) -> None:
+        owner = User(email="owner@İstanbul.example", first_name="Owner", last_name="Account")
+        owner.set_password("testpass123")
+        owner.save()
+
+        found_user = EmailLookupHandler.get_user_by_email("owner@İstanbul.example")
+
+        self.assertIsNotNone(found_user)
+        if found_user is not None:
+            self.assertEqual(found_user.id, owner.id)
+
+    @parameterized.expand(
+        [
+            ("typed_lowercase", "twin@example.com"),
+            ("typed_stored_case", "Twin@Example.com"),
+            ("typed_uppercase", "TWIN@EXAMPLE.COM"),
+        ]
+    )
+    def test_case_variants_resolve_to_the_account_used_most_recently(self, _name: str, typed_email: str) -> None:
+        abandoned = User(email="twin@example.com", first_name="Abandoned", last_name="Twin")
+        abandoned.set_password("testpass123")
+        abandoned.last_login = timezone.now() - timedelta(days=400)
+        abandoned.save()
+
+        in_use = User(email="Twin@Example.com", first_name="In", last_name="Use")
+        in_use.set_password("testpass123")
+        in_use.last_login = timezone.now()
+        in_use.save()
+
+        found_user = EmailLookupHandler.get_user_by_email(typed_email)
+
+        self.assertIsNotNone(found_user)
+        if found_user is not None:
+            self.assertEqual(found_user.id, in_use.id)
+
+    def test_account_that_never_logged_in_does_not_win_the_tie_break(self) -> None:
+        never_used = User(email="never@example.com", first_name="Never", last_name="Used")
+        never_used.set_password("testpass123")
+        never_used.save()
+
+        in_use = User(email="Never@Example.com", first_name="In", last_name="Use")
+        in_use.set_password("testpass123")
+        in_use.last_login = timezone.now()
+        in_use.save()
+
+        found_user = EmailLookupHandler.get_user_by_email("never@example.com")
+
+        self.assertIsNotNone(found_user)
+        if found_user is not None:
+            self.assertEqual(found_user.id, in_use.id)
+
+    @parameterized.expand(
+        [
+            # Postgres `UPPER` folds these onto ASCII but `LOWER` leaves them alone, so signup's
+            # duplicate check accepts them as separate accounts. Resolution has to agree.
+            ("dotless_i", "ceo@ıbm.com", "ceo@ibm.com"),
+            ("long_s", "meſsage@example.com", "message@example.com"),
+        ]
+    )
+    def test_homoglyph_address_does_not_capture_another_account(
+        self, _name: str, homoglyph_email: str, ascii_email: str
+    ) -> None:
+        established = User(email=ascii_email, first_name="Established", last_name="Account")
+        established.set_password("testpass123")
+        established.last_login = timezone.now() - timedelta(days=30)
+        established.save()
+
+        # Signed in more recently, so it would win the tie-break if the two folded together.
+        homoglyph = User(email=homoglyph_email, first_name="Homoglyph", last_name="Account")
+        homoglyph.set_password("testpass123")
+        homoglyph.last_login = timezone.now()
+        homoglyph.save()
+
+        found_ascii = EmailLookupHandler.get_user_by_email(ascii_email)
+        found_homoglyph = EmailLookupHandler.get_user_by_email(homoglyph_email)
+
+        self.assertIsNotNone(found_ascii)
+        self.assertIsNotNone(found_homoglyph)
+        if found_ascii is not None and found_homoglyph is not None:
+            self.assertEqual(found_ascii.id, established.id)
+            self.assertEqual(found_homoglyph.id, homoglyph.id)
+
 
 class TestEmailValidationHelper(TestCase):
     def test_user_exists_no_user(self):
@@ -93,6 +208,79 @@ class TestEmailValidationHelper(TestCase):
                 with self.subTest(email=email_variation):
                     result = EmailValidationHelper.user_exists(email_variation)
                     self.assertTrue(result)
+        finally:
+            user.delete()
+
+
+class TestStripEmailAlias(SimpleTestCase):
+    def test_strip_email_alias(self):
+        test_cases = [
+            ("someuser+someprefix@domain.com", "someuser@domain.com"),
+            ("someuser@domain.com", "someuser@domain.com"),
+            ("Someuser+Tag@Domain.com", "Someuser@Domain.com"),
+            ("a+b+c@domain.com", "a@domain.com"),
+            ("", ""),
+        ]
+
+        for input_email, expected in test_cases:
+            with self.subTest(input_email=input_email):
+                self.assertEqual(strip_email_alias(input_email), expected)
+
+
+class TestRejectPlusAddressedEmail(SimpleTestCase):
+    def test_rejects_plus_in_local_part(self):
+        with self.assertRaises(serializers.ValidationError) as ctx:
+            reject_plus_addressed_email("someuser+alias@domain.com")
+        self.assertEqual(ctx.exception.get_codes(), ["plus_addressing_not_allowed"])
+
+    def test_allows_email_without_plus(self):
+        # Should not raise.
+        reject_plus_addressed_email("someuser@domain.com")
+
+
+class TestUserExistsWithStrippedAlias(TestCase):
+    def test_no_match(self):
+        self.assertFalse(EmailValidationHelper.user_exists_with_stripped_alias("nobody@example.com"))
+
+    def test_matches_existing_plain_email(self):
+        user = User.objects.create_user(email="based@example.com", password=None, first_name="Base")
+        try:
+            self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias("based+new@example.com"))
+        finally:
+            user.delete()
+
+    def test_matches_existing_aliased_email(self):
+        user = User.objects.create_user(email="based+old@example.com", password=None, first_name="Base")
+        try:
+            self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias("based@example.com"))
+        finally:
+            user.delete()
+
+    def test_does_not_match_different_local_part(self):
+        user = User.objects.create_user(email="based@example.com", password=None, first_name="Base")
+        try:
+            self.assertFalse(EmailValidationHelper.user_exists_with_stripped_alias("basedxyz@example.com"))
+        finally:
+            user.delete()
+
+    @parameterized.expand(
+        [
+            # Guards the SQL side: the stored column is lowercased before stripping, so a legacy
+            # mixed-case row still matches.
+            ("stored_mixed_case", "Based+Old@Example.COM", "based@example.com"),
+            # Guards the input side: the compared value is lowercased too. An equality match
+            # against the lowercased expression silently returns False without it.
+            ("looked_up_mixed_case", "based+old@example.com", "Based@Example.COM"),
+            # Guards the fold: Postgres lowercases `İ` (U+0130) to `i`, so login resolves this address
+            # to the stored one, and signup and email change must treat it as taken.
+            ("looked_up_dotted_capital_i", "bill@victim.example", "bill@vİctim.example"),
+        ]
+    )
+    def test_matches_regardless_of_case(self, _name, stored_email, looked_up_email):
+        # create() rather than create_user() so the stored value keeps its original casing.
+        user = User.objects.create(email=stored_email, first_name="Base")
+        try:
+            self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias(looked_up_email))
         finally:
             user.delete()
 

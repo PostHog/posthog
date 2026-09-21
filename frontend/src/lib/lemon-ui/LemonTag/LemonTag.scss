@@ -21,6 +21,13 @@
         font-weight: normal;
     }
 
+    &.LemonTag--wrap {
+        // `anywhere` (rather than `break-word`) also shrinks the tag's min-content width,
+        // so a long unbroken tag can't force its container to overflow
+        overflow-wrap: anywhere;
+        white-space: normal;
+    }
+
     &.LemonTag--primary {
         color: var(--color-accent);
         background: none;
@@ -36,6 +43,18 @@
         color: var(--color-accent);
         background: none;
         border-color: var(--color-accent);
+    }
+
+    &.LemonTag--info {
+        color: var(--color-blue-600);
+        background: var(--color-bg-fill-info-tertiary);
+        border-color: var(--color-border-info);
+
+        [theme='dark'] & {
+            // --color-blue-600 on the dark info background falls below the WCAG AA text ratio,
+            // so lift the text to a lighter blue that clears 4.5:1.
+            color: var(--color-blue-400);
+        }
     }
 
     &.LemonTag--warning {

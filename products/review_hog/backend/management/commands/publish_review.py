@@ -7,7 +7,12 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import DEFAULT_URGENCY_THRESHOLD
+from products.review_hog.backend.reviewer.constants import (
+    DEFAULT_URGENCY_THRESHOLD,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+)
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.reviewer.tools.publish_review import publish_persisted_review
@@ -38,12 +43,26 @@ def _stale_head_warning(
     )
 
 
+def _run_threshold(stamped: str | None) -> IssuePriority:
+    """The threshold the run was finalized under; the default for pre-column or unrecognized values."""
+    try:
+        return IssuePriority(stamped)
+    except ValueError:
+        return DEFAULT_URGENCY_THRESHOLD
+
+
 class Command(BaseCommand):
     help = "Publish an already-computed ReviewHog review to its PR (no re-review, no sandbox cost)."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--pr-url", required=True, help="GitHub PR URL the review was computed for")
         parser.add_argument("--team-id", type=int, required=True, help="Team the review is persisted under")
+        parser.add_argument(
+            "--review-mode",
+            choices=(REVIEW_MODE_FULL, REVIEW_MODE_FLASH),
+            default=REVIEW_MODE_FULL,
+            help="Mode that produced the stored review; use flash to preserve its Flash labels",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -52,12 +71,19 @@ class Command(BaseCommand):
         repository = f"{owner}/{repo}"
         team_id = options["team_id"]
 
-        report = ReviewReport.objects.for_team(team_id).filter(repository=repository, pr_number=pr_number).first()
+        report = (
+            ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
+        )
         if report is None:
             raise CommandError(f"No review found for {repository}#{pr_number} on team {team_id}. Run run_review first.")
         if report.run_count == 0 or not report.report_markdown:
             raise CommandError(f"Review for {repository}#{pr_number} hasn't completed a run yet; nothing to publish.")
-        head_sha = report.head_sha
+        # The head the latest COMPLETED turn reviewed. `head_sha` advances at turn START, so a turn
+        # that fetched a new commit and then failed leaves it pointing past the findings published
+        # here — positioning them against that diff anchors comments on shifted lines and burns the
+        # published-head watermark on a commit the turn never reviewed. Pre-column rows fall back,
+        # like every other latest-turn reader.
+        head_sha = report.completed_head_sha or report.head_sha
         if not head_sha:
             raise CommandError(f"Review for {repository}#{pr_number} has no reviewed head_sha; nothing to publish.")
 
@@ -88,9 +114,10 @@ class Command(BaseCommand):
                 f"ReviewHog ▶ publishing {repository}#{pr_number} · report {report.id} · head {head_sha[:12]}"
             )
         )
-        # A local-only ops command: always the default threshold (consider), not a per-user one —
-        # keeps the frozen body and the freshly built inline comments consistent without needing to
-        # track which threshold the run itself used.
+        # Republish under the threshold the run itself used (stamped at finalize): the stored body's
+        # severity tally was rendered against it, so the freshly built inline comments have to be gated
+        # by the same set or the tally and the posted comments disagree. Rows from before the column
+        # existed, or an unrecognized value, fall back to the default.
         outcome = publish_persisted_review(
             team_id=team_id,
             report_id=str(report.id),
@@ -100,8 +127,9 @@ class Command(BaseCommand):
             repo=repo,
             pr_number=pr_number,
             token=token,
-            urgency_threshold=DEFAULT_URGENCY_THRESHOLD,
+            urgency_threshold=_run_threshold(report.run_urgency_threshold),
             installation_id=installation_id,
+            review_mode=options["review_mode"],
         )
         if outcome.posted:
             self.stdout.write(self.style.SUCCESS(f"ReviewHog ✓ published {repository}#{pr_number}"))

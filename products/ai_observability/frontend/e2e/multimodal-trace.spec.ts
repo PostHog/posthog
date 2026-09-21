@@ -16,11 +16,6 @@ const SCREENSHOT_BYTES = fs.readFileSync(path.join(FIXTURE_DIR, 'screenshot.png'
 const POINTER_RE = /phaiblob:\/\/v1\/sha256\/(?<hash>[0-9a-f]{64})\?mime=(?<mime>[^&]+)&size=(?<size>\d+)/
 
 test.describe('AI observability multimodal trace', () => {
-    test.skip(
-        true,
-        'Flaky: blob offloading can exceed the CI polling window. Follow-up: https://github.com/PostHog/posthog/issues/80843'
-    )
-
     test('a screenshot sent through ingestion renders in the trace view', async ({
         page,
         request,

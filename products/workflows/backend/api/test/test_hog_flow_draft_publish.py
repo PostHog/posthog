@@ -1,4 +1,6 @@
-from freezegun import freeze_time
+from datetime import timedelta
+
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -8,7 +10,9 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.workflows.backend.api.hog_flow import WRITABLE_DRAFT_CONTENT_FIELDS
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -49,6 +53,33 @@ class TestHogFlowDraftPublish(APIBaseTest):
         activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
         assert activate.status_code == 200, activate.json()
         return flow_id
+
+    def _create_disabled_flow_with_staged_draft(self) -> str:
+        flow_id = self._create_active_flow()
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": [_trigger_action(), _webhook_action(url="https://staged.example.com")],
+                "stage_draft": True,
+            },
+        )
+        assert staged.status_code == 200, staged.json()
+        disable = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert disable.status_code == 200, disable.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
+        flow.draft_encrypted_inputs = {"action_1": {"api_key": "fake-draft-secret"}}
+        flow.save(update_fields=["draft_encrypted_inputs"])
+        return flow_id
+
+    def _editor_save_payload(self, flow_id: str, url: str, includes_staged_draft: bool = True) -> dict:
+        flow = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        payload = {field: flow[field] for field in WRITABLE_DRAFT_CONTENT_FIELDS}
+        payload.update({field: value for field, value in (flow["draft"] or {}).items() if field in payload})
+        payload["actions"] = [_trigger_action(), _webhook_action(url=url)]
+        if includes_staged_draft:
+            payload["includes_staged_draft"] = True
+        return payload
 
     def _patch_actions_via_mcp(self, flow_id: str, url: str = "https://changed.example.com"):
         # Graph content edits over MCP go through the surgical graph endpoint (a plain update
@@ -96,6 +127,202 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.draft is None
         live_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.actions if a["type"] == "function"]
         assert live_urls == ["https://changed.example.com"]
+
+    def test_web_content_edit_with_stage_draft_routes_to_draft_and_applies_metadata_live(self):
+        flow_id = self._create_active_flow()
+        live_actions_before = HogFlow.objects.get(pk=flow_id).actions
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": [_trigger_action(), _webhook_action(url="https://changed.example.com")],
+                "name": "Renamed live",
+                "stage_draft": True,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.actions == live_actions_before
+        assert flow.draft is not None
+        assert flow.draft_updated_at is not None
+        draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
+        assert draft_urls == ["https://changed.example.com"]
+        assert flow.name == "Renamed live"
+        assert response.json()["draft"] is not None
+
+    def test_web_stage_draft_saves_incomplete_content_leniently(self):
+        # The builder auto-saves mid-edit, so a staged draft must accept a step whose required
+        # inputs aren't filled in yet; strict validation would 400 every auto-save while the
+        # user iterates. Publish still revalidates strictly (see the companion test below).
+        flow_id = self._create_active_flow()
+        live_actions_before = HogFlow.objects.get(pk=flow_id).actions
+
+        incomplete = _webhook_action()
+        incomplete["config"]["inputs"] = {}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), incomplete], "stage_draft": True},
+        )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.actions == live_actions_before
+        assert flow.draft is not None
+
+    def test_web_deploy_on_save_of_incomplete_content_stays_strict(self):
+        # Without stage_draft a web PATCH on an active workflow deploys immediately, so the
+        # lenient staged-draft path must not leak into it.
+        flow_id = self._create_active_flow()
+
+        incomplete = _webhook_action()
+        incomplete["config"]["inputs"] = {}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), incomplete]},
+        )
+        assert response.status_code == 400, response.json()
+
+    def test_publish_of_incomplete_draft_is_rejected(self):
+        flow_id = self._create_active_flow()
+        incomplete = _webhook_action()
+        incomplete["config"]["inputs"] = {}
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), incomplete], "stage_draft": True},
+        )
+        assert staged.status_code == 200, staged.json()
+
+        preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {"confirm": False})
+        assert preview.status_code == 200, preview.json()
+        confirm = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+        )
+        assert confirm.status_code == 400, confirm.json()
+        # The failed publish must leave both the live config and the draft untouched.
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
+        assert all(a["config"].get("inputs") for a in flow.actions if a["type"] == "function")
+
+    def test_discard_bumps_live_stamp_so_stale_draft_saves_get_409(self):
+        # Without the bump, a concurrent editor holding the discarded draft's stamp would pass the
+        # staleness guard (which falls back to the live stamp once the draft is gone) and silently
+        # resurrect the draft it never learned was discarded.
+        flow_id = self._create_active_flow()
+        staged = self._patch_actions_via_mcp(flow_id)
+        assert staged.status_code == 200, staged.json()
+        draft_stamp = HogFlow.objects.get(pk=flow_id).draft_updated_at
+        assert draft_stamp is not None
+
+        live_before_discard = HogFlow.objects.get(pk=flow_id).updated_at
+        discard = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/discard_draft")
+        assert discard.status_code == 200, discard.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.updated_at > live_before_discard
+
+        resave = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": [_trigger_action(), _webhook_action(url="https://resurrect.example.com")],
+                "stage_draft": True,
+                "base_updated_at": draft_stamp.isoformat(),
+            },
+        )
+        assert resave.status_code == 409, resave.json()
+        assert HogFlow.objects.get(pk=flow_id).draft is None
+
+    def test_restore_with_stale_expected_draft_stamp_is_rejected_with_409(self):
+        flow_id = self._create_active_flow()
+        # Revisions only snapshot live-content changes, so make one to have a version to restore.
+        live_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), _webhook_action(url="https://live-v2.example.com")]},
+        )
+        assert live_edit.status_code == 200, live_edit.json()
+        revision = (
+            HogFlowRevision.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).order_by("version").first()
+        )
+        assert revision is not None
+        version = revision.version
+
+        first = self._patch_actions_via_mcp(flow_id, url="https://first-draft.example.com")
+        assert first.status_code == 200, first.json()
+        stamp_at_dialog = HogFlow.objects.get(pk=flow_id).draft_updated_at
+        assert stamp_at_dialog is not None
+
+        second = self._patch_actions_via_mcp(flow_id, url="https://second-draft.example.com")
+        assert second.status_code == 200, second.json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/{version}/restore",
+            {"overwrite": True, "expected_draft_updated_at": stamp_at_dialog.isoformat()},
+        )
+        assert response.status_code == 409, response.json()
+        draft = HogFlow.objects.get(pk=flow_id).draft
+        assert draft is not None
+        draft_urls = [a["config"]["inputs"]["url"]["value"] for a in draft["actions"] if a["type"] == "function"]
+        assert draft_urls == ["https://second-draft.example.com"]
+
+    @parameterized.expand(
+        [
+            ("never_active_with_stage_draft", False, True),
+            ("disabled_with_staged_draft", True, False),
+            ("disabled_with_staged_draft_and_stage_draft", True, True),
+        ]
+    )
+    def test_content_save_on_inactive_flow_applies_live_and_clears_draft(
+        self, _name: str, disabled_with_staged_draft: bool, stage_draft: bool
+    ):
+        if disabled_with_staged_draft:
+            flow_id = self._create_disabled_flow_with_staged_draft()
+        else:
+            hog_flow = {"name": "Test Flow", "actions": [_trigger_action(), _webhook_action()]}
+            create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+            flow_id = create.json()["id"]
+
+        payload = self._editor_save_payload(flow_id, url="https://saved.example.com")
+        if stage_draft:
+            payload["stage_draft"] = True
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+        assert response.status_code == 200, response.json()
+        assert response.json()["draft"] is None
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is None
+        assert flow.draft_updated_at is None
+        assert flow.draft_encrypted_inputs is None
+        live_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.actions if a["type"] == "function"]
+        assert live_urls == ["https://saved.example.com"]
+
+    @parameterized.expand(["metadata_only", "partial_content", "full_content_without_flag"])
+    def test_save_on_disabled_flow_without_the_staged_draft_keeps_it(self, payload_kind: str):
+        flow_id = self._create_disabled_flow_with_staged_draft()
+        actions = [_trigger_action(), _webhook_action(url="https://saved.example.com")]
+        if payload_kind == "metadata_only":
+            payload: dict = {"name": "Renamed"}
+        elif payload_kind == "partial_content":
+            payload = {"actions": actions, "includes_staged_draft": True}
+        else:
+            payload = self._editor_save_payload(flow_id, url="https://saved.example.com", includes_staged_draft=False)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+        assert response.status_code == 200, response.json()
+        draft = HogFlow.objects.get(pk=flow_id).draft
+        assert draft is not None
+        draft_urls = [a["config"]["inputs"]["url"]["value"] for a in draft["actions"] if a["type"] == "function"]
+        assert draft_urls == ["https://staged.example.com"]
+
+    def test_full_save_on_disabled_flow_is_rejected_when_the_draft_moved_after_load(self):
+        flow_id = self._create_disabled_flow_with_staged_draft()
+        payload = self._editor_save_payload(flow_id, url="https://saved.example.com")
+        loaded = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        payload["base_updated_at"] = loaded["updated_at"]
+        flow = HogFlow.objects.get(pk=flow_id)
+        HogFlow.objects.filter(pk=flow_id).update(draft_updated_at=flow.updated_at + timedelta(minutes=1))
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+        assert response.status_code == 409, response.json()
+        assert HogFlow.objects.get(pk=flow_id).draft is not None
 
     def test_mcp_content_edit_on_inactive_flow_applies_live(self):
         # Disabled/draft-status workflows edit in place — the draft cycle protects in-flight runs only
@@ -345,7 +572,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
     def test_publish_with_expired_token_is_rejected(self):
         flow_id = self._create_active_flow()
-        with freeze_time("2026-01-01T00:00:00Z"):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             self._stage_draft(flow_id)
             confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
 

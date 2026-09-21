@@ -1,7 +1,7 @@
 import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest, NetworkError } from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -146,6 +146,13 @@ describe('API helper', () => {
             expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/HogQLQuery/')
         })
 
+        it('uses the accounts table endpoint for AccountsTableQuery', async () => {
+            ApiConfig.setCurrentProjectId(2)
+            await api.query({ kind: NodeKind.AccountsTableQuery, columns: [], filters: [] })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/accounts_table_query/')
+        })
+
         it('keeps the query URL kind optional', async () => {
             await api.query({} as Record<string, any>)
 
@@ -161,6 +168,38 @@ describe('API helper', () => {
                     }
                 )
             ).rejects.toThrow('Query kind mismatch')
+        })
+    })
+
+    describe('workflow endpoints', () => {
+        // These must carry the team id of the tab that issues them. `@current` resolves server-side to
+        // the account's last-switched project, so a second tab on another project makes every save 404.
+        it.each([
+            [
+                'hogFlows.updateHogFlow',
+                () => api.hogFlows.updateHogFlow('flow-1', {}),
+                '/api/environments/2/hog_flows/flow-1/',
+            ],
+            ['hogFlows.createHogFlow', () => api.hogFlows.createHogFlow({}), '/api/environments/2/hog_flows/'],
+            [
+                'messaging.updateTemplate',
+                () => api.messaging.updateTemplate('template-1', {}),
+                '/api/environments/2/messaging_templates/template-1/',
+            ],
+            [
+                'messaging.getCategory',
+                () => api.messaging.getCategory('category-1'),
+                '/api/environments/2/messaging_categories/category-1/',
+            ],
+            [
+                'messaging.generateMessagingPreferencesLink',
+                () => api.messaging.generateMessagingPreferencesLink(),
+                '/api/environments/2/messaging_preferences/generate_link/',
+            ],
+        ])("%s targets the tab's team, not @current", async (_name, request, expected) => {
+            await request()
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual(expected)
         })
     })
 
@@ -336,10 +375,220 @@ describe('API helper', () => {
             await expect(api.get('api/environments/2/insights')).resolves.toBeNull()
         })
 
+        it('resolves a 204 to null even when reading its empty body rejects', async () => {
+            fakeFetch.mockResolvedValue(
+                fakeResponse({ status: 204, text: () => Promise.reject(new TypeError('Load failed')) })
+            )
+            await expect(api.get('api/projects/2/wizard/sessions/latest/')).resolves.toBeNull()
+        })
+
         it('propagates an AbortError instead of masquerading as a null result', async () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
             await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
+        })
+    })
+
+    describe('requests that never reach the server', () => {
+        // `pagehide` sets a module-level flag in lib/api, so clear it after every case instead of
+        // letting one test's simulated navigation classify the next test's failure.
+        afterEach(() => {
+            window.dispatchEvent(new Event('pageshow'))
+            window.localStorage.removeItem(OAUTH_SESSION_KEY)
+        })
+
+        it.each([
+            ['offline', false, 'Network request failed: device is offline'],
+            ['network', true, 'Network request failed'],
+        ])('classifies a fetch rejection as %s', async (reason, onLine, message) => {
+            Object.defineProperty(window.navigator, 'onLine', { value: onLine, configurable: true })
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+            expect(error.reason).toBe(reason)
+            // The message is the only channel the reason has: the automatic unhandled-rejection
+            // capture carries no custom properties, so `before_send` and grouping rules match on it
+            expect(error.message).toBe(message)
+            // Recovery paths across the app read `status === undefined` as "transient, may be retried"
+            expect(error.status).toBeUndefined()
+        })
+
+        it('classifies a fetch rejection during page teardown as navigating', async () => {
+            window.dispatchEvent(new Event('pagehide'))
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toMatchObject({ reason: 'navigating' })
+        })
+
+        it('reports the failure as a client_request_failure naming the endpoint', async () => {
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            await api.get('api/environments/2/insights').catch(() => null)
+
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'client_request_failure',
+                expect.objectContaining({
+                    pathname: '/api/environments/2/insights/',
+                    method: 'GET',
+                    // 0 keeps these separable from failures that did come back with an HTTP status
+                    status: 0,
+                    failure_reason: 'network',
+                })
+            )
+        })
+
+        it('still classifies the failure when the request URL cannot be parsed', async () => {
+            // `backendHost` comes straight from localStorage, so an out-of-range port reaches the
+            // request URL, and `fetch` rejects it with a TypeError. Deriving the pathname must not
+            // throw on the same URL, which would replace the classified failure with a crash.
+            window.localStorage.setItem(
+                OAUTH_SESSION_KEY,
+                JSON.stringify({
+                    backendHost: 'https://:99999',
+                    clientId: 'client',
+                    accessToken: 'oauth-token',
+                    refreshToken: 'refresh',
+                    expiresAt: 9999999999999,
+                })
+            )
+            fakeFetch.mockRejectedValue(new TypeError('Failed to parse URL'))
+
+            const error = await api.get('/api/projects/2/insights/').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+        })
+
+        it('classifies a cross-realm fetch failure that fails instanceof TypeError', async () => {
+            // A TypeError thrown in another realm (an iframe) or a `fetch` swapped by a browser
+            // extension fails `instanceof TypeError`, so matching only on the class would drop it
+            // to an unclassified per-endpoint ApiError. Match the name and known message instead.
+            const crossRealmError = { name: 'TypeError', message: 'Failed to fetch' }
+            fakeFetch.mockRejectedValue(crossRealmError)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+        })
+
+        it('leaves a throw that is not a fetch failure as an unclassified ApiError', async () => {
+            // A real fault in the request path must not be relabelled as connectivity, or
+            // `dropUnactionableNetworkExceptions` would filter it out of error tracking.
+            fakeFetch.mockRejectedValue(new Error('the fetcher itself broke'))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error).not.toBeInstanceOf(NetworkError)
+            expect(error.message).toBe('the fetcher itself broke')
+        })
+
+        it('keeps a thrown object readable instead of stringifying it into the message', async () => {
+            // The caught value used to be passed as the `message`, so an object read back as
+            // "[object Object]" wherever the app prints one, and `detail` and `code` came back null.
+            const thrown = { detail: 'You lack access to this collection.', code: 'permission_denied' }
+            fakeFetch.mockRejectedValue(thrown)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.message).toBe('You lack access to this collection.')
+            expect(error.code).toBe('permission_denied')
+            expect(error.data).toBe(thrown)
+        })
+
+        it('keeps the original stack as the cause', async () => {
+            // Every ApiError is built in one file, so they share its stack. posthog-js walks `cause`
+            // and reports the chained frames; it never reads `data`, so only this keeps a reported
+            // request-path fault locatable.
+            const thrown = new Error('the fetcher itself broke')
+            fakeFetch.mockRejectedValue(thrown)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.cause).toBe(thrown)
+        })
+    })
+
+    describe('uploads reporting progress', () => {
+        class FakeXMLHttpRequest {
+            static last: FakeXMLHttpRequest
+            upload: { onprogress?: (event: { loaded: number; total: number; lengthComputable: boolean }) => void } = {}
+            onload?: () => void
+            onerror?: () => void
+            onabort?: () => void
+            status = 200
+            statusText = 'OK'
+            responseText = '{"upload_id":"abc"}'
+
+            constructor() {
+                FakeXMLHttpRequest.last = this
+            }
+            open(): void {}
+            setRequestHeader(): void {}
+            getAllResponseHeaders(): string {
+                return 'content-type: application/json'
+            }
+            send(): void {}
+            abort(): void {}
+        }
+
+        const realXMLHttpRequest = window.XMLHttpRequest
+
+        beforeEach(() => {
+            window.XMLHttpRequest = FakeXMLHttpRequest as unknown as typeof XMLHttpRequest
+        })
+
+        afterEach(() => {
+            window.XMLHttpRequest = realXMLHttpRequest
+        })
+
+        it('reports how much of the body has been sent and resolves with the parsed response', async () => {
+            const onUploadProgress = jest.fn()
+            const result = api.dataWarehouseTables.uploadFile(new FormData(), { onUploadProgress })
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.upload.onprogress?.({ loaded: 512, total: 1024, lengthComputable: true })
+            xhr.onload?.()
+
+            await expect(result).resolves.toEqual({ upload_id: 'abc' })
+            expect(onUploadProgress).toHaveBeenCalledWith({ loaded: 512, total: 1024 })
+        })
+
+        it('reports an unmeasurable body as a null total', async () => {
+            const onUploadProgress = jest.fn()
+            const result = api.dataWarehouseTables.uploadFile(new FormData(), { onUploadProgress })
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.upload.onprogress?.({ loaded: 512, total: 0, lengthComputable: false })
+            xhr.onload?.()
+            await result
+
+            expect(onUploadProgress).toHaveBeenCalledWith({ loaded: 512, total: null })
+        })
+
+        it('raises the server message on a rejected upload instead of resolving', async () => {
+            const result = api.dataWarehouseTables.uploadFile(new FormData())
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.status = 400
+            xhr.statusText = 'Bad Request'
+            xhr.responseText = '{"message":"File is too large"}'
+            xhr.onload?.()
+
+            const error = await result.catch((e) => e)
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error.data.message).toBe('File is too large')
+        })
+
+        it('classifies a request that never reached the server as a network failure', async () => {
+            const result = api.dataWarehouseTables.uploadFile(new FormData())
+
+            FakeXMLHttpRequest.last.onerror?.()
+
+            await expect(result).rejects.toBeInstanceOf(NetworkError)
         })
     })
 
@@ -356,6 +605,19 @@ describe('API helper', () => {
             expect(request.assembleEndpointUrl()).toEqual(
                 'organizations/123/feature_flags/my-feature-flag%2Ffoo%2Fbar%3Fbaz%3Dqux'
             )
+        })
+    })
+
+    describe('tasks', () => {
+        it.each([
+            ['task/id', 'projects/2/tasks/task%2Fid'],
+            ['../other', 'projects/2/tasks/..%2Fother'],
+        ])('keeps task ID %s inside the task path', (taskId, expectedPath) => {
+            expect(new ApiRequest().task(taskId).assembleEndpointUrl()).toEqual(expectedPath)
+        })
+
+        it.each(['.', '..'])('rejects task ID dot segment %s', (taskId) => {
+            expect(() => new ApiRequest().task(taskId)).toThrow('Invalid task ID')
         })
     })
 })

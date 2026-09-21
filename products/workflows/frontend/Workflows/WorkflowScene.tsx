@@ -1,17 +1,17 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { NotFound } from 'lib/components/NotFound'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -20,13 +20,27 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { NewWorkflowAgent } from './NewWorkflowAgent'
+import { newWorkflowLogic } from './newWorkflowLogic'
 import { Workflow } from './Workflow'
+import {
+    EMAIL_EDITOR_AGENT_HEADLINES,
+    NEW_WORKFLOW_AGENT_HEADLINES,
+    NEW_WORKFLOW_COMPOSER_OVERRIDE,
+    WORKFLOW_AGENT_HEADLINES,
+    buildNewWorkflowComposerContext,
+    buildWorkflowAgentContext,
+    isEditingEmailAction,
+} from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
-import { workflowLogic } from './workflowLogic'
+import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
+import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -48,18 +62,80 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
+    const triggerPrefill = searchParams[TRIGGER_PREFILL_PARAM] as string | undefined
+    const workflowProps: WorkflowLogicProps = {
+        id: workflowSceneProps.id,
+        templateId,
+        editTemplateId,
+        triggerPrefill,
+    }
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
-    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending, autoSaveEnabled } = useValues(logic)
-    const { setAutoSaveEnabled } = useActions(logic)
-    const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
-    const isDraft = originalWorkflow?.status === 'draft'
+    const logic = workflowLogic(workflowProps)
+    // The save/auto-save indicators moved into the WorkflowStatusBar; the scene only needs the
+    // workflow itself (for the agent context) and the load state.
+    const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById } = useValues(logic)
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
     useAttachedLogic(logic, sceneLogic)
+
+    // Debounced so per-keystroke edits don't re-serialize the whole graph into the agent context.
+    // The id is debounced with the workflow as one value so a navigation between workflows can never
+    // pair one workflow's ref with the other's editor state during the debounce window.
+    const debouncedAgentSource = useDebouncedValue(
+        useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
+        500
+    )
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const { aiComposerAvailable } = useValues(newWorkflowLogic)
+    // Deep links that carry a starting point, and the escape hatch, land in the editor instead (see `aiComposerAvailable`).
+    const showAiComposer = workflowSceneProps.id === 'new' && aiComposerAvailable
+    // The email takeover reflects its state into the URL (?editor=email beside the step's ?node=);
+    // while it is open the panel's framing follows the email being edited, not the graph. Both
+    // swaps update the same provider registrations in place, so they keep their first-registered
+    // priority in the panel's first-writer-wins registries. Validated against the workflow's
+    // actions, since a lingering param must not flip the framing on a workflow without that email.
+    const editingEmail = isEditingEmailAction(workflow, searchParams)
+    const editingEmailActionId: string | null = editingEmail ? ((searchParams.node as string) ?? null) : null
+    // Serializing the whole graph is real work on large workflows, so skip building the context
+    // entirely for users the integration flag hasn't reached.
+    const agentContextItems = useMemo(
+        () =>
+            showAiComposer
+                ? buildNewWorkflowComposerContext()
+                : sceneIntegrationEnabled
+                  ? buildWorkflowAgentContext(
+                        debouncedAgentSource.workflow,
+                        debouncedAgentSource.id,
+                        hogFunctionTemplatesById,
+                        editingEmailActionId
+                    )
+                  : null,
+        [showAiComposer, sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'workflow',
+        contextItems: agentContextItems,
+        headlines: showAiComposer
+            ? NEW_WORKFLOW_AGENT_HEADLINES
+            : editingEmail
+              ? EMAIL_EDITOR_AGENT_HEADLINES
+              : WORKFLOW_AGENT_HEADLINES,
+        composer: showAiComposer ? NEW_WORKFLOW_COMPOSER_OVERRIDE : undefined,
+        active: !!originalWorkflow || workflowSceneProps.id === 'new',
+        // The composer is the page while drafting; the panel opens itself once the draft exists.
+        autoOpen: !showAiComposer,
+    })
+
+    if (showAiComposer) {
+        return (
+            <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
+                <NewWorkflowAgent />
+            </SceneContent>
+        )
+    }
 
     if (!originalWorkflow && workflowLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -73,7 +149,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         {
             label: 'Workflow',
             key: 'workflow',
-            content: <Workflow {...workflowSceneProps} />,
+            content: <Workflow {...workflowProps} />,
         },
 
         {
@@ -108,52 +184,32 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              * If we're rendering tabs, props.id is guaranteed to be
              * defined and not "new" (see return statement below)
              */
-            content: <ActivityLog id={workflowSceneProps.id!} scope={ActivityScope.HOG_FLOW} />,
+            content: (
+                <div className="flex flex-col gap-6">
+                    <WorkflowRevisions id={workflowSceneProps.id!} />
+                    <div className="flex flex-col gap-2">
+                        <h3 className="mb-0">Activity</h3>
+                        <ActivityLog id={workflowSceneProps.id!} scope={ActivityScope.HOG_FLOW} />
+                    </div>
+                </div>
+            ),
         },
     ]
 
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
-            <BindLogic logic={workflowLogic} props={{ id: props.id, templateId, editTemplateId }}>
+            <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
+                <WorkflowEmailPauseBanner />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
-                    <Workflow {...props} />
+                    <Workflow {...workflowProps} />
                 ) : (
                     <LemonTabs
                         activeKey={currentTab}
                         onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                         tabs={tabs}
                         sceneInset
-                        rightSlot={
-                            isDraft ? (
-                                <span className="flex items-center gap-3">
-                                    {autoSaveEnabled && showSaving ? (
-                                        <span className="text-xs text-tertiary flex items-center gap-1">
-                                            <Spinner textColored /> Saving…
-                                        </span>
-                                    ) : lastSavedAt ? (
-                                        <LastSavedIndicator timestamp={lastSavedAt} />
-                                    ) : null}
-                                    <span className="flex items-center gap-1">
-                                        <LemonSwitch
-                                            checked={autoSaveEnabled}
-                                            onChange={setAutoSaveEnabled}
-                                            label="Auto-save"
-                                            size="small"
-                                        />
-                                        <Tooltip
-                                            title="Auto-save is only available for draft workflows. Active workflows require an explicit save to prevent unintended changes to live behavior."
-                                            placement="bottom"
-                                        >
-                                            <IconInfo className="text-tertiary size-4" />
-                                        </Tooltip>
-                                    </span>
-                                </span>
-                            ) : lastSavedAt ? (
-                                <LastSavedIndicator timestamp={lastSavedAt} />
-                            ) : null
-                        }
                         className={clsx({
                             'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
                         })}

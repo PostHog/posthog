@@ -105,7 +105,8 @@ function CheckSummary({ variant, count }: { variant: CheckVariant; count: number
 /**
  * "CI checks" section for a report's implementation PR: the GitHub Actions check runs and legacy
  * commit statuses of the PR's head commit, polled every 15s by `inboxReportDetailLogic` while the
- * detail is open. Read-only — each row links out to the check on GitHub.
+ * detail is open (after repeated failures the poll backs off to a slow retry and the inline error
+ * stays put until one succeeds). Read-only — each row links out to the check on GitHub.
  */
 export function PrChecksSection({ report }: { report: SignalReport }): JSX.Element | null {
     const { prChecks, prChecksLoading, prChecksError } = useValues(
@@ -158,7 +159,12 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
         >
             {prChecksError ? (
                 <div className="rounded border border-danger bg-danger-highlight px-3 py-2.5 text-sm text-danger">
-                    {prChecksError}
+                    <span>{prChecksError.message}</span>
+                    {prChecksError.remediationUrl ? (
+                        <Link to={prChecksError.remediationUrl} className="ml-2">
+                            Open GitHub integration settings
+                        </Link>
+                    ) : null}
                 </div>
             ) : prChecks === null ? (
                 <div className="overflow-hidden rounded border border-primary bg-surface-primary">

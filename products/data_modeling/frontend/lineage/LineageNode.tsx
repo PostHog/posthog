@@ -2,17 +2,27 @@ import { Handle, Position } from '@xyflow/react'
 import clsx from 'clsx'
 import React, { useCallback, useState } from 'react'
 
-import { IconActivity, IconClockRewind, IconPencil, IconPlay, IconPlayFilled, IconTarget } from '@posthog/icons'
+import {
+    IconActivity,
+    IconClockRewind,
+    IconPauseFilled,
+    IconPencil,
+    IconPlay,
+    IconPlayFilled,
+    IconTarget,
+} from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { ElkDirection, NodeHandle } from 'scenes/data-warehouse/scene/modeling/types'
 
-import { DataModelingJobStatus, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
+import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
-import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
+import { ElkDirection, NodeHandle } from './autolayout'
+import { NODE_TYPE_TAG_SETTINGS, statusBackgroundClass } from './nodeStyles'
+import { NodeTypeTag } from './NodeTypeTag'
 
 export type LineageVariant = 'full' | 'canvas'
 
@@ -28,6 +38,7 @@ export type LineageNodeShape = Pick<
     | 'upstream_count'
     | 'downstream_count'
     | 'user_tag'
+    | 'suspended'
 >
 
 export interface LineageNodeState {
@@ -56,35 +67,29 @@ export interface LineageNodeData extends Record<string, unknown> {
     handles: NodeHandle[]
 }
 
-function NodeTypeTag({ type }: { type: DataModelingNode['type'] }): JSX.Element {
-    const { label, color } = NODE_TYPE_TAG_SETTINGS[type]
+function StatusDot({ node }: { node: LineageNodeShape }): JSX.Element {
+    const suspension = servingSuspension(node.suspended)
+    if (suspension) {
+        return (
+            <Tooltip
+                title={
+                    <div className="flex flex-col gap-1">
+                        <div>Suspended after repeated failures</div>
+                        <div className="opacity-75">{suspension.reason}</div>
+                    </div>
+                }
+                interactive
+            >
+                <IconPauseFilled className="text-warning text-sm" />
+            </Tooltip>
+        )
+    }
     return (
-        <span
-            className="text-[10px] lowercase tracking-wide px-1 rounded border-1"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                color,
-                backgroundColor: `color-mix(in srgb, ${color} 20%, transparent)`,
-                borderColor: `color-mix(in srgb, ${color} 80%, transparent)`,
-            }}
-        >
-            {label}
-        </span>
-    )
-}
-
-function StatusDot({ status }: { status?: DataModelingJobStatus }): JSX.Element {
-    return (
-        <Tooltip title={status ?? 'Not run yet'}>
+        <Tooltip title={node.last_run_status ?? 'Not run yet'}>
             <div
                 className={clsx(
                     'rounded-full w-3 h-3 border-1 border-primary',
-                    status === 'Completed' && 'bg-success',
-                    status === 'Running' && 'bg-warning',
-                    status === 'Failed' && 'bg-danger',
-                    status === 'Cancelled' && 'bg-warning',
-                    status === 'Skipped' && 'bg-muted',
-                    !status && 'bg-surface-primary'
+                    node.last_run_status ? statusBackgroundClass(node.last_run_status) : 'bg-surface-primary'
                 )}
             />
         </Tooltip>
@@ -144,18 +149,20 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
                 </Tooltip>
                 <IconActivity />
                 {node.last_run_at ? (
-                    <TZLabel
-                        className="text-[10px]"
-                        time={node.last_run_at}
-                        formatDate="MMM D"
-                        formatTime="HH:mm"
-                        showPopover={false}
-                    />
+                    <Tooltip title="Last successful run.">
+                        <TZLabel
+                            className="text-[10px]"
+                            time={node.last_run_at}
+                            formatDate="MMM D"
+                            formatTime="HH:mm"
+                            showPopover={false}
+                        />
+                    </Tooltip>
                 ) : (
-                    <Tooltip title="This node has not been run yet">Never</Tooltip>
+                    <Tooltip title="This model has never finished a run">Never succeeded</Tooltip>
                 )}
             </div>
-            <StatusDot status={node.last_run_status} />
+            <StatusDot node={node} />
         </div>
     )
 }
@@ -183,85 +190,91 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     }
 
     return (
-        <div
-            className={clsx(
-                'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
-                state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
-                !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
-                !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
-                state.isCurrent && 'border-2'
-            )}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                borderColor: state.isCurrent ? color : undefined,
-            }}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
-            onClick={callbacks.onClick}
-        >
-            {data.handles.map((handle) => (
-                <Handle
-                    key={handle.id}
-                    id={handle.id}
-                    type={handle.type}
-                    position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
-                    className="opacity-0"
-                    isConnectable={false}
-                />
-            ))}
+        <Tooltip title={node.name} delayMs={500}>
+            <div
+                className={clsx(
+                    'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
+                    state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
+                    !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
+                    !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
+                    state.isCurrent && 'border-2'
+                )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    borderColor: state.isCurrent ? color : undefined,
+                }}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+                onClick={callbacks.onClick}
+            >
+                {data.handles.map((handle) => (
+                    <Handle
+                        key={handle.id}
+                        id={handle.id}
+                        type={handle.type}
+                        position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
+                        className="opacity-0"
+                        isConnectable={false}
+                    />
+                ))}
 
-            {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
-                <RunArrow direction="upstream" layoutDirection={direction} onClick={stop(callbacks.onRunUpstream)} />
-            )}
-            {showRunArrows && node.downstream_count > 0 && callbacks.onRunDownstream && (
-                <RunArrow
-                    direction="downstream"
-                    layoutDirection={direction}
-                    onClick={stop(callbacks.onRunDownstream)}
-                />
-            )}
+                {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
+                    <RunArrow
+                        direction="upstream"
+                        layoutDirection={direction}
+                        onClick={stop(callbacks.onRunUpstream)}
+                    />
+                )}
+                {showRunArrows && node.downstream_count > 0 && callbacks.onRunDownstream && (
+                    <RunArrow
+                        direction="downstream"
+                        layoutDirection={direction}
+                        onClick={stop(callbacks.onRunDownstream)}
+                    />
+                )}
 
-            <div className="px-3 pt-3">
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 min-w-0">
-                        {state.isCurrent && (
-                            <Tooltip title="This is the currently viewed node">
-                                <IconTarget className="text-warning text-sm shrink-0" />
+                <div className="px-3 pt-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1 min-w-0">
+                            {state.isCurrent && (
+                                <Tooltip title="This is the currently viewed node">
+                                    <IconTarget className="text-warning text-sm shrink-0" />
+                                </Tooltip>
+                            )}
+                            <NodeTypeTag type={node.type} />
+                        </div>
+                        {node.user_tag && (
+                            <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
+                                #{node.user_tag}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 py-2">
+                        <span className="font-medium text-sm truncate">{node.name}</span>
+                        {callbacks.onEdit && (
+                            <LemonButton
+                                size="xxsmall"
+                                type="secondary"
+                                icon={<IconPencil />}
+                                onClick={stop(callbacks.onEdit)}
+                            />
+                        )}
+                        {callbacks.onMaterialize && (node.type === 'matview' || node.type === 'endpoint') && (
+                            <Tooltip title={state.isRunning ? null : 'Run this node'}>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={stop(callbacks.onMaterialize)}
+                                    disabledReason={state.isRunning && 'This node is already running...'}
+                                    icon={state.isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
+                                />
                             </Tooltip>
                         )}
-                        <NodeTypeTag type={node.type} />
                     </div>
-                    {node.user_tag && (
-                        <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
-                            #{node.user_tag}
-                        </span>
-                    )}
                 </div>
-                <div className="flex items-center justify-between gap-2 py-2">
-                    <span className="font-medium text-sm truncate">{node.name}</span>
-                    {callbacks.onEdit && (
-                        <LemonButton
-                            size="xxsmall"
-                            type="secondary"
-                            icon={<IconPencil />}
-                            onClick={stop(callbacks.onEdit)}
-                        />
-                    )}
-                    {callbacks.onMaterialize && (node.type === 'matview' || node.type === 'endpoint') && (
-                        <Tooltip title={state.isRunning ? null : 'Run this node'}>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={stop(callbacks.onMaterialize)}
-                                disabledReason={state.isRunning && 'This node is already running...'}
-                                icon={state.isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
-                            />
-                        </Tooltip>
-                    )}
-                </div>
+                {showMetadata && <MetadataBar node={node} />}
             </div>
-            {showMetadata && <MetadataBar node={node} />}
-        </div>
+        </Tooltip>
     )
 }
 

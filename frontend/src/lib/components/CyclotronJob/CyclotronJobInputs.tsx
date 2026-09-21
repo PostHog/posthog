@@ -3,7 +3,7 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconBrackets,
@@ -49,6 +49,8 @@ import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSug
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputIntegrationMulti } from './integrations/CyclotronJobInputIntegrationMulti'
+import { declaresFieldScopes } from './integrations/fieldScopes'
+import { MissingScopesHint } from './integrations/MissingScopesHint'
 import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
@@ -72,6 +74,10 @@ export function coerceTemplateValueForDisplay(value: unknown, templating: 'hog' 
     }
     return String(value)
 }
+
+// An email input renders a preview that takes the height its host gives it, so every wrapper
+// between the host and the preview grows. Inert where the host is sized by its content.
+const isEmailInput = (type: CyclotronJobInputSchemaType['type']): boolean => type === 'email' || type === 'native_email'
 
 const INPUT_TYPE_LIST = [
     'string',
@@ -118,8 +124,15 @@ export type CyclotronJobInputsProps = {
     // Per-field messages for an email input, rendered next to its sender/recipient/subject/body
     // fields. Only the email input type reads this; other input types ignore it.
     emailFieldErrors?: EmailFieldErrors
+    // Live propagation and a save-state slot for an email input whose host persists changes itself
+    // (the workflow builder's auto-save). Only the email input types read these.
+    emailLiveChanges?: boolean
+    emailSaveIndicator?: ReactNode
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
+    // Classes for the column the inputs are laid out in, so a host with height to spare can let
+    // it grow (the workflow builder's step panel does this for email steps)
+    className?: string
     showSource: boolean
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }
@@ -132,8 +145,11 @@ export function CyclotronJobInputs({
     errors,
     warnings,
     emailFieldErrors,
+    emailLiveChanges,
+    emailSaveIndicator,
     showSource,
     sampleGlobalsWithInputs,
+    className,
 }: CyclotronJobInputsProps): JSX.Element | null {
     if (!configuration.inputs_schema?.length) {
         return <span className="italic text-secondary">This function does not require any input variables.</span>
@@ -156,25 +172,29 @@ export function CyclotronJobInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {configuration.inputs_schema
-                        ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
-                        .map((schema: CyclotronJobInputSchemaType) => {
-                            return (
-                                <CyclotronJobInputWithSchema
-                                    key={schema.key}
-                                    schema={schema}
-                                    configuration={configuration}
-                                    parentConfiguration={parentConfiguration}
-                                    onInputSchemaChange={onInputSchemaChange}
-                                    onInputChange={onInputChange}
-                                    showSource={showSource}
-                                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                                    errors={errors}
-                                    warnings={warnings}
-                                    emailFieldErrors={emailFieldErrors}
-                                />
-                            )
-                        })}
+                    <div className={clsx('flex flex-col gap-3', className)}>
+                        {configuration.inputs_schema
+                            ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
+                            .map((schema: CyclotronJobInputSchemaType) => {
+                                return (
+                                    <CyclotronJobInputWithSchema
+                                        key={schema.key}
+                                        schema={schema}
+                                        configuration={configuration}
+                                        parentConfiguration={parentConfiguration}
+                                        onInputSchemaChange={onInputSchemaChange}
+                                        onInputChange={onInputChange}
+                                        showSource={showSource}
+                                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                                        errors={errors}
+                                        warnings={warnings}
+                                        emailFieldErrors={emailFieldErrors}
+                                        emailLiveChanges={emailLiveChanges}
+                                        emailSaveIndicator={emailSaveIndicator}
+                                    />
+                                )
+                            })}
+                    </div>
                 </SortableContext>
             </DndContext>
         </>
@@ -269,12 +289,16 @@ function EmailTemplateField({
     onChange,
     sampleGlobalsWithInputs,
     fieldErrors,
+    liveChanges,
+    saveIndicator,
 }: {
     schema: CyclotronJobInputSchemaType
     value: any
     onChange: (value: any) => void
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
     fieldErrors?: EmailFieldErrors
+    liveChanges?: boolean
+    saveIndicator?: ReactNode
 }): JSX.Element {
     return (
         <EmailTemplater
@@ -285,6 +309,8 @@ function EmailTemplateField({
             onChange={onChange}
             templating={schema.templating}
             fieldErrors={fieldErrors}
+            liveChanges={liveChanges}
+            saveIndicator={saveIndicator}
         />
     )
 }
@@ -546,6 +572,8 @@ type CyclotronJobInputProps = {
     parentConfiguration?: CyclotronJobInputConfiguration
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
     emailFieldErrors?: EmailFieldErrors
+    emailLiveChanges?: boolean
+    emailSaveIndicator?: ReactNode
 }
 
 function NonFailureStatusCodesField({
@@ -598,6 +626,8 @@ function CyclotronJobInputRenderer({
     parentConfiguration,
     sampleGlobalsWithInputs,
     emailFieldErrors,
+    emailLiveChanges,
+    emailSaveIndicator,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -711,6 +741,8 @@ function CyclotronJobInputRenderer({
                     onChange={onValueChange}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                     fieldErrors={emailFieldErrors}
+                    liveChanges={emailLiveChanges}
+                    saveIndicator={emailSaveIndicator}
                 />
             )
         case 'non_failure_status_codes':
@@ -897,6 +929,8 @@ function CyclotronJobInputWithSchema({
     errors,
     warnings,
     emailFieldErrors,
+    emailLiveChanges,
+    emailSaveIndicator,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -951,6 +985,7 @@ function CyclotronJobInputWithSchema({
     return (
         <div
             ref={setNodeRef}
+            className={clsx(isEmailInput(schema.type) && 'flex flex-1 flex-col')}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 transform: CSS.Transform.toString(transform),
@@ -959,13 +994,23 @@ function CyclotronJobInputWithSchema({
         >
             {!editing ? (
                 <LemonField.Pure
+                    className={clsx('gap-1', isEmailInput(schema.type) && 'flex-1')}
                     error={error}
                     help={
-                        typeof schema.description === 'string' ? (
-                            <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
-                                {schema.description}
-                            </LemonMarkdown>
-                        ) : undefined
+                        <>
+                            {typeof schema.description === 'string' ? (
+                                <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
+                                    {schema.description}
+                                </LemonMarkdown>
+                            ) : null}
+                            {declaresFieldScopes(schema) ? (
+                                <MissingScopesHint
+                                    schema={schema}
+                                    configuration={configuration}
+                                    parentConfiguration={parentConfiguration}
+                                />
+                            ) : null}
+                        </>
                     }
                 >
                     <>
@@ -1046,6 +1091,8 @@ function CyclotronJobInputWithSchema({
                                 parentConfiguration={parentConfiguration}
                                 sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                 emailFieldErrors={emailFieldErrors}
+                                emailLiveChanges={emailLiveChanges}
+                                emailSaveIndicator={emailSaveIndicator}
                             />
                         )}
                         {warning && !value?.secret ? (

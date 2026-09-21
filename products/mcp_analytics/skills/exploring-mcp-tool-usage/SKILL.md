@@ -17,6 +17,10 @@ user who knows they want to look at their MCP tool usage but hasn't picked a
 specific question. Offer the menu below, then route to the tool — or the focused
 skill — that answers what they choose.
 
+## Governed metric first
+
+When the question asks for an MCP failure rate or percentage, call `posthog:metric-list` before any typed tool or SQL recipe and look for `mcp_tool_call_fail_pct`. Run an approved, non-drifted match with `posthog:data-catalog-metric-run` for the canonical headline. If the user also asks which tool or harness drives failures, answer the headline first, then use the per-tool workflows below for a noncanonical breakdown. If no governed metric matches, say so and label the derived rate noncanonical.
+
 Every per-tool tool here is gated behind the `mcp-analytics` flag, takes a
 `toolName` (the effective tool name — resolved server-side, so pass the name the
 agent actually invokes — **except `posthog:query-mcp-tool-failures`**, which

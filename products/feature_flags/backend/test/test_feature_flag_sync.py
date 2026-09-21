@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, Mock, patch
 
@@ -8,7 +8,9 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone as tz
 
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes
+from prometheus_client import REGISTRY
+
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.tasks import sync_feature_flag_last_called
 
@@ -59,7 +61,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         cache.clear()
         super().tearDown()
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_no_events_updates_checkpoint(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -78,7 +80,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_existing_checkpoint_used(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -98,7 +100,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         params = call_args[0][1]
         assert params["last_sync_timestamp"] == checkpoint_time
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_updates_null_timestamps(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -116,7 +118,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at == latest_timestamp
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_updates_only_more_recent_timestamps(
@@ -146,7 +148,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         # flag3 should be updated
         assert self.flag3.last_called_at == newer_timestamp
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_handles_nonexistent_flags(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -166,7 +168,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is not None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_skips_flag_keys_with_nul_bytes(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -185,7 +187,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is not None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     @override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE=2)
@@ -232,7 +234,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         assert flag4.last_called_at == timestamp
         assert flag5.last_called_at == timestamp
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_redis_error_falls_back_to_lookback_days(
@@ -256,7 +258,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         assert last_sync.month == 6
         assert last_sync.day == 14
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.tasks.tasks.get_client")
     def test_concurrent_execution_prevented(self, mock_get_client: MagicMock) -> None:
         """Only one instance should execute at a time due to lock"""
@@ -271,7 +273,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
             # Task should exit early without executing query
             mock_sync_execute.assert_not_called()
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_lock_released_after_execution(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -286,7 +288,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         # Lock should be deleted
         assert cache.get(lock_key) is None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_lock_released_after_exception(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -303,7 +305,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         # Lock should be deleted
         assert cache.get(lock_key) is None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_handles_invalid_timestamps(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -326,14 +328,14 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag2.refresh_from_db()
         assert self.flag2.last_called_at is not None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_checkpoint_updated_to_current_sync_timestamp(
         self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
         """
-        Checkpoint should be updated to the wall-clock time of the sync run, not max event timestamp
+        Checkpoint should be updated to the window end, not the max event timestamp
         """
         redis_mock = mock_redis_client()
         mock_get_client.return_value = redis_mock
@@ -346,14 +348,15 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
 
         sync_feature_flag_last_called()
 
-        # Checkpoint should be set to current_sync_timestamp (frozen at 2024-06-15T12:00:00Z)
+        # Checkpoint should be set to the window end, which is the replication buffer (60s)
+        # short of the frozen wall clock of 2024-06-15T12:00:00Z
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
         stored_timestamp = redis_mock.storage.get(checkpoint_key)
         assert stored_timestamp is not None
         assert "2024-06-15" in stored_timestamp
-        assert "2024-06-15T12:00:00" in stored_timestamp
+        assert "2024-06-15T11:59:00" in stored_timestamp
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     @override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT=2)
@@ -370,7 +373,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         params = call_args[0][1]
         assert params["limit"] == 2
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_handles_naive_datetimes_from_clickhouse(
@@ -422,7 +425,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         cache.clear()
         super().tearDown()
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_chunking_splits_large_window(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -449,11 +452,12 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
             params = call[0][1]
             assert params["last_sync_timestamp"] == expected_starts[i], f"Chunk {i} start mismatch"
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
-    def test_checkpoint_not_updated_on_failure(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
-        """On scan failure, checkpoint should remain unchanged so the window is retried"""
+    def test_checkpoint_stops_at_first_failed_chunk(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
         redis_mock = mock_redis_client()
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
         # 15 min ago = 3 chunks
@@ -461,17 +465,90 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
         mock_get_client.return_value = redis_mock
 
-        # First chunk succeeds, second chunk fails
-        mock_sync_execute.side_effect = [[], Exception("ClickHouse error")]
+        called_at = tz.make_aware(datetime(2024, 6, 15, 11, 47, 0))
+        # First and third chunks succeed, second one fails
+        mock_sync_execute.side_effect = [
+            [(self.team.pk, self.flag1.key, called_at, 5)],
+            Exception("ClickHouse error"),
+            [],
+        ]
+        failures_metric = "posthog_feature_flag_last_called_at_sync_chunk_failures_total"
+        failures_before = REGISTRY.get_sample_value(failures_metric) or 0.0
 
-        with self.assertRaises(Exception):
+        sync_feature_flag_last_called()
+
+        # A failed chunk must not abort the remaining chunks, nor discard what was read
+        assert mock_sync_execute.call_count == 3
+        self.flag1.refresh_from_db()
+        assert self.flag1.last_called_at == called_at
+
+        # This run does not raise, so the counter is the only signal that a window went unread
+        assert (REGISTRY.get_sample_value(failures_metric) or 0.0) == failures_before + 1
+
+        # Checkpoint stops at the end of the first chunk, so the unread window from 11:50
+        # onwards is retried next run rather than skipped
+        stored = redis_mock.storage.get(checkpoint_key)
+        assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat()
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_every_chunk_failing_raises_and_leaves_checkpoint(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
+        # 10 min ago = 2 chunks
+        checkpoint_time = tz.make_aware(datetime(2024, 6, 15, 11, 50, 0))
+        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
+        mock_get_client.return_value = redis_mock
+        mock_sync_execute.side_effect = CHQueryErrorUnknownTable("Table posthog.events_recent does not exist")
+
+        # Nothing could be read, so the run must fail loudly instead of reporting an empty
+        # sync, and it must re-raise the original ClickHouse error rather than a generic one
+        # so Celery's autoretry_for sees the real class
+        with self.assertRaises(CHQueryErrorUnknownTable):
             sync_feature_flag_last_called()
 
-        # Checkpoint should remain at the original value (no per-chunk advancement)
-        stored = redis_mock.storage.get(checkpoint_key)
-        assert stored == checkpoint_time.isoformat().encode()
+        # The first chunk failing means no chunk can be committed, so the run stops there
+        # instead of querying the rest of the window and discarding the results
+        assert mock_sync_execute.call_count == 1
+        assert redis_mock.storage.get(checkpoint_key) == checkpoint_time.isoformat().encode()
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_transient_error_propagates_instead_of_being_tolerated(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
+        # 15 min ago = 3 chunks
+        checkpoint_time = tz.make_aware(datetime(2024, 6, 15, 11, 45, 0))
+        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
+        mock_get_client.return_value = redis_mock
+
+        called_at = tz.make_aware(datetime(2024, 6, 15, 11, 47, 0))
+        mock_sync_execute.side_effect = [
+            [(self.team.pk, self.flag1.key, called_at, 5)],
+            ClickHouseAtCapacity(),
+            [],
+        ]
+
+        # A cluster shedding load is what autoretry_for handles, so the error has to escape
+        # the chunk loop. Tolerating it would report a successful sync and skip the retry.
+        with self.assertRaises(ClickHouseAtCapacity):
+            sync_feature_flag_last_called()
+
+        # The run stops at the failing chunk rather than querying the rest of the window
+        assert mock_sync_execute.call_count == 2
+
+        # Nothing is committed, so the next run re-reads the whole window
+        assert redis_mock.storage.get(checkpoint_key) == checkpoint_time.isoformat().encode()
+        self.flag1.refresh_from_db()
+        assert self.flag1.last_called_at is None
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_max_lookback_caps_stale_checkpoint(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -492,7 +569,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         expected_cap = tz.make_aware(datetime(2024, 6, 15, 6, 0, 0))
         assert first_start == expected_cap
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_merges_results_across_chunks(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -521,7 +598,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at == later_ts
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_all_none_timestamps_skips_pg_query(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -545,7 +622,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # Checkpoint should still be updated
         stored = redis_mock.storage.get(checkpoint_key)
         assert stored is not None
-        assert "2024-06-15T12:00:00" in stored
+        assert "2024-06-15T11:59:00" in stored
 
         # Flag should remain unchanged
         self.flag1.refresh_from_db()

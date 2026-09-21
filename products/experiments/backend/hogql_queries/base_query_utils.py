@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -12,11 +14,10 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
-    ExperimentMeanMetric,
     ExperimentMetricMathType,
-    ExperimentRatioMetric,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
+    GroupMathType,
     PropertyMathType,
 )
 
@@ -25,17 +26,15 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
-    aggregation_needs_numeric_input,
-    build_aggregation_call,
+    contains_aggregation,
     extract_aggregation_and_inner_expr,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.facade.queries import ALLOWED_SESSION_MATH_PROPERTIES
 
 
 def is_session_property_metric(source: Union[EventsNode, ActionsNode]) -> bool:
@@ -90,7 +89,7 @@ def is_continuous(
     | CountPerActorMathType
     | ExperimentMetricMathType
     | CalendarHeatmapMathType
-    | Literal["unique_group"]
+    | GroupMathType
     | Literal["hogql"]
     | None,
 ) -> bool:
@@ -147,25 +146,31 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             if math_hogql:
                 tag_contains_user_hogql()
                 _, inner_expr, _, _ = extract_aggregation_and_inner_expr(math_hogql)
+                # The inner expression is evaluated per event row, so any aggregate call
+                # left in it (a compound expression like sum(a) / count(), or a nested
+                # aggregate) would generate invalid SQL and fail in ClickHouse with
+                # NOT_AN_AGGREGATE. Reject it with an actionable error instead.
+                if contains_aggregation(inner_expr):
+                    raise ValidationError(
+                        "HogQL metric expressions must be a single aggregation, e.g. sum(properties.revenue). "
+                        "Compound expressions like sum(a) / count() are not supported."
+                    )
                 return inner_expr
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
         if metric_property:
             tag_contains_user_hogql()
-            return parse_expr(metric_property)
+            parsed = parse_expr(metric_property)
+            # Same constraint as math_hogql above: this is a per-row value expression.
+            if contains_aggregation(parsed):
+                raise ValidationError(
+                    "Data warehouse metric properties cannot contain aggregate functions; "
+                    "reference a column or a per-row expression instead."
+                )
+            return parsed
 
     # Default to count - emit 1 so we can easily sum it up
     return ast.Constant(value=1)
-
-
-def get_metric_value(
-    metric: ExperimentMeanMetric, source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, None] = None
-) -> ast.Expr:
-    """
-    Backward compatibility wrapper for get_source_value_expr.
-    """
-    actual_source = source if source is not None else metric.source
-    return get_source_value_expr(actual_source)
 
 
 def event_or_action_to_filter(
@@ -303,119 +308,6 @@ def experiment_window_end(experiment: Experiment, as_of: datetime) -> datetime:
 def experiment_window(experiment: Experiment, team: Team, as_of: datetime) -> DateRange:
     """:func:`analysis_window` for a caller that holds the experiment model."""
     return analysis_window(experiment.start_date, experiment.end_date, team, as_of)
-
-
-def get_source_time_window(
-    date_range_query: QueryDateRange,
-    left: ast.Expr,
-    conversion_window: int | None = None,
-    conversion_window_unit=None,
-) -> list[ast.CompareOperation]:
-    """
-    Returns the time window conditions based on conversion window and date range.
-    Pure source-based function that doesn't depend on metric object.
-    """
-
-    if conversion_window is not None and conversion_window_unit is not None:
-        # If conversion window is set, limit events to date_to + window
-        date_to = ast.CompareOperation(
-            left=left,
-            right=ast.Call(
-                name="plus",
-                args=[
-                    ast.Constant(value=date_range_query.date_to()),
-                    ast.Call(
-                        name="toIntervalSecond",
-                        args=[
-                            ast.Constant(value=conversion_window_to_seconds(conversion_window, conversion_window_unit)),
-                        ],
-                    ),
-                ],
-            ),
-            op=ast.CompareOperationOp.Lt,
-        )
-    else:
-        # If no conversion window, just limit to experiment end date
-        date_to = ast.CompareOperation(
-            op=ast.CompareOperationOp.Lt,
-            left=left,
-            right=ast.Constant(value=date_range_query.date_to()),
-        )
-
-    return [
-        # Improve query performance by only fetching events after the experiment started
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=left,
-            right=ast.Constant(value=date_range_query.date_from()),
-        ),
-        date_to,
-    ]
-
-
-def get_metric_time_window(
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
-    date_range_query: QueryDateRange,
-    left: ast.Expr,
-) -> list[ast.CompareOperation]:
-    """
-    Backward compatibility wrapper for get_source_time_window.
-    """
-    return get_source_time_window(date_range_query, left, metric.conversion_window, metric.conversion_window_unit)
-
-
-def get_source_aggregation_expr(
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode], table_alias: str = "metric_events"
-) -> ast.Expr:
-    """
-    Returns the aggregation expression for a specific source based on its math type.
-    Uses the specified table_alias for field references.
-    """
-    if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
-        math_type = getattr(source, "math", None)
-        if math_type in [
-            ExperimentMetricMathType.UNIQUE_SESSION,
-            ExperimentMetricMathType.DAU,
-            ExperimentMetricMathType.UNIQUE_GROUP,
-        ]:
-            # Clickhouse counts empty values as distinct, so need to explicitly exclude them
-            # Also handle the special case of null UUIDs (00000000-0000-0000-0000-000000000000)
-            return parse_expr(f"""toFloat(count(distinct
-                multiIf(
-                    toTypeName({table_alias}.value) = 'UUID' AND reinterpretAsUInt128({table_alias}.value) = 0, NULL,
-                    toString({table_alias}.value) = '', NULL,
-                    {table_alias}.value
-                )
-            ))""")
-        elif math_type == ExperimentMetricMathType.MIN:
-            return parse_expr(f"min(coalesce(toFloat({table_alias}.value), 0))")
-        elif math_type == ExperimentMetricMathType.MAX:
-            return parse_expr(f"max(coalesce(toFloat({table_alias}.value), 0))")
-        elif math_type == ExperimentMetricMathType.AVG:
-            return parse_expr(f"avg(coalesce(toFloat({table_alias}.value), 0))")
-        elif math_type == ExperimentMetricMathType.HOGQL:
-            math_hogql = getattr(source, "math_hogql", None)
-            if math_hogql is not None:
-                tag_contains_user_hogql()
-                aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
-                if aggregation_function:
-                    inner_value_expr = parse_expr(f"{table_alias}.value")
-                    if aggregation_needs_numeric_input(aggregation_function):
-                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
-                    agg_call = build_aggregation_call(
-                        aggregation_function, inner_value_expr, params=params, distinct=distinct
-                    )
-                    # Non-numeric aggregations (count, uniq, etc.) return UInt64, which is
-                    # incompatible with Float64 in ClickHouse greatest/least functions used
-                    # by winsorization. Wrap with toFloat to ensure consistent Float64 type.
-                    if not aggregation_needs_numeric_input(aggregation_function):
-                        agg_call = ast.Call(name="toFloat", args=[agg_call])
-                    return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
-            # Default to sum if no aggregation function is found
-            return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
-
-    # Default aggregation for all other cases (including data warehouse)
-    return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
 
 def funnel_steps_to_filter(

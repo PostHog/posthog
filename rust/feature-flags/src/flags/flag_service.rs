@@ -258,7 +258,7 @@ impl FlagService {
                     "component" => "flag_service",
                 )
                 .increment(1);
-                Err(FlagError::DataParsingErrorWithContext(format!(
+                Err(FlagError::flag_data_parsing(format!(
                     "Failed to parse feature flags for team {team_id}: {e}"
                 )))
             }
@@ -433,6 +433,7 @@ mod tests {
                 key: "beta_feature".to_string(),
                 has_experiment: false,
                 filters: FlagFilters {
+                    non_v1: None,
                     groups: vec![FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "country".to_string(),
@@ -471,6 +472,7 @@ mod tests {
                 key: "new_ui".to_string(),
                 has_experiment: false,
                 filters: FlagFilters {
+                    non_v1: None,
                     groups: vec![],
                     multivariate: None,
                     aggregation_group_type_index: None,
@@ -495,6 +497,7 @@ mod tests {
                 key: "premium_feature".to_string(),
                 has_experiment: false,
                 filters: FlagFilters {
+                    non_v1: None,
                     groups: vec![FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "is_premium".to_string(),
@@ -629,6 +632,7 @@ mod tests {
                 deleted: false,
                 active: i % 2 == 0,
                 filters: FlagFilters {
+                    non_v1: None,
                     groups: vec![FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: format!("property_key_{i}"),
@@ -932,7 +936,7 @@ mod tests {
         );
     }
 
-    /// Corrupt Redis payload must hard-fail with DataParsingErrorWithContext rather
+    /// Corrupt Redis payload must hard-fail under `flag_data_parsing_error` rather
     /// than silently fall back to PG (which would serve single-stage data).
     #[tokio::test]
     async fn test_get_flags_hard_fails_on_hypercache_parse_error() {
@@ -969,7 +973,13 @@ mod tests {
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
         assert!(
-            matches!(result, Err(FlagError::DataParsingErrorWithContext(_))),
+            matches!(
+                result,
+                Err(FlagError::InternalError {
+                    code: "flag_data_parsing_error",
+                    ..
+                })
+            ),
             "parse error must hard-fail, got {result:?}"
         );
     }
@@ -1009,7 +1019,13 @@ mod tests {
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
         assert!(
-            matches!(result, Err(FlagError::DataParsingErrorWithContext(_))),
+            matches!(
+                result,
+                Err(FlagError::InternalError {
+                    code: "flag_data_parsing_error",
+                    ..
+                })
+            ),
             "pickle error must hard-fail, got {result:?}"
         );
     }

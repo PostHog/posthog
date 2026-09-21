@@ -11,6 +11,30 @@ from pydantic.fields import FieldInfo
 
 from products.signals.backend.enums import ReportPriority, SignalSourceProduct, SignalSourceType
 
+# ── Source-config steering keys ─────────────────────────────────────────────────
+# Public keys of `SignalSourceConfig.config` shared by every emission source. Defined here
+# (not in `emission/`) so the serializer can validate them without importing the emission
+# package, whose __init__ eagerly registers every emitter and must stay off the web path.
+
+STEERING_KEY = "steering"
+DEFAULT_NOT_ACTIONABLE_KEY = "default_not_actionable"
+# Server-side cap on steering text. The serializer rejects longer input; reads truncate
+# defensively so a row written by another path cannot bloat every gate prompt.
+STEERING_MAX_LENGTH = 2000
+
+# The sources that emit straight through `emit_signal` and still honor steering, via the gate in
+# `emission/direct_gate.py`. Every other direct source skips the gate, so writing steering onto its
+# row would store text nothing reads. The roster's `steerable` flags in `agentRosterMeta.ts` mirror
+# this set, and only these pairs may be offered the steering form.
+DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_CREATED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
+        (SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
+    }
+)
+
 
 class ContractModel(BaseModel):
     # Emitted payloads are validated against these models at the emit boundary; unknown fields are
@@ -71,6 +95,9 @@ class SessionProblemSignalInput(SignalInputBase):
 # ── LLM analytics ───────────────────────────────────────────────────────────────
 
 
+# Read-only: no emitter writes `llm_analytics/evaluation` signals any more (only whole eval reports
+# do), but signals ingested while that path existed keep this payload shape, and the inbox card that
+# renders them is generated from this model.
 class LlmEvalSignalExtra(SignalExtraBase):
     evaluation_id: str
     target_event_id: str | None = None
@@ -78,12 +105,6 @@ class LlmEvalSignalExtra(SignalExtraBase):
     trace_id: str
     model: str | None = None
     provider: str | None = None
-
-
-class LlmEvaluationSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.EVALUATION]
-    source_product: Literal[SignalSourceProduct.LLM_ANALYTICS]
-    extra: LlmEvalSignalExtra
 
 
 class LlmEvalReportSignalExtra(SignalExtraBase):
@@ -131,6 +152,13 @@ class GithubIssueSignalExtra(SignalExtraBase):
     updated_at: str
     locked: bool
     state: str
+    # Defaulted, unlike the fields above: payloads emitted before these columns existed carry
+    # neither key, and an author is context for triage rather than something a signal needs.
+    author_login: str | None = None
+    # GitHub's own enum — OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,
+    # FIRST_TIMER, MANNEQUIN, NONE. Kept as a plain string so a value GitHub adds later widens the
+    # taxonomy instead of failing validation and dropping the signal.
+    author_association: str | None = None
 
 
 class GithubIssueSignalInput(SignalInputBase):
@@ -317,6 +345,32 @@ class SignalsScoutSignalInput(SignalInputBase):
     extra: SignalsScoutSignalExtra
 
 
+# ── Report checks ──────────────────────────────────────────────────────────────
+
+
+class CheckFailedSignalExtra(SignalExtraBase):
+    check_id: str
+    report_id: str
+    check_title: str
+    explanation: str
+    observed_value: float | None = None
+    baseline_value: float | None = None
+    threshold: str | None = None
+
+
+class CheckFailedSignalInput(SignalInputBase):
+    """A deterministic check that breached after its report was resolved.
+
+    The inbox emitting to itself. An `agent` check has a scout that can author a fresh report; a
+    `metric_threshold` check has nobody, so the verdict becomes a signal and the pipeline treats the
+    relapse the way it treats any other recurrence on a resolved report.
+    """
+
+    source_type: Literal[SignalSourceType.CHECK_FAILED]
+    source_product: Literal[SignalSourceProduct.SIGNALS_CHECK]
+    extra: CheckFailedSignalExtra
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────────
 
 
@@ -496,11 +550,18 @@ class SignalReviewerUserInfo(ContractModel):
 
 
 class EnrichedReviewer(ContractModel):
-    github_login: str
+    # A reviewer is identified by their PostHog user, their GitHub login, or both. `github_login` is
+    # null for a reviewer with no linked GitHub account; `user_uuid` is null on entries written
+    # before reviewers carried one, where `user` still resolves from the login at read time.
+    github_login: str | None
+    user_uuid: str | None = None
     github_name: str | None
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
     reason: str | None = None
+    source_skill: str | None = None
+    source_label: str
+    explanation: str | None = None
 
 
 # ── Tier-1 data-warehouse inbox sources ──────────────────────────────────────────
@@ -973,7 +1034,6 @@ class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
 
 SignalInput = Annotated[
     SessionProblemSignalInput
-    | LlmEvaluationSignalInput
     | LlmEvaluationReportSignalInput
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
@@ -985,6 +1045,7 @@ SignalInput = Annotated[
     | EndpointBreakdownLimitExceededSignalInput
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
+    | CheckFailedSignalInput
     | LogsAlertStateChangeSignalInput
     | AnalyticsAnomalyInvestigationSignalInput
     | HealthCheckSignalInput
@@ -1030,7 +1091,6 @@ SignalInput = Annotated[
 
 SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     SessionProblemSignalInput,
-    LlmEvaluationSignalInput,
     LlmEvaluationReportSignalInput,
     ZendeskTicketSignalInput,
     GithubIssueSignalInput,

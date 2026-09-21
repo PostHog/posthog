@@ -9,7 +9,6 @@ is swallowed so telemetry can never fail an activity.
 """
 
 from prometheus_client import Counter, Gauge, Histogram
-from temporalio import workflow
 
 from posthog.otel_metrics import OtelInstrumentFactory
 
@@ -34,7 +33,8 @@ REPLAY_VISION_INELIGIBLE_KINDS = Counter(
 )
 
 # Extends past the default ceiling so multi-minute upload + provider-call activities don't all land in +Inf.
-_ACTIVITY_DURATION_BUCKETS = (0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600)
+# The top bucket matches the provider-call activity's 20-minute start-to-close timeout.
+_ACTIVITY_DURATION_BUCKETS = (0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 900, 1200)
 
 REPLAY_VISION_ACTIVITY_DURATION = Histogram(
     "replay_vision_activity_duration_seconds",
@@ -58,6 +58,49 @@ REPLAY_VISION_MISSION_PASSES = Counter(
     ["model", "path"],
 )
 
+# LLM analytics cannot answer this: the scanner runs with privacy mode on, so `$ai_tools_called` is
+# derived from an output the provider events never carry.
+REPLAY_VISION_EVENTS_TOOL_CALLS = Counter(
+    "replay_vision_events_tool_calls_total",
+    "Calls the scanner model made to the analytics events lookup",
+    ["scanner_type", "model"],
+)
+
+REPLAY_VISION_NETWORK_TOOL_CALLS = Counter(
+    "replay_vision_network_tool_calls_total",
+    "Calls the scanner model made to the network request lookup",
+    ["scanner_type", "model"],
+)
+
+REPLAY_VISION_UNKNOWN_TOOL_CALLS = Counter(
+    "replay_vision_unknown_tool_calls_total",
+    "Calls the scanner model made to a name no tool answers, which means it invented one",
+    ["scanner_type", "model"],
+)
+
+# A round is one provider turn that asked for at least one lookup, which is what the tool budget spends.
+# The histogram separates a model that asks for several moments at once from one that spends a round on each.
+_TOOL_CALLS_PER_ROUND_BUCKETS = (1, 2, 3, 4, 5, 6, 8, 10, 15)
+
+REPLAY_VISION_TOOL_ROUNDS = Histogram(
+    "replay_vision_tool_calls_per_round",
+    "Lookups the scanner model asked for in one provider turn",
+    ["scanner_type", "model"],
+    buckets=_TOOL_CALLS_PER_ROUND_BUCKETS,
+)
+
+REPLAY_VISION_NETWORK_STATE = Counter(
+    "replay_vision_network_state_total",
+    "How each scan described network data to the model: available, clean, or none",
+    ["scanner_type", "state"],
+)
+
+REPLAY_VISION_VERIFICATION_OUTCOMES = Counter(
+    "replay_vision_verification_outcomes_total",
+    "Verify-positives results per verified monitor `yes`: agreed, flipped, no_cache, no_budget, draw_failed",
+    ["scanner_type", "mode", "outcome"],
+)
+
 REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS = Counter(
     "replay_vision_quota_exhausted_skips_total",
     "Observations skipped because the org's monthly credit quota was exhausted",
@@ -78,8 +121,42 @@ REPLAY_VISION_BACKFILL_TICK_OUTCOMES = Counter(
 
 REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     "replay_vision_sweep_outcomes_total",
-    "Sweep tick outcomes: throttled at an in-flight cap, no candidates, or candidates found",
+    "Sweep tick outcomes: throttled at an in-flight cap, capped by the scanner's own credit limit "
+    "(settled spend, which skips the window for good, or in-flight reservations, which preserve the "
+    "watermark), no candidates, or candidates found",
     ["outcome"],
+)
+
+# The admission lock gives up after a 2s lock_timeout, so waits are capped, not worth a histogram;
+# here instead, as attempts that found the row held and deferred to the activity's retry policy.
+REPLAY_VISION_SCANNER_ADMISSION_BUSY = Counter(
+    "replay_vision_scanner_admission_busy_total",
+    "Capped-scanner admissions that found the row lock held and were deferred to the activity retry",
+    ["scanner_type"],
+)
+
+REPLAY_VISION_SCANNER_LIMIT_REACHED = Counter(
+    "replay_vision_scanner_limit_reached_total",
+    "Requests refused because a per-scanner credit limit left no room, by the API surface that refused",
+    ["surface"],
+)
+
+REPLAY_VISION_DEEP_SWEEP_FAILURES = Counter(
+    "replay_vision_deep_sweep_failures_total",
+    "Deep catch-up passes that failed inside an otherwise successful sweep tick; separate from sweep "
+    "outcomes so a tick still counts exactly once there",
+)
+
+REPLAY_VISION_DEEP_CANDIDATES = Counter(
+    "replay_vision_deep_candidates_total",
+    "Sessions the catch-up pass found that the frequent sweep had missed. This is the pass's whole "
+    "justification, so it is the number to weigh against what its wide-lookback query costs",
+)
+
+REPLAY_VISION_SWEEP_CANDIDATE_PAGE_FULL = Counter(
+    "replay_vision_sweep_candidate_page_full_total",
+    "Sweep ticks whose candidate page filled, meaning the window held more sessions than one tick "
+    "could correlate; a scanner stuck at this is no longer keeping up with its own window",
 )
 
 REPLAY_VISION_SWEEP_CANDIDATES = Counter(
@@ -115,14 +192,13 @@ REPLAY_VISION_ENQUEUE_CLAIM_FAILURES = Counter(
     ["operation"],
 )
 
-REPLAY_VISION_ACTION_OCCURRENCES_DROPPED = Counter(
-    "replay_vision_action_occurrences_dropped_total",
-    "Vision-action occurrences claimed but permanently dropped because the child workflow start failed",
-)
-
-REPLAY_VISION_ACTION_RUNS_REAPED = Counter(
-    "replay_vision_action_runs_reaped_total",
-    "VisionActionRun rows stuck in running whose workflow was gone, failed by the reaper",
+REPLAY_VISION_ESTIMATE_OUTCOMES = Counter(
+    "replay_vision_estimate_outcomes_total",
+    "Estimate outcomes, recorded by scanner saves and the hourly refresher: refreshed, or skipped "
+    "because the scanner's experiment targeting can't resolve an exposed population. Most skips "
+    "are drafts that heal at launch; a rising unresolved count means scanners are stuck with no "
+    "estimate. Failures of the scanner's own query stay on the error path and are not counted",
+    ["outcome"],
 )
 
 REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
@@ -160,15 +236,62 @@ def record_provider_call(provider: str, model: str, scanner_type: str, outcome: 
     _otel.record_histogram_twin(REPLAY_VISION_PROVIDER_CALL, seconds, labels)
 
 
+def record_events_tool_call(scanner_type: str, model: str) -> None:
+    labels = {"scanner_type": scanner_type, "model": model}
+    REPLAY_VISION_EVENTS_TOOL_CALLS.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_EVENTS_TOOL_CALLS, 1, labels)
+
+
+def record_network_tool_call(scanner_type: str, model: str) -> None:
+    labels = {"scanner_type": scanner_type, "model": model}
+    REPLAY_VISION_NETWORK_TOOL_CALLS.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_NETWORK_TOOL_CALLS, 1, labels)
+
+
+def record_unknown_tool_call(scanner_type: str, model: str) -> None:
+    labels = {"scanner_type": scanner_type, "model": model}
+    REPLAY_VISION_UNKNOWN_TOOL_CALLS.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_UNKNOWN_TOOL_CALLS, 1, labels)
+
+
+def record_tool_round(scanner_type: str, model: str, calls: int) -> None:
+    labels = {"scanner_type": scanner_type, "model": model}
+    REPLAY_VISION_TOOL_ROUNDS.labels(**labels).observe(calls)
+    _otel.record_histogram_twin(REPLAY_VISION_TOOL_ROUNDS, calls, labels)
+
+
+def record_network_state(scanner_type: str, state: str) -> None:
+    labels = {"scanner_type": scanner_type, "state": state}
+    REPLAY_VISION_NETWORK_STATE.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_NETWORK_STATE, 1, labels)
+
+
 def record_mission_pass(model: str, path: str) -> None:
     labels = {"model": model, "path": path}
     REPLAY_VISION_MISSION_PASSES.labels(**labels).inc()
     _otel.record_counter_twin(REPLAY_VISION_MISSION_PASSES, 1, labels)
 
 
+def record_verification_outcome(*, scanner_type: str, mode: str, outcome: str) -> None:
+    labels = {"scanner_type": scanner_type, "mode": mode, "outcome": outcome}
+    REPLAY_VISION_VERIFICATION_OUTCOMES.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_VERIFICATION_OUTCOMES, 1, labels)
+
+
 def record_quota_exhausted_skip(scanner_type: str) -> None:
     REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS.labels(scanner_type=scanner_type).inc()
     _otel.record_counter_twin(REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS, 1, {"scanner_type": scanner_type})
+
+
+def record_scanner_admission_busy(scanner_type: str) -> None:
+    REPLAY_VISION_SCANNER_ADMISSION_BUSY.labels(scanner_type=scanner_type).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SCANNER_ADMISSION_BUSY, 1, {"scanner_type": scanner_type})
+
+
+def record_scanner_limit_reached(surface: str) -> None:
+    """`surface` is "on_demand", "bulk", "evaluation", "max_tool", or "admission": the path that refused the work."""
+    REPLAY_VISION_SCANNER_LIMIT_REACHED.labels(surface=surface).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SCANNER_LIMIT_REACHED, 1, {"surface": surface})
 
 
 def record_credits_consumed(scanner_type: str, model: str, credits: int) -> None:
@@ -183,6 +306,26 @@ def record_sweep_outcome(outcome: str, candidates: int = 0) -> None:
     if candidates > 0:
         REPLAY_VISION_SWEEP_CANDIDATES.inc(candidates)
         _otel.record_counter_twin(REPLAY_VISION_SWEEP_CANDIDATES, candidates, {})
+
+
+def record_estimate_outcome(outcome: str) -> None:
+    REPLAY_VISION_ESTIMATE_OUTCOMES.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_ESTIMATE_OUTCOMES, 1, {"outcome": outcome})
+
+
+def record_deep_candidates(count: int) -> None:
+    REPLAY_VISION_DEEP_CANDIDATES.inc(count)
+    _otel.record_counter_twin(REPLAY_VISION_DEEP_CANDIDATES, count, {})
+
+
+def record_candidate_page_full() -> None:
+    REPLAY_VISION_SWEEP_CANDIDATE_PAGE_FULL.inc()
+    _otel.record_counter_twin(REPLAY_VISION_SWEEP_CANDIDATE_PAGE_FULL, 1, {})
+
+
+def record_deep_sweep_failure() -> None:
+    REPLAY_VISION_DEEP_SWEEP_FAILURES.inc()
+    _otel.record_counter_twin(REPLAY_VISION_DEEP_SWEEP_FAILURES, 1, {})
 
 
 def record_backfill_tick_outcome(outcome: str) -> None:
@@ -209,19 +352,6 @@ def record_consent_skip(scanner_type: str) -> None:
 def record_enqueue_claim_failure(operation: str) -> None:
     REPLAY_VISION_ENQUEUE_CLAIM_FAILURES.labels(operation=operation).inc()
     _otel.record_counter_twin(REPLAY_VISION_ENQUEUE_CLAIM_FAILURES, 1, {"operation": operation})
-
-
-def record_vision_action_occurrence_dropped() -> None:
-    # Callable from workflow code: replays must not double-count.
-    if workflow.in_workflow() and workflow.unsafe.is_replaying():
-        return
-    REPLAY_VISION_ACTION_OCCURRENCES_DROPPED.inc()
-    _otel.record_counter_twin(REPLAY_VISION_ACTION_OCCURRENCES_DROPPED, 1, {})
-
-
-def record_vision_action_runs_reaped(count: int) -> None:
-    REPLAY_VISION_ACTION_RUNS_REAPED.inc(count)
-    _otel.record_counter_twin(REPLAY_VISION_ACTION_RUNS_REAPED, count, {})
 
 
 def record_gemini_cleanup_backlog(count: int) -> None:

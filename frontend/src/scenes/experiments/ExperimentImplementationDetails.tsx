@@ -159,7 +159,7 @@ export function CodeLanguageSelect({
                         value,
                         label: value,
                         labelInMenu: (
-                            <div className="flex items-center deprecated-space-x-2">
+                            <div className="flex items-center gap-2">
                                 <Icon />
                                 <span>{value}</span>
                             </div>
@@ -172,7 +172,7 @@ export function CodeLanguageSelect({
                         value,
                         label: value,
                         labelInMenu: (
-                            <div className="flex items-center deprecated-space-x-2">
+                            <div className="flex items-center gap-2">
                                 <Icon />
                                 <span>{value}</span>
                             </div>
@@ -195,58 +195,54 @@ function PromptExperimentImplementation({
 }): JSX.Element {
     const [activeTab, setActiveTab] = useState<PromptImplementationTab>('agent')
     return (
-        <div className="mb-4">
-            <div className="border rounded bg-surface-primary">
-                <div className="p-6 deprecated-space-y-4">
-                    <div className="text-secondary text-sm">
-                        Prompt experiment for <b>{promptMetadata.name}</b>{' '}
-                        <span className="text-muted">({promptMetadata.templates.join(', ')})</span>
-                    </div>
-                    <div>
-                        <div className="mb-1">
-                            <b>Wire up the experiment in your code</b>
-                        </div>
-                        <p className="text-secondary text-xs">
-                            Each variant carries a <code>{`{prompt_name, prompt_version}`}</code> payload on the feature
-                            flag, so the SDK reads the right version via <code>flags.get_flag_payload(...)</code>. The
-                            PostHog AI wrapper auto-emits <code>$ai_generation</code> tagged with{' '}
-                            <code>$ai_prompt_name</code>, which is how the experiment metric attributes results.
-                        </p>
-                        <LemonTabs
-                            activeKey={activeTab}
-                            onChange={(key) => setActiveTab(key as PromptImplementationTab)}
-                            tabs={[
-                                {
-                                    key: 'agent',
-                                    label: 'Agent prompt',
-                                    content: (
-                                        <>
-                                            <p className="text-secondary text-xs mb-2">
-                                                Copy this and paste it into your AI coding assistant (Cursor, Claude
-                                                Code, ChatGPT, …) to wire up the experiment in your project's framework
-                                                and style. Language-agnostic; the agent figures out the SDK.
-                                            </p>
-                                            <PromptExperimentAgentPromptSnippet flagKey={flagKey} />
-                                        </>
-                                    ),
-                                },
-                                {
-                                    key: 'python',
-                                    label: 'Python',
-                                    content: <PromptExperimentPythonSnippet flagKey={flagKey} />,
-                                },
-                                {
-                                    key: 'javascript',
-                                    label: 'JavaScript',
-                                    content: <PromptExperimentJSSnippet flagKey={flagKey} />,
-                                },
-                            ]}
-                        />
-                        <Link subtle to="https://posthog.com/docs/prompt-management" target="_blank">
-                            See the docs for prompt management.
-                        </Link>
-                    </div>
+        <div className="space-y-4">
+            <div>
+                <h2 className="font-semibold text-lg mb-0">Implementation</h2>
+                <div className="text-secondary text-sm">
+                    Prompt experiment for <b>{promptMetadata.name}</b>{' '}
+                    <span className="text-muted">({promptMetadata.templates.join(', ')})</span>
                 </div>
+            </div>
+            <div>
+                <p className="text-secondary text-xs">
+                    Each variant carries a <code>{`{prompt_name, prompt_version}`}</code> payload on the feature flag,
+                    so the SDK reads the right version via <code>flags.get_flag_payload(...)</code>. The PostHog AI
+                    wrapper auto-emits <code>$ai_generation</code> tagged with <code>$ai_prompt_name</code>, which is
+                    how the experiment metric attributes results.
+                </p>
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as PromptImplementationTab)}
+                    tabs={[
+                        {
+                            key: 'agent',
+                            label: 'Agent prompt',
+                            content: (
+                                <>
+                                    <p className="text-secondary text-xs mb-2">
+                                        Copy this and paste it into your AI coding assistant (Cursor, Claude Code,
+                                        ChatGPT, …) to wire up the experiment in your project's framework and style.
+                                        Language-agnostic; the agent figures out the SDK.
+                                    </p>
+                                    <PromptExperimentAgentPromptSnippet flagKey={flagKey} />
+                                </>
+                            ),
+                        },
+                        {
+                            key: 'python',
+                            label: 'Python',
+                            content: <PromptExperimentPythonSnippet flagKey={flagKey} />,
+                        },
+                        {
+                            key: 'javascript',
+                            label: 'JavaScript',
+                            content: <PromptExperimentJSSnippet flagKey={flagKey} />,
+                        },
+                    ]}
+                />
+                <Link subtle to="https://posthog.com/docs/prompt-management" target="_blank">
+                    See the docs for prompt management.
+                </Link>
             </div>
         </div>
     )
@@ -267,46 +263,33 @@ function GenericExperimentImplementation({ experiment }: ExperimentImplementatio
     }
 
     return (
-        <div className="mb-4">
-            <div className="border rounded bg-surface-primary">
-                <div className="p-6 deprecated-space-y-4">
-                    <div className="flex justify-between">
-                        <div className="flex items-center">
-                            <span className="mr-2">Variant group</span>
-                            <LemonSelect
-                                size="small"
-                                className="min-w-[5rem]"
-                                onSelect={setCurrentVariant}
-                                value={currentVariant}
-                                options={getExperimentVariants(experiment).map((variant: MultivariateFlagVariant) => ({
-                                    value: variant.key,
-                                    label: variant.key,
-                                }))}
-                            />
-                        </div>
-                        <div>
-                            <CodeLanguageSelect
-                                selectOption={selectOption}
-                                selectedOptionValue={selectedOption.value}
-                            />
-                        </div>
+        <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-semibold text-lg mb-0">Implementation</h2>
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                        <span className="text-secondary text-sm">Variant group</span>
+                        <LemonSelect
+                            size="small"
+                            className="min-w-[5rem]"
+                            onSelect={setCurrentVariant}
+                            value={currentVariant}
+                            options={getExperimentVariants(experiment).map((variant: MultivariateFlagVariant) => ({
+                                value: variant.key,
+                                label: variant.key,
+                            }))}
+                        />
                     </div>
-                    <div>
-                        <div className="mb-1">
-                            <b>Implement your experiment in code</b>
-                        </div>
-                        <div className="mb-1">
-                            <selectedOption.Snippet
-                                variant={currentVariant}
-                                flagKey={experiment?.feature_flag?.key ?? ''}
-                            />
-                        </div>
-
-                        <Link subtle to={selectedOption.documentationLink} target="_blank">
-                            See the docs for more implementation information.
-                        </Link>
-                    </div>
+                    <CodeLanguageSelect selectOption={selectOption} selectedOptionValue={selectedOption.value} />
                 </div>
+            </div>
+            <div>
+                <div className="mb-2">
+                    <selectedOption.Snippet variant={currentVariant} flagKey={experiment?.feature_flag?.key ?? ''} />
+                </div>
+                <Link subtle to={selectedOption.documentationLink} target="_blank">
+                    See the docs for more implementation information.
+                </Link>
             </div>
         </div>
     )

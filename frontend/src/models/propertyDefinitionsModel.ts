@@ -80,6 +80,12 @@ const localOptions: Record<string, PropValue[]> = {
         { id: 1, name: 'warn' },
         { id: 2, name: 'error' },
     ],
+    'resource/severity': [
+        { id: 0, name: 'low' },
+        { id: 1, name: 'medium' },
+        { id: 2, name: 'high' },
+        { id: 3, name: 'critical' },
+    ],
 }
 
 export type FormatPropertyValueForDisplayFunction = (
@@ -435,6 +441,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             actions.fetchAllPendingDefinitions()
         },
         fetchAllPendingDefinitions: async (_, breakpoint) => {
+            // The reads below touch this logic's own reducer, and a request can outlive it: an
+            // unmount detaches the path, and storybook swaps the whole store between stories.
+            // `breakpoint()` is not the guard, because it would drop a slower reply (see below).
+            const startedOn = propertyDefinitionsModel.findMounted()
             // take 10ms to debounce property definition requests, preventing a lot of small queries
             await breakpoint(10)
             if (values.pendingProperties.length === 0) {
@@ -512,6 +522,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         })
                     }
 
+                    if (propertyDefinitionsModel.findMounted() !== startedOn) {
+                        return
+                    }
+
                     for (const propertyDefinition of propertyDefinitions.results) {
                         newProperties[`${type}/${propertyDefinition.name}`] = propertyDefinition
                     }
@@ -528,6 +542,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     actions.updatePropertyDefinitions(newProperties)
                 }
             } catch {
+                if (propertyDefinitionsModel.findMounted() !== startedOn) {
+                    return
+                }
                 const newProperties: PropertyDefinitionStorage = {}
                 for (const [type, pending] of Object.entries(pendingByType)) {
                     for (const property of pending) {

@@ -128,11 +128,19 @@ describe("WorkspaceEventsContribution", () => {
         ],
       }),
     ).toBe(false);
-    expect(updater({ prState: null, hasDiff: true })).toEqual({
+    // The url rides with the state: the badge the status draws is a link, so a
+    // cache holding the new state against the previous url points at the wrong
+    // PR until the next refetch.
+    expect(updater({ prState: null, hasDiff: true, prUrl: null })).toEqual({
       prState: "open",
       hasDiff: true,
+      prUrl: "https://github.com/o/r/pull/1",
     });
-    expect(updater(undefined)).toEqual({ prState: "open", hasDiff: false });
+    expect(updater(undefined)).toEqual({
+      prState: "open",
+      hasDiff: false,
+      prUrl: "https://github.com/o/r/pull/1",
+    });
 
     expect(setQueryData).toHaveBeenCalledWith(
       [

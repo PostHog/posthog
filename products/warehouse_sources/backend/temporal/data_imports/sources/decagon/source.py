@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -18,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon import (
+    CONTRACT_MISMATCH_ERROR,
     DecagonResumeConfig,
     decagon_source,
     validate_credentials as validate_decagon_credentials,
@@ -41,7 +40,7 @@ class DecagonSource(ResumableSource[DecagonSourceConfig, DecagonResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DECAGON,
+            name=ExternalDataSourceType.DECAGON,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Decagon",
             caption="""Enter a Decagon API key to pull your Decagon conversations into the PostHog Data warehouse.
@@ -75,15 +74,50 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Insertion order matters: the finalization activity surfaces the first matching
+        # pattern's message, so endpoint-specific 403 entries must precede the bare 403 one.
+        # A bare 403 does not establish a key problem, because the same key keeps syncing
+        # sibling tables when Decagon gates an endpoint on an account plan (#87958). The 403
+        # messages therefore point the operator at the sibling-table check instead of the key.
         return {
             "401 Client Error: Unauthorized": (
                 "Decagon rejected the API key. Generate a new key on the Developer page of the "
                 "Decagon dashboard and reconnect."
             ),
-            "403 Client Error: Forbidden": (
-                "The Decagon API key does not have access to the endpoint behind this table. Check "
-                "the key on the Developer page of the Decagon dashboard and reconnect."
+            "403 Client Error: Forbidden for url: https://api.decagon.ai/agent_assist": (
+                "Decagon refused access to the Agent Assist export. If your other Decagon tables "
+                "are syncing, the API key works and your Decagon plan likely does not include "
+                "Agent Assist. Ask Decagon to enable it, then re-enable the sync. If every table "
+                "is failing, generate a new key on the Developer page of the Decagon dashboard "
+                "and reconnect."
             ),
+            "403 Client Error: Forbidden": (
+                "Decagon refused access to the endpoint behind this table. If your other Decagon "
+                "tables are syncing, the API key works and your Decagon plan likely does not "
+                "include this endpoint. Ask Decagon to enable it, then re-enable the sync. If "
+                "every table is failing, generate a new key on the Developer page of the Decagon "
+                "dashboard and reconnect."
+            ),
+            # The walk read the endpoint and kept nothing while the endpoint reported rows, so
+            # the response no longer matches the config this source ships. Every attempt repeats
+            # the same request and fails the same way, so retrying only multiplies the reports
+            # and leaves the schema enabled to repeat it on the next schedule.
+            CONTRACT_MISMATCH_ERROR: (
+                "Decagon reports rows for this table, but PostHog could not read any of them. This "
+                "is not a problem with your API key. Contact support so we can update the sync to "
+                "match what Decagon now sends."
+            ),
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `fetch_page` (decagon.py) already retries `DecagonRetryableError` (429/5xx),
+        # `requests.ReadTimeout`, and `requests.ConnectionError` with backoff; if that budget
+        # still exhausts, Temporal retries the whole activity, so the failure is transient and
+        # self-recovering. Match the host rather than the per-endpoint path, so a timeout or
+        # dropped connection on any Decagon endpoint is covered.
+        return {
+            "HTTPSConnectionPool(host='api.decagon.ai', port=443)",
+            "Decagon API error (retryable)",
         }
 
     def get_schemas(

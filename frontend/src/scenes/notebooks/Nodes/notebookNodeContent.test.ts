@@ -1,3 +1,7 @@
+import * as markdownNotebookParser from 'lib/components/MarkdownNotebook/markdown'
+
+import dataframeNameCases from 'products/notebooks/dataframe-names.test.json'
+
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 import {
@@ -7,6 +11,21 @@ import {
 } from './notebookNodeContent'
 
 describe('buildNotebookDependencyGraph', () => {
+    it.each(dataframeNameCases)('$name', ({ markdown, owners }) => {
+        const content = buildMarkdownNotebookContent(markdown)
+        expect(
+            Object.fromEntries(collectNotebookFrameNodes(content).map(({ name, nodeId }) => [name, nodeId]))
+        ).toEqual(owners)
+        const graph = buildNotebookDependencyGraph(content)
+        expect(
+            Object.fromEntries(graph.nodes.flatMap(({ nodeId, exports }) => exports.map((name) => [name, nodeId])))
+        ).toEqual(owners)
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     const sqlV2Node = (nodeId: string, returnVariable: string, code: string): Record<string, unknown> => ({
         type: NotebookNodeType.SQLV2,
         attrs: { nodeId, returnVariable, code },
@@ -135,6 +154,25 @@ describe('buildNotebookDependencyGraph', () => {
         expect(identifiers).not.toContain('head')
     })
 
+    it('links a SQLV2 cell that carries its SQL in a query prop', () => {
+        // Cells authored with the `<Query query={…} />` prop shape have no `code` attr, so
+        // without recovering the SQL they read as empty and reference no upstream frame.
+        const markdown = [
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'a',
+                returnVariable: 'df1',
+                code: 'select id from events',
+            }),
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'b',
+                returnVariable: 'joined',
+                query: { kind: 'HogQLQuery', query: 'select * from df1' },
+            }),
+        ].join('\n\n')
+        const graph = buildNotebookDependencyGraph(buildMarkdownNotebookContent(markdown))
+        expect(graph.downstreamUsageByNode['a'].df1.map((usage) => usage.nodeId)).toEqual(['b'])
+    })
+
     it('links SQLV2 cells inside a markdown notebook', () => {
         // Markdown notebooks hold cells as tags inside one markdown attribute; without
         // expanding them the graph is empty and the "Used in" back-links never render.
@@ -153,5 +191,57 @@ describe('buildNotebookDependencyGraph', () => {
         const graph = buildNotebookDependencyGraph(buildMarkdownNotebookContent(markdown))
         expect(graph.downstreamUsageByNode['a'].df1.map((usage) => usage.nodeId)).toEqual(['b'])
         expect(graph.upstreamSourcesByNode['b'].df1.nodeId).toEqual('a')
+    })
+
+    it('parses the markdown once for two collectors reading the same content', () => {
+        // The parse is cached on the content node so collectors share one parse per edit. The
+        // cell assertions alone would still pass with the cache gone, so count the parses too:
+        // that is the per-keystroke work this guards. A cache keyed by anything other than the
+        // node would also hand the second collector the wrong cells.
+        const markdown = [
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'a',
+                returnVariable: 'sql_df',
+                code: 'select id from events',
+            }),
+            serializeMarkdownNotebookComponent('PythonV2', {
+                nodeId: 'py',
+                returnVariable: 'new_events',
+                code: 'new_events = sql_df.head()',
+            }),
+        ].join('\n\n')
+        const content = buildMarkdownNotebookContent(markdown)
+        const parseSpy = jest.spyOn(markdownNotebookParser, 'parseMarkdownNotebook')
+        // Populate the cache from one collector, then read it from another.
+        expect(collectNotebookFrameNodes(content).map((frame) => frame.name)).toEqual(['sql_df', 'new_events'])
+        const graph = buildNotebookDependencyGraph(content)
+        expect(graph.downstreamUsageByNode['a'].sql_df.map((usage) => usage.nodeId)).toEqual(['py'])
+        expect(parseSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not serve one content its parse for a later content with different markdown', () => {
+        // Each edit builds a new content node, so the cache must key on it and stay fresh. A
+        // cache that leaked the first parse would report the first document's cells forever.
+        const graphA = buildNotebookDependencyGraph(
+            buildMarkdownNotebookContent(
+                serializeMarkdownNotebookComponent('SQLV2', {
+                    nodeId: 'a',
+                    returnVariable: 'df_a',
+                    code: 'select id from events',
+                })
+            )
+        )
+        const graphB = buildNotebookDependencyGraph(
+            buildMarkdownNotebookContent(
+                serializeMarkdownNotebookComponent('SQLV2', {
+                    nodeId: 'b',
+                    returnVariable: 'df_b',
+                    code: 'select id from persons',
+                })
+            )
+        )
+        expect(Object.keys(graphA.nodesById)).toEqual(['a'])
+        expect(Object.keys(graphB.nodesById)).toEqual(['b'])
+        expect(graphB.nodesById['b'].exports).toEqual(['df_b'])
     })
 })

@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -15,11 +15,16 @@ from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    _NOT_SETTLED_ERROR_TYPES,
+    INGESTION_LAG_MARGIN_SECONDS,
     MAX_SETTLE_POLLS_PER_RUN,
     CheckSessionSettledInputs,
     CheckTraceSettledInputs,
+    FindQuietPointInputs,
     RunAggregateEvaluationInputs,
     RunAggregateEvaluationWorkflow,
+    SettlePlan,
+    _quiet_point,
     check_session_settled_activity,
     check_trace_settled_activity,
     resolve_poll_interval,
@@ -30,6 +35,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     EmitTraceEvaluationEventInputs,
     ExecuteTraceEvaluationInputs,
 )
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 
 @pytest.fixture
@@ -58,15 +64,21 @@ def _insert_ai_event(
     `_timestamp` from the same `timestamp` value it inserts, so tests that need to simulate
     ingestion lag write directly against the columns AI_EVENTS_TABLE_BASE_SQL leaves without
     a default.
+
+    `retention_days` is pinned the same way `bulk_create_ai_events` pins it. ai_events is
+    `TTL drop_date` with `drop_date = toDate(timestamp) + retention_days`, and TTL runs on the
+    server's real clock while these rows carry a frozen `timestamp` — on the column default of 30
+    days, a fixture row silently expires once the frozen date falls more than 30 days behind today
+    and the poll finds nothing.
     """
     sync_execute(
         """
         INSERT INTO sharded_ai_events (
             uuid, event, timestamp, team_id, distinct_id, person_id, properties,
-            trace_id, session_id, is_error, _timestamp, _offset, _partition
+            trace_id, session_id, is_error, retention_days, _timestamp, _offset, _partition
         ) VALUES (
             %(uuid)s, %(event)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(person_id)s, %(properties)s,
-            %(trace_id)s, %(session_id)s, 0, %(_timestamp)s, 0, 0
+            %(trace_id)s, %(session_id)s, 0, %(retention_days)s, %(_timestamp)s, 0, 0
         )
         """,
         {
@@ -79,6 +91,7 @@ def _insert_ai_event(
             "properties": "{}",
             "trace_id": trace_id,
             "session_id": session_id,
+            "retention_days": 10000,
             "_timestamp": arrival.strftime("%Y-%m-%d %H:%M:%S"),
         },
         flush=False,
@@ -89,26 +102,41 @@ class TestResolveSettlePlan:
     @pytest.mark.parametrize(
         "settle,expected",
         [
-            (None, ("fixed_window", 1800, 1800)),
-            ({}, ("fixed_window", 1800, 1800)),
-            ({"strategy": "fixed_window", "window_seconds": 60}, ("fixed_window", 60, 60)),
+            (None, SettlePlan(strategy="fixed_window", primary_seconds=1800, max_age_seconds=1800)),
+            ({}, SettlePlan(strategy="fixed_window", primary_seconds=1800, max_age_seconds=1800)),
+            (
+                {"strategy": "fixed_window", "window_seconds": 60},
+                SettlePlan(strategy="fixed_window", primary_seconds=60, max_age_seconds=60),
+            ),
             # Legacy sub-floor values are bumped to the floor (the old workflow only re-clamped the max).
-            ({"window_seconds": 0}, ("fixed_window", 10, 10)),
-            ({"window_seconds": 99999}, ("fixed_window", 7200, 7200)),
-            ({"strategy": "inactivity"}, ("inactivity", 300, 7200)),
+            ({"window_seconds": 0}, SettlePlan(strategy="fixed_window", primary_seconds=10, max_age_seconds=10)),
+            (
+                {"window_seconds": 99999},
+                SettlePlan(strategy="fixed_window", primary_seconds=7200, max_age_seconds=7200),
+            ),
+            ({"strategy": "inactivity"}, SettlePlan(strategy="inactivity", primary_seconds=300, max_age_seconds=7200)),
             (
                 {"strategy": "inactivity", "quiet_period_seconds": 120, "max_age_seconds": 600},
-                ("inactivity", 120, 600),
+                SettlePlan(strategy="inactivity", primary_seconds=120, max_age_seconds=600),
             ),
             # Sub-floor and above-ceiling quiet_period_seconds are clamped the same way as window_seconds.
-            ({"strategy": "inactivity", "quiet_period_seconds": 5}, ("inactivity", 10, 7200)),
-            ({"strategy": "inactivity", "quiet_period_seconds": 5000}, ("inactivity", 1800, 7200)),
+            (
+                {"strategy": "inactivity", "quiet_period_seconds": 5},
+                SettlePlan(strategy="inactivity", primary_seconds=10, max_age_seconds=7200),
+            ),
+            (
+                {"strategy": "inactivity", "quiet_period_seconds": 5000},
+                SettlePlan(strategy="inactivity", primary_seconds=1800, max_age_seconds=7200),
+            ),
             # max_age below quiet period is coerced up so the loop's min() can't fire before one quiet period.
             (
                 {"strategy": "inactivity", "quiet_period_seconds": 600, "max_age_seconds": 60},
-                ("inactivity", 600, 600),
+                SettlePlan(strategy="inactivity", primary_seconds=600, max_age_seconds=600),
             ),
-            ({"strategy": "bogus", "window_seconds": 60}, ("fixed_window", 60, 60)),
+            (
+                {"strategy": "bogus", "window_seconds": 60},
+                SettlePlan(strategy="fixed_window", primary_seconds=60, max_age_seconds=60),
+            ),
         ],
     )
     def test_resolves_and_clamps(self, settle, expected):
@@ -118,19 +146,34 @@ class TestResolveSettlePlan:
         "settle,expected",
         [
             # Absent strategy resolves to the session default, not the trace default.
-            (None, ("inactivity", 3600, 86400)),
-            ({}, ("inactivity", 3600, 86400)),
+            (None, SettlePlan(strategy="inactivity", primary_seconds=3600, max_age_seconds=86400)),
+            ({}, SettlePlan(strategy="inactivity", primary_seconds=3600, max_age_seconds=86400)),
             # Session-sized values survive; the trace ceilings would have crushed these to 1800/7200.
             (
                 {"strategy": "inactivity", "quiet_period_seconds": 86400, "max_age_seconds": 604800},
-                ("inactivity", 86400, 604800),
+                SettlePlan(strategy="inactivity", primary_seconds=86400, max_age_seconds=604800),
             ),
-            ({"strategy": "inactivity", "quiet_period_seconds": 3600}, ("inactivity", 3600, 86400)),
+            (
+                {"strategy": "inactivity", "quiet_period_seconds": 3600},
+                SettlePlan(strategy="inactivity", primary_seconds=3600, max_age_seconds=86400),
+            ),
             # Session ceilings still clamp above their own bounds.
-            ({"strategy": "inactivity", "quiet_period_seconds": 999999}, ("inactivity", 86400, 86400)),
-            ({"strategy": "inactivity", "max_age_seconds": 9999999}, ("inactivity", 3600, 604800)),
-            ({"strategy": "fixed_window", "window_seconds": 604800}, ("fixed_window", 604800, 604800)),
-            ({"strategy": "fixed_window", "window_seconds": 9999999}, ("fixed_window", 604800, 604800)),
+            (
+                {"strategy": "inactivity", "quiet_period_seconds": 999999},
+                SettlePlan(strategy="inactivity", primary_seconds=86400, max_age_seconds=86400),
+            ),
+            (
+                {"strategy": "inactivity", "max_age_seconds": 9999999},
+                SettlePlan(strategy="inactivity", primary_seconds=3600, max_age_seconds=604800),
+            ),
+            (
+                {"strategy": "fixed_window", "window_seconds": 604800},
+                SettlePlan(strategy="fixed_window", primary_seconds=604800, max_age_seconds=604800),
+            ),
+            (
+                {"strategy": "fixed_window", "window_seconds": 9999999},
+                SettlePlan(strategy="fixed_window", primary_seconds=604800, max_age_seconds=604800),
+            ),
         ],
     )
     def test_resolves_and_clamps_for_session_target(self, settle, expected):
@@ -162,6 +205,16 @@ class TestResolvePollInterval:
         for primary_seconds, poll_budget_seconds in [(10, 604775), (60, 604740), (10, 7175)]:
             interval = resolve_poll_interval(primary_seconds, poll_budget_seconds)
             assert poll_budget_seconds // interval <= MAX_SETTLE_POLLS_PER_RUN
+
+
+class TestSettleErrorTypesAreNotReportedAsDefects:
+    def test_every_not_settled_type_is_exempt_from_error_tracking(self):
+        # A settle target whose type is absent from the exemption set files one error tracking
+        # issue per poll probe, so a new target must extend both sets together.
+        assert _NOT_SETTLED_ERROR_TYPES <= EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
+    def test_a_runaway_session_still_reaches_error_tracking(self):
+        assert "session_runaway" not in EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 
 def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[Any]:
@@ -210,7 +263,13 @@ def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[
         calls.append("execute_session")
         return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
 
+    @activity.defn(name="find_evaluation_quiet_point_activity")
+    async def mock_find_quiet_point(inputs: FindQuietPointInputs) -> str:
+        calls.append("quiet_point")
+        return QUIET_POINT
+
     all_activities = {
+        "find_evaluation_quiet_point_activity": mock_find_quiet_point,
         "fetch_evaluation_activity": mock_fetch_evaluation,
         "execute_trace_hog_eval_activity": mock_execute_trace_hog,
         "emit_trace_evaluation_event_activity": mock_emit,
@@ -233,6 +292,35 @@ def _workflow_inputs(settle: dict[str, Any], **overrides: Any) -> RunAggregateEv
     }
     defaults.update(overrides)
     return RunAggregateEvaluationInputs(**defaults)
+
+
+QUIET_POINT = "2026-08-01T12:20:00+00:00"
+
+
+class TestQuietPoint:
+    @pytest.mark.parametrize(
+        "case,offsets,expected_offset",
+        [
+            # A gap of at least the quiet period ends the read one quiet period after the last
+            # event before it, which is where the live poll would have settled.
+            ("a gap in the middle", [0, 60, 3600], 60 + 1800 + INGESTION_LAG_MARGIN_SECONDS),
+            # Silence after the last event, so the read ends one quiet period after it.
+            ("no gap at all", [0, 60, 120], 120 + 1800 + INGESTION_LAG_MARGIN_SECONDS),
+            # Every gap is shorter than the quiet period until the ceiling.
+            ("activity all the way to the ceiling", [0, 1200, 2400, 3600, 4800, 6000, 7200], 7200),
+            ("no events", [], 7200),
+        ],
+    )
+    def test_reads_stop_where_an_inactivity_poll_would_have_settled(
+        self, case: str, offsets: list[int], expected_offset: int
+    ) -> None:
+        window_start = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        quiet = timedelta(seconds=1800 + INGESTION_LAG_MARGIN_SECONDS)
+        cap = window_start + timedelta(seconds=7200)
+
+        point = _quiet_point([window_start + timedelta(seconds=offset) for offset in offsets], window_start, quiet, cap)
+
+        assert point == window_start + timedelta(seconds=expected_offset)
 
 
 class TestRunAggregateEvaluationWorkflow:
@@ -260,6 +348,98 @@ class TestRunAggregateEvaluationWorkflow:
         assert result["verdict"] is True
         assert elapsed >= timedelta(seconds=600)
         assert elapsed < timedelta(seconds=900)
+
+    @pytest.mark.asyncio
+    async def test_anchor_timestamp_skips_the_settle_window(self):
+        calls: list[str] = []
+        anchor = "2026-08-01T12:00:00+00:00"
+        window_starts: list[str] = []
+        window_ends: list[str | None] = []
+
+        @activity.defn(name="execute_trace_hog_eval_activity")
+        async def mock_execute_trace_hog(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
+            calls.append("execute")
+            window_starts.append(inputs.window_start)
+            window_ends.append(inputs.window_end)
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunAggregateEvaluationWorkflow],
+                activities=[
+                    *_mock_activities(calls, exclude={"execute_trace_hog_eval_activity"}),
+                    mock_execute_trace_hog,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                start = await env.get_current_time()
+                result = await env.client.execute_workflow(
+                    RunAggregateEvaluationWorkflow.run,
+                    _workflow_inputs(
+                        {"strategy": "fixed_window", "window_seconds": 1800},
+                        anchor_timestamp=anchor,
+                        backfill_id="bf-1",
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+                elapsed = (await env.get_current_time()) - start
+
+        assert calls == ["fetch", "execute", "emit", "telemetry"]
+        assert result["verdict"] is True
+        assert window_starts == [datetime.fromisoformat(anchor).isoformat()]
+        # Bounded to the span the live path would have covered from the anchor, so the grade does
+        # not sweep in everything that arrived between the anchor and now.
+        assert window_ends == [
+            (datetime.fromisoformat(anchor) + timedelta(seconds=1800 + INGESTION_LAG_MARGIN_SECONDS)).isoformat()
+        ]
+        # Far below the 1800s window, so the settle sleep cannot have run. The slack absorbs the
+        # test environment skipping an idle activity timeout.
+        assert elapsed < timedelta(seconds=900)
+
+    @pytest.mark.asyncio
+    async def test_a_backfilled_inactivity_unit_reads_to_its_quiet_point(self):
+        calls: list[str] = []
+        anchor = "2026-08-01T12:00:00+00:00"
+        window_ends: list[str | None] = []
+
+        @activity.defn(name="execute_trace_hog_eval_activity")
+        async def mock_execute_trace_hog(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
+            calls.append("execute")
+            window_ends.append(inputs.window_end)
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunAggregateEvaluationWorkflow],
+                activities=[
+                    *_mock_activities(calls, exclude={"execute_trace_hog_eval_activity"}),
+                    mock_execute_trace_hog,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    RunAggregateEvaluationWorkflow.run,
+                    _workflow_inputs(
+                        {"strategy": "inactivity", "quiet_period_seconds": 1800, "max_age_seconds": 7200},
+                        anchor_timestamp=anchor,
+                        backfill_id="bf-1",
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        # The quiet point, not the maximum age: reading to the ceiling would grade a transcript
+        # the live path never saw.
+        assert window_ends == [QUIET_POINT]
+        assert "check_trace_settled" not in calls
+        assert calls[0] == "quiet_point"
 
     @pytest.mark.asyncio
     async def test_inactivity_settles_after_one_quiet_period_when_silent(self):
@@ -471,8 +651,12 @@ class TestRunAggregateEvaluationWorkflow:
         assert elapsed < timedelta(hours=1)
 
 
-@freeze_time("2026-07-23T12:00:00Z")
 class TestCheckTraceSettledActivity:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-23T12:00:00Z", tick=False):
+            yield
+
     @pytest.mark.django_db(transaction=True)
     def test_settled_when_quiet_beyond_margin(self, setup_data):
         team = setup_data["team"]
@@ -546,8 +730,12 @@ class TestCheckTraceSettledActivity:
         assert "trace active" in err.value.message
 
 
-@freeze_time("2026-07-23T12:00:00Z")
 class TestCheckSessionSettledActivity:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-23T12:00:00Z", tick=False):
+            yield
+
     @pytest.mark.django_db(transaction=True)
     def test_settled_when_quiet_beyond_margin(self, setup_data):
         team = setup_data["team"]

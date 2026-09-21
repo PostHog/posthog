@@ -2,11 +2,19 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, JsonValue
 
+from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 ArgsT = TypeVar("ArgsT", bound=BaseModel)
+
+
+class MCPToolResult(BaseModel):
+    content: str = Field(description="Formatted tool output for the model.")
+    structured_content: dict[str, JsonValue] | None = Field(
+        default=None, description="Structured tool output for native widgets."
+    )
 
 
 class MCPTool(ABC, Generic[ArgsT]):
@@ -23,17 +31,18 @@ class MCPTool(ABC, Generic[ArgsT]):
     name: str
     args_schema: type[ArgsT]
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, event_source: EventSource = EventSource.MCP):
         self._team = team
         self._user = user
+        self._event_source = event_source
 
     @abstractmethod
-    async def execute(self, args: ArgsT) -> str:
+    async def execute(self, args: ArgsT) -> str | MCPToolResult:
         """
         Execute the tool with validated args.
 
         Returns:
-            Content string for LLM consumption.
+            Model-facing text, optionally accompanied by structured widget data.
 
         Raises:
             MaxToolRetryableError: For errors that can be fixed with adjusted inputs.
@@ -80,11 +89,13 @@ class MCPToolRegistry:
         load_all_tools()
         return self._tools
 
-    def get(self, name: str, team: Team, user: User) -> MCPTool[Any] | None:
+    def get(
+        self, name: str, team: Team, user: User, event_source: EventSource = EventSource.MCP
+    ) -> MCPTool[Any] | None:
         """Get an MCP tool instance by name, constructed with team/user."""
         registration = self._ensure_loaded().get(name)
         if registration:
-            return registration.tool_cls(team=team, user=user)
+            return registration.tool_cls(team=team, user=user, event_source=event_source)
         return None
 
     def get_scopes(self, name: str) -> list[str]:

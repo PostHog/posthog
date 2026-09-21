@@ -11,9 +11,38 @@ facade boundary instead of producing a malformed payload further downstream.
 
 from dataclasses import field
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
+
+# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/sourceMapsFixWizardLogic.ts.
+SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
+
+
+@dataclass(frozen=True)
+class DocumentEmbeddingTable:
+    """One per-model embeddings table: the sharded storage table and the Distributed table that reads it."""
+
+    sharded_table: str
+    distributed_table: str
+
+
+@dataclass(frozen=True)
+class ExceptionSummary:
+    exception_count: int
+    ingestion_failure_count: int
+    prev_exception_count: int
+
+
+@dataclass(frozen=True)
+class CrashFreeSummary:
+    total_sessions: int
+    crash_free_rate: float
+    crash_free_rate_change: dict | None
+    total_sessions_change: dict | None
 
 
 @dataclass(frozen=True)
@@ -54,6 +83,7 @@ class ErrorTrackingFingerprint:
 class ErrorTrackingIssuePreview:
     id: UUID
     status: str
+    severity: str | None
     name: str | None
     description: str | None
     first_seen: datetime | None
@@ -64,6 +94,7 @@ class ErrorTrackingIssuePreview:
 class ErrorTrackingIssue:
     id: UUID
     status: str
+    severity: str | None
     name: str | None
     description: str | None
     first_seen: datetime | None
@@ -181,6 +212,17 @@ class ErrorTrackingAssignmentRule:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingSeverityRule:
+    id: UUID
+    filters: dict
+    severity: Literal["low", "medium", "high", "critical"]
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class ErrorTrackingGroupingRuleIssue:
     id: UUID
     name: str | None
@@ -226,6 +268,7 @@ class ErrorTrackingIssueBasics:
     name: str | None
     description: str | None
     status: str
+    severity: str | None
 
 
 @dataclass(frozen=True)
@@ -237,5 +280,32 @@ class ErrorTrackingRecommendation:
     status: str
     computed_at: datetime | None
     dismissed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlertDestination:
+    id: UUID
+    channel_type: str
+    integration_id: int | None
+    config: dict
+    last_delivered_at: datetime | None
+    last_failure_at: datetime | None
+    last_error: str
+    consecutive_failures: int
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlert:
+    id: UUID
+    name: str
+    enabled: bool
+    triggers: list[str]
+    filters: dict
+    throttle_seconds: int
+    destinations: list[ErrorTrackingAlertDestination]
     created_at: datetime
     updated_at: datetime

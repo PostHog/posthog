@@ -79,9 +79,13 @@ describe('buildTrendsBarTimeSeries', () => {
 
     it.each([
         { showMultipleYAxes: undefined, expected: ['left', 'left', 'left'] },
-        { showMultipleYAxes: true, expected: ['left', 'y1', 'y2'] },
-    ])('assigns yAxisId per series (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
-        const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        { showMultipleYAxes: true, expected: ['left', 'y1', 'left'] },
+    ])('groups yAxisIds by magnitude (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
+        const results = [
+            makeResult({ id: 'a', data: [1, 2, 3] }),
+            makeResult({ id: 'b', data: [1000, 2000, 3000] }),
+            makeResult({ id: 'c', data: [2, 4, 6] }),
+        ]
         const series = buildTrendsBarTimeSeries(results, { getColor: () => RED, showMultipleYAxes })
         expect(series.map((s) => s.yAxisId)).toEqual(expected)
     })
@@ -325,6 +329,34 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
     ])('$name', ({ input, expected }) => {
         const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView: false, isGrouped: false, ...input })
         expect(cfg.xAxis).toEqual(expected)
+    })
+
+    it.each([
+        { name: 'leaves axes visible by default', hideAxes: undefined, expectedHide: undefined },
+        { name: 'hides axes while preserving their configuration', hideAxes: true, expectedHide: true },
+    ])('$name', ({ hideAxes, expectedHide }) => {
+        const tickFormatter = (value: string): string => `tick:${value}`
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            hideAxes,
+            interval: 'week',
+            timezone: 'UTC',
+            allDays: ['2024-01-01', '2024-01-08'],
+            xAxisLabel: 'Signup date',
+            yAxisLabel: 'Total events',
+            xAxisTickFormatter: tickFormatter,
+        })
+
+        expect(cfg.xAxis).toMatchObject({
+            label: 'Signup date',
+            timezone: 'UTC',
+            interval: 'week',
+            allDays: ['2024-01-01', '2024-01-08'],
+            tickFormatter,
+            hide: expectedHide,
+        })
+        expect(cfg.yAxis).toMatchObject({ label: 'Total events', showGrid: true, hide: expectedHide })
     })
 
     it('forwards the y-axis from buildTrendsYAxisConfig with showGrid: true', () => {

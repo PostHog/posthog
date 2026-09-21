@@ -27,9 +27,8 @@ def build_validation_prompt(
 ) -> str:
     """Render the validation prompt for one issue against the live codebase.
 
-    The keep/drop criteria aren't spliced in — the prompt instructs the agent to `skill-get` them
-    over MCP — so we pass the validation skill's name and pinned version, not its body. `pr_files`
-    is already narrowed to the issue's own file by the caller.
+    The prompt instructs the agent to pull the validation criteria over MCP using the skill's name
+    and pinned version. `pr_files` is already narrowed to the issue's own file by the caller.
     """
     claude_code_context = prepare_code_context([issue.file], pr_files) if issue.file else ""
     template, schema = load_template_and_schema("issue_validation")

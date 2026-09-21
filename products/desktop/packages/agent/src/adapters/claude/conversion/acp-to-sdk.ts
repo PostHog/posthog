@@ -213,10 +213,8 @@ export function promptToClaude(prompt: PromptRequest): SDKUserMessage {
     parent_tool_use_id: null,
   };
 
-  // A steer is folded into the turn already running: priority "next" tells the
-  // SDK to deliver it at the next tool-call boundary rather than as a new turn.
   if (isSteerMeta(meta)) {
-    message.priority = "next";
+    message.priority = "now";
   }
 
   return message;

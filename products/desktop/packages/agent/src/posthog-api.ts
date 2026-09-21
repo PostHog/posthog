@@ -1,54 +1,22 @@
-import type {
-  McpServerConnection,
-  McpToolApprovalState,
-  McpToolPolicy,
-  StoredLogEntry,
+import {
+  API_DOWNLOAD_TIMEOUT_MS,
+  API_TRANSFER_TIMEOUT_MS,
+  type McpServerConnection,
+  type McpToolApprovalState,
+  type McpToolPolicy,
+  PostHogHttpClient,
+  type StoredLogEntry,
+  type TaskRunUpdate,
+  taskRunStateSchema,
 } from "@posthog/shared";
 import packageJson from "../package.json" with { type: "json" };
-import type {
-  ArtifactSource,
-  ArtifactType,
-  PostHogAPIConfig,
-  StoredEntry,
-  Task,
-  TaskRun,
-  TaskRunArtifact,
-} from "./types";
+import type { PostHogAPIConfig, StoredEntry, Task, TaskRun } from "./types";
 import { getGatewayUsageUrl, getLlmGatewayUrl } from "./utils/gateway";
 
 export { getGatewayUsageUrl, getLlmGatewayUrl };
+export { API_TRANSFER_TIMEOUT_MS, type TaskRunUpdate };
 
 const DEFAULT_USER_AGENT = `posthog/agent.hog.dev; version: ${packageJson.version}`;
-
-export interface TaskArtifactUploadPayload {
-  name: string;
-  type: ArtifactType;
-  source?: ArtifactSource;
-  content: string;
-  /** Encoding of `content`. With "base64" the backend stores the decoded bytes. */
-  content_encoding?: "utf-8" | "base64";
-  content_type?: string;
-}
-
-export interface TaskArtifactPrepareUploadPayload {
-  name: string;
-  type: ArtifactType;
-  source?: ArtifactSource;
-  size: number;
-  content_type?: string;
-}
-
-export interface PreparedTaskArtifactUpload {
-  id: string;
-  name: string;
-  type: ArtifactType;
-  source?: ArtifactSource;
-  size: number;
-  content_type?: string;
-  storage_path: string;
-  expires_in: number;
-  presigned_post: { url: string; fields: Record<string, string> };
-}
 
 export interface TaskSessionStorageAccess {
   id: string;
@@ -56,128 +24,93 @@ export interface TaskSessionStorageAccess {
   content_sha256: string | null;
 }
 
-export interface TaskArtifactFinalizeUploadPayload {
-  id: string;
-  name: string;
-  type: ArtifactType;
-  source?: ArtifactSource;
-  storage_path: string;
-  content_type?: string;
+export class PostHogAPIError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly credentialsRefreshable: boolean = false,
+  ) {
+    super(message);
+    this.name = "PostHogAPIError";
+  }
+
+  get retryable(): boolean {
+    if (this.status === 401) {
+      return this.credentialsRefreshable;
+    }
+    return this.status >= 500 || this.status === 408 || this.status === 429;
+  }
 }
 
-export type TaskRunUpdate = Partial<
-  Pick<
-    TaskRun,
-    | "status"
-    | "branch"
-    | "stage"
-    | "error_message"
-    | "output"
-    | "state"
-    | "environment"
-  >
-> & {
-  state_remove_keys?: string[];
-};
-
 export class PostHogAPIClient {
-  private config: PostHogAPIConfig;
+  private readonly http: PostHogHttpClient;
+  private userNode: string | null | undefined;
 
-  constructor(config: PostHogAPIConfig) {
-    this.config = config;
-  }
-
-  private get baseUrl(): string {
-    const host = this.config.apiUrl.endsWith("/")
-      ? this.config.apiUrl.slice(0, -1)
-      : this.config.apiUrl;
-    return host;
-  }
-
-  private isAuthFailure(status: number): boolean {
-    return status === 401 || status === 403;
-  }
-
-  private async resolveApiKey(forceRefresh = false): Promise<string> {
-    if (forceRefresh && this.config.refreshApiKey) {
-      return this.config.refreshApiKey();
-    }
-
-    return this.config.getApiKey();
-  }
-
-  private async buildHeaders(
-    options: RequestInit,
-    forceRefresh = false,
-  ): Promise<Headers> {
-    const headers = new Headers(options.headers);
-    headers.set(
-      "Authorization",
-      `Bearer ${await this.resolveApiKey(forceRefresh)}`,
-    );
-    if (!headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
-    headers.set("User-Agent", this.config.userAgent ?? DEFAULT_USER_AGENT);
-    return headers;
-  }
-
-  private async performRequest(
-    endpoint: string,
-    options: RequestInit,
-    forceRefresh = false,
-  ): Promise<Response> {
-    const url = `${this.baseUrl}${endpoint}`;
-
-    return fetch(url, {
-      ...options,
-      headers: await this.buildHeaders(options, forceRefresh),
+  constructor(readonly config: PostHogAPIConfig) {
+    this.http = new PostHogHttpClient(config, {
+      defaultUserAgent: DEFAULT_USER_AGENT,
+      buildError: (message, status) =>
+        new PostHogAPIError(message, status, Boolean(config.refreshApiKey)),
     });
   }
 
-  private async performRequestWithRetry(
-    endpoint: string,
-    options: RequestInit = {},
-  ): Promise<Response> {
-    let response = await this.performRequest(endpoint, options);
-
-    if (!response.ok && this.isAuthFailure(response.status)) {
-      response = await this.performRequest(endpoint, options, true);
-    }
-
-    return response;
-  }
-
-  private async apiRequest<T>(
-    endpoint: string,
-    options: RequestInit = {},
-  ): Promise<T> {
-    const response = await this.performRequestWithRetry(endpoint, options);
-
-    if (!response.ok) {
-      let errorMessage: string;
-      try {
-        const errorResponse = await response.json();
-        errorMessage = `Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`;
-      } catch {
-        errorMessage = `Failed request: [${response.status}] ${response.statusText}`;
-      }
-      throw new Error(errorMessage);
-    }
-
-    return response.json();
+  private get baseUrl(): string {
+    return this.http.baseUrl;
   }
 
   private getTeamId(): number {
-    return this.config.projectId;
+    return this.http.getTeamId();
+  }
+
+  private apiRequest<T>(
+    endpoint: string,
+    options: RequestInit = {},
+  ): Promise<T> {
+    return this.http.request<T>(endpoint, options);
+  }
+
+  private performRequestWithRetry(
+    endpoint: string,
+    options: RequestInit = {},
+  ): Promise<Response> {
+    return this.http.performRequestWithRetry(endpoint, options);
   }
 
   async getApiKey(forceRefresh = false): Promise<string> {
-    return this.resolveApiKey(forceRefresh);
+    return this.http.resolveApiKey(forceRefresh);
   }
 
   getLlmGatewayUrl(): string {
     return getLlmGatewayUrl(this.baseUrl);
+  }
+
+  /**
+   * The gateway user node for the signed-in person, or null when the credential
+   * resolves to no user (a task-scoped token). This is the distinct id, not the
+   * uuid: it has to match what a per-person spend limit is keyed on and what a
+   * cloud run pins into its token, so the `user_{id}` fallback mirrors
+   * products/ai_gateway/backend/logic.py (_spend_node) exactly — diverging from it writes a
+   * budget nothing debits. Successful lookups are cached, since the node never
+   * changes for a credential; a failed lookup is not, so a startup network blip
+   * doesn't permanently disable the spend-limit header.
+   */
+  async getUserNode(): Promise<string | null> {
+    if (this.userNode !== undefined) return this.userNode;
+    try {
+      const user = await this.apiRequest<{
+        id?: number;
+        distinct_id?: string;
+      }>("/api/users/@me/", {
+        // Best-effort header on session start: bound the request so a stalled
+        // socket can't hold up the run. The catch below then returns null.
+        signal: AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
+      });
+      this.userNode =
+        user.distinct_id || (user.id != null ? `user_${user.id}` : null);
+    } catch {
+      return null;
+    }
+    return this.userNode;
   }
 
   async getTask(taskId: string): Promise<Task> {
@@ -261,34 +194,26 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTaskRun(taskId: string, runId: string): Promise<TaskRun> {
+  async getTaskRun(
+    taskId: string,
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<TaskRun> {
     const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
+    const taskRun = await this.apiRequest<TaskRun>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/`,
+      { signal },
     );
-  }
-
-  async resumeRunInCloud(taskId: string, runId: string): Promise<TaskRun> {
-    const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-      { method: "POST" },
-    );
+    return { ...taskRun, state: taskRunStateSchema.parse(taskRun.state) };
   }
 
   async updateTaskRun(
     taskId: string,
     runId: string,
     payload: TaskRunUpdate,
+    signal?: AbortSignal,
   ): Promise<TaskRun> {
-    const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/`,
-      {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      },
-    );
+    return this.http.updateTaskRun(taskId, runId, payload, signal);
   }
 
   async setTaskRunOutput(
@@ -387,6 +312,7 @@ export class PostHogAPIClient {
     text: string,
     textParts?: string[],
     messageId?: string,
+    traceId?: string | null,
   ): Promise<void> {
     const teamId = this.getTeamId();
     // Send `text_parts` alongside the joined `text` so backends that understand
@@ -394,7 +320,12 @@ export class PostHogAPIClient {
     // backends still get the flat `text` field they already handle.
     // `message_id` correlates the relay with the user message that initiated
     // the turn; it is omitted when no message id is known (e.g. boot prompt).
-    const body: { text: string; text_parts?: string[]; message_id?: string } = {
+    const body: {
+      text: string;
+      text_parts?: string[];
+      message_id?: string;
+      trace_id?: string;
+    } = {
       text,
     };
     if (textParts && textParts.length > 0) {
@@ -403,122 +334,14 @@ export class PostHogAPIClient {
     if (messageId) {
       body.message_id = messageId;
     }
+    if (traceId) {
+      body.trace_id = traceId;
+    }
     await this.apiRequest<{ status: string }>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/relay_message/`,
       {
         method: "POST",
         body: JSON.stringify(body),
-      },
-    );
-  }
-
-  async uploadTaskArtifacts(
-    taskId: string,
-    runId: string,
-    artifacts: TaskArtifactUploadPayload[],
-  ): Promise<TaskRunArtifact[]> {
-    if (!artifacts.length) {
-      return [];
-    }
-
-    const teamId = this.getTeamId();
-    const response = await this.apiRequest<{ artifacts: TaskRunArtifact[] }>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/`,
-      {
-        method: "POST",
-        body: JSON.stringify({ artifacts }),
-      },
-    );
-
-    const manifest = response.artifacts ?? [];
-
-    // The backend returns the full run artifact manifest after each upload.
-    // Callers want the artifacts corresponding to this upload request only.
-    return manifest.slice(-artifacts.length);
-  }
-
-  /**
-   * Reserve S3 keys and presigned POST forms so artifact bytes can be
-   * uploaded directly to object storage instead of traveling base64-encoded
-   * through the API (which enforces much smaller request body limits).
-   */
-  async prepareTaskArtifactUploads(
-    taskId: string,
-    runId: string,
-    artifacts: TaskArtifactPrepareUploadPayload[],
-  ): Promise<PreparedTaskArtifactUpload[]> {
-    if (!artifacts.length) {
-      return [];
-    }
-
-    const teamId = this.getTeamId();
-    const response = await this.apiRequest<{
-      artifacts: PreparedTaskArtifactUpload[];
-    }>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/prepare_upload/`,
-      {
-        method: "POST",
-        body: JSON.stringify({ artifacts }),
-      },
-    );
-    return response.artifacts ?? [];
-  }
-
-  /** Attach directly-uploaded artifacts (see prepareTaskArtifactUploads) to the run manifest. */
-  async finalizeTaskArtifactUploads(
-    taskId: string,
-    runId: string,
-    artifacts: TaskArtifactFinalizeUploadPayload[],
-  ): Promise<TaskRunArtifact[]> {
-    if (!artifacts.length) {
-      return [];
-    }
-
-    const teamId = this.getTeamId();
-    const response = await this.apiRequest<{ artifacts: TaskRunArtifact[] }>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/finalize_upload/`,
-      {
-        method: "POST",
-        body: JSON.stringify({ artifacts }),
-      },
-    );
-
-    // The backend returns the full run artifact manifest; pick out the
-    // entries for this request (retried finalizes can land mid-manifest).
-    const manifest = response.artifacts ?? [];
-    const byStoragePath = new Map(
-      manifest.map((artifact) => [artifact.storage_path, artifact]),
-    );
-    return artifacts
-      .map((artifact) => byStoragePath.get(artifact.storage_path))
-      .filter((artifact): artifact is TaskRunArtifact => !!artifact);
-  }
-
-  /** Signal reports the given task is associated with (via report task associations). */
-  async getSignalReportIdsForTask(taskId: string): Promise<string[]> {
-    const teamId = this.getTeamId();
-    const response = await this.apiRequest<{ results?: { id: string }[] }>(
-      `/api/projects/${teamId}/signals/reports/?task_id=${encodeURIComponent(taskId)}&limit=100`,
-    );
-    return (response.results ?? []).map((r) => r.id);
-  }
-
-  /**
-   * Append a log artefact to a signal report, attributed to `taskId` via the
-   * `X-PostHog-Task-Id` header (the server validates it against the token's team).
-   */
-  async createSignalReportArtefact(
-    reportId: string,
-    taskId: string,
-    body: { artefact_type: string; content: Record<string, unknown> },
-  ): Promise<void> {
-    const teamId = this.getTeamId();
-    await this.apiRequest(
-      `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`,
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-        headers: { "X-PostHog-Task-Id": taskId },
       },
     );
   }
@@ -541,6 +364,7 @@ export class PostHogAPIClient {
         {
           method: "POST",
           body: JSON.stringify({ storage_path: storagePath }),
+          signal: AbortSignal.timeout(API_DOWNLOAD_TIMEOUT_MS),
         },
       );
       if (!response.ok) {
@@ -562,7 +386,9 @@ export class PostHogAPIClient {
     const endpoint = `/api/projects/${teamId}/tasks/${taskRun.task}/runs/${taskRun.id}/logs`;
 
     try {
-      const response = await this.performRequestWithRetry(endpoint);
+      const response = await this.performRequestWithRetry(endpoint, {
+        signal: AbortSignal.timeout(API_DOWNLOAD_TIMEOUT_MS),
+      });
 
       if (!response.ok) {
         if (response.status === 404) {

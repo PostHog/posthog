@@ -19,13 +19,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
-from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +43,7 @@ EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
 # (at least partly) without the new event, so they must keep counting exposures via
 # $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
 # after the cutoff can rely on $experiment_exposure covering their whole exposure window.
-EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 8, 5, tzinfo=UTC)
+EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
 
 
 def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
@@ -112,8 +110,7 @@ def normalize_to_exposure_criteria(
 
     # Convert dict to typed object
     if isinstance(exposure_criteria, dict):
-        # Create a copy to avoid mutating the input
-        criteria_copy = exposure_criteria.copy()
+        criteria_copy = dict(exposure_criteria)
         # Also normalize nested configs if present
         for config_key in ("exposure_config", "activation_config"):
             config = criteria_copy.get(config_key)
@@ -162,39 +159,6 @@ def get_multiple_variant_handling_from_experiment(
 
     # Default to "exclude" if not specified
     return MultipleVariantHandling.EXCLUDE
-
-
-def get_variant_selection_expr(
-    feature_flag_variant_property: str, multiple_variant_handling: MultipleVariantHandling
-) -> ast.Expr:
-    """
-    Returns the appropriate variant selection expression based on multiple_variant_handling configuration.
-
-    Args:
-        feature_flag_variant_property: The property name containing the variant value
-        multiple_variant_handling: How to handle multiple exposures (EXCLUDE or FIRST_SEEN)
-    """
-    variant_property_field = ast.Field(chain=["properties", feature_flag_variant_property])
-
-    match multiple_variant_handling:
-        case MultipleVariantHandling.FIRST_SEEN:
-            # Use variant from earliest exposure (minimum timestamp)
-            return parse_expr(
-                "argMin({variant_property}, timestamp)",
-                placeholders={
-                    "variant_property": variant_property_field,
-                },
-            )
-        case _:
-            # Default behavior is EXCLUDE. Users who have seen more than one variant is assigned to the
-            # MULTIPLE_VARIANT_KEY group
-            return parse_expr(
-                "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
-                placeholders={
-                    "variant_property": variant_property_field,
-                    "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
-                },
-            )
 
 
 def get_test_accounts_filter(

@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -67,23 +65,46 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gladly authentication failed. Please check your agent email and API token.",
             "403 Client Error: Forbidden for url": "Gladly denied access. Please check that the agent has the API User permission.",
+            # Raised by `_report_rows` when a CSV report lacks a keyed column. The same window returns
+            # the same header on a retry, so neither the sync nor the incremental-field picker can
+            # fix it. The copy names Gladly first and PostHog support as the fallback for the
+            # renamed-column case, where the report exists.
+            "Gladly report is missing required columns": (
+                "Gladly returned data that doesn't match the report this table needs, so there was "
+                "no data to sync. This usually means Gladly could not build the report for your "
+                "account. Ask Gladly support to check the report is available for your account. If "
+                "Gladly confirms it is, contact PostHog support."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # `_report_rows` reads the report CSV straight off `response.raw` (see gladly.py) rather
-        # than through `iter_content`, so a stall in Gladly's report generation past
-        # REQUEST_TIMEOUT_SECONDS raises the bare urllib3 read-timeout while streaming rows —
-        # after `generate_report`'s own retry-on-`requests.ReadTimeout` has already returned a
-        # response, so it isn't caught there either. Temporal's activity retry regenerates the
-        # report and re-streams it; the resumable window state means only the in-flight window is
-        # redone, deduped on merge, so this is self-recovering rather than a tracked-exception-worthy
-        # failure.
-        return {"Read timed out"}
+        # `_report_rows` streams the report CSV while it yields rows (see gladly.py), so a stall in
+        # Gladly's report generation past REQUEST_TIMEOUT_SECONDS raises the bare urllib3
+        # read-timeout mid-stream, after `generate_report`'s own retry-on-`requests.ReadTimeout` has
+        # already returned a response, so it isn't caught there either. Temporal's activity retry
+        # regenerates the report and re-streams it; the resumable window state means only the
+        # in-flight window is redone, deduped on merge, so this is self-recovering rather than a
+        # tracked-exception-worthy failure.
+        #
+        # `GladlyRetryableError` (429/5xx from Gladly, raised by both `fetch` and `generate_report`)
+        # is itself retried with backoff inside gladly.py before it can ever reach here; if that
+        # budget still exhausts, Temporal's activity retry re-issues the same request or report
+        # window, so the same self-recovering reasoning applies.
+        return {"Read timed out", "Gladly returned no report", "Gladly API error (retryable)"}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            "Gladly returned no report": (
+                "Gladly returned an error instead of the report this table syncs from, so this run "
+                "did not finish. This is usually a short problem in Gladly's report generation. The "
+                "sync will run again on its next schedule."
+            ),
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GLADLY,
+            name=ExternalDataSourceType.GLADLY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.

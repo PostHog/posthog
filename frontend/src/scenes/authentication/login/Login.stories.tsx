@@ -1,165 +1,173 @@
-import { Meta, StoryObj } from '@storybook/react'
-import { router } from 'kea-router'
+import { WEBSITE_REFERRER, setDocumentReferrer } from 'scenes/authentication/shared/authReferrer.mock'
+import { setLastLoginMethodCookie } from 'scenes/authentication/shared/lastLoginMethod.mock'
+import {
+    PENDING_OAUTH_CONNECTION_FIXTURE,
+    setPendingOAuthConnectionCookie,
+} from 'scenes/authentication/shared/pendingOAuthConnection.mock'
 
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { Login2FA } from 'scenes/authentication/login-2fa/Login2FA'
-import { urls } from 'scenes/urls'
+import type { Meta, StoryFn } from '@storybook/react'
+import { useEffect } from 'react'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { useStorybookMocks } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 
-import preflightJson from '../../../mocks/fixtures/_preflight.json'
+import { arrivedFromWebsiteLogic } from '../shared/arrivedFromWebsiteLogic'
 import { Login } from './Login'
 import { loginLogic } from './loginLogic'
 
-const meta: Meta = {
+type StoryArgs = {
+    cloud: boolean
+    region: 'US' | 'EU'
+    googleOAuth: boolean
+    github: boolean
+    gitlab: boolean
+    samlAvailable: boolean
+    ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+    generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    pendingOAuthConnection: boolean
+    arrivedFromWebsite: boolean
+    hasLoggedInBefore: boolean
+}
+
+const meta: Meta<StoryArgs> = {
     title: 'Scenes-Other/Login',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
     },
-    decorators: [
-        mswDecorator({
-            post: {
-                '/api/login/precheck': { sso_enforcement: null, saml_available: false },
-            },
-        }),
-    ],
+    argTypes: {
+        cloud: { control: 'boolean', name: 'Cloud' },
+        region: { control: 'select', options: ['US', 'EU'], name: 'Region', if: { arg: 'cloud' } },
+        googleOAuth: { control: 'boolean', name: 'Google OAuth' },
+        github: { control: 'boolean', name: 'GitHub' },
+        gitlab: { control: 'boolean', name: 'GitLab' },
+        samlAvailable: { control: 'boolean', name: 'SAML available' },
+        ssoEnforcement: {
+            control: 'select',
+            name: 'SSO enforcement',
+            options: ['none', 'google-oauth2', 'github', 'gitlab', 'saml'],
+        },
+        generalError: {
+            control: 'select',
+            name: 'General error',
+            options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
+        },
+        pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
+        arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
+        hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
+    },
+    args: {
+        cloud: true,
+        region: 'US',
+        googleOAuth: true,
+        github: true,
+        gitlab: true,
+        samlAvailable: false,
+        ssoEnforcement: 'none',
+        generalError: 'none',
+        pendingOAuthConnection: false,
+        arrivedFromWebsite: false,
+        hasLoggedInBefore: true,
+    },
 }
 export default meta
 
-type Story = StoryObj<{}>
+const Template: StoryFn<StoryArgs> = ({
+    cloud,
+    region,
+    googleOAuth,
+    github,
+    gitlab,
+    samlAvailable,
+    ssoEnforcement,
+    generalError,
+    pendingOAuthConnection,
+    arrivedFromWebsite,
+    hasLoggedInBefore,
+}) => {
+    const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
+    // Set synchronously: the scene reads the cookie while it mounts during this same render.
+    setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
+    setDocumentReferrer(arrivedFromWebsite ? WEBSITE_REFERRER : '')
+    setLastLoginMethodCookie(hasLoggedInBefore ? 'password' : null)
 
-export const Cloud: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: true,
-                    realm: 'cloud',
-                    can_create_org: true,
-                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud,
+                region: cloud ? region : undefined,
+                realm: cloud ? 'cloud' : 'hosted-clickhouse',
+                is_debug: cloud,
+                can_create_org: cloud,
+                available_social_auth_providers: {
+                    'google-oauth2': googleOAuth,
+                    github,
+                    gitlab,
+                    saml: samlAvailable,
                 },
             },
-        })
-        return <Login />
-    },
-}
+        },
+        post: {
+            '/api/login/precheck': { sso_enforcement: enforcement, saml_available: samlAvailable },
+        },
+    })
 
-export const CloudEU: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: true,
-                    region: 'EU',
-                    realm: 'cloud',
-                    can_create_org: true,
-                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-                },
-            },
-        })
-        return <Login />
-    },
-}
+    useEffect(() => {
+        arrivedFromWebsiteLogic.findMounted()?.actions.setArrivedFromWebsite(arrivedFromWebsite)
+    }, [arrivedFromWebsite])
 
-export const CloudWithGoogleLoginEnforcement: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: true,
-                    realm: 'cloud',
-                    can_create_org: true,
-                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-                },
-            },
-            post: {
-                '/api/login/precheck': { sso_enforcement: 'google-oauth2', saml_available: false },
-            },
-        })
-
-        // Trigger pre-check
-        useDelayedOnMountEffect(() => {
+    useEffect(() => {
+        if (enforcement) {
             loginLogic.actions.setLoginValue('email', 'test@posthog.com')
             loginLogic.actions.precheck({ email: 'test@posthog.com' })
-        })
+        }
+    }, [enforcement])
 
-        return <Login />
-    },
-    parameters: {
-        testOptions: {
-            waitForSelector: '[href^="/login/google-oauth2/"]',
-        },
-    },
+    useEffect(() => {
+        if (generalError !== 'none') {
+            const messages: Record<string, string> = {
+                invalid_credentials: 'Invalid email or password.',
+                code_based_verification_sent: 'Check your email to verify your account.',
+            }
+            loginLogic.actions.setGeneralError(generalError, messages[generalError] ?? '')
+        } else {
+            loginLogic.actions.clearGeneralError()
+        }
+    }, [generalError])
+
+    return <Login key={String(hasLoggedInBefore)} />
 }
 
-export const SelfHosted: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: false,
-                    realm: 'hosted-clickhouse',
-                    available_social_auth_providers: {
-                        github: false,
-                        gitlab: false,
-                        'google-oauth2': false,
-                        saml: false,
-                    },
-                },
-            },
-        })
-        return <Login />
-    },
-}
+export const Default: StoryFn<StoryArgs> = Template.bind({})
 
-export const SelfHostedWithSAML: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: false,
-                    realm: 'hosted-clickhouse',
-                    available_social_auth_providers: {
-                        github: false,
-                        gitlab: false,
-                        'google-oauth2': false,
-                        saml: true,
-                    },
-                },
-            },
-        })
-        return <Login />
-    },
-    parameters: {
-        testOptions: {
-            waitForSelector: '[href^="/login/saml/"]',
-        },
-    },
-}
+export const SelfHosted: StoryFn<StoryArgs> = Template.bind({})
+SelfHosted.args = { cloud: false, googleOAuth: false, github: false, gitlab: false, samlAvailable: false }
 
-export const SSOError: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': preflightJson,
-            },
-        })
+export const CloudEU: StoryFn<StoryArgs> = Template.bind({})
+CloudEU.args = { region: 'EU' }
 
-        useDelayedOnMountEffect(() => router.actions.push(`${urls.login()}?error_code=improperly_configured_sso`))
+export const SSOEnforced: StoryFn<StoryArgs> = Template.bind({})
+SSOEnforced.args = { ssoEnforcement: 'google-oauth2' }
 
-        return <Login />
-    },
-}
+export const SAMLAvailable: StoryFn<StoryArgs> = Template.bind({})
+SAMLAvailable.args = { samlAvailable: true }
 
-export const SecondFactor: Story = {
-    render: () => {
-        useDelayedOnMountEffect(() => router.actions.push(urls.login2FA()))
-        return <Login2FA />
-    },
-}
+export const LoginError: StoryFn<StoryArgs> = Template.bind({})
+LoginError.args = { generalError: 'invalid_credentials' }
+
+export const PendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
+PendingOAuthConnection.storyName = 'Pending OAuth connection'
+PendingOAuthConnection.args = { pendingOAuthConnection: true }
+
+export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
+EmailVerification.args = { generalError: 'code_based_verification_sent' }
+
+export const ArrivedFromWebsite: StoryFn<StoryArgs> = Template.bind({})
+ArrivedFromWebsite.storyName = 'Arrived from posthog.com'
+ArrivedFromWebsite.args = { arrivedFromWebsite: true }
+
+export const FirstLoginOnThisBrowser: StoryFn<StoryArgs> = Template.bind({})
+FirstLoginOnThisBrowser.storyName = 'First login on this browser'
+FirstLoginOnThisBrowser.args = { hasLoggedInBefore: false }

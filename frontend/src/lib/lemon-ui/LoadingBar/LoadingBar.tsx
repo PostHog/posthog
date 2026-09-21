@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { cn } from 'lib/utils/css-classes'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+
+// atan(1) / (PI / 2) puts the frozen Storybook bar at a 50% fill
+const STORYBOOK_FROZEN_PROGRESS = 1
 
 export interface SpinnerProps {
     textColored?: boolean
@@ -20,6 +24,9 @@ export interface SpinnerProps {
 export function LoadingBar({ className, loadId, setProgress, progress, wrapperClassName }: SpinnerProps): JSX.Element {
     const [_progress, _setProgress] = useState(0)
     const { isVisible: isPageVisible } = usePageVisibility()
+    // The 50ms ticker below moves the fill on every frame, which makes each
+    // Storybook visual regression capture differ. Freeze the fill there instead.
+    const frozenForStorybook = inStorybook() || inStorybookTestRunner()
 
     useEffect(() => {
         if (loadId && progress) {
@@ -36,7 +43,7 @@ export function LoadingBar({ className, loadId, setProgress, progress, wrapperCl
     }, [_progress, loadId, setProgress])
 
     useEffect(() => {
-        if (!isPageVisible) {
+        if (!isPageVisible || frozenForStorybook) {
             return
         }
 
@@ -58,7 +65,9 @@ export function LoadingBar({ className, loadId, setProgress, progress, wrapperCl
         }, 50)
 
         return () => clearInterval(interval)
-    }, [loadId, isPageVisible])
+    }, [loadId, isPageVisible, frozenForStorybook])
+
+    const displayProgress = frozenForStorybook ? STORYBOOK_FROZEN_PROGRESS : _progress
 
     return (
         <div className={cn(`progress-outer max-w-120 w-full my-3`, wrapperClassName)} data-attr="loading-bar">
@@ -66,7 +75,9 @@ export function LoadingBar({ className, loadId, setProgress, progress, wrapperCl
                 <div
                     className="progress-bar"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: Math.round((Math.atan(_progress) / (Math.PI / 2)) * 100 * 1000) / 1000 + '%' }}
+                    style={{
+                        width: Math.round((Math.atan(displayProgress) / (Math.PI / 2)) * 100 * 1000) / 1000 + '%',
+                    }}
                 />
             </div>
         </div>

@@ -4,6 +4,7 @@ import {
   buildSignalReportListOrdering,
   buildStatusFilterParam,
   buildSuggestedReviewerFilterParam,
+  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
   INBOX_DISMISSED_STATUS_FILTER,
   INBOX_REFETCH_INTERVAL_MS,
 } from "@posthog/core/inbox/reportFiltering";
@@ -15,6 +16,7 @@ import type {
   SignalProcessingStateResponse,
   SignalReport,
   SignalReportArtefactsResponse,
+  SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportsQueryParams,
   SignalReportsResponse,
@@ -73,6 +75,7 @@ export function useInboxReports(options?: { enabled?: boolean }) {
   const params: SignalReportsQueryParams = {
     status: buildStatusFilterParam(statusFilter),
     ordering: buildSignalReportListOrdering(sortField, sortDirection),
+    actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
     source_product:
       sourceProductFilter.length > 0
         ? sourceProductFilter.join(",")
@@ -183,7 +186,10 @@ export function useAvailableSuggestedReviewers(options?: {
   });
 }
 
-export function useInboxReportArtefacts(reportId: string | null) {
+export function useInboxReportArtefacts(
+  reportId: string | null,
+  options?: { staleTime?: number; refetchInterval?: number | false },
+) {
   const { projectId, oauthAccessToken } = useAuthStore();
 
   return useQuery<SignalReportArtefactsResponse>({
@@ -195,8 +201,9 @@ export function useInboxReportArtefacts(reportId: string | null) {
     enabled: !!projectId && !!oauthAccessToken && !!reportId,
     // The log is a live work record — agents append artefacts while a report
     // is open, so refresh it gently rather than trusting the default staleTime.
-    staleTime: 10_000,
-    refetchInterval: 20_000,
+    // List rows pass a calmer profile: reviewer suggestions rarely change mid-scroll.
+    staleTime: options?.staleTime ?? 10_000,
+    refetchInterval: options?.refetchInterval ?? 20_000,
   });
 }
 
@@ -281,7 +288,7 @@ export function useUpdateSuggestedReviewers(reportId: string) {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: inboxKeys.all });
     },
   });
 }
@@ -300,6 +307,23 @@ export function useDismissReport(reportId: string) {
         dismissal_reason: input.reason,
         ...(input.note?.trim() ? { dismissal_note: input.note.trim() } : {}),
       }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: inboxKeys.detail(reportId) });
+      queryClient.invalidateQueries({ queryKey: inboxKeys.all });
+    },
+  });
+}
+
+export function useRefundReport(reportId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    SignalReport,
+    Error,
+    { reason: SignalReportRefundReason; note?: string }
+  >({
+    mutationFn: (input) =>
+      getPostHogApiClient().refundSignalReport(reportId, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: inboxKeys.detail(reportId) });
       queryClient.invalidateQueries({ queryKey: inboxKeys.all });

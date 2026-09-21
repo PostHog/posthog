@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, TeamType } from '~/types'
 
@@ -28,6 +28,32 @@ describe('teamLogic', () => {
         it('currentProjectId returns the project id', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
             expect(logic.values.currentProjectId).toBe(MOCK_DEFAULT_TEAM.project_id)
+        })
+
+        const refreshedFilters = [{ key: 'email', type: 'person', value: 'example.com', operator: 'not_icontains' }]
+        it.each([
+            ['the same team', MOCK_TEAM_ID, refreshedFilters],
+            ['a different team', MOCK_TEAM_ID + 1, MOCK_DEFAULT_TEAM.test_account_filters],
+        ])('refreshCurrentTeam takes a response for %s without a team reload', async (_, id, expectedFilters) => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                get: {
+                    '/api/environments/@current': () => [
+                        200,
+                        { ...MOCK_DEFAULT_TEAM, id, test_account_filters: refreshedFilters },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshCurrentTeam()
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadCurrentTeamSuccess'])
+                .toDispatchActions(['refreshCurrentTeamSuccess'])
+
+            expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
+            expect(logic.values.currentTeam?.test_account_filters).toEqual(expectedFilters)
         })
     })
 
@@ -135,6 +161,28 @@ describe('teamLogic', () => {
             // The stale team's intents must not be grafted onto the team that is now active.
             expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
             expect((logic.values.currentTeam as TeamType)?.product_intents).toBeUndefined()
+        })
+
+        it('forwards the intent context', async () => {
+            let requestBody: Record<string, unknown> | undefined
+            useMocks({
+                patch: {
+                    '/api/environments/:id/complete_product_onboarding': async ({ request }) => {
+                        requestBody = (await request.json()) as Record<string, unknown>
+                        return [200, { ...MOCK_DEFAULT_TEAM, product_intents: [] }]
+                    },
+                },
+            })
+
+            await logic.asyncActions.recordProductIntentOnboardingComplete({
+                product_type: ProductKey.ERROR_TRACKING,
+                intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY,
+            })
+
+            expect(requestBody).toEqual({
+                product_type: ProductKey.ERROR_TRACKING,
+                intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY,
+            })
         })
     })
 

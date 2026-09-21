@@ -6,22 +6,24 @@ import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog
 
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { getBarColorFromStatus } from 'lib/colors'
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
+import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
-import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {
@@ -74,9 +76,17 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     // Lifecycle statuses all share the same resultCustomizationKey (same action.order), so
     // useInsightsLegendConfig can't distinguish them — build the config inline and let the
     // chart manage toggle state internally.
+    const legendRenderItem = useChartLegendSeriesMenu({ surface: 'lifecycle', seriesCount: indexedResults.length })
     const legendConfig = useMemo<ChartLegendConfig>(
-        () => buildBaseLegendConfig({ show: !!showLegend, legendPosition, canEditInsight, inSharedMode }),
-        [showLegend, legendPosition, canEditInsight, inSharedMode]
+        () =>
+            buildBaseLegendConfig({
+                show: !!showLegend,
+                legendPosition,
+                canEditInsight,
+                inSharedMode,
+                renderItem: legendRenderItem,
+            }),
+        [showLegend, legendPosition, canEditInsight, inSharedMode, legendRenderItem]
     )
 
     const isStacked = lifecycleFilter?.stacked ?? true
@@ -110,7 +120,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             buildLifecycleChartModel<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
                 buildMeta: buildTrendsSeriesMeta,
-                labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+                // Bands are keyed by these strings, so they must be unique per point. Display
+                // labels are not (week and hour labels omit the year, so multi-year ranges
+                // repeat them); use the ISO days, which ticks and tooltips format from.
+                labels: currentPeriodResult?.days?.length
+                    ? currentPeriodResult.days
+                    : (currentPeriodResult?.labels ?? EMPTY_LABELS),
                 isStacked,
                 trendsFilter,
                 baseCurrency,

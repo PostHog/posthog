@@ -5,11 +5,14 @@
  * Uses generated types from the frontend package.
  */
 import type {
+    AddSnapshotsInputApi,
+    AddSnapshotsResultApi,
     ApproveSnapshotInputApi,
     ArtifactApi,
     CreateRunInputApi,
     CreateRunResultApi,
     FinalizeResultApi,
+    PaginatedSnapshotListApi,
     RunApi,
     SnapshotApi,
     SnapshotManifestItemApi,
@@ -142,7 +145,7 @@ export class VisualReviewClient {
     /**
      * Upload artifact to S3 using presigned URL from createRun response.
      */
-    async uploadToS3(uploadTarget: UploadTargetApi, data: Buffer): Promise<void> {
+    async uploadToS3(uploadTarget: UploadTargetApi, data: Buffer, contentType = 'image/png'): Promise<void> {
         const formData = new FormData()
 
         // Add all presigned fields
@@ -151,10 +154,10 @@ export class VisualReviewClient {
         }
 
         // Content-Type must be in form data (required by presigned POST policy)
-        formData.append('Content-Type', 'image/png')
+        formData.append('Content-Type', contentType)
 
         // Add file data (must be last field in form data for S3)
-        formData.append('file', new Blob([new Uint8Array(data)], { type: 'image/png' }))
+        formData.append('file', new Blob([new Uint8Array(data)], { type: contentType }))
 
         const response = await fetch(uploadTarget.url, {
             method: 'POST',
@@ -173,13 +176,16 @@ export class VisualReviewClient {
         runId: string,
         input: {
             snapshots: SnapshotManifestItemApi[]
+            storyIndexHash?: string
         }
-    ): Promise<{ added: number; uploads: UploadTargetApi[] }> {
-        return this.request(`/visual_review/runs/${runId}/add-snapshots/`, {
+    ): Promise<AddSnapshotsResultApi> {
+        const body: AddSnapshotsInputApi = {
+            snapshots: input.snapshots,
+            story_index_hash: input.storyIndexHash,
+        }
+        return this.request<AddSnapshotsResultApi>(`/visual_review/runs/${runId}/add-snapshots/`, {
             method: 'POST',
-            body: JSON.stringify({
-                snapshots: input.snapshots,
-            }),
+            body: JSON.stringify(body),
         })
     }
 
@@ -200,10 +206,15 @@ export class VisualReviewClient {
     }
 
     /**
-     * Get snapshots for a run.
+     * Get snapshots for a run. The endpoint is paginated and orders actionable results
+     * (changed / new / removed) ahead of unchanged ones, so the first page names
+     * everything that needs review unless a run has more than `limit` of them.
      */
-    async getRunSnapshots(runId: string): Promise<SnapshotApi[]> {
-        return this.request<SnapshotApi[]>(`/visual_review/runs/${runId}/snapshots/`)
+    async getRunSnapshots(runId: string, limit = 100): Promise<SnapshotApi[]> {
+        const page = await this.request<PaginatedSnapshotListApi>(
+            `/visual_review/runs/${runId}/snapshots/?limit=${limit}`
+        )
+        return page.results
     }
 
     /**

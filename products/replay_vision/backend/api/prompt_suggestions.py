@@ -19,19 +19,21 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import User
+from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
+from products.replay_vision.backend.api.scanners import scanner_lifecycle_properties
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    PromptSuggestionStatus,
     ReplayScannerPromptSuggestion,
-    SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
     EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
@@ -46,15 +48,41 @@ from products.replay_vision.backend.prompt_suggestions import (
     generate_prompt_suggestion,
     labels_fingerprint,
 )
-from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
+from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
     build_evaluate_prompt_suggestion_workflow_id,
+    on_demand_priority,
 )
 from products.replay_vision.backend.temporal.evaluation_types import EvaluatePromptSuggestionInputs
+from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 
 logger = structlog.get_logger(__name__)
+
+
+def _suggestion_properties(suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any]:
+    """Shared shape for the calibration-loop events, so one funnel spans generate to apply.
+
+    Config values stay out: a rewritten prompt is customer content, and the changed field names
+    already say what the recommendation touched."""
+    return {
+        "suggestion_id": str(suggestion.id),
+        "scanner_id": str(suggestion.scanner_id),
+        "suggestion_status": suggestion.status,
+        "based_on_up": suggestion.based_on_up,
+        "based_on_down": suggestion.based_on_down,
+        "changed_fields": sorted(
+            {
+                str(change["field"])
+                for change in suggestion.changes or []
+                if isinstance(change, dict) and "field" in change
+            }
+        ),
+        # Was this recommendation tested against rated results before the user acted on it?
+        "was_evaluated": bool(suggestion.evaluation),
+    }
 
 
 class PromptEvaluationResultSerializer(serializers.Serializer):
@@ -230,7 +258,6 @@ class ReplayScannerPromptSuggestionViewSet(
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerPromptSuggestionSerializer
     queryset = ReplayScannerPromptSuggestion.objects.all()
 
@@ -323,6 +350,17 @@ class ReplayScannerPromptSuggestionViewSet(
             if str(e) == "no rated observations":
                 raise ValidationError("Rate some results first, then generate a suggestion from them.")
             raise ValidationError("Couldn't generate a suggestion right now. Try again in a moment.")
+        report_user_action(
+            user,
+            "replay_vision_prompt_suggestion_generated",
+            {
+                **_suggestion_properties(suggestion),
+                "scanner_type": scanner.scanner_type,
+                "rated_count": self._rated_count(scanner),
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
@@ -352,7 +390,7 @@ class ReplayScannerPromptSuggestionViewSet(
                 team_id=self.team_id, id=suggestion.id
             )
             # A stale tab can submit an old or dismissed suggestion id, silently rolling the prompt back.
-            if suggestion.status != SuggestionStatus.PENDING:
+            if suggestion.status != PromptSuggestionStatus.PENDING:
                 raise ValidationError("Only the current recommendation can be applied.")
             if suggestion.scanner_version != scanner.scanner_version:
                 raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
@@ -369,12 +407,47 @@ class ReplayScannerPromptSuggestionViewSet(
             message = scanner_config_error(ScannerType(scanner.scanner_type), config)
             if message:
                 raise ValidationError(f"This recommendation can't be applied: {message}")
+            # Which config keys the applied version actually moves. The user can edit the recommendation
+            # before applying, so this is not always the same as the suggestion's own changed_fields.
+            before_config = scanner.scanner_config or {}
+            applied_fields = sorted(
+                key
+                for key in {*before_config, *config}
+                # Matching proposers.set_change: a key the config only materializes with its own
+                # default (absent to False or "") moves nothing, so it is not an applied change.
+                if before_config.get(key) != config.get(key) and (key in before_config or config.get(key))
+            )
             scanner.scanner_config = config
             scanner.save(update_fields=["scanner_config"])
-            suggestion.status = SuggestionStatus.APPLIED
+            suggestion.status = PromptSuggestionStatus.APPLIED
             suggestion.applied_at = timezone.now()
             suggestion.applied_by = cast(User, request.user)
             suggestion.save(update_fields=["status", "applied_at", "applied_by"])
+        user = cast(User, request.user)
+        properties = {
+            **_suggestion_properties(suggestion),
+            "scanner_type": scanner.scanner_type,
+            "applied_fields": applied_fields,
+            "was_edited": edited_config is not None,
+        }
+        report_user_action(user, "replay_vision_prompt_suggestion_applied", properties, team=self.team, request=request)
+        # This endpoint writes the config directly rather than through the scanner serializer, so it has to
+        # report the edit itself. Without it, an applied recommendation is invisible to every analysis of
+        # scanner edits, and calibration looks like it changes nothing.
+        # Only when the config moved, matching the serializer: a caller can apply a recommendation it
+        # edited back to the current config, and counting that as an edit inflates the edit metrics.
+        if applied_fields:
+            report_user_action(
+                user,
+                "replay_vision_scanner_edited",
+                {
+                    **scanner_lifecycle_properties(scanner),
+                    "edited_fields": ["scanner_config"],
+                    "edit_source": "prompt_suggestion",
+                },
+                team=self.team,
+                request=request,
+            )
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
@@ -386,14 +459,15 @@ class ReplayScannerPromptSuggestionViewSet(
             "Results land on the suggestion's `evaluation` field. Poll `current` while status is running. "
             "`session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to "
             "`evaluation_session_cap`). Each successful re-run charges credits like a normal observation of "
-            "the same model. The request is refused with 402 when the planned credits exceed what is left of "
-            "the monthly limit. Monitor and classifier scanners get a kept/fixed/regressed classification, "
-            "while scorer and summarizer scanners show the raw before and after output. Requires session "
-            "recording edit access."
+            "the same model. The request is refused with 402 when the planned credits exceed what is left "
+            "for the current billing period, either the org's limit or this scanner's own. Monitor and classifier scanners get a "
+            "kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before "
+            "and after output. Requires session recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def evaluate(self, request: Request, **kwargs: Any) -> Response:
+        refuse_scout_scanner_scan(is_scout_sandbox_request(request))
         scanner = self._scanner_for_url()
         self._require_editor(scanner)
         suggestion = self.get_object()
@@ -416,10 +490,16 @@ class ReplayScannerPromptSuggestionViewSet(
         # both see "not in flight", and the second stub save moves `started_at`, which re-keys the usage
         # receipts of the first run's still-settling sessions and charges them twice.
         with transaction.atomic():
+            # Serialize capped budget reads with the admission gate's row lock; scanner before
+            # suggestion, matching apply's lock order. `credit_limit` comes from the earlier unlocked
+            # fetch, so a limit set concurrently with this request fails open once (create_observation
+            # re-reads under the lock; the next request here sees the limit).
+            if scanner.credit_limit is not None:
+                ReplayScanner.objects.select_for_update().filter(team_id=self.team_id, pk=scanner.id).only("pk").first()
             suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(
                 team_id=self.team_id, id=suggestion.id
             )
-            if suggestion.status != SuggestionStatus.PENDING:
+            if suggestion.status != PromptSuggestionStatus.PENDING:
                 raise ValidationError("Only the current pending suggestion can be tested.")
             # A test already in flight keeps reporting its state even if quota ran out meanwhile.
             if evaluation_in_flight(suggestion.evaluation):
@@ -438,6 +518,19 @@ class ReplayScannerPromptSuggestionViewSet(
                         f"{quota.period_end.strftime('%b')} {quota.period_end.day}."
                     )
                 )
+            # A test re-runs the scanner, so it draws from the scanner's own limit too, on top of the org's.
+            if scanner.credit_limit is not None:
+                scanner_budget = compute_scanner_budget(scanner)
+                if scanner_budget.would_exceed(planned_credits):
+                    record_scanner_limit_reached("evaluation")
+                    raise QuotaLimitExceeded(
+                        detail=(
+                            f"This test would use {planned_credits:,} credits but this scanner has "
+                            f"{scanner_budget.remaining or 0:,} left of its {scanner_budget.credit_limit or 0:,} credit "
+                            f"limit for this billing period. Lower the test session count or raise the scanner's limit."
+                        ),
+                        code="scanner_credit_limit_exceeded",
+                    )
             # Stamp running first so the UI never sees a gap and the planned spend counts against quota
             # right away. The select activity replaces this stub with the real total and fingerprint.
             previous_evaluation = suggestion.evaluation
@@ -451,13 +544,17 @@ class ReplayScannerPromptSuggestionViewSet(
                 EvaluatePromptSuggestionInputs(  # type: ignore[arg-type]
                     suggestion_id=suggestion.id,
                     team_id=scanner.team_id,
-                    session_limit=session_limit,
+                    # The admitted count, not the raw request limit: sessions rated between this
+                    # admission and the select activity must not widen the run past what was budgeted.
+                    session_limit=planned,
                     config_override=edited_config,
                     started_at=started_at,
                 ),
                 id=build_evaluate_prompt_suggestion_workflow_id(suggestion.id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 execution_timeout=EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
+                # A user waiting on "test this prompt" ranks with the other user-initiated starts.
+                priority=on_demand_priority(scanner.team_id),
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=scanner.team_id)]
                 ),
@@ -469,6 +566,21 @@ class ReplayScannerPromptSuggestionViewSet(
             suggestion.evaluation = previous_evaluation
             suggestion.save(update_fields=["evaluation"])
             raise
+        # Reported after the workflow starts, so the count only covers tests that really ran.
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_prompt_suggestion_evaluated",
+            {
+                **_suggestion_properties(suggestion),
+                "scanner_type": scanner.scanner_type,
+                "session_count": planned,
+                "credits": planned_credits,
+                # A repeat test means the user edited the recommendation and is checking it again.
+                "is_retest": previous_evaluation is not None,
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
@@ -489,8 +601,15 @@ class ReplayScannerPromptSuggestionViewSet(
                 team_id=self.team_id, id=suggestion.id
             )
             # Dismissing an applied suggestion would mark the scanner's live prompt as rejected.
-            if suggestion.status != SuggestionStatus.PENDING:
+            if suggestion.status != PromptSuggestionStatus.PENDING:
                 raise ValidationError("Only the current recommendation can be dismissed.")
-            suggestion.status = SuggestionStatus.DISMISSED
+            suggestion.status = PromptSuggestionStatus.DISMISSED
             suggestion.save(update_fields=["status"])
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_prompt_suggestion_dismissed",
+            {**_suggestion_properties(suggestion), "scanner_type": scanner.scanner_type},
+            team=self.team,
+            request=request,
+        )
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)

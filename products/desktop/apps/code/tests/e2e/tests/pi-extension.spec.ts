@@ -35,7 +35,7 @@ const HOME_ENVIRONMENT_KEYS = [
 ] as const;
 
 test.describe("Pi extensions", () => {
-  test("loads a real extension and completes its UI round trip", async ({
+  test("loads a project extension and completes its UI round trip", async ({
     electronApp,
   }) => {
     const { e2eHome, resourcesPath } = await electronApp.evaluate(
@@ -53,12 +53,8 @@ test.describe("Pi extensions", () => {
     );
     expect(existsSync(rpcHostPath)).toBe(true);
 
-    const extensionsDirectory = path.join(
-      e2eHome,
-      ".pi",
-      "agent",
-      "extensions",
-    );
+    const workspace = path.join(e2eHome, "extension-workspace");
+    const extensionsDirectory = path.join(workspace, ".pi", "extensions");
     await mkdir(extensionsDirectory, { recursive: true });
     await writeFile(
       path.join(extensionsDirectory, "extension-e2e.ts"),
@@ -81,8 +77,13 @@ test.describe("Pi extensions", () => {
       );
       client = createPiRpcClient({
         cliPath: rpcHostPath,
-        cwd: e2eHome,
-        projectTrusted: false,
+        taskContext: {
+          taskId: "pi-extension-e2e",
+          cwd: workspace,
+          projectId: 1,
+          apiHost: "https://us.posthog.com",
+          environment: "local",
+        },
         providerOptions: { apiKey: "unused-e2e-key" },
       });
       client.onEvent((event) => {

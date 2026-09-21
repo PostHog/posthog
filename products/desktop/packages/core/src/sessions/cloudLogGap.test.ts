@@ -22,7 +22,7 @@ function request(
     taskRunId: "r1",
     expectedCount: 10,
     currentCount: 5,
-    newEntries: [],
+    entryBatches: [],
     ...over,
   };
 }
@@ -33,24 +33,27 @@ describe("mergeCloudLogGapRequests", () => {
     expect(mergeCloudLogGapRequests(undefined, next)).toBe(next);
   });
 
-  it("widens the range and concatenates entries", () => {
+  it("widens the range and preserves batch positions", () => {
     const current = request({
       currentCount: 3,
       expectedCount: 8,
-      newEntries: [entry("a")],
+      entryBatches: [{ endCount: 8, entries: [entry("a")] }],
       logUrl: "old",
     });
     const next = request({
       currentCount: 6,
       expectedCount: 12,
-      newEntries: [entry("b")],
+      entryBatches: [{ endCount: 12, entries: [entry("b")] }],
       logUrl: undefined,
     });
 
     const merged = mergeCloudLogGapRequests(current, next);
     expect(merged.currentCount).toBe(3);
     expect(merged.expectedCount).toBe(12);
-    expect(merged.newEntries).toHaveLength(2);
+    expect(merged.entryBatches).toEqual([
+      { endCount: 8, entries: [entry("a")] },
+      { endCount: 12, entries: [entry("b")] },
+    ]);
     expect(merged.logUrl).toBe("old");
   });
 
@@ -95,35 +98,89 @@ describe("classifyCloudLogGap", () => {
     });
   });
 
-  it("commits best-effort on a stable repeated deficit", () => {
+  it.each([
+    {
+      name: "waits with a fresh deficit on the first short fetch",
+      totalLineCount: 7,
+      previousDeficiency: undefined,
+      expected: {
+        kind: "wait",
+        deficiency: {
+          expectedCount: 10,
+          observedLineCount: 7,
+          stalledPasses: 0,
+        },
+      },
+    },
+    {
+      name: "counts a stalled pass when the deficit repeats exactly",
+      totalLineCount: 7,
+      previousDeficiency: {
+        expectedCount: 10,
+        observedLineCount: 7,
+        stalledPasses: 0,
+      },
+      expected: {
+        kind: "wait",
+        deficiency: {
+          expectedCount: 10,
+          observedLineCount: 7,
+          stalledPasses: 1,
+        },
+      },
+    },
+    {
+      name: "counts a stalled pass when the expected count grows without new lines",
+      totalLineCount: 7,
+      previousDeficiency: {
+        expectedCount: 9,
+        observedLineCount: 7,
+        stalledPasses: 1,
+      },
+      expected: {
+        kind: "wait",
+        deficiency: {
+          expectedCount: 10,
+          observedLineCount: 7,
+          stalledPasses: 2,
+        },
+      },
+    },
+    {
+      name: "resets the stall count when the deficit shrinks",
+      totalLineCount: 9,
+      previousDeficiency: {
+        expectedCount: 10,
+        observedLineCount: 7,
+        stalledPasses: 2,
+      },
+      expected: {
+        kind: "wait",
+        deficiency: {
+          expectedCount: 10,
+          observedLineCount: 9,
+          stalledPasses: 0,
+        },
+      },
+    },
+    {
+      name: "escapes to best-effort after enough stalled passes",
+      totalLineCount: 7,
+      previousDeficiency: {
+        expectedCount: 10,
+        observedLineCount: 7,
+        stalledPasses: 2,
+      },
+      expected: {
+        kind: "commit-best-effort",
+        processedLineCount: 10,
+        reason: "no-progress",
+      },
+    },
+  ])("$name", ({ totalLineCount, previousDeficiency, expected }) => {
     expect(
-      classifyCloudLogGap({
-        ...base,
-        totalLineCount: 7,
-        previousDeficiency: { expectedCount: 10, observedLineCount: 7 },
-      }),
-    ).toEqual({
-      kind: "commit-best-effort",
-      processedLineCount: 10,
-      reason: "stable-deficit",
-    });
-  });
-
-  it("waits when short but the deficit is new (likely lag)", () => {
-    expect(classifyCloudLogGap({ ...base, totalLineCount: 7 })).toEqual({
-      kind: "wait",
-      deficiency: { expectedCount: 10, observedLineCount: 7 },
-    });
-  });
-
-  it("waits when the previous deficit differs from the current one", () => {
-    expect(
-      classifyCloudLogGap({
-        ...base,
-        totalLineCount: 7,
-        previousDeficiency: { expectedCount: 10, observedLineCount: 5 },
-      }),
-    ).toMatchObject({ kind: "wait" });
+      classifyCloudLogGap({ ...base, totalLineCount, previousDeficiency }),
+    ).toEqual(expected);
   });
 });
 

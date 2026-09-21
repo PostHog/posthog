@@ -1,7 +1,8 @@
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
     DashboardFilter,
     DataNode,
@@ -12,6 +13,7 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
+    WebStatsTableQueryResponse,
 } from '~/queries/schema/schema-general'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
@@ -63,6 +65,8 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
+/** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
+const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -139,11 +143,11 @@ export async function pollForResults(
             }
         } catch (e: any) {
             // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message)
+            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message
 
             // Prefer the structured code from QueryStatus over one parsed out of the message
-            e.code = e.data?.query_status?.error_code ?? parsed.code ?? e.code
+            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
 
             // Attach queryId to error for downstream error handling
             e.queryId = queryId
@@ -180,7 +184,9 @@ async function executeQuery<N extends DataNode>(
      * (stale-while-revalidate: `is_cached` is true *and* an incomplete `query_status` is
      * attached), return the cached results immediately instead of blocking on the recompute.
      */
-    acceptStaleCache = false
+    acceptStaleCache = false,
+    /** True on the retry below, so a failed retry cannot start another one. */
+    retriedAfterExpiry = false
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
@@ -219,7 +225,43 @@ async function executeQuery<N extends DataNode>(
         }
     }
 
-    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+    let statusResponse: QueryStatus
+    try {
+        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+    } catch (e: any) {
+        // The server keeps a query's status in Redis for 20 minutes. A backgrounded tab stops
+        // polling and stops its own give-up timer, so it can outlive that TTL and then poll for a
+        // query the server has forgotten. That query most likely finished and cached its result.
+        //
+        // So run it again, once. force_async becomes async, to read the cached result instead of
+        // recomputing it. The query ID is reused, so cancels and log lookups still find the run;
+        // safe because the server only joins a query that is still running.
+        //
+        // A warehouse that is down also answers 404. Do not retry that one. A shared or exported
+        // view may only read, so it cannot submit at all; report the expired status rather than
+        // the permission error the server would answer with.
+        if (
+            retriedAfterExpiry ||
+            e?.status !== 404 ||
+            e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE ||
+            isSharedView()
+        ) {
+            throw e
+        }
+        return await executeQuery(
+            queryNode,
+            methodOptions,
+            refresh === 'force_async' ? 'async' : refresh,
+            queryId,
+            setPollResponse,
+            filtersOverride,
+            variablesOverride,
+            false,
+            limitContext,
+            acceptStaleCache,
+            true
+        )
+    }
     return statusResponse.results
 }
 
@@ -260,15 +302,20 @@ export async function performQuery<N extends DataNode>(
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
             if (response && typeof response === 'object') {
-                // Web analytics responses report which read path served them and whether
-                // a lazy-precompute read was served stale. Undefined elsewhere, so these
-                // props only land on events that carry them.
-                const { preComputeStrategy, preComputeStale } = response as {
-                    preComputeStrategy?: string
-                    preComputeStale?: boolean
-                }
+                // Web analytics responses report which read path served them, whether a
+                // lazy-precompute read was served stale, and why a live read skipped precompute.
+                // Undefined elsewhere, so these props only land on events that carry them. The
+                // shape comes from the generated schema, so renaming a field there fails the
+                // build instead of silently capturing undefined.
+                const { preComputeStrategy, preComputeStale, preComputeIneligibleReason } = response as Partial<
+                    Pick<
+                        WebStatsTableQueryResponse,
+                        'preComputeStrategy' | 'preComputeStale' | 'preComputeIneligibleReason'
+                    >
+                >
                 logParams.precompute_strategy = preComputeStrategy
                 logParams.precompute_stale = preComputeStale
+                logParams.precompute_ineligible_reason = preComputeIneligibleReason
             }
         }
         const warehouseSources = dataWarehouseSourcesFromResponse(response)
@@ -284,17 +331,21 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
-        // Raw error detail/message can echo query fragments, so telemetry only gets status and code
-        const error = e as (Error & { status?: number; code?: string | null }) | null
-        posthog.capture('query failed', {
-            query: queryNode,
-            queryId,
-            duration: performance.now() - startTime,
-            error_status: error?.status ?? null,
-            error_code: error?.code ?? null,
-            uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
-            ...logParams,
-        })
+        // A superseded query or navigating away mid-request aborts, not fails — skip so the
+        // 'query failed' metric isn't drowned in cancellation noise.
+        if (!isAbortError(e)) {
+            // Raw error detail/message can echo query fragments, so telemetry only gets status and code
+            const error = e as (Error & { status?: number; code?: string | null }) | null
+            posthog.capture('query failed', {
+                query: queryNode,
+                queryId,
+                duration: performance.now() - startTime,
+                error_status: error?.status ?? null,
+                error_code: error?.code ?? null,
+                uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
+                ...logParams,
+            })
+        }
         throw e
     }
 }

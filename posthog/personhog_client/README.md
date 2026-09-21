@@ -13,6 +13,17 @@ Routed helpers that handle the gRPC call and metrics already exist in
 When no existing helper covers your needs, follow the `_personhog_routed()` pattern in `posthog/models/person/util.py`.
 personhog is the sole read path — there is no ORM fallback.
 
+## Scope: identity questions only
+
+Personhog is for **identity resolution and point lookups**: resolving a distinct ID to a person, checking a person exists, fetching a single person (or a small known set) by id or UUID, and lifecycle writes (deletes, splits, cohort membership).
+
+It is **not** for property-shaped or bulk-shaped reads.
+Loading person properties, hydrating lists of persons, and searching or filtering persons all belong in ClickHouse (HogQL over the `persons` table, `ActorsQueryRunner`).
+Avoid reading the `properties` field from personhog where possible — the long-term direction is for the API to not surface it to users at all.
+Single-person point lookups that need properties are currently exempt where no ClickHouse primitive exists for them; do not extend that to bulk reads.
+
+See [docs/internal/person-data-access.md](/docs/internal/person-data-access.md) for the full guidelines and rationale.
+
 ## Database tables
 
 The following tables are managed by personhog.
@@ -29,7 +40,6 @@ Do not query them directly — use the routed helpers or client RPCs.
 | `posthog_pendingpersonoverride`      | `PendingPersonOverride`      | Pending person merge overrides     |
 | `posthog_flatpersonoverride`         | `FlatPersonOverride`         | Flattened person overrides         |
 | `posthog_featureflaghashkeyoverride` | `FeatureFlagHashKeyOverride` | Feature flag hash key overrides    |
-| `posthog_personlessdistinctid`       | `PersonlessDistinctId`       | Personless distinct IDs            |
 | `posthog_personoverridemapping`      | `PersonOverrideMapping`      | Person override mappings           |
 
 ## Client singleton
@@ -59,7 +69,7 @@ The `PersonHogClient` in `client.py` exposes typed methods for every RPC:
 `get_distinct_ids_for_person`, `get_distinct_ids_for_persons`
 
 **Person deletes:**
-`delete_persons`, `delete_persons_batch_for_team`
+`delete_persons`, `delete_persons_batch_for_team`, `delete_tombstoned_persons` (deletes only while still tombstoned, a bounded number of dependent rows per call; persons it did not finish come back as pending and are sent again; used by the persons cleanup drain)
 
 **Person split:**
 `split_person` — splits distinct_ids off a person onto new persons (max 250 per request); the sole write path for person splits, with no ORM fallback

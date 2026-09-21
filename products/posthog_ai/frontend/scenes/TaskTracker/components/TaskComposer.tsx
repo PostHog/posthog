@@ -1,8 +1,9 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 
 import {
     Composer,
@@ -11,22 +12,49 @@ import {
     Suggestions,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
-import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
-import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
+import { composerOverrideLogic } from 'products/posthog_ai/frontend/logics/composerOverrideLogic'
+import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
+import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
+import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import {
+    cycleMode,
+    getModesForRuntimeAdapter,
+    resolveModeForRuntimeAdapter,
+} from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
+import { OnboardingReplayButton } from '../../../components/onboarding/OnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
-    const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline, consentBlocked } =
-        useValues(taskTrackerSceneLogic)
+    const {
+        newTaskData,
+        isSubmittingTask,
+        activeSuggestionGroup,
+        displayHeadline,
+        consentBlocked,
+        displayModel,
+        defaultModel,
+        displayEffort,
+        isDefaultSelection,
+        // Permission modes belong to the harness, so they follow the model actually shown — the
+        // server-resolved default's own runtime when nothing is picked, the pick's otherwise.
+        composerAdapter,
+    } = useValues(taskTrackerSceneLogic)
+    const { catalogue } = useValues(modelCatalogueLogic)
+    const { myConfigLoading } = useValues(taskRunDefaultsLogic)
+    const { composerOverride } = useValues(composerOverrideLogic)
+
+    // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
+    // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
+    const panelId = useMountedLogic(taskTrackerSceneLogic).props.panelId
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -45,7 +73,11 @@ export function TaskComposer(): JSX.Element {
     return (
         <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={headline} />
+                <Welcome headline={displayHeadline}>
+                    {/* Temporary migration affordance — delete with the rest of the onboarding takeover
+                        once everyone is on the new PostHog AI. */}
+                    {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
+                </Welcome>
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}
@@ -55,12 +87,18 @@ export function TaskComposer(): JSX.Element {
                 >
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
-                        <RepositorySelector
-                            value={newTaskData.repositoryConfig}
-                            onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                        />
+                        {!composerOverride?.hideRepositorySelector && (
+                            <RepositorySelector
+                                value={newTaskData.repositoryConfig}
+                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                            />
+                        )}
                         <ComposerModeShortcut
-                            onCycle={() => setNewTaskData({ permissionMode: cycleMode(newTaskData.permissionMode) })}
+                            onCycle={() =>
+                                setNewTaskData({
+                                    permissionMode: cycleMode(composerAdapter, newTaskData.permissionMode),
+                                })
+                            }
                         />
                         <Composer.Root
                             value={draft.value}
@@ -79,26 +117,48 @@ export function TaskComposer(): JSX.Element {
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker
+                                        modes={getModesForRuntimeAdapter(composerAdapter)}
                                         selectedMode={newTaskData.permissionMode}
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
                                     />
                                     <ComposerModelEffortPickers
-                                        selectedModel={newTaskData.model}
-                                        selectedEffort={newTaskData.reasoningEffort}
+                                        models={catalogue}
+                                        selectedModel={displayModel}
+                                        defaultModel={defaultModel}
+                                        isDefaultModelLoading={myConfigLoading}
+                                        selectedEffort={displayEffort}
+                                        isDefaultSelection={isDefaultSelection}
                                         onModelChange={(model) =>
                                             setNewTaskData({
                                                 model,
                                                 reasoningEffort: resolveEffortForModel(
+                                                    catalogue,
                                                     newTaskData.reasoningEffort,
                                                     model
+                                                ),
+                                                // Clamp the mode too, not just the effort: leaving a
+                                                // Claude-only mode selected against a Codex model would
+                                                // show one permission ceiling and send a broader one.
+                                                permissionMode: resolveModeForRuntimeAdapter(
+                                                    getRuntimeAdapterForModel(catalogue, model),
+                                                    newTaskData.permissionMode
                                                 ),
                                             })
                                         }
                                         onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
+                                        // Clearing both pins is what hands the choice back to the resolved
+                                        // default — submit then omits the triple entirely.
+                                        onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
+                                        onOpenDefaultSettings={() =>
+                                            router.actions.push(
+                                                urls.settings('environment-task-agents', 'task-agent-my-preference')
+                                            )
+                                        }
                                     />
                                 </Composer.Footer>
                             </Composer.Frame>
-                            <Suggestions.Dropdown />
+                            {/* Open-group state is shared with the side panel; a group left open there would list generic prompts here. */}
+                            {!composerOverride?.hideSuggestions && <Suggestions.Dropdown />}
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"
                                 showArrow
@@ -112,7 +172,7 @@ export function TaskComposer(): JSX.Element {
                         </Composer.Root>
                     </div>
 
-                    <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />
+                    {!composerOverride?.hideSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
                 </Suggestions.Root>
             </div>
         </div>

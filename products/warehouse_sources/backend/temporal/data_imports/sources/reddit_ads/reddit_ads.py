@@ -229,7 +229,7 @@ class RedditAdsPaginator(BasePaginator):
         # When seeded via set_resume_state, the paginator already holds the
         # URL of the next page to fetch — redirect the initial request to it.
         if self._next_url:
-            request.url = self._next_url
+            self._redirect_to_next_url(request)
 
     def update_state(self, response: Response, data: Optional[Any] = None) -> None:
         """Update pagination state from response"""
@@ -248,7 +248,16 @@ class RedditAdsPaginator(BasePaginator):
     def update_request(self, request: Request) -> None:
         """Update request with next page URL"""
         if self._next_url:
-            request.url = self._next_url
+            self._redirect_to_next_url(request)
+
+    def _redirect_to_next_url(self, request: Request) -> None:
+        # Reddit's `next_url` already carries the full query string, including `page.size`. The REST
+        # client reuses one `Request` across pages, so leaving the seeded `params` in place makes
+        # `requests` append `page.size` to the URL again on every page. The URL then grows without
+        # bound until Reddit rejects it with `414 URI Too Long`. Clear the params so the
+        # self-contained `next_url` is the only source of the query string.
+        request.url = self._next_url
+        request.params = {}
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         if self._next_url and self._has_next_page:

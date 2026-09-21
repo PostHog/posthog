@@ -58,6 +58,9 @@ Editing an existing skill?
   │    └─ Rename .......................... skill-file-rename
   └─ Wholesale bundle reset (rare!) ....... update(files=[...])  # replaces ALL files
 
+Renaming the skill itself?
+  └─► skill-rename                  (keeps versions, files, and owners)
+
 Want a fork as the starting point?
   └─► skill-duplicate               (then update the copy)
 
@@ -139,9 +142,15 @@ posthog:skill-create
 - **File layout convention** — `scripts/` for executable code, `references/`
   for prose docs and examples, `assets/` for templates / data. Agents can rely
   on this for orientation when they only have the manifest.
-- **`allowed_tools`** lists the MCP / built-in tools the skill expects to be
-  callable. Be honest — under-declaring causes silent failures, over-declaring
-  is a security smell.
+- **`allowed_tools`** lists the tools the skill asks to use. It is a request, not a grant: a harness that reads the skill from a file treats the list as pre-approved, and a harness that loads the skill over MCP ignores it until the user approves that grant.
+  List only the tools the skill really uses, because padding the list widens the request.
+  An undeclared tool is not pre-approved, and the harness decides what happens next: it can ask the user, deny the call, or not expose the tool at all.
+  Some products enforce the list themselves, so an omitted tool makes the call fail there.
+- **End with a `## Related skills` footer** when adjacent skills exist: a short
+  bullet list of `` `skill-name` `` entries, each with a one-line handoff reason
+  ("when to jump there"), so one skill invocation seeds discovery of the next.
+  Refer to skills by name only (no paths — related skills often live in other
+  products), and only list genuine next steps, not everything in the product.
 
 ## Updating an existing skill
 
@@ -240,7 +249,8 @@ The same concept — a bundled file's path — is named differently depending on
 memory. There is one rule:
 
 - **`file_path`** — when the path is part of the **URL** (`skill-file-get`,
-  `skill-file-delete`). These read/delete one file addressed by its path.
+  `skill-file-delete`). These read/delete one file addressed by its path. Both
+  also accept `path` and normalize it to `file_path`, so the manifest key works.
 - **`path`** — when the path is a **body field**: `skill-file-create`, the
   `files=[{path, content, content_type}]` array, and `file_edits=[{path, edits}]`.
 - **`old_path` / `new_path`** — body fields on `skill-file-rename`.
@@ -248,8 +258,7 @@ memory. There is one rule:
 Mnemonic: `path` is the field name on a file _object_ (it sits next to
 `content`), so everything that carries a file object uses `path`; the two
 tools that address a file by URL use `file_path`. When unsure, check the
-tool's input schema rather than guessing — passing `path` to file-get yields a
-`/files/undefined/` 404.
+tool's input schema rather than guessing.
 
 ### Adding, removing, renaming files
 

@@ -75,7 +75,12 @@ export function SpaceSelect({
     ].filter((group) => group.items.length > 0);
   }, [channels]);
 
-  const triggerGlyph = channelGlyph(current?.name, { size: 14, space: true });
+  const triggerGlyph = channelGlyph(current?.name, {
+    personal: current?.channelType === "personal",
+    private: current?.channelType === "private",
+    size: 14,
+    space: true,
+  });
 
   return (
     <Combobox<string>
@@ -139,7 +144,12 @@ export function SpaceSelect({
                       title={space.name}
                       className="relative"
                     >
-                      {channelGlyph(space.name, { size: 14, space: true })}
+                      {channelGlyph(space.name, {
+                        personal: space.channelType === "personal",
+                        private: space.channelType === "private",
+                        size: 14,
+                        space: true,
+                      })}
                       {space.name}
                     </ComboboxItem>
                   );

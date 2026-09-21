@@ -1,3 +1,4 @@
+import inspect
 import threading
 from datetime import UTC, datetime
 from typing import Any
@@ -21,13 +22,21 @@ from posthog.api.capture import (
     _normalize_options_and_properties,
     _parse_retry_after,
     _resolve_scalar,
+    capture_ai_internal,
+    capture_batch_ai_internal,
     capture_batch_internal,
     capture_internal,
     prepare_capture_internal_batch,
 )
-from posthog.settings.ingestion import CAPTURE_INTERNAL_URL, CAPTURE_V1_INTERNAL_ENDPOINT
+from posthog.settings.ingestion import (
+    CAPTURE_AI_INTERNAL_URL,
+    CAPTURE_INTERNAL_URL,
+    CAPTURE_V1_AI_INTERNAL_ENDPOINT,
+    CAPTURE_V1_INTERNAL_ENDPOINT,
+)
 
 EXPECTED_URL = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
+EXPECTED_AI_URL = f"{CAPTURE_AI_INTERNAL_URL}{CAPTURE_V1_AI_INTERNAL_ENDPOINT}"
 
 
 class MockResponse:
@@ -120,16 +129,14 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             "options": {"cookieless_mode": True, "disable_skew_correction": True, "product_tour_id": "tour-1"},
             "properties": {"some_prop": "val"},
         }
-        options, sid, wid, props = _normalize_options_and_properties(
-            ev, process_person_profile=True, event_source="test"
-        )
-        assert options["cookieless_mode"] is True
-        assert options["disable_skew_correction"] is True
-        assert options["product_tour_id"] == "tour-1"
-        assert "process_person_profile" not in options
-        assert sid is None
-        assert wid is None
-        assert props == {"some_prop": "val"}
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options["cookieless_mode"] is True
+        assert parts.options["disable_skew_correction"] is True
+        assert parts.options["product_tour_id"] == "tour-1"
+        assert "process_person_profile" not in parts.options
+        assert parts.session_id is None
+        assert parts.window_id is None
+        assert parts.properties == {"some_prop": "val"}
 
     def test_legacy_properties_lifted_and_stripped(self) -> None:
         ev: dict[str, Any] = {
@@ -143,29 +150,27 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
                 "keep_me": 42,
             },
         }
-        options, sid, wid, props = _normalize_options_and_properties(
-            ev, process_person_profile=True, event_source="test"
-        )
-        assert options["cookieless_mode"] is True
-        assert options["disable_skew_correction"] is True
-        assert options["product_tour_id"] == "tour-2"
-        assert sid == "sess-1"
-        assert wid == "win-1"
-        assert "$cookieless_mode" not in props
-        assert "$ignore_sent_at" not in props
-        assert "$product_tour_id" not in props
-        assert "$process_person_profile" not in props
-        assert "$session_id" not in props
-        assert "$window_id" not in props
-        assert props["keep_me"] == 42
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options["cookieless_mode"] is True
+        assert parts.options["disable_skew_correction"] is True
+        assert parts.options["product_tour_id"] == "tour-2"
+        assert parts.session_id == "sess-1"
+        assert parts.window_id == "win-1"
+        assert "$cookieless_mode" not in parts.properties
+        assert "$ignore_sent_at" not in parts.properties
+        assert "$product_tour_id" not in parts.properties
+        assert "$process_person_profile" not in parts.properties
+        assert "$session_id" not in parts.properties
+        assert "$window_id" not in parts.properties
+        assert parts.properties["keep_me"] == 42
 
     def test_legacy_alias_disable_skew_adjustment_stripped(self) -> None:
         ev: dict[str, Any] = {
             "properties": {"disable_skew_adjustment": True, "other": 1},
         }
-        options, _, _, props = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
-        assert options["disable_skew_correction"] is True
-        assert "disable_skew_adjustment" not in props
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options["disable_skew_correction"] is True
+        assert "disable_skew_adjustment" not in parts.properties
 
     def test_explicit_wins_over_legacy_on_conflict(self) -> None:
         ev: dict[str, Any] = {
@@ -173,11 +178,11 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             "session_id": "explicit-sess",
             "properties": {"$cookieless_mode": True, "$session_id": "legacy-sess"},
         }
-        options, sid, _, props = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
-        assert options["cookieless_mode"] is False
-        assert sid == "explicit-sess"
-        assert "$cookieless_mode" not in props
-        assert "$session_id" not in props
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options["cookieless_mode"] is False
+        assert parts.session_id == "explicit-sess"
+        assert "$cookieless_mode" not in parts.properties
+        assert "$session_id" not in parts.properties
 
     def test_unknown_option_key_raises(self) -> None:
         ev: dict[str, Any] = {"options": {"bogus_key": True}, "properties": {}}
@@ -187,23 +192,21 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
 
     def test_process_person_profile_false_forces_option(self) -> None:
         ev: dict[str, Any] = {"properties": {}}
-        options, _, _, _ = _normalize_options_and_properties(ev, process_person_profile=False, event_source="test")
-        assert options["process_person_profile"] is False
+        parts = _normalize_options_and_properties(ev, process_person_profile=False, event_source="test")
+        assert parts.options["process_person_profile"] is False
 
     def test_process_person_profile_true_leaves_unset(self) -> None:
         ev: dict[str, Any] = {"properties": {}}
-        options, _, _, _ = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
-        assert "process_person_profile" not in options
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert "process_person_profile" not in parts.options
 
     def test_no_options_when_all_empty_and_ppp_true(self) -> None:
         ev: dict[str, Any] = {"properties": {"keep": 1}}
-        options, sid, wid, props = _normalize_options_and_properties(
-            ev, process_person_profile=True, event_source="test"
-        )
-        assert options == {}
-        assert sid is None
-        assert wid is None
-        assert props == {"keep": 1}
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options == {}
+        assert parts.session_id is None
+        assert parts.window_id is None
+        assert parts.properties == {"keep": 1}
 
     def test_caller_input_not_mutated(self) -> None:
         original_props = {"$session_id": "s1", "keep": 1}
@@ -234,9 +237,9 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             "properties": {},
         }
         before = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="ppp_test", field="process_person_profile")._value.get()
-        options, _, _, _ = _normalize_options_and_properties(ev, process_person_profile=False, event_source="ppp_test")
+        parts = _normalize_options_and_properties(ev, process_person_profile=False, event_source="ppp_test")
         after = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="ppp_test", field="process_person_profile")._value.get()
-        assert options["process_person_profile"] is False
+        assert parts.options["process_person_profile"] is False
         assert after == before + 1
 
 
@@ -1201,6 +1204,53 @@ class TestBatchChunking(SimpleTestCase):
             assert call["json"]["historical_migration"] is True
             assert call["json"]["capture_internal"] is True
 
+    @parameterized.expand(
+        [
+            ("analytics_lane", "$ai_generation", False),
+            ("ai_lane", "$pageview", True),
+        ]
+    )
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_misrouted_event_in_a_later_chunk_stops_the_whole_batch(
+        self,
+        _name: str,
+        misrouted_event_name: str,
+        ai_lane: bool,
+        mock_session_fn: MagicMock,
+    ) -> None:
+        # Without the whole-batch pre-pass the first chunk publishes and the
+        # caller is told the batch failed after 200 events already landed.
+        events = _make_batch(201)
+        if ai_lane:
+            for ev in events[:200]:
+                ev["event"] = "$ai_generation"
+        events[200]["event"] = misrouted_event_name
+        entry_point = capture_batch_ai_internal if ai_lane else capture_batch_internal
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results())])
+
+        with self.assertRaises(CaptureInternalError):
+            entry_point(events=events, token="tok", event_source="mixed_lanes")
+
+        assert spy.calls == [], "a batch that fails validation must not publish any chunk"
+
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_bad_option_key_in_a_later_chunk_stops_the_whole_batch(self, mock_session_fn: MagicMock) -> None:
+        # The routing checks are not the only client-side rejection: an unknown
+        # option key is caught during normalization, which runs per chunk.
+        events = _make_batch(201)
+        events[200]["options"] = {"bogus_key": True}
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results())])
+
+        with self.assertRaises(CaptureInternalError) as ctx:
+            capture_batch_internal(events=events, token="tok", event_source="bad_option")
+
+        assert "unknown option key" in str(ctx.exception)
+        assert spy.calls == [], "a batch that fails validation must not publish any chunk"
+
 
 class TestMergeResults(SimpleTestCase):
     def test_merge_all_success(self) -> None:
@@ -1246,3 +1296,196 @@ class TestMergeResults(SimpleTestCase):
         assert merged.warnings == ["c"]
         assert merged.retried == ["d"]
         assert set(merged.results.keys()) == {"a", "b", "c", "d"}
+
+
+class TestAiLaneGate(SimpleTestCase):
+    """The two lanes are mutually exclusive, and the gate runs before any HTTP call.
+
+    Capture's v1 endpoints each refuse the other lane's traffic, so a misrouted call
+    would come back as a per-event ``misrouted_event`` drop.  Catching it client-side
+    turns that into an error at the call site instead.
+    """
+
+    @parameterized.expand(
+        [
+            ("$ai_generation",),
+            ("$ai_span",),
+            ("$ai_evaluation",),
+            # Prefixed but not a name capture routes to the AI lane. Django gates on
+            # the prefix alone, so this still goes to the AI endpoint -- capture is
+            # the authority on which names it accepts, and reports the rest as
+            # `misrouted_event`.
+            ("$ai_cache_usage",),
+        ]
+    )
+    def test_ai_event_names_rejected_on_the_analytics_lane(self, event_name: str) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch([_make_event(event=event_name)], token="tok", event_source="src")
+        assert "is an AI event" in str(ctx.exception)
+        assert "capture_ai_internal" in str(ctx.exception)
+
+    @parameterized.expand([("$pageview",), ("custom_event",), ("$identify",), ("ai_generation",)])
+    def test_non_ai_event_names_rejected_on_the_ai_lane(self, event_name: str) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch(
+                [_make_event(event=event_name)], token="tok", event_source="src", ai_lane=True
+            )
+        assert "is not an AI event" in str(ctx.exception)
+        assert "capture_internal" in str(ctx.exception)
+
+    def test_ai_event_accepted_on_the_ai_lane(self) -> None:
+        payload, uuids = prepare_capture_internal_batch(
+            [_make_event(event="$ai_generation")], token="tok", event_source="src", ai_lane=True
+        )
+        assert len(uuids) == 1
+        assert payload["batch"][0]["event"] == "$ai_generation"
+
+    def test_non_ai_event_accepted_on_the_analytics_lane(self) -> None:
+        payload, uuids = prepare_capture_internal_batch(
+            [_make_event(event="$pageview")], token="tok", event_source="src"
+        )
+        assert len(uuids) == 1
+        assert payload["batch"][0]["event"] == "$pageview"
+
+    def test_one_misrouted_event_rejects_the_whole_batch(self) -> None:
+        events = [_make_event(event="$ai_generation"), _make_event(event="$pageview", distinct_id="u2")]
+        with self.assertRaises(CaptureInternalError):
+            prepare_capture_internal_batch(events, token="tok", event_source="src", ai_lane=True)
+
+
+class TestCaptureAiInternal(SimpleTestCase):
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_posts_to_the_ai_endpoint(self, mock_session_fn: MagicMock) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+
+        result = capture_ai_internal(
+            token="tok",
+            event_name="$ai_generation",
+            event_source="ai-src",
+            distinct_id="user-1",
+            event_uuid=uid,
+        )
+
+        assert result.succeeded()
+        assert len(spy.calls) == 1
+        assert spy.calls[0]["url"] == EXPECTED_AI_URL, "AI events must not go to the analytics deployment"
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_analytics_capture_still_posts_to_the_analytics_endpoint(self, mock_session_fn: MagicMock) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+
+        capture_internal(token="tok", event_name="$pageview", event_source="src", distinct_id="user-1", event_uuid=uid)
+
+        assert spy.calls[0]["url"] == EXPECTED_URL
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_batch_ai_posts_to_the_ai_endpoint(self, mock_session_fn: MagicMock) -> None:
+        uid1, uid2 = str(uuid4()), str(uuid4())
+        events = [
+            _make_event(event="$ai_generation", event_uuid=uid1),
+            _make_event(event="$ai_span", distinct_id="u2", event_uuid=uid2),
+        ]
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid1, uid2))])
+
+        result = capture_batch_ai_internal(events=events, token="tok", event_source="ai-src")
+
+        assert result.succeeded()
+        assert set(result.ok) == {uid1, uid2}
+        assert spy.calls[0]["url"] == EXPECTED_AI_URL
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_rejects_before_any_http_call(self, mock_session_fn: MagicMock) -> None:
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body={})])
+
+        with self.assertRaises(CaptureInternalError):
+            capture_ai_internal(token="tok", event_name="$pageview", event_source="src", distinct_id="user-1")
+
+        assert spy.calls == [], "a lane mistake must cost no round trip"
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_server_side_misrouted_drop_surfaces_per_event(self, mock_session_fn: MagicMock) -> None:
+        """Django gates on the prefix; capture gates on its own allowlist. A prefixed
+        name capture does not accept comes back as a per-event drop, not an error."""
+        uid = str(uuid4())
+        body = {"results": {uid: {"result": "drop", "details": "misrouted_event"}}}
+        InstallV1Spy(mock_session_fn, [MockResponse(body=body)])
+
+        result = capture_ai_internal(
+            token="tok",
+            event_name="$ai_cache_usage",
+            event_source="ai-src",
+            distinct_id="user-1",
+            event_uuid=uid,
+        )
+
+        assert not result.succeeded()
+        assert result.dropped == [uid]
+        assert result.results[uid]["details"] == "misrouted_event"
+        with self.assertRaises(CaptureInternalError):
+            result.raise_for_status()
+
+
+class TestLaneErrorMessages(SimpleTestCase):
+    """An error must name the entry point the caller actually used, or it sends them
+    looking at the wrong function."""
+
+    def test_analytics_lane_errors_name_capture_internal(self) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch([_make_event()], token="", event_source="src")
+        assert "capture_internal (src)" in str(ctx.exception)
+        assert "capture_ai_internal" not in str(ctx.exception)
+
+    def test_ai_lane_errors_name_capture_ai_internal(self) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch(
+                [_make_event(event="$ai_generation")], token="", event_source="src", ai_lane=True
+            )
+        assert "capture_ai_internal (src)" in str(ctx.exception)
+
+    def test_ai_lane_replay_rejection_names_the_ai_entry_point(self) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch(
+                [_make_event(event="$snapshot")], token="tok", event_source="src", ai_lane=True
+            )
+        assert "capture_ai_internal" in str(ctx.exception)
+        assert "replay event" in str(ctx.exception)
+
+
+class TestLaneIsNotAPublicArgument(SimpleTestCase):
+    """Callers pick a lane by choosing an entry point, never by passing a flag.
+
+    Two ways to reach one lane would let a call site bypass the intended function,
+    and the error messages — which name the entry point — would then misreport it.
+    """
+
+    @parameterized.expand(
+        [
+            ("capture_internal", capture_internal),
+            ("capture_batch_internal", capture_batch_internal),
+            ("capture_ai_internal", capture_ai_internal),
+            ("capture_batch_ai_internal", capture_batch_ai_internal),
+        ]
+    )
+    def test_public_senders_take_no_lane_flag(self, name: str, fn: Any) -> None:
+        params = inspect.signature(fn).parameters
+        assert "ai_lane" not in params, f"{name} must not expose the lane as an argument"
+
+    @parameterized.expand(
+        [
+            ("capture_internal", capture_internal, EXPECTED_URL),
+            ("capture_ai_internal", capture_ai_internal, EXPECTED_AI_URL),
+        ]
+    )
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_each_entry_point_reaches_exactly_one_lane(
+        self, name: str, fn: Any, expected_url: str, mock_session_fn: MagicMock
+    ) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+        event_name = "$ai_generation" if "ai" in name.split("_") else "$pageview"
+
+        fn(token="tok", event_name=event_name, event_source="src", distinct_id="u1", event_uuid=uid)
+
+        assert spy.calls[0]["url"] == expected_url

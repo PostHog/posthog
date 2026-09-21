@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -6,10 +7,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
-import { BillingType } from '~/types'
+import { BillingType, SidePanelTab } from '~/types'
 
+import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 describe('sidepanelTicketsLogic', () => {
@@ -302,13 +306,106 @@ describe('sidepanelTicketsLogic', () => {
         expect(supportLogic.values.pendingViewTicket).toBeNull()
     })
 
-    // The panel already shows free plans the community and upgrade options, and they have no email
-    // channel, so warning them the chat failed would offer support they don't actually get.
+    // A ?ticket= deep link lands before the ticket list loads, so the id has to wait for it
     it.each([
-        ['warns an entitled plan', 'paid', true],
-        ['stays quiet on a free plan', 'free', false],
-    ])('when the widget never loads, %s', async (_case, subscriptionLevel, expectWarning) => {
+        ['opens the linked ticket once tickets load', 't2', 'ticket', 't2'],
+        ['falls back to the list when the linked ticket does not exist', 'gone', 'list', undefined],
+    ])('%s', async (_case, linkedId, expectedView, expectedTicketId) => {
+        ;(posthog as any).conversations.getTickets = jest.fn().mockResolvedValue({
+            results: [
+                { id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+                { id: 't2', status: 'open', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            ],
+        })
+        router.actions.push(urls.myTickets(linkedId))
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.view).toBe(expectedView)
+        expect(logic.values.currentTicket?.id).toBe(expectedTicketId)
+        // Consumed either way, so a later poll can't yank the view
+        expect(logic.values.pendingTicketId).toBeNull()
+    })
+
+    it('opens the ticket a `#panel=support:ticket:` deep link points at', async () => {
+        ;(posthog as any).conversations.getTickets = jest.fn().mockResolvedValue({
+            results: [
+                { id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+                { id: 't2', status: 'open', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            ],
+        })
+        sidePanelStateLogic.mount()
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support, 'ticket:t2')
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.view).toBe('ticket')
+        expect(logic.values.currentTicket?.id).toBe('t2')
+    })
+
+    it('mirrors the open ticket into the panel options and clears them on leaving the thread', async () => {
+        sidePanelStateLogic.mount()
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setCurrentTicket({
+                id: 't1',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-13T00:00:00Z',
+            } as ConversationTicket)
+        }).toFinishAllListeners()
+        expect(sidePanelStateLogic.values.selectedTabOptions).toBe('ticket:t1')
+
+        logic.actions.setView('list')
+        // The hash round-trip re-parses cleared options as '' rather than null; both mean none
+        expect(sidePanelStateLogic.values.selectedTabOptions ?? '').toBe('')
+    })
+
+    it('keeps the URL in sync with the selected ticket on the full-screen scene', async () => {
+        router.actions.push(urls.myTickets())
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setCurrentTicket({
+                id: 't1',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-13T00:00:00Z',
+            } as ConversationTicket)
+        }).toFinishAllListeners()
+        expect(router.values.searchParams['ticket']).toBe('t1')
+
+        router.actions.push(urls.myTickets())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.view).toBe('list')
+    })
+
+    // The panel already shows free plans the community and upgrade options, and they have no email
+    // channel, so warning them the chat failed would offer support they don't actually get. The
+    // unread badge also mounts this logic on every page, so outside a support surface the toast
+    // would interrupt unrelated work (and block clicks under the toast container) for anyone whose
+    // ad blocker keeps the widget from loading.
+    it.each([
+        ['warns an entitled plan on the support panel', 'paid', true, true],
+        ['stays quiet on a free plan', 'free', true, false],
+        ['stays quiet outside support surfaces', 'paid', false, false],
+    ])('when the widget never loads, %s', async (_case, subscriptionLevel, onSupportPanel, expectWarning) => {
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        if (onSupportPanel) {
+            sidePanelStateLogic.mount()
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+        }
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -336,7 +433,7 @@ describe('sidepanelTicketsLogic', () => {
             ([event]) => event === 'support widget load failed'
         )
         expect(loadFailures).toHaveLength(1)
-        expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: expectWarning })
+        expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: subscriptionLevel === 'paid' })
         expect(errorToast).toHaveBeenCalledTimes(expectWarning ? 1 : 0)
         errorToast.mockRestore()
     })
@@ -409,5 +506,85 @@ describe('sidepanelTicketsLogic', () => {
             reason: 'widget_declined',
             message_preview: 'here is the error I get',
         })
+    })
+
+    // ticketsLoading drives a full-list spinner. Polls reuse loadTickets, so only the first
+    // successful fetch may raise it, including a 0-ticket result that would otherwise flash
+    // the spinner over the empty state on every refresh.
+    it('raises ticketsLoading only until the first successful fetch', async () => {
+        let resolveTickets!: (value: { results: ConversationTicket[] }) => void
+        ;(posthog as any).conversations.getTickets = jest.fn().mockReturnValue(
+            new Promise((resolve) => {
+                resolveTickets = resolve
+            })
+        )
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        expect(logic.values.ticketsLoading).toBe(true)
+
+        resolveTickets({ results: [] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.ticketsLoading).toBe(false)
+
+        ;(posthog as any).conversations.getTickets = jest.fn().mockReturnValue(
+            new Promise((resolve) => {
+                resolveTickets = resolve
+            })
+        )
+        logic.actions.loadTickets()
+        expect(logic.values.ticketsLoading).toBe(false)
+
+        resolveTickets({ results: [] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.ticketsLoading).toBe(false)
+    })
+
+    it('does not raise ticketsLoading when tickets are already loaded', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const ticket = {
+            id: 't1',
+            status: 'open',
+            message_count: 1,
+            created_at: '2026-07-13T00:00:00Z',
+        } as ConversationTicket
+        logic.actions.setTickets([ticket])
+
+        let resolveTickets!: (value: { results: ConversationTicket[] }) => void
+        ;(posthog as any).conversations.getTickets = jest.fn().mockReturnValue(
+            new Promise((resolve) => {
+                resolveTickets = resolve
+            })
+        )
+
+        logic.actions.loadTickets()
+        expect(logic.values.ticketsLoading).toBe(false)
+
+        resolveTickets({ results: [ticket] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.ticketsLoading).toBe(false)
+    })
+
+    // TicketsList renders filteredTickets, so a broken selector would show the wrong chats
+    // (or none) once someone picks a status.
+    it.each([
+        ['all', ['t-open', 't-resolved']],
+        ['open', ['t-open']],
+        ['resolved', ['t-resolved']],
+    ] as const)('filters the ticket list to status %s', async (status, expectedIds) => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+        ] as ConversationTicket[])
+        logic.actions.setStatusFilter(status)
+
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(expectedIds)
     })
 })

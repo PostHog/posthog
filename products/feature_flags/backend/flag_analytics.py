@@ -28,18 +28,27 @@ CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
 SDK_LIBRARIES = [
     "posthog-js",
     "posthog-node",
+    "posthog-node-mcp",
+    "posthog-edge",
+    "posthog-convex",
     "posthog-python",
+    "posthog-python-mcp",
     "posthog-php",
     "posthog-ruby",
+    "posthog-rails",
     "posthog-go",
     "posthog-java",
     "posthog-dotnet",
+    "posthog-aspnetcore",
     "posthog-elixir",
     "posthog-rs",
     "posthog-android",
     "posthog-ios",
     "posthog-react-native",
     "posthog-flutter",
+    "posthog-kmp",
+    "posthog-unity",
+    "posthog-server",
     "other",
 ]
 
@@ -244,7 +253,8 @@ def _build_enriched_analytics_query() -> str:
     return f"""
         SELECT team_id, {_enriched_flag_key_expr_sql()} as flag_key
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event = '$feature_view'
+        PREWHERE event IN ('$feature_view', '$feature_interaction')
+        AND timestamp between %(begin)s AND %(end)s
         GROUP BY team_id, flag_key
     """
 

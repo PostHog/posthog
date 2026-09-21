@@ -9,8 +9,8 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.annotations.backend.models import Annotation
 from products.pulse.backend.config import DEFAULT_BRIEF_SETTINGS
 from products.pulse.backend.models import BriefConfig

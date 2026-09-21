@@ -7,7 +7,14 @@ import { FetchOptions, FetchResponse } from '~/common/utils/request'
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
 import { destinationE2eLagMsSummary } from '../utils'
-import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
+import {
+    CDP_TEST_ID,
+    createAddLogFunction,
+    getSensitiveValues,
+    isNativeHogFunction,
+    redactError,
+    redactSensitiveValues,
+} from '../utils'
 import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 
@@ -52,7 +59,10 @@ export class NativeDestinationExecutorService {
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
-        const addLog = createAddLogFunction(result.logs)
+        // Debug logs dump the resolved inputs and request options, which carry integration secrets and
+        // credential headers. The logs reach the test API response and stored function logs.
+        const sensitiveValues = getSensitiveValues(invocation.hogFunction, invocation.state.globals.inputs ?? {})
+        const addLog = createAddLogFunction(result.logs, sensitiveValues)
 
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
@@ -177,11 +187,18 @@ export class NativeDestinationExecutorService {
                         ) {
                             retriesPossible = false
                         }
+                        // Only the copies that get surfaced are masked. The destination's own code
+                        // still receives the raw body below, so it can branch on what came back.
+                        const reportableResponseText = redactSensitiveValues(
+                            fetchResponseText ?? 'unknown',
+                            sensitiveValues
+                        )
+
                         addLog(
                             'warn',
-                            `HTTP request failed with status ${fetchResponse?.status} (${
-                                fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
+                            `HTTP request failed with status ${
+                                fetchResponse?.status
+                            } (${reportableResponseText}). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
                         // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
@@ -189,9 +206,7 @@ export class NativeDestinationExecutorService {
                             throw new FetchError(
                                 `Error executing function on event ${
                                     invocation.state.globals.event.uuid
-                                }: Request failed with status ${fetchResponse?.status} (${
-                                    fetchResponseText ?? 'unknown'
-                                })`
+                                }: Request failed with status ${fetchResponse?.status} (${reportableResponseText})`
                             )
                         }
                     }
@@ -235,6 +250,9 @@ export class NativeDestinationExecutorService {
                 }
             }
         } catch (e) {
+            // A destination's own error can quote a credential. The error reaches the server log, the
+            // test API response and the stored invocation result.
+            e = redactError(e, sensitiveValues)
             if (e instanceof FetchError) {
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry

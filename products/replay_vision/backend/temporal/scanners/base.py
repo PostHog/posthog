@@ -5,8 +5,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from posthog.dataclasses import frozen
+
+from products.replay_vision.backend.temporal.conversation import DEFAULT_MAX_TOOL_ITERATIONS
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
 # `(t 123)` / `(t 123, 456)` / `(t 12, t 34)` citation markers. The prompt asks for one moment per parens, but the
@@ -38,6 +41,13 @@ MIN_SIGNAL_CONFIDENCE = 0.4
 STEP_CORE = "core"
 STEP_SIGNALS = "signals"
 
+# Ceiling on one step's response, thought tokens included, because Gemini counts thinking against the cap.
+# Every response schema is a few hundred tokens of JSON, so this only bounds the tail: a model that thinks
+# its way to the provider default (65k) turns a 5-credit observation into a loss. Tight enough to stop that,
+# loose enough that dynamic thinking on a long video is not cut off, which would bill the thoughts and force
+# a re-prompt that bills them again.
+STEP_MAX_OUTPUT_TOKENS = 16_384
+
 
 class SignalFinding(BaseModel, frozen=True):
     """Optional side-mission finding: a bug, crash, or design flaw the recording itself reveals. See the side-mission prompt block."""
@@ -48,12 +58,12 @@ class SignalFinding(BaseModel, frozen=True):
     start_time: int = Field(
         ge=0,
         description=(
-            "When the issue starts in the recording, in seconds — copy the whole-number `REC_T` value shown in the "
-            "video footer at that moment (`REC_T` is seconds since the recording started)."
+            "When the issue starts, in whole seconds of video time counted from the start of the video file — the "
+            "same scale you cite moments in, not the footer's `REC_T`."
         ),
     )
     end_time: int = Field(
-        ge=0, description="When the issue ends in the recording, in seconds — the `REC_T` value from the footer."
+        ge=0, description="When the issue ends, in whole seconds of video time — the same scale as `start_time`."
     )
     url: str = Field(
         description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
@@ -64,7 +74,7 @@ class SignalFinding(BaseModel, frozen=True):
             "reveals the issue — the visual detail the events don't capture (e.g. a spinner overlapping a button, an "
             "error toast that flashed off-screen, a layout shift, visible hesitation). Then say what happened, where "
             "in the product, and the user impact. Quote exact on-screen labels and button text when visible. Plain "
-            "prose with no timestamp references — no `(t …)` markers, no `REC_T`, no 'at N seconds', no event IDs; "
+            "prose with no timestamp references — no `(t …)` markers, no timestamps, no 'at N seconds', no event IDs; "
             "the timing lives in `start_time`/`end_time`."
         )
     )
@@ -94,13 +104,19 @@ class SignalsResponse(BaseModel, frozen=True):
         ),
     )
 
+    @model_validator(mode="after")
+    def _validate_time_ranges(self) -> "SignalsResponse":
+        if any(signal.end_time < signal.start_time for signal in self.signals):
+            raise ValueError("end_time must be greater than or equal to start_time")
+        return self
+
 
 @dataclass(frozen=True)
 class MissionStep:
     """One structured turn in a scanner's conversation: an instruction, the schema the model must answer with,
     and how its result feeds the final output.
 
-    `required` steps abort the scan when they can't be satisfied; non-required steps (facets, signals) are
+    `required` steps abort the scan when they can't be satisfied; non-required steps (signals) are
     best-effort and simply contribute nothing on failure. `validate` runs an extra semantic check on the parsed
     response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
     """
@@ -110,6 +126,7 @@ class MissionStep:
     response_model: type[BaseModel]
     required: bool = True
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
+    max_output_tokens: int = STEP_MAX_OUTPUT_TOKENS
 
 
 _CONFIDENCE_DESCRIPTION = (
@@ -123,22 +140,71 @@ def confidence_field() -> Any:
     return Field(ge=0, le=1, description=_CONFIDENCE_DESCRIPTION)
 
 
+_NOTABILITY_REASON_DESCRIPTION = (
+    "One sentence a product team would read to decide whether to watch this session, naming the concrete moment "
+    "that makes it worth their time. Write it even when nothing stands out, saying so plainly."
+)
+_NOTABILITY_DESCRIPTION = (
+    "How much a product team would benefit from watching this session, 0.0 to 1.0 with one decimal. "
+    "Apply the notability calibration rules from the system prompt."
+)
+
+
+def notability_reason_field() -> Any:
+    """`notability_reason` field for LLM-response schemas. Declared before `notability` so the model names the
+    moment before scoring it.
+
+    Optional on purpose: this rides every scan in the product, and a required field would turn a model that
+    skipped it into a failed, already-paid observation. Readers fall back when it is absent.
+    """
+    return Field(default=None, description=_NOTABILITY_REASON_DESCRIPTION)
+
+
+def notability_field() -> Any:
+    """`notability` field for LLM-response schemas.
+
+    Judges the session on its own merits — friction, failure, confusion, surprise — rather than on the scanner's
+    question, so a scan whose own answer is a non-event can still flag a session worth watching. Optional for the
+    same reason as `notability_reason`.
+    """
+    return Field(default=None, ge=0, le=1, description=_NOTABILITY_DESCRIPTION)
+
+
+@frozen
+class EmbeddingDocument:
+    """One embedding row's identity and text: `rendering` names which field of the output it came from."""
+
+    rendering: str
+    text: str
+
+
 class BaseScannerOutput(BaseModel, frozen=True):
     """Final output shape emitted as `$recording_observed` event properties (flattened with `scanner_output_*` keys)."""
 
     confidence: float = confidence_field()
+    # Optional because observations scanned before notability shipped have neither field; readers must treat
+    # `None` as "never judged" rather than "not notable", and fall back to their own heuristics. Uses the
+    # shared field so direct construction is bound to 0-1, not just the LLM-response step schemas.
+    notability: float | None = notability_field()
+    notability_reason: str | None = notability_reason_field()
 
     def to_event_properties(self) -> dict[str, Any]:
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""
         return {f"scanner_output_{k}": v for k, v in self.model_dump(mode="json", exclude={"scanner_type"}).items()}
+
+    def embedding_document(self) -> "EmbeddingDocument | None":
+        """What gets embedded for semantic search, or None when there is nothing to embed. Most scanner types
+        explain themselves in `reasoning`; the summarizer overrides this."""
+        reasoning = getattr(self, "reasoning", "")
+        return EmbeddingDocument(rendering="reasoning", text=reasoning) if reasoning and reasoning.strip() else None
 
 
 class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `core_step_template`, and `llm_response_schema`.
 
     A scan is a multi-turn conversation over the cached video: a shared `preamble` (sent/cached once) followed by
-    the ordered `mission_steps` — one structured turn each. Most scanners have a single `core` step; the summarizer
-    splits into `summary` then `facets`; the signals side mission, when enabled, is always the final turn.
+    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step; the signals
+    side mission, when enabled, is always the final turn.
     """
 
     prompt: str
@@ -146,7 +212,7 @@ class BaseScanner(BaseModel, frozen=True):
 
     # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
     preamble_template: ClassVar[str] = "preamble.jinja"
-    # Per-scanner-type instruction for the `core` step. Subclasses set this (the summarizer overrides `core_steps`).
+    # Per-scanner-type instruction for the `core` step. Subclasses set this.
     core_step_template: ClassVar[str] = ""
     # Names of free-text output fields that may contain `(t <sec>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
@@ -167,24 +233,31 @@ class BaseScanner(BaseModel, frozen=True):
         *,
         team_name: str,
         session_metadata: dict[str, Any] | None = None,
+        session_identity: dict[str, Any] | None = None,
         navigation: list[dict[str, Any]] | None = None,
         navigation_dropped: int = 0,
         events_truncated: bool = False,
         product_context: str = "",
         event_descriptions: dict[str, str] | None = None,
+        tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
+        network_state: Literal["available", "clean", "none"] = "none",
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
-        session metadata. `navigation` takes dumped `NavigationEntry` dicts (plain dicts keep this module free of a
-        `types.py` import, which would close an import cycle)."""
+        session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
+        this module free of a `types.py` import, which would close an import cycle)."""
         return render_prompt(
             self.preamble_template,
             team_name=team_name,
             session_metadata=session_metadata or {},
+            session_identity=session_identity or None,
             navigation=navigation or [],
             navigation_dropped=navigation_dropped,
             events_truncated=events_truncated,
             product_context=product_context,
             event_descriptions=event_descriptions or {},
+            tool_budget=tool_budget,
+            default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
+            network_state=network_state,
         )
 
     def core_steps(self) -> list[MissionStep]:

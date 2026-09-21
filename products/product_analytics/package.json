@@ -1,24 +1,39 @@
 {
     "name": "@posthog/products-product-analytics",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
-        "@testing-library/react": "*"
+        "@testing-library/react": "*",
+        "kea-test-utils": "catalog:",
+        "timekeeper": "*"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
+        "@posthog/quill-components": "workspace:*",
+        "@types/d3": "*",
         "@types/react": "*",
+        "@types/react-simple-maps": "*",
+        "@xyflow/react": "*",
         "clsx": "*",
+        "d3": "*",
+        "elkjs": "*",
         "fuse.js": "*",
-        "react": "*"
+        "natural-orderby": "*",
+        "react": "*",
+        "react-simple-maps": "*",
+        "react-toastify": "*",
+        "use-resize-observer": "*"
     }
 }

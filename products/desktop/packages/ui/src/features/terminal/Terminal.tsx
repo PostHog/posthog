@@ -4,11 +4,6 @@ import { Box } from "@radix-ui/themes";
 import "@xterm/xterm/css/xterm.css";
 
 import { resolveTerminalFontFamily } from "@posthog/core/terminal/resolveTerminalFontFamily";
-import { useService } from "@posthog/di/react";
-import {
-  SHELL_CLIENT,
-  type ShellClient,
-} from "@posthog/ui/features/terminal/shellClient";
 import { terminalManager } from "@posthog/ui/features/terminal/TerminalManager";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -19,6 +14,9 @@ export interface TerminalProps {
   initialState?: string;
   taskId?: string;
   command?: string;
+  additionalEnv?: Record<string, string>;
+  unsetEnv?: string[];
+  sensitive?: boolean;
   onReady?: () => void;
   onExit?: (exitCode?: number) => void;
 }
@@ -30,11 +28,13 @@ export function Terminal({
   initialState,
   taskId,
   command,
+  additionalEnv,
+  unsetEnv,
+  sensitive,
   onReady,
   onExit,
 }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
-  const shellClient = useService<ShellClient>(SHELL_CLIENT);
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const terminalFont = useSettingsStore((s) => s.terminalFont);
   const terminalCustomFontFamily = useSettingsStore(
@@ -42,19 +42,31 @@ export function Terminal({
   );
   const terminalGpuRendering = useSettingsStore((s) => s.terminalGpuRendering);
 
-  // Create instance (idempotent)
+  const createOptions = useRef({
+    persistenceKey,
+    cwd,
+    initialState,
+    taskId,
+    command,
+    additionalEnv,
+    unsetEnv,
+    sensitive,
+  });
+  createOptions.current = {
+    persistenceKey,
+    cwd,
+    initialState,
+    taskId,
+    command,
+    additionalEnv,
+    unsetEnv,
+    sensitive,
+  };
+
   useEffect(() => {
-    if (!terminalManager.has(sessionId)) {
-      terminalManager.create({
-        sessionId,
-        persistenceKey,
-        cwd,
-        initialState,
-        taskId,
-        command,
-      });
-    }
-  }, [sessionId, persistenceKey, cwd, initialState, taskId, command]);
+    if (terminalManager.has(sessionId)) return;
+    terminalManager.create({ sessionId, ...createOptions.current });
+  }, [sessionId]);
 
   // Attach/detach from DOM
   useEffect(() => {
@@ -85,21 +97,6 @@ export function Terminal({
     terminalManager.setUseWebgl(terminalGpuRendering);
   }, [terminalGpuRendering]);
 
-  // Subscribe to shell data + exit events via the host shell client.
-  useEffect(() => {
-    if (!sessionId) return;
-    const dataSub = shellClient.onData(sessionId, (event) => {
-      terminalManager.writeData(event.sessionId, event.data);
-    });
-    const exitSub = shellClient.onExit(sessionId, (event) => {
-      terminalManager.handleExit(event.sessionId, event.exitCode ?? undefined);
-    });
-    return () => {
-      dataSub.unsubscribe();
-      exitSub.unsubscribe();
-    };
-  }, [sessionId, shellClient]);
-
   // Event callbacks
   useEffect(() => {
     const offReady = terminalManager.on("ready", ({ sessionId: id }) => {
@@ -129,7 +126,10 @@ export function Terminal({
   }, [sessionId]);
 
   return (
-    <Box onMouseDown={handleMouseDown} className="relative h-full p-3">
+    <Box
+      onMouseDown={handleMouseDown}
+      className={`relative h-full p-3 ${sensitive ? "ph-no-capture" : ""}`}
+    >
       <div ref={terminalRef} className="h-full w-full" />
       <style>
         {`

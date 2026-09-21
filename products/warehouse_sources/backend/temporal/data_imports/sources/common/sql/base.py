@@ -58,6 +58,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
 
     supports_column_selection: bool = True
     supports_row_filters: bool = True
+    detects_primary_keys: bool = True
 
     @property
     @abstractmethod
@@ -116,7 +117,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         impl = self.get_implementation
-        with impl.connect(config) as conn:
+        with impl.connect(config, team_id=team_id) as conn:
             columns_by_table = impl.get_columns(conn, config, names)
             if not columns_by_table:
                 return []
@@ -200,17 +201,17 @@ def reconcile_source_schema_metadata(
         existing_config["schema_metadata"] = new_metadata
 
         available_names = extract_available_column_names(new_metadata)
-        pruned_enabled_columns, removed_columns = prune_enabled_columns(row.enabled_columns, available_names)
+        pruned = prune_enabled_columns(row.enabled_columns, available_names)
         update_fields = ["sync_type_config", "updated_at"]
-        if removed_columns:
+        if pruned.removed:
             log.info(
                 "sql_source.reconcile_schema_metadata.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(row.id),
                 schema_name=row.name,
-                removed_columns=removed_columns,
+                removed_columns=pruned.removed,
             )
-            row.enabled_columns = pruned_enabled_columns
+            row.enabled_columns = pruned.kept
             update_fields.append("enabled_columns")
 
         row.sync_type_config = existing_config

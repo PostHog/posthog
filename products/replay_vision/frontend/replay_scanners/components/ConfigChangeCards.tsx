@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconExpand45, IconPencil, IconRevert } from '@posthog/icons'
+import { IconPencil, IconRevert } from '@posthog/icons'
 import {
-    LemonButton,
     LemonCard,
     LemonInput,
-    LemonModal,
     LemonSegmentedButton,
     LemonTag,
     LemonTagType,
@@ -14,7 +12,6 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { BooleanTag } from '../../components/BooleanTag'
@@ -32,109 +29,8 @@ import {
     parseConfigChanges,
     ScannerConfigChange,
 } from './configChanges'
+import { PromptDiff } from './PromptDiff'
 import { SUMMARIZER_LENGTH_OPTIONS } from './ScannerTypeConfigEditor'
-
-function SuggestionDiffPanes({
-    original,
-    modified,
-    onChange,
-    editable,
-    isDarkModeOn,
-    editorHeight,
-    onExpand,
-}: {
-    original: string | null
-    modified: string | null
-    onChange?: (value: string) => void
-    editable?: boolean
-    isDarkModeOn: boolean
-    editorHeight?: string
-    onExpand?: () => void
-}): JSX.Element {
-    return (
-        <div className="@container border rounded overflow-hidden">
-            <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
-                {/* Shown exactly when Monaco renders side by side: its inline flip is on editor width (renderSideBySideInlineBreakpoint), not the viewport. */}
-                <div className="hidden @[480px]:block flex-1 px-3 py-1.5 border-r">Current prompt</div>
-                <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
-                    <span>{editable ? 'New prompt (edit directly)' : 'New prompt'}</span>
-                    {onExpand && (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconExpand45 />}
-                            tooltip="Expand diff to full screen"
-                            onClick={onExpand}
-                            data-attr="vision-calibration-expand-diff"
-                        />
-                    )}
-                </div>
-            </div>
-            <MonacoDiffEditor
-                original={original}
-                modified={modified}
-                onChange={onChange ? (value) => onChange(value) : undefined}
-                modifiedEditable={editable}
-                language="markdown"
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
-                height={editorHeight}
-                options={{
-                    renderSideBySide: true,
-                    useInlineViewWhenSpaceIsLimited: true,
-                    renderSideBySideInlineBreakpoint: 480,
-                    // Keep both panes at exactly half width on resize, in lockstep with the header row.
-                    enableSplitViewResizing: false,
-                    splitViewDefaultRatio: 0.5,
-                    automaticLayout: true,
-                    wordWrap: 'on',
-                    lineNumbers: 'off',
-                    folding: false,
-                    renderOverviewRuler: false,
-                    scrollBeyondLastLine: false,
-                    diffAlgorithm: 'advanced',
-                }}
-            />
-        </div>
-    )
-}
-
-/** The prompt diff, expandable to full screen. Both instances share one onChange. */
-function PromptDiff({
-    original,
-    modified,
-    onChange,
-    editable,
-    isDarkModeOn,
-}: {
-    original: string | null
-    modified: string | null
-    onChange?: (value: string) => void
-    editable?: boolean
-    isDarkModeOn: boolean
-}): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(false)
-    return (
-        <>
-            <SuggestionDiffPanes
-                original={original}
-                modified={modified}
-                onChange={onChange}
-                editable={editable}
-                isDarkModeOn={isDarkModeOn}
-                onExpand={() => setIsExpanded(true)}
-            />
-            <LemonModal isOpen={isExpanded} onClose={() => setIsExpanded(false)} title="Recommendation" fullScreen>
-                <SuggestionDiffPanes
-                    original={original}
-                    modified={modified}
-                    onChange={onChange}
-                    editable={editable}
-                    isDarkModeOn={isDarkModeOn}
-                    editorHeight="calc(100vh - 16rem)"
-                />
-            </LemonModal>
-        </>
-    )
-}
 
 const TAG_OP_TAG_TYPE: Record<ScannerConfigChange['op'], LemonTagType> = {
     add: 'success',
@@ -197,7 +93,7 @@ function EditableTags({
                 onChange={setDraft}
                 onPressEnter={addDraft}
                 onBlur={addDraft}
-                placeholder="Add tag…"
+                placeholder="Add category…"
                 className="w-24 [&_input]:placeholder:text-tertiary [&_input]:placeholder:text-xs"
             />
         </div>
@@ -282,7 +178,8 @@ function FieldValueEditor({
     return <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={2} />
 }
 
-function FieldCurrentValue({ kind, value }: { kind: FieldEditorKind; value: unknown }): JSX.Element {
+/** A config field's value, read-only. Shared with the config-versions history so both read the same. */
+export function FieldCurrentValue({ kind, value }: { kind: FieldEditorKind; value: unknown }): JSX.Element {
     if (kind === 'tags') {
         const tags = (value as string[]) ?? []
         return tags.length ? (

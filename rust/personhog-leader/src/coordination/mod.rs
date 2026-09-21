@@ -11,8 +11,11 @@ use tracing::{error, info};
 use crate::cache::{DirtyIndex, PartitionedCache};
 use crate::emitted::EmittedVersions;
 use crate::fence::{drop_partition_fences, rebuild_partition_fences, FenceMap};
+#[cfg(test)]
+use crate::fencing::FencedProducerConfig;
 use crate::fencing::{heal_fence, FenceGuard, FencedChangelogProducers, HealOutcome};
 use crate::inflight::InflightTracker;
+use crate::pg::PgFallback;
 use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
 
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -53,23 +56,18 @@ pub struct LeaderHandoffHandler {
     /// The in-process fence copies, rebuilt from the live marks at every
     /// ownership boundary (see the fence module for the durability model).
     fences: FenceMap,
-    /// Pool for the takeover scan — the cache-miss fallback pool. Without
-    /// it (dev fixtures) fences are not rebuilt on takeover and only
-    /// FencePerson calls fill the map.
-    fence_scan_pool: Option<sqlx::PgPool>,
+    /// The takeover scan's source. Without it (dev fixtures) fences are
+    /// not rebuilt on takeover and only FencePerson calls fill the map.
+    fence_scan: Option<PgFallback>,
     num_partitions: u32,
     pools: Arc<WarmClientPools>,
-    /// Present when broker-enforced epoch fencing is on: acquiring a
-    /// partition initializes its transactional producer (fencing every
-    /// predecessor), and releasing it drops the producer.
-    fenced: Option<Arc<FencedChangelogProducers>>,
-    /// Present when lease-gated authority is on. Acquiring a fence takes
-    /// the partition's epoch away from whoever holds it, so a pod whose
-    /// lease may have lapsed must not do it: the broker grants the epoch
-    /// to whoever initializes last, not to whoever the protocol says
-    /// owns the partition, so an unchecked acquire lets a zombie waking
-    /// inside its lease window fence the legitimate owner.
-    authority: Option<Arc<AuthorityClock>>,
+    /// Acquiring a partition initializes its transactional producer,
+    /// fencing every predecessor; releasing it drops the producer.
+    fenced: Arc<FencedChangelogProducers>,
+    /// The broker grants the epoch to whoever initializes last, so a pod
+    /// whose lease may have lapsed must not acquire: it would fence the
+    /// partition's real owner.
+    authority: Arc<AuthorityClock>,
     /// Shared with the service, so that giving up a partition also gives
     /// up the version floors held for its persons.
     emitted_versions: Arc<EmittedVersions>,
@@ -92,11 +90,11 @@ impl LeaderHandoffHandler {
         dirty_index: Arc<DirtyIndex>,
         warming: WarmingConfig,
         fences: FenceMap,
-        fence_scan_pool: Option<sqlx::PgPool>,
+        fence_scan: Option<PgFallback>,
         num_partitions: u32,
         pools: Arc<WarmClientPools>,
-        fenced: Option<Arc<FencedChangelogProducers>>,
-        authority: Option<Arc<AuthorityClock>>,
+        fenced: Arc<FencedChangelogProducers>,
+        authority: Arc<AuthorityClock>,
         emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
         Self {
@@ -105,7 +103,7 @@ impl LeaderHandoffHandler {
             dirty_index,
             warming,
             fences,
-            fence_scan_pool,
+            fence_scan,
             num_partitions,
             pools,
             fenced,
@@ -145,9 +143,7 @@ impl LeaderHandoffHandler {
         let Err(e) = self.check_authority(partition, phase) else {
             return Ok(());
         };
-        if let Some(fenced) = &self.fenced {
-            fenced.release(partition);
-        }
+        self.fenced.release(partition);
         counter!(
             "personhog_leader_authority_lapsed_mid_acquire_total",
             "phase" => phase
@@ -161,9 +157,7 @@ impl LeaderHandoffHandler {
     }
 
     fn check_authority(&self, partition: u32, phase: &'static str) -> Result<()> {
-        let Some(authority) = &self.authority else {
-            return Ok(());
-        };
+        let authority = &self.authority;
         if authority.is_valid() {
             return Ok(());
         }
@@ -198,6 +192,18 @@ impl LeaderHandoffHandler {
 
 #[async_trait]
 impl HandoffHandler for LeaderHandoffHandler {
+    async fn prepare_acquire(&self, partition: u32) {
+        // Spawned: the convergence must not wait on a broker connect,
+        // and `preconnect` is single-flight per partition, so repeated
+        // convergences through the drain window cost one spawn each and
+        // one client total. A parked connection the acquire never
+        // consumes is discarded on release or by the periodic sweep —
+        // a cancelled inbound handoff leaves no convergence behind, so
+        // the sweep is the only path that reaches its leftovers.
+        let fenced = Arc::clone(&self.fenced);
+        tokio::spawn(async move { fenced.preconnect(partition).await });
+    }
+
     async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
         info!(partition, "fencing writes and draining inflight handlers");
         // Fence before waiting: fencing only after the wait would leave a
@@ -215,20 +221,16 @@ impl HandoffHandler for LeaderHandoffHandler {
         self.inflight
             .wait_until_empty(partition, DRAIN_POLL_INTERVAL)
             .await;
-        // A request cancelled mid-produce takes its handler — and the
-        // count above — with it, leaving the record it enqueued in a
-        // window nobody is waiting on. Committing that window here lands
-        // the cancelled write below the cutoff the successor is about to
-        // read, rather than leaving it to be aborted by whichever side
-        // acts first.
+        // The count above covers every write through its outcome, a
+        // cancelled request's included: its commit task holds the slot.
+        // What can still be open here is a window nobody waits on, one a
+        // failed send poisoned and the committer has yet to abort.
         //
         // Best-effort by construction, and the drain proceeds either way:
         // the successor's `init_transactions` aborts whatever is left,
         // exactly as it did before this wait existed — pinned by
         // `a_successors_init_aborts_the_predecessors_open_window`.
-        if let Some(fenced) = &self.fenced {
-            fenced.settle(partition).await;
-        }
+        self.fenced.settle(partition).await;
         info!(partition, "inflight drained; writes fenced");
         Ok(())
     }
@@ -242,9 +244,9 @@ impl HandoffHandler for LeaderHandoffHandler {
         // (now current) owner, so the two sources cover every mark; a
         // fence installed for a partition that is not yet serving is
         // harmless.
-        if let Some(pool) = &self.fence_scan_pool {
+        if let Some(fallback) = &self.fence_scan {
             let installed =
-                rebuild_partition_fences(pool, &self.fences, partition, self.num_partitions)
+                rebuild_partition_fences(fallback, &self.fences, partition, self.num_partitions)
                     .await
                     .map_err(|e| personhog_coordination::error::Error::HandoffFailed {
                         partition,
@@ -273,22 +275,15 @@ impl HandoffHandler for LeaderHandoffHandler {
         // records it can never read. Re-acquiring aborts that window,
         // which is what lets the read complete; the admitted writes fail
         // as fenced and their versions stay spent.
-        let fence_guard = if let Some(fenced) = &self.fenced {
-            fenced
-                .acquire(partition)
-                .await
-                .map_err(Error::invalid_state)?;
-            self.check_authority_after_acquire(partition, "warm")?;
-            info!(partition, "changelog fence acquired");
-            // From here the fence is held for a warm that has not
-            // happened yet. If the warm fails — or never returns,
-            // because the attempt was torn down by a lost lease — the
-            // guard gives the epoch back rather than leaving this
-            // process holding a partition it does not own.
-            Some(FenceGuard::new(Arc::clone(fenced), partition, "warm"))
-        } else {
-            None
-        };
+        self.fenced
+            .acquire(partition)
+            .await
+            .map_err(Error::invalid_state)?;
+        self.check_authority_after_acquire(partition, "warm")?;
+        info!(partition, "changelog fence acquired");
+        // The guard gives the epoch back if the warm fails or never
+        // returns, rather than holding a partition this pod lost.
+        let fence_guard = FenceGuard::new(Arc::clone(&self.fenced), partition, "warm");
         warm_from_kafka(
             &self.warming,
             &self.pools,
@@ -301,10 +296,8 @@ impl HandoffHandler for LeaderHandoffHandler {
         // the partition (a drain whose handoff never completed); taking
         // ownership through a fresh warm re-admits writes.
         self.inflight.unfence(partition);
-        if let Some(guard) = fence_guard {
-            guard.keep();
-            self.freshly_fenced.insert(partition);
-        }
+        fence_guard.keep();
+        self.freshly_fenced.insert(partition);
         info!(partition, "partition warmed");
         Ok(())
     }
@@ -323,10 +316,7 @@ impl HandoffHandler for LeaderHandoffHandler {
     /// applied work, so a repairing pod's budgets reset like any other
     /// progress.
     async fn verify_serving(&self, partition: u32) -> Result<bool> {
-        let Some(fenced) = &self.fenced else {
-            return Ok(false);
-        };
-        match heal_fence(fenced, &self.inflight, self.authority.as_deref(), partition).await {
+        match heal_fence(&self.fenced, &self.inflight, &self.authority, partition).await {
             Ok(HealOutcome::Healed) => {
                 // The epoch just moved. Mark it like every other
                 // acquisition site, so the resume step of this same
@@ -339,11 +329,13 @@ impl HandoffHandler for LeaderHandoffHandler {
         }
     }
 
+    // CONSTRAINT: synchronous local work only. The shutdown fence's
+    // certified teardown sum (`validate_lease_timescales`) counts these
+    // releases as free; making this await an external system requires
+    // growing SHUTDOWN_FENCE_BOUND.
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
-        if let Some(fenced) = &self.fenced {
-            fenced.release(partition);
-        }
+        self.fenced.release(partition);
         self.inflight.unfence(partition);
         self.cache.drop_partition(partition);
         // The new owner's warming rebuilds its own marks; stale marks here
@@ -384,21 +376,15 @@ impl HandoffHandler for LeaderHandoffHandler {
             self.inflight.unfence(partition);
             return Ok(());
         }
-        if let Some(fenced) = &self.fenced {
-            fenced
-                .acquire(partition)
-                .await
-                .map_err(Error::invalid_state)?;
-            self.check_authority_after_acquire(partition, "resume")?;
-            // Mark it the same way warming does. A convergence torn down
-            // between here and the point `apply` records the resume
-            // retries with the partition still listed as fenced, and
-            // without this mark that retry would acquire again — this
-            // time bumping the epoch out from under the writes the line
-            // below is about to admit.
-            self.freshly_fenced.insert(partition);
-            info!(partition, "changelog fence re-acquired on resume");
-        }
+        self.fenced
+            .acquire(partition)
+            .await
+            .map_err(Error::invalid_state)?;
+        self.check_authority_after_acquire(partition, "resume")?;
+        // Marked like warming: without it a retried resume would acquire
+        // again, bumping the epoch out from under the writes below.
+        self.freshly_fenced.insert(partition);
+        info!(partition, "changelog fence re-acquired on resume");
         self.inflight.unfence(partition);
         Ok(())
     }
@@ -438,6 +424,7 @@ mod tests {
             kafka_producer_retries: None,
         };
         let pools = Arc::new(WarmClientPools::new(&kafka, "test", "personhog-writer"));
+        let fencing_kafka = kafka.clone();
         LeaderHandoffHandler::new(
             Arc::new(PartitionedCache::new(1 << 20)),
             Arc::new(InflightTracker::new()),
@@ -461,10 +448,29 @@ mod tests {
             None,
             4,
             pools,
-            None,
-            None,
+            // Lazily built: these tests never acquire a partition, so
+            // nothing here reaches a broker.
+            Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
+                kafka: fencing_kafka,
+                topic: "personhog_updates".to_string(),
+                init_timeout: Duration::from_secs(1),
+                commit_timeout: Duration::from_secs(1),
+                broker_txn_timeout: Duration::from_secs(10),
+                window: Duration::from_millis(5),
+                window_max_writes: 32,
+                settle_budget: Duration::from_secs(1),
+                lanes: 1,
+            })),
+            test_authority(),
             Arc::new(EmittedVersions::new(1_000_000)),
         )
+    }
+
+    /// A claim that stays valid for the whole of any test.
+    fn test_authority() -> Arc<AuthorityClock> {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(3600), std::time::Instant::now());
+        clock
     }
 
     #[tokio::test]

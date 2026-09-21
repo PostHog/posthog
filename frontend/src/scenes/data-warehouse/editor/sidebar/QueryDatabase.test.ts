@@ -11,6 +11,15 @@ describe('QueryDatabase', () => {
             ['a column with no name inserts nothing', { type: 'column' }, null],
             ['a row that is not a column inserts nothing', { type: 'table', columnName: 'id' }, null],
             ['a row with no record inserts nothing', undefined, null],
+            [
+                'a property definition inserts its fully escaped HogQL expression',
+                {
+                    type: 'column',
+                    columnName: 'properties.checkout.step',
+                    hogqlExpression: 'properties."checkout.step"',
+                },
+                'properties."checkout.step"',
+            ],
         ])('%s', (_name, record, expected) => {
             expect(getColumnInsertText(record)).toEqual(expected)
         })

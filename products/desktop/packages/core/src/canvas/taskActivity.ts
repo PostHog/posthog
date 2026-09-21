@@ -4,6 +4,7 @@ import type {
   UserBasic,
 } from "@posthog/shared/domain-types";
 import type { CommentTarget } from "../comments/anchors";
+import { channelDisplayName } from "./channelName";
 
 /**
  * The Activity feed — tasks the current user is involved in (created, mentioned
@@ -31,6 +32,18 @@ export interface TaskActivityItem {
   isUnread: boolean;
 }
 
+/**
+ * The canvas a row is about, or null for a task row. A canvas comment row
+ * carries the canvas's name and space but the generating task's id, so links
+ * and actions built from `taskId` would name a task that may live in another
+ * space, or one the reader can't open.
+ */
+export function activityCanvasId(item: TaskActivityItem): string | null {
+  return item.commentTarget?.scope === "desktop_canvas"
+    ? item.commentTarget.itemId
+    : null;
+}
+
 /** Map activity DTOs (already newest-first from the backend) to feed items. */
 export function toTaskActivityItems(
   activity: readonly TaskActivity[],
@@ -40,7 +53,7 @@ export function toTaskActivityItems(
     taskId: row.task_id,
     taskTitle: row.task_title || "Untitled task",
     channelId: row.channel_id ?? null,
-    channelName: row.channel_name ?? null,
+    channelName: channelDisplayName(row.channel_name ?? null),
     activityAt: row.activity_at,
     activityKind: row.activity_kind,
     snippet: row.snippet,

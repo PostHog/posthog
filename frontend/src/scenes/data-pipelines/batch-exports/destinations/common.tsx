@@ -1,6 +1,4 @@
-import { type ReactNode } from 'react'
-
-import { LemonBanner, LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -205,6 +203,15 @@ const JSONLINES_COMPRESSION_OPTIONS = [
     { value: null, label: 'No compression' },
 ]
 
+// Mirrors COMPRESSION_EXTENSIONS in the backend's destinations/constants.py.
+const COMPRESSION_EXTENSIONS: Record<string, string> = {
+    gzip: 'gz',
+    snappy: 'sz',
+    brotli: 'br',
+    zstd: 'zst',
+    lz4: 'lz4',
+}
+
 export function isSelectedCompressionOptionValid(fileFormat: string | undefined, value: string | null): boolean {
     if (fileFormat === 'Parquet') {
         return PARQUET_COMPRESSION_OPTIONS.some((option) => option.value === value)
@@ -248,6 +255,67 @@ export function FileFormatField(): JSX.Element {
     )
 }
 
+interface ParquetExtensionFieldProps {
+    isNew: boolean
+    fileFormat: string | undefined
+    compression: string | null | undefined
+    savedConfig?: Record<string, any> | null
+}
+
+// The setting only changes a name that carries a codec, so it needs compressed Parquet on both
+// sides: the form values say what the export is about to write, `savedConfig` what it has been
+// writing. Without a codec the name is `.parquet` either way and the switch would do nothing.
+//
+// Reading the saved side also stops the field disappearing the moment the user switches it on.
+export function shouldShowParquetExtensionField({
+    isNew,
+    fileFormat,
+    compression,
+    savedConfig,
+}: ParquetExtensionFieldProps): boolean {
+    if (isNew || fileFormat !== 'Parquet' || !compression || !COMPRESSION_EXTENSIONS[compression]) {
+        return false
+    }
+    const wroteCompressedParquet = savedConfig?.file_format === 'Parquet' && !!savedConfig.compression
+    return wroteCompressedParquet && savedConfig?.legacy_parquet_extension !== false
+}
+
+export function ParquetExtensionField(props: ParquetExtensionFieldProps): JSX.Element | null {
+    if (!shouldShowParquetExtensionField(props)) {
+        return null
+    }
+
+    const legacyExtension = `.parquet.${COMPRESSION_EXTENSIONS[props.compression as string]}`
+
+    return (
+        <LemonField
+            name="legacy_parquet_extension"
+            label="File extension"
+            help="Note: switching this on cannot be undone; after you save, the setting no longer appears for this export."
+            info={
+                <>
+                    Parquet records the compression codec inside the file, so the standard extension is{' '}
+                    <code>.parquet</code> regardless of the codec. This export writes <code>{legacyExtension}</code>{' '}
+                    instead. Turn this on to name new files <code>.parquet</code>. Files already exported keep their
+                    names.
+                </>
+            }
+        >
+            {({ value, onChange }) => (
+                <LemonSwitch
+                    label={`Use the standard .parquet extension rather than ${legacyExtension}`}
+                    // The stored setting names the legacy behaviour, so the switch reads the other
+                    // way round: turning it on opts the export out of that behaviour.
+                    checked={value === false}
+                    onChange={(checked) => onChange(!checked)}
+                    fullWidth
+                    bordered
+                />
+            )}
+        </LemonField>
+    )
+}
+
 export function MaxFileSizeField(): JSX.Element {
     return (
         <LemonField
@@ -262,6 +330,17 @@ export function MaxFileSizeField(): JSX.Element {
     )
 }
 
+// Included in every destination's event table preview except HTTP, which posts capture-format
+// payloads and does not export the column.
+export const PERSON_PROPERTIES_EVENT_FIELD: Record<string, DatabaseSchemaField> = {
+    person_properties: {
+        name: 'person_properties',
+        hogql_value: "nullIf(person_properties, '')",
+        type: 'string',
+        schema_valid: true,
+    },
+}
+
 // Event table preview columns shared by every S3-family destination (S3, AwsS3, S3Compatible).
 export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaField> = {
     person_id: {
@@ -270,12 +349,7 @@ export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaFi
         type: 'string',
         schema_valid: true,
     },
-    person_properties: {
-        name: 'person_properties',
-        hogql_value: "nullIf(person_properties, '')",
-        type: 'string',
-        schema_valid: true,
-    },
+    ...PERSON_PROPERTIES_EVENT_FIELD,
     created_at: {
         name: 'created_at',
         hogql_value: 'created_at',
@@ -284,70 +358,41 @@ export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaFi
     },
 }
 
-// Shared form fields for the S3-family destinations (S3 legacy, AwsS3, S3Compatible). Per-destination
-// definitions toggle the AWS-only (encryption/KMS) and S3-compatible-only (endpoint/virtual-style)
-// blocks and supply the region option set; everything else is identical.
+// Shared form fields for the AwsS3 and S3Compatible destinations. Per-destination definitions toggle
+// the AWS-only (encryption/KMS) and S3-compatible-only (virtual-style) blocks and supply the region
+// option set; everything else is identical.
 //
-// New AwsS3/S3Compatible exports authenticate via a linked Integration (pass `integrationKind`);
-// grandfathered exports created before integrations existed keep their inline credential UI, detected
-// by the absence of a linked integration. Mirrors the Postgres destination's `useIntegration` pattern.
+// Credentials, and the endpoint URL for S3-compatible providers, live in the linked Integration, so
+// this form only picks the integration.
 export function S3FamilyFields({
     isNew,
     formValues,
+    savedConfig,
     regionOptions,
-    awsBranded,
     allowCustomRegion = false,
     showEncryption,
-    showEndpointUrl,
-    endpointUrlRequired = false,
     showVirtualStyleAddressing,
-    endpointHelpText,
     integrationKind,
-    migrationNotice,
 }: {
     isNew: boolean
     formValues: Record<string, any>
+    savedConfig?: Record<string, any> | null
     regionOptions: { value: string; label: string }[]
-    // Prefix the credential labels with "AWS" — only true for AWS S3, not the S3-compatible catch-all.
-    awsBranded: boolean
     // Let users type a region not in the preset list. True for the S3-compatible catch-all, where we
     // can't enumerate every provider's regions; false for AWS S3, whose regions are a closed set.
     allowCustomRegion?: boolean
     showEncryption: boolean
-    showEndpointUrl: boolean
-    endpointUrlRequired?: boolean
     showVirtualStyleAddressing: boolean
-    endpointHelpText?: ReactNode
-    // When set, this destination authenticates via an Integration of this kind. The credential and
-    // endpoint inputs are replaced by an integration picker for new and integration-backed exports.
-    integrationKind?: IntegrationKind
-    // Banner shown above the fields whenever the inline (non-integration) UI is rendered — used to
-    // tell users the export will be migrated to integrations automatically.
-    migrationNotice?: ReactNode
+    // This destination authenticates via an Integration of this kind.
+    integrationKind: IntegrationKind
 }): JSX.Element {
-    // New exports must pick an integration; existing ones keep whatever they were created with.
-    const useIntegration = !!integrationKind && (isNew || !!formValues.integration_id)
-
-    // The KMS key is a config field (not a credential) that only applies to aws:kms encryption. With
-    // inline credentials it sits in the credentials row; in the integration form that row is gone, so
-    // it's surfaced next to the encryption select instead. Rendered in exactly one place either way.
-    const kmsKeyIdField = showEncryption && formValues.encryption == 'aws:kms' && (
-        <LemonField name="kms_key_id" label="AWS KMS Key ID" className="flex-1">
-            <LemonInput placeholder={isNew ? 'e.g. 1234abcd-12ab-34cd-56ef-1234567890ab' : 'leave unchanged'} />
-        </LemonField>
-    )
-
     return (
         <>
-            {!useIntegration && migrationNotice ? <LemonBanner type="warning">{migrationNotice}</LemonBanner> : null}
-
-            {useIntegration && integrationKind ? (
-                <LemonField name="integration_id" label="Integration">
-                    {({ value, onChange }) => (
-                        <IntegrationChoice integration={integrationKind} value={value} onChange={onChange} />
-                    )}
-                </LemonField>
-            ) : null}
+            <LemonField name="integration_id" label="Integration">
+                {({ value, onChange }) => (
+                    <IntegrationChoice integration={integrationKind} value={value} onChange={onChange} />
+                )}
+            </LemonField>
 
             <div className="flex gap-4">
                 <LemonField name="bucket_name" label="Bucket" className="flex-1">
@@ -410,64 +455,27 @@ export function S3FamilyFields({
                     </LemonField>
                 )}
 
-                {/* With an integration the credentials row is hidden, so the KMS key lives here instead. */}
-                {useIntegration && kmsKeyIdField}
+                {/* The KMS key is config, not a credential, and only applies to aws:kms encryption. */}
+                {showEncryption && formValues.encryption == 'aws:kms' && (
+                    <LemonField name="kms_key_id" label="AWS KMS Key ID" className="flex-1">
+                        <LemonInput
+                            placeholder={isNew ? 'e.g. 1234abcd-12ab-34cd-56ef-1234567890ab' : 'leave unchanged'}
+                        />
+                    </LemonField>
+                )}
             </div>
 
-            {!useIntegration && (
-                <div className="flex gap-4">
-                    <LemonField
-                        name="aws_access_key_id"
-                        label={awsBranded ? 'AWS Access Key ID' : 'Access Key ID'}
-                        className="flex-1"
-                    >
-                        <LemonInput
-                            placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'}
-                            autoComplete="off"
-                        />
-                    </LemonField>
-
-                    <LemonField
-                        name="aws_secret_access_key"
-                        label={awsBranded ? 'AWS Secret Access Key' : 'Secret Access Key'}
-                        className="flex-1"
-                    >
-                        <LemonInput
-                            placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'}
-                            type="password"
-                            autoComplete="new-password"
-                        />
-                    </LemonField>
-
-                    {kmsKeyIdField}
-                </div>
-            )}
-
-            {!useIntegration && showEndpointUrl && (
-                <LemonField
-                    name="endpoint_url"
-                    label="Endpoint URL"
-                    showOptional={!endpointUrlRequired}
-                    info={
-                        endpointHelpText ?? (
-                            <>
-                                The endpoint URL corresponding to your provider (e.g. Cloudflare R2, DigitalOcean
-                                Spaces, Supabase, etc.). Works with any S3-compatible storage.
-                            </>
-                        )
-                    }
-                >
-                    <LemonInput
-                        placeholder={isNew ? 'e.g. https://<account-id>.r2.cloudflarestorage.com' : 'Leave unchanged'}
-                    />
-                </LemonField>
-            )}
+            <ParquetExtensionField
+                isNew={isNew}
+                fileFormat={formValues.file_format}
+                compression={formValues.compression}
+                savedConfig={savedConfig}
+            />
 
             {showVirtualStyleAddressing && (
                 <LemonField
                     name="use_virtual_style_addressing"
                     label="Virtual style addressing"
-                    showOptional
                     info={
                         <>
                             Some non-AWS S3-compatible destinations may require this setting enabled. Check your

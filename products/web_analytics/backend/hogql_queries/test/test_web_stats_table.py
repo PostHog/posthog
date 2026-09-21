@@ -3,13 +3,14 @@ from collections import defaultdict
 from typing import Any, Optional
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
     flush_persons_and_events,
+    skip_clickhouse_query_snapshots,
     snapshot_clickhouse_queries,
 )
 from unittest.mock import patch
@@ -126,7 +127,7 @@ class TestWebStatsTableQueryRunner(
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
+            with time_machine.travel(timestamps[0][0], tick=False):
                 person_result.append(
                     _create_person(
                         team_id=self.team.pk,
@@ -168,7 +169,7 @@ class TestWebStatsTableQueryRunner(
     def _create_pageviews(self, distinct_id: str, list_page_view_properties: list[PageViewProperties]):
         person_time = list_page_view_properties[0].timestamp
 
-        with freeze_time(person_time):
+        with time_machine.travel(person_time, tick=False):
             person_result = _create_person(
                 team_id=self.team.pk,
                 distinct_ids=[distinct_id],
@@ -240,7 +241,7 @@ class TestWebStatsTableQueryRunner(
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
         orderBy=None,
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             modifiers = HogQLQueryModifiers(
                 sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
             )
@@ -315,6 +316,30 @@ class TestWebStatsTableQueryRunner(
             ["Home", (2, None), (2, None), 2 / 3, ""],
             ["Login", (1, None), (1, None), 1 / 3, ""],
         ] == results
+
+    def test_in_app_browser_breakdown_groups_by_webview_app_and_drops_regular_traffic(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+        s4 = str(uuid7("2023-12-05"))
+        # The regular-browser pageview has no $webview_app and must be dropped, not shown as a
+        # "(not set)" row: the in-app browser tile answers "which host apps", not "how much
+        # traffic is not in-app".
+        self._create_events(
+            [
+                ("li1", [("2023-12-02", s1, "/", {"$webview_app": "LinkedIn"})]),
+                ("li2", [("2023-12-03", s2, "/", {"$webview_app": "LinkedIn"})]),
+                ("ig1", [("2023-12-04", s3, "/", {"$webview_app": "Instagram"})]),
+                ("web1", [("2023-12-05", s4, "/")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-11", breakdown_by=WebStatsBreakdown.IN_APP_BROWSER
+        ).results
+
+        assert [row[0] for row in results] == ["LinkedIn", "Instagram"]
+        assert all(row[0] not in (None, "") for row in results)
 
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
@@ -570,6 +595,38 @@ class TestWebStatsTableQueryRunner(
         assert [
             ["/item/<id>/detail/<detail_id>", (3.0, None), (3.0, None), 3 / 4, ""],
             ["/other/123/path", (1.0, None), (1.0, None), 1 / 4, ""],
+        ] == results
+
+    def test_path_cleaning_filters_with_capture_group_backreference(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-11"))
+        s4 = str(uuid7("2023-12-12"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/item/123/detail/456")]),
+                ("p2", [("2023-12-10", s2, "/item/123/detail/789")]),  # same item, different detail
+                ("p3", [("2023-12-11", s3, "/item/999/detail/111")]),
+                ("p4", [("2023-12-12", s4, "/other/1/path")]),  # Should not match
+            ]
+        )
+
+        # The alias reuses capture group 1 with re2 `\1` syntax, keeping the item id and dropping the
+        # detail segment. This is passed straight to ClickHouse `replaceRegexpAll`, so it guards that
+        # the alias is never re-escaped or treated as a literal on its way to the query.
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/item\\/(\\d+)\\/detail\\/\\d+", "alias": "/item/\\1"},
+            ],
+        ).results
+
+        assert [
+            ["/item/123", (2.0, None), (2.0, None), 2 / 4, ""],
+            ["/item/999", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/other/1/path", (1.0, None), (1.0, None), 1 / 4, ""],
         ] == results
 
     def test_path_cleaning_filters_applied_in_order(self):
@@ -1213,6 +1270,7 @@ class TestWebStatsTableQueryRunner(
         assert sorted(row[0] for row in results) == expected
 
     @parameterized.expand([("bounce_rate", False), ("bounce_rate_and_avg_time", True)])
+    @skip_clickhouse_query_snapshots
     def test_first_pageview_attribution_rewrites_drill_down_on_paths_tile(self, _name, include_avg_time_on_page):
         # The Paths tile splits user filters across three separate events scans
         # instead of the single `all_properties` clause the Sources tiles use, so
@@ -1221,23 +1279,23 @@ class TestWebStatsTableQueryRunner(
 
         def drilled_down_paths(flag_on):
             with self._patch_first_pageview_flag(enabled=flag_on):
-                return [
-                    row[0]
-                    for row in self._run_web_stats_table_query(
-                        "all",
-                        "2024-06-27",
-                        breakdown_by=WebStatsBreakdown.PAGE,
-                        include_bounce_rate=True,
-                        include_avg_time_on_page=include_avg_time_on_page,
-                        properties=[
-                            SessionPropertyFilter(
-                                key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT
-                            )
-                        ],
-                    ).results
-                ]
+                return self._run_web_stats_table_query(
+                    "all",
+                    "2024-06-27",
+                    breakdown_by=WebStatsBreakdown.PAGE,
+                    include_bounce_rate=True,
+                    include_avg_time_on_page=include_avg_time_on_page,
+                    properties=[
+                        SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+                    ],
+                ).results
 
-        assert drilled_down_paths(flag_on=True) == ["/landing"]
+        expected = (
+            [["/landing", (1, 0), (1, 0), (0.0, 0.0), (0.0, 0.0), 1.0, ""]]
+            if include_avg_time_on_page
+            else [["/landing", (1, 0), (1, 0), (None, None), 1.0, ""]]
+        )
+        assert drilled_down_paths(flag_on=True) == expected
         assert drilled_down_paths(flag_on=False) == []
 
     def test_first_pageview_attribution_filter_changes_cache_key(self):
@@ -2122,7 +2180,7 @@ class TestWebStatsTableQueryRunner(
 
         assert [row[0] for row in response.results] == ["/foo", "/bar"]
 
-    @freeze_time("2023-12-15T12:00:00Z")
+    @time_machine.travel("2023-12-15T12:00:00Z", tick=False)
     def test_can_use_preaggregated_tables_with_channel_type_filter(self):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
@@ -2800,7 +2858,7 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             ("user_a", s2, [("/pricing", "2025-01-11T09:00:00Z")]),
             ("user_b", s3, [("/", "2025-01-12T12:00:00Z"), ("/", "2025-01-12T12:00:30Z")]),
         ]:
-            with freeze_time(path_timestamps[0][1]):
+            with time_machine.travel(path_timestamps[0][1], tick=False):
                 _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             for pathname, ts in path_timestamps:
                 _create_event(
@@ -2839,7 +2897,7 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_no_join_paths_results_match_join_path(self, include_avg_time: bool):
         self._create_pageviews()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
                 fast_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time)
                 assert fast_runner.query_strategy().startswith("stats_table_no_join_path_bounce")
@@ -2926,9 +2984,9 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         # the same distinct_id mints a second person, and events then carry
         # whichever person id existed at creation time, manufacturing the known
         # per-event vs per-session visitor-count drift inside a single session.
-        with freeze_time("2025-01-10T09:00:00Z"):
+        with time_machine.travel("2025-01-10T09:00:00Z", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_a"])
-        with freeze_time("2025-01-12T09:00:00Z"):
+        with time_machine.travel("2025-01-12T09:00:00Z", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_b"])
         for distinct_id, session_id, browser, path_timestamps in [
             ("user_a", s1, "Chrome", [("/", "2025-01-10T10:00:00Z"), ("/pricing", "2025-01-10T10:05:00Z")]),
@@ -3001,7 +3059,7 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         self._create_pageviews()
         properties = [EventPropertyFilter(key=key, operator=PropertyOperator.EXACT, value=value)]
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 fast_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time, properties=properties)
                 assert fast_runner.query_strategy().startswith("stats_table_session_id_set")
@@ -3069,7 +3127,7 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_session_id_set_paths_pushes_id_filter_below_session_aggregation(
         self, _name: str, key: str, value: str, expected_global_in: int
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 runner = self._make_runner(
                     properties=[EventPropertyFilter(key=key, operator=PropertyOperator.EXACT, value=value)]
@@ -3087,7 +3145,7 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_session_id_set_paths_executes_with_pushdown_modifier_and_tag(self):
         self._create_pageviews()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 runner = self._make_runner()
                 original_execute = runner.paginator.execute_hogql_query
@@ -3107,7 +3165,7 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_session_id_set_paths_falls_back_to_join_when_filter_is_unselective(self):
         self._create_pageviews()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 with patch(
                     "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_ID_SET_MAX_MATCHING_SESSIONS",

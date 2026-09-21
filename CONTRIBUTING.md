@@ -18,6 +18,7 @@ We welcome contributions. A few quick notes so you know how we operate:
 - The current week's [Support Hero](https://posthog.com/handbook/engineering/support-hero) for the owning team is usually the first point of contact, but customer support takes priority. Reviews can be delayed when support load is high.
 - Expect acknowledgement when we have bandwidth; thorough reviews may come later. It's fine if this takes a few days to a couple of weeks depending on load.
 - We sometimes close PRs that are out of scope, would add long-term maintenance burden, or go stale. You're always welcome to reopen with updates.
+- Fork pull requests run backend CI on GitHub Actions; Depot's optional checks do not appear on them. See [Pull requests from forks](docs/published/handbook/engineering/fork-pull-requests.md).
 
 Before we do a full review, please:
 
@@ -41,7 +42,7 @@ We prefer not to accept external contributions for paid features. If you don't s
 
 # Feature requests
 
-Raise an issue for these and tag it as an Enhancement. We love every idea. Please give us as much context on the why as possible.
+Request features on [our public roadmap](https://posthog.com/roadmap). We love every idea. Please give us as much context on the why as possible.
 
 # Features
 
@@ -49,4 +50,4 @@ We strive to keep our [roadmap](https://posthog.com/roadmap) up-to-date, while o
 
 As a rule of thumb - if you wanna work on a specific feature that fits with helping developers understand product usage and/or extending PostHog to ingest more of their customer's data, we'll generally like it.
 
-If you are at all unsure, just raise it as an enhancement issue first, and we'll attempt to respond very quickly.
+If you are at all unsure, just raise an issue to discuss it first, and we'll attempt to respond very quickly.

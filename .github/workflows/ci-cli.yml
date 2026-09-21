@@ -25,8 +25,11 @@ concurrency:
 jobs:
     tests:
         name: Run tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         defaults:
             run:
                 working-directory: cli
@@ -48,8 +51,9 @@ jobs:
 
     clippy:
         name: Clippy
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         defaults:
             run:
                 working-directory: cli
@@ -67,8 +71,9 @@ jobs:
 
     format:
         name: Format
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         defaults:
             run:
                 working-directory: cli
@@ -86,8 +91,9 @@ jobs:
 
     api-cli-release-bundle:
         name: API CLI release bundle
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 

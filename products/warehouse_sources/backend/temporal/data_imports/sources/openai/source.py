@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -19,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openai import OpenAISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.openai import (
+    OPENAI_BASE_URL,
     OpenAIResumeConfig,
     openai_source,
     validate_credentials as validate_openai_credentials,
@@ -43,10 +42,10 @@ class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPEN_AI,
+            name=ExternalDataSourceType.OPENAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="OpenAI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenAI Admin API key to pull your organization's API usage, cost, and admin data into the PostHog Data warehouse.
 
 Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization settings](https://platform.openai.com/settings/organization/admin-keys). Only organization owners can create one; a regular project API key cannot read organization usage or costs.""",
@@ -79,6 +78,19 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         return {
             "401 Client Error: Unauthorized for url: https://api.openai.com": "Your OpenAI Admin API key is invalid or has been revoked. Create a new Admin API key in your OpenAI organization settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.openai.com": "Your OpenAI API key does not have organization admin access. Use an Admin API key (prefixed sk-admin) created by an organization owner, then reconnect.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # The shared RESTClient (rest_client.py) already retries 429/5xx responses, connection
+        # resets, timeouts, and malformed-JSON bodies in-process via tenacity (5 attempts,
+        # exponential backoff honoring Retry-After) before re-raising RESTClientRetryableError.
+        # A failure that survives all 5 attempts is a transient OpenAI / edge blip, not a bug —
+        # Temporal's activity retry recovers once the upstream issue clears, so keep it out of
+        # error tracking as noise. The status code and path vary per request; the API host doesn't,
+        # so match on that rather than the volatile parts of the message.
+        return {
+            f"for {OPENAI_BASE_URL}",
+            f"from {OPENAI_BASE_URL}",
         }
 
     def get_schemas(
@@ -114,10 +126,7 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_openai_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid OpenAI Admin API key"
+        return validate_openai_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OpenAIResumeConfig]:
         return ResumableSourceManager[OpenAIResumeConfig](inputs, OpenAIResumeConfig)

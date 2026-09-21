@@ -47,10 +47,10 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsHistogramQuery,
     MetricsQuery,
     Node,
     NodeKind,
-    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PathsV2Query,
     PersonsNode,
@@ -76,7 +76,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
+import { AnnotationScope, BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -164,6 +164,12 @@ export function isDataVisualizationNode(node?: Record<string, any> | null): node
     return node?.kind === NodeKind.DataVisualizationNode
 }
 
+export function isDataVisualizationNodeWithHogQLQuery(
+    node?: Record<string, any> | null
+): node is DataVisualizationNode & { source: HogQLQuery } {
+    return isDataVisualizationNode(node) && isHogQLQuery(node.source)
+}
+
 export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
     if (!isDataTableNodeWithHogQLQuery(node)) {
         return node
@@ -226,6 +232,10 @@ export function isMetricsQuery(node?: Record<string, any> | null): node is Metri
     return node?.kind === NodeKind.MetricsQuery
 }
 
+export function isMetricsHistogramQuery(node?: Record<string, any> | null): node is MetricsHistogramQuery {
+    return node?.kind === NodeKind.MetricsHistogramQuery
+}
+
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
     return node?.kind === NodeKind.EndpointsUsageOverviewQuery
 }
@@ -284,12 +294,6 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
-}
-
-export function isNonIntegratedConversionsTableQuery(
-    node?: Record<string, any> | null
-): node is NonIntegratedConversionsTableQuery {
-    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -474,7 +478,7 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 // For trends/stickiness, ActionsStackedBar is a deprecated alias of ActionsBar (which renders stacked):
 // the UI never emits it, but the API and MCP accept it. Normalizing here — the point all `display`
 // selectors derive from — makes such insights behave exactly like their UI-created equivalents.
-const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
+export const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
     display === ChartDisplayType.ActionsStackedBar ? ChartDisplayType.ActionsBar : display
 
 export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
@@ -485,6 +489,10 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     }
     return undefined
 }
+
+export const isMetricInsightQuery = (query?: Record<string, any> | null): boolean =>
+    (isDataVisualizationNode(query) && query.display === ChartDisplayType.Metric) ||
+    (isInsightVizNode(query) && isTrendsQuery(query.source) && getDisplay(query.source) === ChartDisplayType.Metric)
 
 // Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
 // frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
@@ -498,10 +506,12 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsStackedBar,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
     ChartDisplayType.Metric,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ])
 
 type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
@@ -675,6 +685,15 @@ export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined
     return undefined
 }
 
+export const getAnnotationsScope = (query: InsightQueryNode): AnnotationScope | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.annotationsScope
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.annotationsScope
+    }
+    return undefined
+}
+
 export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showLabelsOnSeries
@@ -826,6 +845,13 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (isQuoted(identifier)) {
         return identifier // This identifier is already quoted
     }
+    return escapeRawPropertyAsHogQLIdentifier(identifier)
+}
+
+export function escapeRawPropertyAsHogQLIdentifier(identifier: string): string {
+    if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
+        return identifier
+    }
     // Escape backslashes and control chars, then wrap; double an inner backtick (the parser rejects a backslash-escaped delimiter). The double-quote path needs no quote escaping since it is only taken when the identifier has no `"`.
     const escaped = Array.from(identifier, (c) => HOGQL_IDENTIFIER_ESCAPE_MAP[c] || c).join('')
     return !identifier.includes('"') ? `"${escaped}"` : `\`${escaped.replaceAll('`', '``')}\``
@@ -875,6 +901,24 @@ export function taxonomicPersonFilterToHogQL(
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
+    return null
+}
+
+export function taxonomicSessionFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.SessionProperties) {
+        return `session.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return `person.properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    // Event-scoped picks (e.g. a suggested or recent event property) have no
+    // equivalent on the sessions table — adding one would fail resolution.
     return null
 }
 

@@ -5,8 +5,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 import fakeredis
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis as redis_module
@@ -25,12 +28,12 @@ UPDATED_DOC = {"type": "doc", "content": [{"type": "heading", "content": [{"type
 
 class TestNotebookCollabSaveAPI(APIBaseTest):
     def _create_notebook(self, content=None):
-        data = {}
-        if content:
-            data["content"] = content
-        response = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data=data, format="json")
-        assert response.status_code == status.HTTP_201_CREATED
-        return response.json()
+        # Seeded through the ORM because the create endpoint stores every notebook as markdown, and these tests
+        # cover the rich-text save path that existing legacy notebooks still use.
+        notebook = Notebook.objects.create(
+            team=self.team, content=content, created_by=self.user, last_modified_by=self.user
+        )
+        return {"short_id": notebook.short_id, "version": notebook.version}
 
     def _collab_save(
         self, notebook, *, version, steps, content=None, text_content=None, title=None, client_id="test-client"
@@ -564,6 +567,34 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("presence", "post"), ("stream", "get"), ("activity", "get")])
+    def test_identity_only_endpoints_do_not_select_notebook_content(self, action: str, method: str):
+        notebook = self._create_notebook()
+        urls = {
+            "presence": self._presence_url(notebook["short_id"]),
+            "stream": self._stream_url(notebook["short_id"]),
+            "activity": f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/activity/",
+        }
+
+        with CaptureQueriesContext(connection) as captured:
+            if method == "post":
+                response = self.client.post(
+                    urls[action],
+                    data={"client_id": "caret-client", "version": notebook["version"], "cursor": {"head": 1}},
+                    format="json",
+                )
+            else:
+                response = self.client.get(urls[action])
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT)
+            if response.streaming:
+                self._consume_stream(response)
+
+        notebook_queries = [q["sql"] for q in captured.captured_queries if "posthog_notebook" in q["sql"]]
+        assert notebook_queries
+        for sql in notebook_queries:
+            assert '"posthog_notebook"."content"' not in sql
+            assert '"posthog_notebook"."text_content"' not in sql
 
 
 def _markdown_doc(markdown: str) -> dict:

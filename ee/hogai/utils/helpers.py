@@ -4,6 +4,7 @@ import json
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any, Optional, TypeVar, Union, cast
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -37,12 +38,14 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import LOOKBACK_DAYS, TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
+from posthog.security.llm_prompt_sanitization import sanitize_user_text
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types.base import (
@@ -77,11 +80,39 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # blow up every team member's prompt. The taxonomy already bounds the number of events per prompt.
 MAX_EVENT_DESCRIPTION_LENGTH = 500
 
-NOT_SEEN_RECENTLY_MARKER = "(not seen in the last 30 days)"
+# Matches CAPTURE_V1_MAX_EVENT_NAME_LENGTH in rust/capture, which rejects a longer name at ingestion.
+MAX_EVENT_NAME_LENGTH = 200
+
+NOT_SEEN_RECENTLY_MARKER = f"(not seen in the last {LOOKBACK_DAYS} days)"
 NOT_SEEN_RECENTLY_LEGEND = (
     f"Events marked {NOT_SEEN_RECENTLY_MARKER} are listed for reference only. This project has sent none of them "
     "recently, so never present them as data it is collecting."
 )
+
+
+@frozen
+class EventTaxonomySnapshot:
+    """One read of a team's event taxonomy, with the freshness facts a caller needs to trust it."""
+
+    events: list[dict[str, Any]]
+    has_more: bool
+    computed_at: datetime
+
+
+def _taxonomy_snapshot_legend(computed_at: datetime) -> str:
+    """State what the counts measure and when they were measured.
+
+    Other surfaces read the same project over their own windows, and PostHog system events that are
+    not useful for analysis never reach this list at all. Without the window, the snapshot time and
+    the omission on the response, a caller that compares two surfaces reads an honest difference as
+    a broken taxonomy.
+    """
+    return (
+        f"Taxonomy snapshot taken at {computed_at.isoformat()}. Counts cover the last {LOOKBACK_DAYS} days, so a "
+        "surface that reads a shorter or longer window can disagree with this list. PostHog system events that are "
+        "not useful for analysis are left out, so a surface that reads raw event traffic can show an event that is "
+        "absent here."
+    )
 
 
 def sanitize_event_description(text: str) -> str:
@@ -204,21 +235,21 @@ def _process_events_data(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
-) -> tuple[list[dict], dict[str, str], bool]:
+    event_source: EventSource = EventSource.POSTHOG_AI,
+) -> EventTaxonomySnapshot:
     """Common logic for processing events and building event data."""
     query = TeamTaxonomyQuery(limit=limit, offset=offset)
     response = TeamTaxonomyQueryRunner(query, team, user=user).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-        analytics_props={"source": EventSource.POSTHOG_AI},
+        user=user,
+        analytics_props={"source": event_source},
     )
 
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
         raise ValueError("Failed to generate events prompt.")
 
-    has_more = bool(response.hasMore)
-
-    # The runner pads its results with well-known event names at count 0, so a zero count means the
-    # project has no such event in the query window — not that the event is merely rare.
+    # The runner pads a complete response with well-known event names at count 0, so a zero count
+    # means the project has no such event in the query window, not that the event is merely rare.
     not_seen_recently = {item.event for item in response.results if item.count == 0}
 
     events: list[str] = [
@@ -227,7 +258,7 @@ def _process_events_data(
     ]
     for item in response.results:
         event_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(item.event)
-        if event_def and (event_def.get("system") or event_def.get("ignored_in_assistant")):
+        if event_def and is_hidden_from_assistant(event_def):
             continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
@@ -247,15 +278,19 @@ def _process_events_data(
 
     processed_events = []
     for event_name in events:
-        event_data: dict[str, Any] = {"name": event_name}
+        # A project's write token is public, so a captured name is untrusted: left raw, one holding
+        # a line break writes its own `#` legend line into the listing `format_events_yaml` builds.
+        safe_name = sanitize_user_text(event_name, MAX_EVENT_NAME_LENGTH)
+        if not safe_name:
+            continue
+
+        event_data: dict[str, Any] = {"name": safe_name}
         if event_name in not_seen_recently:
             event_data["not_seen_recently"] = True
 
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
             # Only skip if it's not in context (context events should always be included)
-            if event_name not in context_event_names and (
-                event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
-            ):
+            if event_name not in context_event_names and is_hidden_from_assistant(event_core_definition):
                 continue  # Skip irrelevant events but keep events the user has added to the context
             if core_description := _format_core_event_description(event_core_definition):
                 event_data["description"] = core_description
@@ -266,7 +301,11 @@ def _process_events_data(
 
         processed_events.append(event_data)
 
-    return processed_events, event_to_description, has_more
+    return EventTaxonomySnapshot(
+        events=processed_events,
+        has_more=bool(response.hasMore),
+        computed_at=response.last_refresh,
+    )
 
 
 def _format_core_event_description(event_core_definition: Mapping[str, Any]) -> str | None:
@@ -330,10 +369,10 @@ def _get_event_definition_descriptions(
 
 
 def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user: User) -> str:
-    processed_events, _, _ = _process_events_data(events_in_context, team, user)
+    snapshot = _process_events_data(events_in_context, team, user)
 
     root = ET.Element("defined_events")
-    for event_data in processed_events:
+    for event_data in snapshot.events:
         event_tag = ET.SubElement(root, "event")
         name_tag = ET.SubElement(event_tag, "name")
         name_tag.text = event_data["name"]
@@ -352,12 +391,15 @@ def format_events_yaml(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
+    event_source: EventSource = EventSource.POSTHOG_AI,
 ) -> str:
-    processed_events, _, has_more = _process_events_data(events_in_context, team, user, limit=limit, offset=offset)
+    snapshot = _process_events_data(
+        events_in_context, team, user, limit=limit, offset=offset, event_source=event_source
+    )
 
     formatted_events = ["events:"]
     any_not_seen_recently = False
-    for event_data in processed_events:
+    for event_data in snapshot.events:
         name = event_data["name"]
         description = event_data.get("description", "")
         line = f"- `{name}` - {description}" if description else f"- `{name}`"
@@ -369,9 +411,11 @@ def format_events_yaml(
     if any_not_seen_recently:
         formatted_events.append(f"\n# {NOT_SEEN_RECENTLY_LEGEND}")
 
-    if has_more:
+    if snapshot.has_more:
         next_offset = (offset or 0) + (limit or 500)
         formatted_events.append(f"\n# More events available. To fetch the next page, use offset={next_offset}")
+
+    formatted_events.append(f"\n# {_taxonomy_snapshot_legend(snapshot.computed_at)}")
 
     return "\n".join(formatted_events)
 
@@ -504,14 +548,18 @@ def cast_assistant_query(
         raise ValueError(f"Unsupported query type: {query.kind}")
 
 
-def build_insight_url(team: Team, id: str) -> str:
-    """Build the URL for an insight."""
-    return f"/project/{team.id}/insights/{id}"
+def build_insight_url(id: str) -> str:
+    """Build the URL for an insight.
+
+    Unprefixed by `/project/<id>`: these URLs are handed to the model, which is instructed to omit
+    that prefix, and the app resolves them against the project the user is already in.
+    """
+    return f"/insights/{id}"
 
 
-def build_dashboard_url(team: Team, id: int) -> str:
-    """Build the URL for a dashboard."""
-    return f"/project/{team.id}/dashboard/{id}"
+def build_dashboard_url(id: int) -> str:
+    """Build the URL for a dashboard. Unprefixed, for the same reason as `build_insight_url`."""
+    return f"/dashboard/{id}"
 
 
 def extract_stream_update(update: Any) -> Any:

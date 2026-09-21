@@ -61,6 +61,7 @@ describe('SegmentDestinationExecutorService', () => {
             const fn = createHogFunction({
                 name: 'Plugin test',
                 template_id: 'segment-actions-amplitude',
+                inputs_schema: amplitudePlugin.template.inputs_schema,
             })
 
             const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
@@ -91,6 +92,7 @@ describe('SegmentDestinationExecutorService', () => {
                 }
             })
 
+            expect(JSON.stringify(result.logs)).not.toContain(amplitudeInputs.secretKey)
             expect(result.logs).toMatchSnapshot()
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(1)
@@ -109,6 +111,49 @@ describe('SegmentDestinationExecutorService', () => {
                   },
                 ]
             `)
+        })
+
+        it('should redact a credential input that a stale stored schema leaves non-secret', async () => {
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-amplitude',
+                inputs_schema: amplitudePlugin.template.inputs_schema.map((schema) => ({ ...schema, secret: false })),
+            })
+
+            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
+
+            mockFetch.mockResolvedValue({
+                status: 200,
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve('{}'),
+                headers: {},
+                dump: () => Promise.resolve(),
+            })
+
+            const result = await service.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            const logs = JSON.stringify(result.logs)
+            expect(logs).toContain('fetchOptions')
+            expect(logs).not.toContain(amplitudeInputs.apiKey)
+            expect(logs).not.toContain(amplitudeInputs.secretKey)
+        })
+
+        it('should redact secrets in an error thrown by the destination', async () => {
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-amplitude',
+                inputs_schema: amplitudePlugin.template.inputs_schema,
+            })
+            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
+            jest.mocked(amplitudeAction.perform!).mockRejectedValueOnce(
+                new Error(`Destination rejected ${amplitudeInputs.secretKey}`)
+            )
+
+            const result = await service.execute(invocation)
+
+            expect(String(result.error)).toBe('Error: Destination rejected ***REDACTED***')
+            expect(JSON.stringify(result.logs)).not.toContain(amplitudeInputs.secretKey)
         })
 
         it('should handle non retryable fetch errors', async () => {
@@ -506,6 +551,45 @@ describe('SegmentDestinationExecutorService', () => {
                     expect(endpoint).toBe('https://posthog-sandbox.pipedrive.com/api/v1/activities?api_token=api-key')
                 }
             }
+        })
+
+        it.each([
+            ['omits them when enabled', true, false],
+            ['keeps them when disabled', false, true],
+        ])('internal_omit_empty_values %s', async (_name, omitEmptyValues, expectEmptyValues) => {
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-iterable',
+            })
+
+            const invocation = createExampleSegmentInvocation(fn, {
+                apiKey: 'api-key',
+                dataCenterLocation: 'united_states',
+                email: 'max@posthog.com',
+                userId: 'user-id',
+                phoneNumber: null,
+                dataFields: {
+                    plan: 'enterprise',
+                    // The customer-facing case: a property that is only set on some events
+                    last_seen_at: null,
+                    company: '',
+                },
+                mergeNestedObjects: true,
+                internal_partner_action: 'updateUser',
+                internal_omit_empty_values: omitEmptyValues,
+            })
+
+            await service.execute(invocation)
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            const requestBody = parseJSON(mockFetch.mock.calls[0][1].body)
+
+            expect(requestBody.email).toBe('max@posthog.com')
+            expect(requestBody.dataFields.plan).toBe('enterprise')
+
+            expect('last_seen_at' in requestBody.dataFields).toBe(expectEmptyValues)
+            expect('company' in requestBody.dataFields).toBe(expectEmptyValues)
+            expect('phoneNumber' in requestBody.dataFields).toBe(expectEmptyValues)
         })
     })
 })

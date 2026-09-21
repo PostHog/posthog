@@ -9,14 +9,19 @@ export async function withTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,
 ): Promise<{ result: "success"; value: T } | { result: "timeout" }> {
-  const timeoutPromise = new Promise<{ result: "timeout" }>((resolve) =>
-    setTimeout(() => resolve({ result: "timeout" }), timeoutMs),
-  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<{ result: "timeout" }>((resolve) => {
+    timer = setTimeout(() => resolve({ result: "timeout" }), timeoutMs);
+  });
   const operationPromise = operation.then((value) => ({
     result: "success" as const,
     value,
   }));
-  return Promise.race([operationPromise, timeoutPromise]);
+  try {
+    return await Promise.race([operationPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -61,19 +66,6 @@ export const IS_ROOT =
   (process.geteuid?.() ?? process.getuid?.()) === 0;
 
 export const ALLOW_BYPASS = !IS_ROOT || !!process.env.IS_SANDBOX;
-
-/**
- * A cloud sandbox run, as opposed to a local desktop session. `taskRunId` is
- * used by both desktop and cloud for persistence, so it must not imply cloud.
- */
-export function isCloudRun(
-  meta: { environment?: "local" | "cloud" } | undefined,
-): boolean {
-  if (meta?.environment) {
-    return meta.environment === "cloud";
-  }
-  return !!process.env.IS_SANDBOX;
-}
 
 export function unreachable(value: never, logger: Logger): void {
   let valueAsString: string;

@@ -5,8 +5,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     AccountsTableAccountFieldColumn,
+    AccountsTableAccountFieldFilter,
     AccountsTableAccountIdFilter,
+    AccountsTableAggregateMetric,
+    AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
+    AccountsTableCountMetric,
+    AccountsTableCountThresholdMetric,
     AccountsTableCustomPropertyColumn,
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyHistoryColumn,
@@ -15,6 +20,7 @@ from posthog.schema import (
     AccountsTableQuery,
     AccountsTableQueryResponse,
     AccountsTableRelationshipColumn,
+    AccountsTableRelationshipFilter,
     AccountsTableRow,
     AccountsTableSearchFilter,
     AccountsTableTagsColumn,
@@ -27,13 +33,15 @@ from posthog.hogql.constants import get_default_limit_for_context, get_max_limit
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.customer_analytics.backend.facade import api, contracts
+from products.customer_analytics.backend.logic.account_filters import parse_email_search
 
 ACCOUNTS_TABLE_MAX_COLUMNS = 100
 ACCOUNTS_TABLE_MAX_FILTERS = 50
 ACCOUNTS_TABLE_MAX_FILTER_VALUES = 100
+ACCOUNTS_TABLE_MAX_METRICS = 5
 ACCOUNTS_TABLE_MAX_PAGE_SIZE = 500
 ACCOUNTS_TABLE_MAX_STRING_LENGTH = 1_000
 
@@ -41,6 +49,25 @@ ACCOUNTS_TABLE_MAX_STRING_LENGTH = 1_000
 class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse]):
     query: AccountsTableQuery
     cached_response: CachedAccountsTableQueryResponse
+
+    def _has_complete_email_search(self) -> bool:
+        return any(
+            isinstance(filter_, AccountsTableSearchFilter) and parse_email_search(filter_.query) is not None
+            for filter_ in self.query.filters or []
+        )
+
+    def requires_fresh_calculation(self) -> bool:
+        return self._has_complete_email_search()
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        if self._has_complete_email_search():
+            user = self.user
+            payload["account_member_search_principal"] = {
+                "user_id": user.id if isinstance(user, User) else None,
+                "is_staff": user.is_staff if isinstance(user, User) else False,
+            }
+        return payload
 
     def validate_query_runner_access(self, user: User) -> bool:
         return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("account", "viewer")
@@ -94,6 +121,8 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         query_filters = self.query.filters or []
         if len(query_filters) > ACCOUNTS_TABLE_MAX_FILTERS:
             raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_FILTERS} filters.")
+        if sum(isinstance(filter_, AccountsTableSearchFilter) for filter_ in query_filters) > 1:
+            raise ValidationError("Account table queries support one search filter.")
 
         filters: list[contracts.AccountTableFilter] = []
         try:
@@ -106,12 +135,14 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                         f"Account table filter strings support up to {ACCOUNTS_TABLE_MAX_STRING_LENGTH} characters."
                     )
                 filter_values = (
-                    filter_.tagNames
+                    filter_.tagNames or []
                     if isinstance(filter_, AccountsTableTagsFilter)
-                    else filter_.userIds
+                    else filter_.userIds or []
                     if isinstance(filter_, AccountsTableAssignedToFilter)
+                    else filter_.userIds or []
+                    if isinstance(filter_, AccountsTableRelationshipFilter)
                     else filter_.values or []
-                    if isinstance(filter_, AccountsTableCustomPropertyFilter)
+                    if isinstance(filter_, AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)
                     else []
                 )
                 if len(filter_values) > ACCOUNTS_TABLE_MAX_FILTER_VALUES:
@@ -130,10 +161,28 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     filters.append(contracts.AccountTableTagsFilter(tag_names=tuple(filter_.tagNames)))
                 elif isinstance(filter_, AccountsTableAssignedToFilter):
                     filters.append(contracts.AccountTableAssignedToFilter(user_ids=tuple(filter_.userIds)))
+                elif isinstance(filter_, AccountsTableAssignedFilter):
+                    filters.append(contracts.AccountTableAssignedFilter())
                 elif isinstance(filter_, AccountsTableUnassignedFilter):
                     filters.append(contracts.AccountTableUnassignedFilter())
+                elif isinstance(filter_, AccountsTableRelationshipFilter):
+                    filters.append(
+                        contracts.AccountTableRelationshipFilter(
+                            definition_id=UUID(filter_.definitionId),
+                            operator=contracts.AccountTableRelationshipOperator(filter_.operator.value),
+                            user_ids=tuple(filter_.userIds or ()),
+                        )
+                    )
                 elif isinstance(filter_, AccountsTableAccountIdFilter):
                     filters.append(contracts.AccountTableAccountIdFilter(account_id=UUID(filter_.accountId)))
+                elif isinstance(filter_, AccountsTableAccountFieldFilter):
+                    filters.append(
+                        contracts.AccountTableFieldFilter(
+                            field=contracts.AccountTableField(filter_.field.value),
+                            operator=contracts.AccountTableFieldOperator(filter_.operator.value),
+                            values=tuple(filter_.values or ()),
+                        )
+                    )
                 elif isinstance(filter_, AccountsTableCustomPropertyFilter):
                     filters.append(
                         contracts.AccountTableCustomPropertyFilter(
@@ -178,6 +227,36 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         except ValueError as error:
             raise ValidationError("Account table sort definition IDs must be valid UUIDs.") from error
 
+    def _metrics(self) -> tuple[contracts.AccountTableMetric, ...]:
+        query_metrics = self.query.metrics or []
+        if len(query_metrics) > ACCOUNTS_TABLE_MAX_METRICS:
+            raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_METRICS} metrics.")
+
+        metrics: list[contracts.AccountTableMetric] = []
+        try:
+            for metric in query_metrics:
+                if isinstance(metric, AccountsTableCountMetric):
+                    metrics.append(contracts.AccountTableCountMetric())
+                elif isinstance(metric, AccountsTableAggregateMetric):
+                    metrics.append(
+                        contracts.AccountTableAggregateMetric(
+                            aggregation=contracts.AccountTableAggregation(metric.aggregation.value),
+                            definition_id=UUID(metric.column.definitionId),
+                            scale=metric.scale,
+                        )
+                    )
+                elif isinstance(metric, AccountsTableCountThresholdMetric):
+                    metrics.append(
+                        contracts.AccountTableCountThresholdMetric(
+                            definition_id=UUID(metric.column.definitionId),
+                            operator=contracts.AccountTableThresholdOperator(metric.operator.value),
+                            value=metric.value,
+                        )
+                    )
+        except ValueError as error:
+            raise ValidationError("Account table metric definition IDs must be valid UUIDs.") from error
+        return tuple(metrics)
+
     def _calculate(self) -> AccountsTableQueryResponse:
         user_access_control = self.user_access_control
         if user_access_control is None:
@@ -189,16 +268,35 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
             ACCOUNTS_TABLE_MAX_PAGE_SIZE,
         )
         offset = max(self.query.offset or 0, 0)
+        filters = self._filters()
 
         try:
+            if self.query.metrics is not None:
+                metrics_results = api.query_accounts_metrics(
+                    team_id=self.team.id,
+                    user_access_control=user_access_control,
+                    filters=filters,
+                    metrics=self._metrics(),
+                    include_churned=bool(self.query.includeChurned),
+                    include_ignored=bool(self.query.includeIgnored),
+                )
+                return AccountsTableQueryResponse(
+                    results=[],
+                    hasMore=False,
+                    limit=limit,
+                    offset=offset,
+                    metricsResults=metrics_results,
+                )
             page = api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=user_access_control,
                 selection=self._column_selection(),
-                filters=self._filters(),
+                filters=filters,
                 sort=self._sort(),
                 offset=offset,
                 limit=limit,
+                include_churned=bool(self.query.includeChurned),
+                include_ignored=bool(self.query.includeIgnored),
             )
         except api.InvalidAccountTableColumn as error:
             raise ValidationError(str(error)) from error
@@ -209,6 +307,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     id=str(row.id),
                     name=row.name,
                     externalId=row.external_id,
+                    logoDomain=row.logo_domain,
                     accountFields={field.value: value for field, value in row.account_fields.items()},
                     tags=row.tags,
                     noteCount=row.note_count,

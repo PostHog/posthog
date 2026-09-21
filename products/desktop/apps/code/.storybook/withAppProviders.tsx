@@ -1,3 +1,4 @@
+import WorkerUrl from "@pierre/diffs/worker/worker.js?worker&url";
 import { type ServiceContainer, setRootContainer } from "@posthog/di/container";
 import { ServiceProvider } from "@posthog/di/react";
 import { ipcLink } from "@posthog/electron-trpc/renderer";
@@ -7,12 +8,14 @@ import {
 } from "@posthog/host-router/client";
 import { HostTRPCProvider } from "@posthog/host-router/react";
 import type { HostRouter } from "@posthog/host-router/router";
+import { ToastProvider } from "@posthog/quill";
 import {
   FEATURE_FLAGS,
   type FeatureFlags,
 } from "@posthog/ui/features/feature-flags/identifiers";
 import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
 import { IMPERATIVE_QUERY_CLIENT } from "@posthog/ui/shell/queryClient";
+import { registerRendererStateStorage } from "@posthog/ui/shell/rendererStorage";
 import type { Decorator } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -63,21 +66,6 @@ const noopHostClient = {
     list: { query: async () => [] },
   },
 } as unknown as HostTrpcClient;
-
-// Diffs are computed in a web worker. Storybook has no worker backend, so hand
-// out an inert stub: components render, diffs just never resolve.
-const stubWorker = {
-  postMessage() {},
-  terminate() {},
-  addEventListener() {},
-  removeEventListener() {},
-  dispatchEvent() {
-    return false;
-  },
-  onmessage: null,
-  onmessageerror: null,
-  onerror: null,
-} as unknown as Worker;
 
 // An inert, infinitely-chainable stand-in for any core service a deep component
 // tree resolves that we haven't (and don't need to) wire up for visuals — e.g.
@@ -147,7 +135,9 @@ function createProviderStack(): ProviderStack {
     .bind<HostTrpcClient>(HOST_TRPC_CLIENT)
     .toConstantValue(noopHostClient);
   bindings.bind(IMPERATIVE_QUERY_CLIENT).toConstantValue(queryClient);
-  bindings.bind(DIFF_WORKER_FACTORY).toConstantValue(() => stubWorker);
+  bindings
+    .bind(DIFF_WORKER_FACTORY)
+    .toConstantValue(() => new Worker(WorkerUrl, { type: "module" }));
   // Real (not inert-proxy) flags: isEnabled must return an actual boolean, or
   // every flag reads as enabled and useFeatureFlag's state never settles.
   bindings.bind<FeatureFlags>(FEATURE_FLAGS).toConstantValue({
@@ -160,6 +150,20 @@ function createProviderStack(): ProviderStack {
 
   return { queryClient, hostTrpcClient, container };
 }
+
+// Persisted stores wait for a host persistence backend before they hydrate, and
+// anything gated on hydration (teaching tips) stays hidden until one arrives.
+// Per-session and empty, so a story never inherits another story's answers.
+const storyState = new Map<string, string>();
+registerRendererStateStorage({
+  getItem: (name) => storyState.get(name) ?? null,
+  setItem: (name, value) => {
+    storyState.set(name, value);
+  },
+  removeItem: (name) => {
+    storyState.delete(name);
+  },
+});
 
 export const withAppProviders: Decorator = (Story) => {
   // The provider singletons don't depend on the story; build them once per
@@ -187,7 +191,9 @@ export const withAppProviders: Decorator = (Story) => {
     <QueryClientProvider client={queryClient}>
       <HostTRPCProvider trpcClient={hostTrpcClient} queryClient={queryClient}>
         <ServiceProvider container={container}>
-          <RouterProvider router={router} />
+          <ToastProvider>
+            <RouterProvider router={router} />
+          </ToastProvider>
         </ServiceProvider>
       </HostTRPCProvider>
     </QueryClientProvider>

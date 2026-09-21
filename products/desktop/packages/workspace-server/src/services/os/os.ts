@@ -26,12 +26,16 @@ import {
 } from "@posthog/platform/workspace-settings";
 import {
   ALLOWED_IMAGE_MIME_TYPES,
+  CLIPBOARD_ATTACHMENT_DIR_NAME,
+  CLIPBOARD_ATTACHMENT_PREFIX,
   IMAGE_MIME_TYPES,
+  isClipboardAttachmentPath,
   isRasterImageFile,
 } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import type {
   ClaudePermissions,
+  HostInfo,
   ImageAttachment,
   MessageBoxOptions,
   SavedAttachment,
@@ -46,17 +50,35 @@ const fsPromises = fs.promises;
 const MAX_IMAGE_DIMENSION = 1568;
 const JPEG_QUALITY = 85;
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const CLIPBOARD_TEMP_DIR = path.join(os.tmpdir(), "posthog-code-clipboard");
+const CLIPBOARD_TEMP_DIR = path.join(
+  os.tmpdir(),
+  CLIPBOARD_ATTACHMENT_DIR_NAME,
+);
 const claudeSettingsPath = path.join(os.homedir(), ".claude", "settings.json");
 
-// User-level agent instruction files, most-preferred first: AGENTS.md (the
-// cross-agent convention) from any of its conventional homes wins over Claude
-// Code's CLAUDE.md.
-const USER_AGENT_INSTRUCTIONS_CANDIDATES: ReadonlyArray<[string, string]> = [
+async function isInsideClipboardTempDir(filePath: string): Promise<boolean> {
+  const [realFile, realDir] = await Promise.all([
+    fsPromises.realpath(filePath),
+    fsPromises.realpath(CLIPBOARD_TEMP_DIR),
+  ]);
+  const relative = path.relative(realDir, realFile);
+  return (
+    relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)
+  );
+}
+
+// User-level agent instruction files as path segments under the home
+// directory, most-preferred first: AGENTS.md (the cross-agent convention) from
+// any of its conventional homes wins over Claude Code's CLAUDE.md, and a
+// tool-specific home wins over the bare home root. Only the first match is
+// read, so pointing several of these at one file still syncs it once.
+const USER_AGENT_INSTRUCTIONS_CANDIDATES: ReadonlyArray<readonly string[]> = [
   [".agents", "AGENTS.md"],
   [".codex", "AGENTS.md"],
   [".claude", "AGENTS.md"],
+  ["AGENTS.md"],
   [".claude", "CLAUDE.md"],
+  ["CLAUDE.md"],
 ];
 
 // Claude Code follows `@path` imports up to four hops deep; we match that so a
@@ -113,8 +135,8 @@ export class OsService {
    * user's CLAUDE.md. Null when none exists.
    */
   async getUserAgentInstructions(): Promise<UserAgentInstructions | null> {
-    for (const [dir, file] of USER_AGENT_INSTRUCTIONS_CANDIDATES) {
-      const filePath = path.join(os.homedir(), dir, file);
+    for (const segments of USER_AGENT_INSTRUCTIONS_CANDIDATES) {
+      const filePath = path.join(os.homedir(), ...segments);
       let content: string;
       try {
         content = await fsPromises.readFile(filePath, "utf-8");
@@ -133,7 +155,7 @@ export class OsService {
       const truncated = expanded.length > USER_AGENT_INSTRUCTIONS_MAX_LENGTH;
       return {
         path: filePath,
-        displayPath: `~/${dir}/${file}`,
+        displayPath: `~/${segments.join("/")}`,
         content: truncated
           ? expanded.slice(0, USER_AGENT_INSTRUCTIONS_MAX_LENGTH)
           : expanded,
@@ -466,8 +488,16 @@ export class OsService {
     return this.appMeta.version;
   }
 
+  getHostInfo(): HostInfo {
+    return { platform: this.appMeta.platform, arch: this.appMeta.arch };
+  }
+
   getWorktreeLocation(): string {
     return this.workspaceSettings.getWorktreeLocation();
+  }
+
+  setWorktreeLocation(location: string): void {
+    this.workspaceSettings.setWorktreeLocation(location);
   }
 
   async readFileAsDataUrl(
@@ -475,6 +505,13 @@ export class OsService {
     maxSizeBytes: number,
   ): Promise<string | null> {
     try {
+      // Message text can name a clipboard-shaped path, so it must resolve inside the real folder.
+      if (
+        isClipboardAttachmentPath(filePath) &&
+        !(await isInsideClipboardTempDir(filePath))
+      ) {
+        return null;
+      }
       const stat = await fsPromises.stat(filePath);
       if (stat.size > maxSizeBytes) return null;
 
@@ -552,7 +589,7 @@ export class OsService {
     const safeName = path.basename(displayName) || "attachment";
     await fsPromises.mkdir(CLIPBOARD_TEMP_DIR, { recursive: true });
     const tempDir = await fsPromises.mkdtemp(
-      path.join(CLIPBOARD_TEMP_DIR, "attachment-"),
+      path.join(CLIPBOARD_TEMP_DIR, CLIPBOARD_ATTACHMENT_PREFIX),
     );
     return path.join(tempDir, safeName);
   }

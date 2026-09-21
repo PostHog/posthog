@@ -2,11 +2,12 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import patch
 
+from django.conf import settings as django_settings
 from django.utils import timezone
 
 import dagster
@@ -18,11 +19,14 @@ from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutat
 from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
+    HogQLEventDeletionExecutor,
+    HogQLEventRemovalContext,
     PersonRemovalContext,
     _property_removal_where,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
     data_deletion_request_event_removal,
+    data_deletion_request_hogql_event_removal,
     data_deletion_request_person_removal,
     data_deletion_request_pickup_sensor,
     data_deletion_request_property_removal,
@@ -31,12 +35,15 @@ from posthog.dags.data_deletion_requests import (
     delete_person_recordings_op,
     execute_event_deletion,
     finalize_deletion_request,
+    get_property_removal_shards,
     load_deletion_request,
+    load_hogql_event_removal_request,
     load_person_removal_request,
     load_property_removal_request,
     process_property_removal_shard,
     verify_property_removal,
 )
+from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
     ExecutionMode,
@@ -44,6 +51,15 @@ from posthog.models.data_deletion_request import (
     RequestType,
     auto_approve_pending_requests,
 )
+from posthog.models.deletion_targets import (
+    EVENTS,
+    DeletionTarget,
+    TargetPlacement,
+    UnreachableTargetError,
+    placement_for,
+)
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
+from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.test.persons import create_person
 
 TEAM_ID = 99999
@@ -91,6 +107,33 @@ def _truncate_writable_events(client: Client) -> None:
     client.execute("TRUNCATE TABLE IF EXISTS sharded_events")
 
 
+def _insert_flag_evaluations_with_properties(rows: list[tuple], client: Client) -> None:
+    # Rows of (team_id, distinct_id, properties_json, uuid, timestamp, inserted_at). The event name is
+    # stamped here because a property-removal request narrows on it. inserted_at is set explicitly
+    # rather than left to its `DEFAULT timestamp` so a test can place a row before or after the
+    # removal marker, which is what the marker-bounded gate keys on.
+    client.execute(
+        "INSERT INTO writable_flag_evaluations "
+        "(team_id, distinct_id, properties, uuid, timestamp, inserted_at, event) VALUES",
+        [(*row, FLAG_EVALUATIONS_SOURCE_EVENT) for row in rows],
+    )
+
+
+def _flag_evaluation_person_ids(team_id: int, client: Client) -> list[str]:
+    # _row_exists = 1 excludes lightweight-deleted rows, which linger until a merge; without it a
+    # swept row still reads back and the equality assertion passes on merge timing.
+    result = client.execute(
+        "SELECT DISTINCT toString(person_id) FROM flag_evaluations "
+        "WHERE team_id = %(team_id)s AND _row_exists = 1 ORDER BY person_id",
+        {"team_id": team_id},
+    )
+    return [row[0] for row in result]
+
+
+def _truncate_flag_evaluations(client: Client) -> None:
+    client.execute("TRUNCATE TABLE IF EXISTS sharded_flag_evaluations")
+
+
 def _truncate_adhoc_events_deletion(client: Client) -> None:
     client.execute(f"TRUNCATE TABLE IF EXISTS {ADHOC_EVENTS_DELETION_TABLE}")
 
@@ -98,6 +141,15 @@ def _truncate_adhoc_events_deletion(client: Client) -> None:
 def _adhoc_pending_uuids(team_id: int, client: Client) -> set:
     result = client.execute(
         f"SELECT uuid FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL WHERE team_id = %(team_id)s AND is_deleted = 0",
+        {"team_id": team_id},
+    )
+    return {row[0] for row in result}
+
+
+def _adhoc_pending_request_ids(team_id: int, client: Client) -> set:
+    result = client.execute(
+        f"SELECT data_deletion_request_id FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL "
+        "WHERE team_id = %(team_id)s AND is_deleted = 0",
         {"team_id": team_id},
     )
     return {row[0] for row in result}
@@ -197,6 +249,129 @@ def test_load_deletion_request_rejects_property_removal():
 
     with pytest.raises(Exception, match="not an approved event_removal request"):
         load_deletion_request(context, config)
+
+
+@pytest.mark.django_db
+def test_load_hogql_event_removal_request_snapshots_query_and_creator(user):
+    request = DataDeletionRequest.objects.create(
+        team_id=user.current_team_id,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ExecutionMode.DEFERRED,
+        hogql_query="SELECT uuid FROM events",
+        hogql_variables={},
+        created_by=user,
+        status=RequestStatus.APPROVED,
+    )
+
+    context = build_op_context()
+    loaded = load_hogql_event_removal_request(context, DataDeletionRequestConfig(request_id=str(request.pk)))
+
+    assert loaded == HogQLEventRemovalContext(
+        request_id=str(request.pk),
+        team_id=user.current_team_id,
+        created_by_id=user.pk,
+        query="SELECT uuid FROM events",
+        variables={},
+    )
+    request.refresh_from_db()
+    assert request.status == RequestStatus.IN_PROGRESS
+    assert request.last_dagster_run_id == context.run_id
+
+
+@pytest.mark.django_db
+def test_creatorless_hogql_request_fails_and_does_not_block_pickup(user):
+    creatorless = DataDeletionRequest.objects.create(
+        team_id=user.current_team_id,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ExecutionMode.DEFERRED,
+        hogql_query="SELECT uuid FROM events",
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now() - timedelta(minutes=1),
+    )
+    next_request = DataDeletionRequest.objects.create(
+        team_id=user.current_team_id,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ExecutionMode.DEFERRED,
+        hogql_query="SELECT uuid FROM events",
+        created_by=user,
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now(),
+    )
+
+    with pytest.raises(dagster.Failure, match="has no creator"):
+        load_hogql_event_removal_request(build_op_context(), DataDeletionRequestConfig(request_id=str(creatorless.pk)))
+
+    creatorless.refresh_from_db()
+    assert creatorless.status == RequestStatus.FAILED
+    assert creatorless.attempt_count == 0
+    result = data_deletion_request_pickup_sensor(
+        dagster.build_sensor_context(instance=dagster.DagsterInstance.ephemeral())
+    )
+    assert isinstance(result, dagster.RunRequest)
+    assert result.run_key == f"{next_request.pk}:{next_request.attempt_count}"
+
+
+@pytest.mark.django_db
+def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_user(team, user):
+    request_id = str(uuid4())
+    deletion_request = HogQLEventRemovalContext(
+        request_id=request_id,
+        team_id=team.pk,
+        created_by_id=user.pk,
+        query="SELECT uuid FROM events WHERE event = 'selected'",
+        variables={},
+    )
+
+    with patch("posthog.dags.data_deletion_requests.sync_execute", return_value=42) as execute:
+        assert HogQLEventDeletionExecutor(deletion_request).execute() == 42
+
+    query, params = execute.call_args.args[:2]
+    assert query.startswith(f"INSERT INTO {django_settings.CLICKHOUSE_DATABASE}.{ADHOC_EVENTS_DELETION_TABLE}")
+    assert "(team_id, uuid, data_deletion_request_id)" in query
+    assert "selected.*" in query
+    assert params["_deletion_team_id"] == team.pk
+    assert params["_deletion_request_id"] == request_id
+    assert execute.call_args.kwargs["team_id"] == team.pk
+    assert execute.call_args.kwargs["ch_user"].value == "deletion_executor"
+
+
+@pytest.mark.django_db
+def test_hogql_event_deletion_executor_rejects_multiple_columns_before_insert(team, user):
+    deletion_request = HogQLEventRemovalContext(
+        request_id=str(uuid4()),
+        team_id=team.pk,
+        created_by_id=user.pk,
+        query="SELECT uuid, event FROM events",
+        variables={},
+    )
+
+    with patch("posthog.dags.data_deletion_requests.sync_execute") as execute:
+        with pytest.raises(dagster.Failure, match="exactly one event UUID column"):
+            HogQLEventDeletionExecutor(deletion_request).execute()
+
+    execute.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_pickup_sensor_routes_hogql_event_removal_request(user):
+    request = DataDeletionRequest.objects.create(
+        team_id=user.current_team_id,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ExecutionMode.DEFERRED,
+        hogql_query="SELECT uuid FROM events",
+        created_by=user,
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now(),
+    )
+
+    result = data_deletion_request_pickup_sensor(
+        dagster.build_sensor_context(instance=dagster.DagsterInstance.ephemeral())
+    )
+
+    assert isinstance(result, dagster.RunRequest)
+    assert result.job_name == data_deletion_request_hogql_event_removal.name
+    assert "load_hogql_event_removal_request" in result.run_config["ops"]
+    assert result.run_key == f"{request.pk}:{request.attempt_count}"
 
 
 @pytest.mark.django_db
@@ -496,6 +671,8 @@ def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
     assert cluster.any_host(partial(_count_events_by_name, DEFERRED_TEAM_ID, "$pageview")).result() == 15
     queued = cluster.any_host(partial(_adhoc_pending_uuids, DEFERRED_TEAM_ID)).result()
     assert queued == set(target_uuids)
+    request_ids = cluster.any_host(partial(_adhoc_pending_request_ids, DEFERRED_TEAM_ID)).result()
+    assert request_ids == {request.pk}
 
     request.refresh_from_db()
     assert request.status == RequestStatus.QUEUED
@@ -1915,12 +2092,23 @@ def test_delete_person_events_op_runs_lightweight_delete_per_shard(cluster: Clic
     now = datetime.now()
 
     cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(_truncate_flag_evaluations).result()
     cluster.any_host(
         partial(
             _insert_events_with_person,
             [
                 (TEAM_ID, "$pageview", str(uuid4()), now, person_uuid),
                 (TEAM_ID, "$pageview", str(uuid4()), now, other_uuid),
+            ],
+        )
+    ).result()
+    # flag_evaluations rides the same person_id-keyed sweep, so a person deletion must reach it too.
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [
+                (TEAM_ID, "erase", person_uuid, str(uuid4()), now),
+                (TEAM_ID, "keep", other_uuid, str(uuid4()), now),
             ],
         )
     ).result()
@@ -1939,6 +2127,98 @@ def test_delete_person_events_op_runs_lightweight_delete_per_shard(cluster: Clic
 
     assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, person_uuid)).result() == 0
     assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, other_uuid)).result() == 1
+    surviving = cluster.any_host(partial(_flag_evaluation_person_ids, TEAM_ID)).result()
+    assert surviving == [other_uuid]
+
+
+@pytest.mark.django_db
+def test_placement_for_refuses_a_target_no_cluster_here_can_sweep(cluster: ClickhouseCluster):
+    # Mutations dispatch over the shards of the one cluster a handle enumerates, so a storage table
+    # rolled out on another one is on no host it can reach. Reporting it simply absent drops it from
+    # resolve_placements and every sweep then completes without touching it, which is the failure
+    # this guard exists to stop. Standing in for that: a storage table no host carries, on a cluster
+    # this deployment does not define, behind a proxy that still reads rows.
+    target = DeletionTarget(
+        data_table="sharded_events_on_another_cluster",
+        read_table="events",
+        optional=True,
+        cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
+    )
+
+    cluster.any_host(_truncate_writable_events).result()
+    assert placement_for(cluster, target) is None
+
+    cluster.any_host(partial(_insert_events, [(TEAM_ID, "$pageview", str(uuid4()), datetime.now())])).result()
+    with pytest.raises(UnreachableTargetError):
+        placement_for(cluster, target)
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_dispatches_on_the_targets_own_cluster(cluster: ClickhouseCluster):
+    # Shard numbers are per cluster, so the handle a target is paired with is the only one whose
+    # shards mean anything for it. Sweeping an off-cluster table over the job's own handle sends
+    # its mutations to hosts that never held those rows, and every shard still reports complete.
+    person_uuid = str(uuid4())
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(
+        partial(_insert_events_with_person, [(TEAM_ID, "$pageview", str(uuid4()), datetime.now(), person_uuid)])
+    ).result()
+
+    # A second handle over the same node: a different object with its own shard map, which is what
+    # an off-cluster target's placement looks like here.
+    sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[person_uuid],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    with (
+        patch(
+            "posthog.dags.data_deletion_requests.resolve_placements",
+            return_value=[TargetPlacement(target=EVENTS, cluster=sibling)],
+        ),
+        patch.object(sibling, "map_any_host_in_shards", wraps=sibling.map_any_host_in_shards) as on_sibling,
+        patch.object(cluster, "map_any_host_in_shards", wraps=cluster.map_any_host_in_shards) as on_job_handle,
+    ):
+        delete_person_events_op(build_op_context(), cluster, ctx)
+
+    assert on_sibling.called
+    assert not on_job_handle.called
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, person_uuid)).result() == 0
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_fails_when_the_persons_rows_outlive_the_sweep(cluster: ClickhouseCluster):
+    # The mutation lands on a table the person's rows are not on, so `events` still returns them
+    # once every shard reports complete. That is what an unreachable shard or an off-cluster storage
+    # table looks like from here, and the request must fail rather than reach COMPLETED.
+    person_uuid = str(uuid4())
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(
+        partial(_insert_events_with_person, [(TEAM_ID, "$pageview", str(uuid4()), datetime.now(), person_uuid)])
+    ).result()
+
+    stranded = DeletionTarget(data_table=FLAG_EVALUATIONS_DATA_TABLE, read_table="events")
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[person_uuid],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    placement = TargetPlacement(target=stranded, cluster=cluster)
+    with patch("posthog.dags.data_deletion_requests.resolve_placements", return_value=[placement]):
+        with pytest.raises(dagster.Failure, match="still readable"):
+            delete_person_events_op(build_op_context(), cluster, ctx)
 
 
 @pytest.mark.django_db
@@ -1953,6 +2233,198 @@ def test_delete_person_events_op_noop_when_disabled(cluster: ClickhouseCluster):
         drop_recordings=False,
     )
     delete_person_events_op(build_op_context(), cluster, ctx)
+
+
+@pytest.mark.django_db
+def test_deferred_event_removal_queues_flag_evaluations_and_blocks_promotion(cluster: ClickhouseCluster):
+    # Every other deferred test names an event flag_evaluations can't hold, so stored_events skips
+    # the table and none of this code runs. A request naming $feature_flag_called must queue the
+    # table's own uuids, and must not be promoted to COMPLETED while its rows survive.
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+    request = DataDeletionRequest.objects.create(
+        team_id=DEFERRED_TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED.value,
+    )
+
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
+    cluster.any_host(_truncate_flag_evaluations).result()
+
+    # A uuid that exists only in flag_evaluations: reading candidates from the events table alone
+    # would never queue it.
+    flag_uuid = uuid4()
+    cluster.any_host(
+        partial(
+            _insert_flag_evaluations_with_properties,
+            [(DEFERRED_TEAM_ID, "someone", "{}", str(flag_uuid), now, now)],
+        )
+    ).result()
+
+    deletion_ctx = DeletionRequestContext(
+        request_id=str(request.pk),
+        team_id=DEFERRED_TEAM_ID,
+        start_time=start_time,
+        end_time=end_time,
+        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
+        execution_mode=ExecutionMode.DEFERRED.value,
+    )
+    execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+
+    queued = cluster.any_host(partial(_adhoc_pending_uuids, DEFERRED_TEAM_ID)).result()
+    assert flag_uuid in queued
+
+    # The row is still there until the drain runs, so verification must not promote the request.
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    outcome = verify_queued_request(request)
+    assert outcome.remaining == 1
+    assert outcome.promoted is False
+
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
+
+
+@pytest.mark.django_db
+def test_get_property_removal_shards_refuses_when_flag_evaluations_holds_matching_rows(cluster: ClickhouseCluster):
+    # Property removal cannot rewrite flag_evaluations: the rewrite machinery is scoped to the
+    # events tables, and flag_key sits in the sort key where no mutation can reset it, so even
+    # that machinery could not fully honor a request naming $feature_flag. Completing the
+    # request anyway would report the property erased while a copy of it survived.
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
+        properties=["$ip"],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now() + timedelta(days=1),
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    deletion_request = load_property_removal_request(build_op_context(), config)
+    marker = deletion_request.inserted_at_marker
+    assert marker is not None
+    before_marker = marker - timedelta(minutes=1)
+    after_marker = marker + timedelta(minutes=1)
+
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(
+        partial(
+            _insert_flag_evaluations_with_properties,
+            [(PROP_TEAM_ID, "someone", '{"$ip": "1.2.3.4"}', str(uuid4()), before_marker, before_marker)],
+        )
+    ).result()
+
+    # Match the refusal itself, not just the table name: an UNKNOWN_TABLE error would also carry
+    # "flag_evaluations" and would let a broken gate pass this test.
+    with pytest.raises(dagster.Failure, match="cannot be deleted"):
+        list(get_property_removal_shards(build_op_context(), cluster, deletion_request))
+
+    # A row ingested after the marker is outside the deletion snapshot, so the gate must ignore it
+    # rather than refuse forever. Without the marker bound this row wedges every retry.
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(
+        partial(
+            _insert_flag_evaluations_with_properties,
+            [(PROP_TEAM_ID, "someone", '{"$ip": "1.2.3.4"}', str(uuid4()), after_marker, after_marker)],
+        )
+    ).result()
+    assert list(get_property_removal_shards(build_op_context(), cluster, deletion_request))
+
+    # With nothing left to strand the same request proceeds, so the gate cannot degrade into an
+    # unconditional block on every property removal.
+    cluster.any_host(_truncate_flag_evaluations).result()
+    assert list(get_property_removal_shards(build_op_context(), cluster, deletion_request))
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "properties, person_properties, insert_value, expect_refusal",
+    [
+        pytest.param([], ["email"], '{"email": "a@example.com"}', False, id="person_properties_only"),
+        pytest.param(["$ip"], ["email"], '{"email": "a@example.com"}', False, id="mixed_row_holds_only_the_person_key"),
+        pytest.param(["$ip"], ["email"], '{"$ip": "1.2.3.4"}', True, id="mixed_matches_event_property"),
+    ],
+)
+def test_get_property_removal_shards_narrows_person_properties_on_flag_evaluations(
+    cluster: ClickhouseCluster,
+    properties: list[str],
+    person_properties: list[str],
+    insert_value: str,
+    expect_refusal: bool,
+) -> None:
+    # flag_evaluations has no person_properties column (#95693), so the gate drops the
+    # person_properties half of its check. A row that holds only the key named there survives, which
+    # is the accepted cost, and a gate that kept that half would query a column the table does not
+    # have. The event-property half still applies, so a row matching it must still refuse.
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
+        properties=properties,
+        person_properties=person_properties,
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now() + timedelta(days=1),
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    deletion_request = load_property_removal_request(build_op_context(), config)
+    marker = deletion_request.inserted_at_marker
+    assert marker is not None
+    before_marker = marker - timedelta(minutes=1)
+
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(
+        partial(
+            _insert_flag_evaluations_with_properties,
+            [(PROP_TEAM_ID, "someone", insert_value, str(uuid4()), before_marker, before_marker)],
+        )
+    ).result()
+
+    if expect_refusal:
+        with pytest.raises(dagster.Failure, match="cannot be deleted"):
+            list(get_property_removal_shards(build_op_context(), cluster, deletion_request))
+    else:
+        assert list(get_property_removal_shards(build_op_context(), cluster, deletion_request))
+
+    cluster.any_host(_truncate_flag_evaluations).result()
+
+
+@pytest.mark.django_db
+def test_execute_event_deletion_refuses_hogql_predicate_when_flag_evaluations_holds_matching_rows(
+    cluster: ClickhouseCluster,
+) -> None:
+    # flag_evaluations has no HogQL table definition, so it cannot accept the compiled predicate
+    # and falls into the unsweepable branch of _event_removal_placements. A matching row there must
+    # refuse the request rather than let it complete while HogQL-matched rows survive.
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(
+        partial(
+            _insert_flag_evaluations_with_properties,
+            [(PROP_TEAM_ID, "someone", '{"$browser": "Chrome"}', str(uuid4()), now, now)],
+        )
+    ).result()
+
+    deletion_ctx = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=PROP_TEAM_ID,
+        start_time=start_time,
+        end_time=end_time,
+        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
+        hogql_predicate="properties.$browser = 'Chrome'",
+    )
+    with pytest.raises(dagster.Failure, match="cannot be deleted"):
+        execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+
+    cluster.any_host(_truncate_flag_evaluations).result()
 
 
 @pytest.mark.django_db
@@ -2040,7 +2512,7 @@ def test_delete_person_profiles_op_calls_helper_when_enabled():
         drop_recordings=False,
     )
     with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
-        deleter.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        deleter.return_value = PersonProfileDeletionResult(deleted_count=1)
         delete_person_profiles_op(build_op_context(), ctx)
         deleter.assert_called_once()
 
@@ -2079,7 +2551,14 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
     )
     op_context = build_op_context()
     with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
-        deleter.return_value = type("R", (), {"deleted_count": 0, "errors": [p_uuid]})()
+        deleter.return_value = PersonProfileDeletionResult(
+            deleted_count=0,
+            failures=[
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=UUID(p_uuid), error="RuntimeError: x"
+                )
+            ],
+        )
         with patch.object(op_context.log, "warning") as warn:
             result = delete_person_profiles_op(op_context, ctx)
 
@@ -2092,7 +2571,42 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
 
 
 @pytest.mark.django_db
-def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster):
+def test_delete_person_profiles_op_raises_when_the_postgres_delete_fails():
+    p_uuid = str(uuid4())
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    tombstone_failed = uuid4()
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = PersonProfileDeletionResult(
+            deleted_count=0,
+            failures=[
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=tombstone_failed, error="RuntimeError: ch"
+                ),
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.DELETE_POSTGRES, person_uuid=UUID(p_uuid), error="RuntimeError: down"
+                ),
+            ],
+        )
+        with pytest.raises(dagster.Failure, match="Postgres delete failed for 1 persons") as raised:
+            delete_person_profiles_op(build_op_context(), ctx)
+    # The run metadata still carries every failure, not only the Postgres ones named in the description.
+    assert raised.value.metadata["errors"].value == 2
+    assert raised.value.metadata["deleted_count"].value == 0
+    assert set(str(raised.value.metadata["error_uuids"].value).split(", ")) == {str(tombstone_failed), p_uuid}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("postgres_delete_fails", [False, True])
+def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster, postgres_delete_fails: bool):
     p_uuid = str(uuid4())
     create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     request = DataDeletionRequest.objects.create(
@@ -2109,7 +2623,18 @@ def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseClust
         patch("posthog.dags.data_deletion_requests.delete_persons_profile") as profile,
         patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion"),
     ):
-        profile.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        profile.return_value = (
+            PersonProfileDeletionResult(
+                deleted_count=0,
+                failures=[
+                    PersonDeletionFailure(
+                        step=PersonDeletionStep.DELETE_POSTGRES, person_uuid=UUID(p_uuid), error="RuntimeError: down"
+                    )
+                ],
+            )
+            if postgres_delete_fails
+            else PersonProfileDeletionResult(deleted_count=1)
+        )
         result = data_deletion_request_person_removal.execute_in_process(
             run_config={
                 "ops": {
@@ -2117,11 +2642,14 @@ def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseClust
                 },
             },
             resources={"cluster": cluster},
+            raise_on_error=False,
         )
 
-    assert result.success
+    # A failed Postgres delete has to reach the request status through the skipped finalize op and
+    # the failure hook, not only raise inside the op.
+    assert result.success is not postgres_delete_fails
     request.refresh_from_db()
-    assert request.status == RequestStatus.COMPLETED
+    assert request.status == (RequestStatus.FAILED if postgres_delete_fails else RequestStatus.COMPLETED)
 
 
 @pytest.mark.django_db

@@ -16,7 +16,9 @@ import yaml
 
 from posthog.models.team.team import Team
 
+from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.tags import slugify_tag
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,17 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 # existing per-team rows (prune only reaps `signals-scout-*` rows), so retiring a companion
 # means cleaning up its rows out-of-band.
 _COMPANION_SKILL_DIRS = ("authoring-scouts",)
+
+# Companions that another product ships and maintains, seeded on the same terms as the ones above.
+# A scout is exactly the agent the companion rule is written for: it reads skills through
+# `llma-skill-get`, which only sees per-team rows, so a skill that lives solely in
+# `dist/skills.zip` is unreachable from a run no matter what the scout's prompt says. The
+# alternative — each product bundling a private copy onto every scout it creates — freezes the
+# copy at creation, so an edit to the source never reaches a scout already in rotation.
+# Cross-product by file path, not by import: the harness reads the markdown and never imports the
+# owning product. The stranding caveat above applies here too.
+_PRODUCTS_DIR = Path(__file__).resolve().parents[3]
+_EXTERNAL_COMPANION_SKILL_DIRS = (_PRODUCTS_DIR / "replay_vision" / "skills" / "exploring-replay-vision-observations",)
 
 # Mirrors the regex in `products/posthog_ai/scripts/build_skills.py` so frontmatter parsing
 # stays consistent across the two consumers. Keep these in sync if the skill spec evolves.
@@ -71,6 +84,12 @@ HARNESS_SEEDED_BY = "signals_scout_harness"
 # product treats `category` as an opaque string; this is the value the harness writes.
 SCOUT_SKILL_CATEGORY = "scout"
 
+ScoutRole = Literal["specialist", "operational"]
+
+SCOUT_ROLE_SPECIALIST: ScoutRole = "specialist"
+SCOUT_ROLE_OPERATIONAL: ScoutRole = "operational"
+SCOUT_ROLES: tuple[ScoutRole, ...] = (SCOUT_ROLE_SPECIALIST, SCOUT_ROLE_OPERATIONAL)
+
 
 @dataclass(frozen=True)
 class CanonicalSkillFile:
@@ -87,7 +106,11 @@ class CanonicalSkill:
     frontmatter. `allowed_tools` is optional in frontmatter — defaults to empty (no narrowing).
     The agentskills.io spec uses `allowed-tools` (hyphen); we accept both, preferring the
     spec form. `files` is the recursive content of the `_ALLOWED_BUNDLE_SUBDIRS` directories
-    alongside SKILL.md.
+    alongside SKILL.md. `config_tags` is the optional `scout-tags` frontmatter list, seeded onto
+    the scout's `SignalScoutConfig` when that row is first created. `role` is the optional
+    `scout-role` frontmatter value — what the harness is allowed to do to the scout.
+    `display_name` is the optional `scout-display-name` frontmatter value, the label the fleet
+    ships the scout under.
     """
 
     name: str
@@ -96,6 +119,9 @@ class CanonicalSkill:
     allowed_tools: tuple[str, ...]
     files: tuple[CanonicalSkillFile, ...]
     source_path: Path
+    config_tags: tuple[str, ...] = ()
+    role: ScoutRole = SCOUT_ROLE_SPECIALIST
+    display_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -141,6 +167,101 @@ class CanonicalSkillParseError(ValueError):
     """A canonical SKILL.md on disk is malformed (missing frontmatter, bad YAML, etc.)."""
 
 
+def _parse_config_tags(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> tuple[str, ...]:
+    """Read the optional `scout-tags` frontmatter list — the tags seeded onto the scout's config.
+
+    This is how a canonical scout claims a product surface's tag (e.g. `ai-observability`, which
+    is what puts a scout in AI observability's self-driving tab) without that product hardcoding
+    a skill name. Normalized through the same `slugify_tag` the config API uses, so a tag written
+    here means what a person typing it in the tag box would get, and bounded by the same caps —
+    a malformed value fails the parse rather than seeding a tag nobody can reproduce by hand.
+
+    Only scouts have a config to tag, so the key is rejected on a companion skill.
+    """
+    if "scout-tags" not in frontmatter:
+        return ()
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-tags': {skill_file}")
+    raw_tags = frontmatter["scout-tags"]
+    if not isinstance(raw_tags, list) or not all(isinstance(t, str) for t in raw_tags):
+        raise CanonicalSkillParseError(f"SKILL.md frontmatter 'scout-tags' must be a list of strings: {skill_file}")
+    tags: set[str] = set()
+    for raw in raw_tags:
+        tag = slugify_tag(raw)
+        if not tag:
+            raise CanonicalSkillParseError(
+                f"SKILL.md frontmatter tag {raw!r} is empty once normalized to a lowercase slug: {skill_file}"
+            )
+        if len(tag) > SignalScoutConfig.MAX_TAG_LENGTH:
+            raise CanonicalSkillParseError(
+                f"SKILL.md frontmatter tag {raw!r} is {len(tag)} characters once normalized, over the "
+                f"{SignalScoutConfig.MAX_TAG_LENGTH} limit: {skill_file}"
+            )
+        tags.add(tag)
+    # Counted after normalization, like the length cap above is measured on the slug: the cap is
+    # about what lands on the config, so spellings that collapse to one tag cost one tag.
+    if len(tags) > SignalScoutConfig.MAX_TAGS:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-tags' has {len(tags)} tags once normalized, over the "
+            f"{SignalScoutConfig.MAX_TAGS} limit: {skill_file}"
+        )
+    return tuple(sorted(tags))
+
+
+def _parse_scout_role(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> ScoutRole:
+    """Read the optional `scout-role` frontmatter value — the posture the harness seeds the scout on.
+
+    A scout that watches the self-driving system itself declares `operational`, and the harness
+    stops treating its quiet as waste: it seeds enabled and exempt from the inactivity sweep, is
+    not gated by the launch allowlist, and is not blocked by the per-team cap. Everything else is
+    a `specialist` and keeps the normal posture, so the default is the safe one.
+
+    Only scouts have a config for the role to shape, so the key is rejected on a companion skill.
+    An unknown value fails the parse rather than falling back: a typo that silently downgraded an
+    operational scout to a specialist is exactly the silencing this role exists to prevent.
+    """
+    if "scout-role" not in frontmatter:
+        return SCOUT_ROLE_SPECIALIST
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-role': {skill_file}")
+    raw_role = frontmatter["scout-role"]
+    if raw_role == SCOUT_ROLE_OPERATIONAL:
+        return SCOUT_ROLE_OPERATIONAL
+    if raw_role == SCOUT_ROLE_SPECIALIST:
+        return SCOUT_ROLE_SPECIALIST
+    raise CanonicalSkillParseError(
+        f"SKILL.md frontmatter 'scout-role' must be one of {', '.join(SCOUT_ROLES)}: got {raw_role!r} in {skill_file}"
+    )
+
+
+def _parse_display_name(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> str:
+    """Read the optional `scout-display-name` frontmatter value — the label the scout ships under.
+
+    A scout's skill name is a slug, and a slug sentence-cased at render time gets acronyms wrong:
+    `signals-scout-apm` reads as "Apm", `signals-scout-mcp-tool-calls` as "Mcp tool calls". Rather
+    than grow a table of capitalization fixes somewhere downstream, each canonical scout states its
+    own label here, and it is seeded onto the config's `display_name` where every surface already
+    reads it. Absent means the scout has no name of its own and clients derive one from the slug.
+
+    Only scouts have a config for the name to land on, so the key is rejected on a companion skill.
+    """
+    if "scout-display-name" not in frontmatter:
+        return ""
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-display-name': {skill_file}")
+    raw = frontmatter["scout-display-name"]
+    if not isinstance(raw, str) or not (display_name := raw.strip()):
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-display-name' must be a non-empty string: {skill_file}"
+        )
+    if len(display_name) > SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-display-name' exceeds the "
+            f"{SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH} character limit: {skill_file}"
+        )
+    return display_name
+
+
 def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
     skill_file = skill_dir / "SKILL.md"
     raw = skill_file.read_text(encoding="utf-8")
@@ -153,7 +274,6 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         raise CanonicalSkillParseError(f"SKILL.md frontmatter is not valid YAML: {skill_file}: {e}") from e
     if not isinstance(frontmatter, dict):
         raise CanonicalSkillParseError(f"SKILL.md frontmatter must be a mapping: {skill_file}")
-
     name = frontmatter.get("name")
     description = frontmatter.get("description")
     if not isinstance(name, str) or not name:
@@ -178,7 +298,6 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
             raise CanonicalSkillParseError(
                 f"Companion skill name must match its directory: got {name!r} in {skill_file}"
             )
-
     # The agentskills.io spec uses `allowed-tools` (hyphen). We prefer the spec form, but accept
     # the underscore form too — it predated the spec alignment in this codebase and is used by
     # other PHS skills. Reject if both keys are set so a future divergence doesn't go unnoticed.
@@ -203,14 +322,18 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
             f"SKILL.md frontmatter 'allowed-tools'/'allowed_tools' must be a list of strings: {skill_file}"
         )
 
+    config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
+    role = _parse_scout_role(frontmatter, skill_file, is_scout=is_scout)
+    display_name = _parse_display_name(frontmatter, skill_file, is_scout=is_scout)
+
     body = raw[match.end() :]
-    # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed
-    # bypasses `create_skill_file` (no service-layer "create from scratch with files"
-    # helper exists), so check at parse time — a canonical too big to seed should fail
-    # loudly in CI / local seed runs, not silently exceed the documented capacity.
     if len(body.encode("utf-8")) > _MAX_SKILL_BODY_BYTES:
         raise CanonicalSkillParseError(f"SKILL.md body exceeds the {_MAX_SKILL_BODY_BYTES} byte limit: {skill_file}")
 
+    # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed
+    # bypasses `create_skill_file` (no service-layer "create from scratch with files"
+    # helper exists), so bundled files must fail before a database write exceeds the
+    # documented capacity.
     files: list[CanonicalSkillFile] = []
     for subdir_name in _ALLOWED_BUNDLE_SUBDIRS:
         subdir = skill_dir / subdir_name
@@ -246,6 +369,9 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         allowed_tools=tuple(raw_allowed),
         files=tuple(files),
         source_path=skill_dir,
+        config_tags=config_tags,
+        role=role,
+        display_name=display_name,
     )
 
 
@@ -264,16 +390,30 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
     on the first read instead of flapping silently.
     """
     base = skills_dir or _SKILLS_DIR
+    # `skills_dir` means "read this fleet in isolation", which is what the tests want; the
+    # cross-product companions belong to the real fleet only.
+    external = _EXTERNAL_COMPANION_SKILL_DIRS if skills_dir is None else ()
     if not base.is_dir():
         return ()
-    discovered: list[CanonicalSkill] = []
-    by_name: dict[str, Path] = {}
+    candidates: list[tuple[Path, bool]] = []
     for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
         is_scout = entry.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX)
-        if not is_scout and entry.name not in _COMPANION_SKILL_DIRS:
+        if is_scout or entry.name in _COMPANION_SKILL_DIRS:
+            candidates.append((entry, is_scout))
+    for entry in external:
+        if not (entry / "SKILL.md").is_file():
+            # Warn rather than raise: `canonical_skill_names` turns a parse error into an empty
+            # fleet, so a moved directory in another product would make every scout read as
+            # custom. The fleet lock in the tests is what fails loud on this.
+            logger.warning("discover_canonical_skills: external companion skill missing at %s", entry)
             continue
+        candidates.append((entry, False))
+
+    discovered: list[CanonicalSkill] = []
+    by_name: dict[str, Path] = {}
+    for entry, is_scout in candidates:
         if not (entry / "SKILL.md").is_file():
             continue
         skill = _parse_canonical_skill(entry, is_scout=is_scout)
@@ -302,6 +442,81 @@ def canonical_skill_names() -> frozenset[str]:
     except CanonicalSkillParseError:
         logger.warning("canonical_skill_names: malformed canonical skill on disk; treating fleet as empty")
         return frozenset()
+
+
+@lru_cache(maxsize=1)
+def _canonical_config_tags() -> dict[str, tuple[str, ...]]:
+    """`scout-tags` per canonical scout name, for the scouts that declare any.
+
+    Cached for the process like `canonical_skill_names` — the shipped fleet only changes on
+    deploy — and degrades to empty on a malformed canonical rather than failing config
+    registration, which the harness's own sync path already fails loud on.
+    """
+    try:
+        return {skill.name: skill.config_tags for skill in discover_canonical_skills() if skill.config_tags}
+    except CanonicalSkillParseError:
+        logger.warning("canonical_config_tags: malformed canonical skill on disk; seeding no tags")
+        return {}
+
+
+def canonical_config_tags_for(skill_name: str) -> tuple[str, ...]:
+    """Tags the canonical scout of this name declares, to stamp on its config at creation.
+
+    Empty for a custom scout, and for a canonical scout that claims no product surface. Callers
+    must confirm the name is canonical first — a team's own `signals-scout-*` skill can share a
+    canonical name, and it inherits nothing from disk.
+    """
+    return _canonical_config_tags().get(skill_name, ())
+
+
+@lru_cache(maxsize=1)
+def _canonical_display_names() -> dict[str, str]:
+    """`scout-display-name` per canonical scout name, for the scouts that declare one.
+
+    Cached for the process like `canonical_skill_names` — the shipped fleet only changes on
+    deploy — and degrades to empty on a malformed canonical rather than failing config
+    registration, which leaves clients deriving a label from the slug as they did before.
+    """
+    try:
+        return {skill.name: skill.display_name for skill in discover_canonical_skills() if skill.display_name}
+    except CanonicalSkillParseError:
+        logger.warning("canonical_display_names: malformed canonical skill on disk; seeding no display names")
+        return {}
+
+
+def canonical_display_name_for(skill_name: str) -> str:
+    """The label the canonical scout of this name ships under, to stamp on its config.
+
+    Empty for a custom scout, and for a canonical scout that states no label. Callers must confirm
+    the name is canonical first — a team's own `signals-scout-*` skill can share a canonical name,
+    and it inherits nothing from disk.
+    """
+    return _canonical_display_names().get(skill_name, "")
+
+
+@lru_cache(maxsize=1)
+def _canonical_operational_scouts() -> frozenset[str]:
+    """Names of the canonical scouts that declare `scout-role: operational`.
+
+    Cached for the process like `canonical_skill_names` — the shipped fleet only changes on
+    deploy — and degrades to empty on a malformed canonical, which leaves every scout on the
+    specialist posture rather than failing config registration.
+    """
+    try:
+        return frozenset(skill.name for skill in discover_canonical_skills() if skill.role == SCOUT_ROLE_OPERATIONAL)
+    except CanonicalSkillParseError:
+        logger.warning("canonical_operational_scouts: malformed canonical skill on disk; seeding no operational roles")
+        return frozenset()
+
+
+def is_operational_scout(skill_name: str) -> bool:
+    """Whether the canonical scout of this name watches the self-driving system itself.
+
+    False for a custom scout, and for a canonical specialist. Callers must confirm the name is
+    canonical first — a team's own `signals-scout-*` skill can share a canonical name, and it
+    inherits nothing from disk, least of all a role that exempts it from the harness's controls.
+    """
+    return skill_name in _canonical_operational_scouts()
 
 
 def scout_skill_origin(skill_name: str, metadata: dict | None) -> Literal["canonical", "custom"]:
@@ -336,6 +551,11 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
 
     SHA-256 is overkill cryptographically but content-addressable hashes are cheap and we want
     no false positives.
+
+    Deliberately excludes `config_tags`, `role`, and `display_name`: the hash is compared against
+    `_compute_row_hash` over the team's `LLMSkill` row, which stores none of them (all three shape
+    the config instead), so folding them in here would make every seeded row read as diverged
+    forever.
     """
     payload = {
         "description": canonical.description,
@@ -381,6 +601,18 @@ def scout_skill_row_origin(skill: LLMSkill) -> Literal["canonical", "custom"]:
     if stored_hash is None:
         return "canonical"
     return "custom" if _compute_row_hash(skill, list(skill.files.all())) != stored_hash else "canonical"
+
+
+def scout_skill_row_is_proven_canonical(skill: LLMSkill) -> bool:
+    """`scout_skill_row_origin`, plus the baseline hash that makes the verdict provable.
+
+    The two disagree on one row: a seeded row carrying no `canonical_hash`. `scout_skill_row_origin`
+    keeps it canonical because its consumer (the self-improvement gate) is conservative in the
+    direction of not inviting edits. A caller that *grants* something on canonical origin is
+    conservative the other way, so it reads that row as `sync_canonical_skills` does — no baseline
+    hash, no claim.
+    """
+    return scout_skill_row_origin(skill) == "canonical" and (skill.metadata or {}).get("canonical_hash") is not None
 
 
 def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonical_hash: str) -> None:

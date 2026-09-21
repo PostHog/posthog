@@ -1,30 +1,28 @@
 import { memo, type PointerEvent as ReactPointerEvent, useCallback, useRef } from 'react'
 import clsx from 'clsx'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
-import { hashCodeForString } from 'lib/utils/strings'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
-import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
-import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
-import { PythonRunMenu } from './components/PythonRunMenu'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconX } from '@posthog/icons'
+import { IconCollapse, IconEllipsis, IconExpand, IconPencil } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
+    NotebookNodeProps,
     NodeWrapperProps,
     NotebookNodeResource,
     NotebookNodeType,
 } from '../types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { getNotebookWidgetViewMenuItem } from '../notebookWidgetMenu'
+import { withoutNotebookMenuIcons } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 
 const NON_COPYABLE_NODES = [
     NotebookNodeType.PersonProperties,
@@ -48,10 +46,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         attributes,
         updateAttributes,
         Settings = null,
+        editableTitle = true,
+        titlePlaceholder,
+        defaultView,
+        views,
+        unmountWhenOutOfView = false,
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeIds, containerSize, notebook, isShared } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeIds, containerSize, isShared } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
 
     const logicProps: NotebookNodeLogicProps = {
@@ -65,32 +68,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         resizeable,
         expanded,
         nodeId,
-        pythonRunLoading,
-        duckSqlRunLoading,
-        duckSqlRunQueued,
-        hogqlSqlRunLoading,
-        hogqlSqlRunQueued,
-        pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
-        duckSqlReturnVariable,
-        hogqlSqlReturnVariable,
         customMenuItems,
-        kernelInfo,
+        actions,
     } = useValues(nodeLogic)
-    const {
-        setRef,
-        setExpanded,
-        deleteNode,
-        toggleEditing,
-        toggleEditingTitle,
-        copyToClipboard,
-        runPythonNodeWithMode,
-        runDuckSqlNodeWithMode,
-        runHogqlSqlNodeWithMode,
-    } = useActions(nodeLogic)
+    const { setRef, setExpanded, deleteNode, toggleEditing, toggleEditingTitle, copyToClipboard } =
+        useActions(nodeLogic)
 
-    const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
+    const { ref: inViewRef, inView } = useInView({ triggerOnce: !unmountWhenOutOfView })
 
     const setRefs = useCallback(
         (node: HTMLDivElement | null) => {
@@ -121,15 +107,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             // css resize sets the style attr so we check that to detect changes. Resize obsserver doesn't trigger for style changes
             const heightAttr = contentRef.current?.style.height
             if (heightAttr && heightAttr !== initialHeightAttr) {
-                updateAttributes({
-                    height: contentRef.current?.clientHeight,
-                    ...(nodeType === NotebookNodeType.Python ? { autoHeight: false } : {}),
-                } as any)
+                updateAttributes({ height: contentRef.current?.clientHeight } as any)
             }
         }
 
         window.addEventListener('mouseup', onResizedEnd)
-    }, [nodeType, resizeable, updateAttributes])
+    }, [resizeable, updateAttributes])
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
 
@@ -160,75 +143,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                 window.removeEventListener('pointermove', onPointerMove)
                 window.removeEventListener('pointerup', onPointerUp)
 
-                updateAttributes({
-                    height: element.clientHeight,
-                    ...(nodeType === NotebookNodeType.Python ? { autoHeight: false } : {}),
-                } as any)
+                updateAttributes({ height: element.clientHeight } as any)
             }
 
             window.addEventListener('pointermove', onPointerMove)
             window.addEventListener('pointerup', onPointerUp)
         },
-        [isEditable, isResizeable, nodeType, updateAttributes]
+        [isEditable, isResizeable, updateAttributes]
     )
-    const isPythonNode = nodeType === NotebookNodeType.Python
-    const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
-    const isHogqlSqlNode = nodeType === NotebookNodeType.HogQLSQL
-    const runDisabledReason = !notebook ? 'Notebook not loaded' : undefined
-    const pythonAttributes = attributes as {
-        code?: string
-        pythonExecutionCodeHash?: number | null
-        pythonExecutionSandboxId?: string | null
-    }
-    const pythonExecutionCodeHash = pythonAttributes.pythonExecutionCodeHash ?? null
-    const pythonCodeHash = hashCodeForString(typeof pythonAttributes.code === 'string' ? pythonAttributes.code : '')
-    const pythonExecutionSandboxId = pythonAttributes.pythonExecutionSandboxId ?? null
-    const kernelSandboxId = kernelInfo?.sandbox_id ?? null
-    const kernelIsRunning = kernelInfo?.status === 'running'
-    const pythonHasExecution = pythonExecutionCodeHash !== null
-    const pythonSandboxMatches =
-        pythonExecutionSandboxId !== null && kernelSandboxId !== null && pythonExecutionSandboxId === kernelSandboxId
-    const pythonIsFresh =
-        pythonHasExecution && pythonExecutionCodeHash === pythonCodeHash && pythonSandboxMatches && kernelIsRunning
-    const pythonIsStale = pythonHasExecution && !pythonIsFresh
-    const duckSqlAttributes = attributes as {
-        code?: string
-        duckExecutionCodeHash?: number | null
-        duckExecutionSandboxId?: string | null
-        returnVariable?: string
-    }
-    const duckSqlExecutionCodeHash = duckSqlAttributes.duckExecutionCodeHash ?? null
-    const duckSqlCodeHash = hashCodeForString(
-        `${typeof duckSqlAttributes.code === 'string' ? duckSqlAttributes.code : ''}\n${duckSqlReturnVariable}`
-    )
-    const duckSqlExecutionSandboxId = duckSqlAttributes.duckExecutionSandboxId ?? null
-    const duckSqlHasExecution = duckSqlExecutionCodeHash !== null
-    const duckSqlSandboxMatches =
-        duckSqlExecutionSandboxId !== null && kernelSandboxId !== null && duckSqlExecutionSandboxId === kernelSandboxId
-    const duckSqlIsFresh =
-        duckSqlHasExecution && duckSqlExecutionCodeHash === duckSqlCodeHash && duckSqlSandboxMatches && kernelIsRunning
-    const duckSqlIsStale = duckSqlHasExecution && !duckSqlIsFresh
-    const hogqlSqlAttributes = attributes as {
-        code?: string
-        hogqlExecutionCodeHash?: number | null
-        hogqlExecutionSandboxId?: string | null
-        returnVariable?: string
-    }
-    const hogqlSqlExecutionCodeHash = hogqlSqlAttributes.hogqlExecutionCodeHash ?? null
-    const hogqlSqlCodeHash = hashCodeForString(`${hogqlSqlAttributes.code ?? ''}\n${hogqlSqlReturnVariable}`)
-    const hogqlSqlExecutionSandboxId = hogqlSqlAttributes.hogqlExecutionSandboxId ?? null
-    const hogqlSqlHasExecution = hogqlSqlExecutionCodeHash !== null
-    const hogqlSqlSandboxMatches =
-        hogqlSqlExecutionSandboxId !== null &&
-        kernelSandboxId !== null &&
-        hogqlSqlExecutionSandboxId === kernelSandboxId
-    const hogqlSqlIsFresh =
-        hogqlSqlHasExecution &&
-        hogqlSqlExecutionCodeHash === hogqlSqlCodeHash &&
-        hogqlSqlSandboxMatches &&
-        kernelIsRunning
-    const hogqlSqlIsStale = hogqlSqlHasExecution && !hogqlSqlIsFresh
-
     const defaultMenuItems: LemonMenuItems = [
         // Copy round-trips the node attrs through HTML for paste into another notebook — doesn't
         // make sense for an anonymous shared viewer who has no editor to paste into.
@@ -236,30 +158,55 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             ? {
                   label: 'Copy',
                   onClick: () => copyToClipboard(),
-                  sideIcon: <IconCopy />,
               }
             : null,
         isEditable && isResizeable
             ? {
                   label: 'Reset height to default',
                   onClick: () => {
-                      updateAttributes({
-                          height: null,
-                          ...(nodeType === NotebookNodeType.Python ? { autoHeight: true } : {}),
-                      } as any)
+                      updateAttributes({ height: null } as any)
                   },
               }
             : null,
-        isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
+        isEditable && editableTitle ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
         isEditable
             ? sourceComment
                 ? { label: 'Show comment', onClick: () => selectComment(nodeId) }
                 : { label: 'Comment', onClick: () => insertComment({ type: 'node', id: nodeId }) }
             : null,
-        isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconX />, status: 'danger' } : null,
+        isEditable ? { label: 'Remove', onClick: () => deleteNode(), status: 'danger' } : null,
     ]
 
-    const menuItems = customMenuItems ?? defaultMenuItems
+    const viewMenuItem = getNotebookWidgetViewMenuItem(
+        { defaultView, views },
+        attributes,
+        updateAttributes
+    )
+    const resourceLabel = titlePlaceholder.charAt(0).toLocaleLowerCase() + titlePlaceholder.slice(1)
+    const menuItems: LemonMenuItems = withoutNotebookMenuIcons([
+        parsedHref && !isShared
+            ? {
+                  label: `Open ${resourceLabel}`,
+                  to: parsedHref,
+              }
+            : null,
+        parsedHref && !isShared
+            ? {
+                  label: 'Open in new tab',
+                  to: parsedHref,
+                  targetBlank: true,
+              }
+            : null,
+        ...(isEditable
+            ? actions.map((action) => ({
+                  label: action.text,
+                  disabledReason: action.disabledReason,
+                  onClick: action.onClick,
+              }))
+            : []),
+        isEditable ? viewMenuItem : null,
+        ...(customMenuItems ?? defaultMenuItems),
+    ])
 
     const hasMenu = menuItems.some((x) => !!x)
 
@@ -283,7 +230,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             <LemonSkeleton className="w-20" />
                                         </div>
                                         {/* eslint-disable-next-line react/forbid-dom-props */}
-                                        <div className="flex items-center p-2" style={{ height: heightEstimate }}>
+                                        <div
+                                            className="flex items-center p-2"
+                                            style={isResizeable ? { height, minHeight } : { height: heightEstimate }}
+                                        >
                                             <LemonSkeleton className="w-full h-full" />
                                         </div>
                                     </>
@@ -295,47 +245,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             </div>
 
                                             <div className="flex deprecated-space-x-1">
-                                                {parsedHref && !isShared && (
-                                                    <LemonButton
-                                                        size="small"
-                                                        icon={<IconLink />}
-                                                        to={parsedHref}
-                                                        tooltip="Open linked resource"
-                                                    />
-                                                )}
-
-                                                {isPythonNode ? (
-                                                    <PythonRunMenu
-                                                        isFresh={pythonIsFresh}
-                                                        isStale={pythonIsStale}
-                                                        loading={pythonRunLoading}
-                                                        queued={pythonRunQueued}
-                                                        disabledReason={runDisabledReason}
-                                                        onRun={(mode) => void runPythonNodeWithMode({ mode })}
-                                                    />
-                                                ) : null}
-
-                                                {isDuckSqlNode ? (
-                                                    <DuckSqlRunMenu
-                                                        isFresh={duckSqlIsFresh}
-                                                        isStale={duckSqlIsStale}
-                                                        loading={duckSqlRunLoading}
-                                                        queued={duckSqlRunQueued}
-                                                        disabledReason={runDisabledReason}
-                                                        onRun={(mode) => void runDuckSqlNodeWithMode({ mode })}
-                                                    />
-                                                ) : null}
-                                                {isHogqlSqlNode ? (
-                                                    <HogqlSqlRunMenu
-                                                        isFresh={hogqlSqlIsFresh}
-                                                        isStale={hogqlSqlIsStale}
-                                                        loading={hogqlSqlRunLoading}
-                                                        queued={hogqlSqlRunQueued}
-                                                        disabledReason={runDisabledReason}
-                                                        onRun={(mode) => void runHogqlSqlNodeWithMode({ mode })}
-                                                    />
-                                                ) : null}
-
                                                 {isEditable && Settings ? (
                                                     <LemonButton
                                                         onClick={() => toggleEditing()}
@@ -432,8 +341,27 @@ export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     options: CreatePostHogWidgetNodeOptions<T>
 ): CreatePostHogWidgetNodeOptions<T> {
-    KNOWN_NODES[options.nodeType] = options
-    return options
+    const DefaultComponent = options.Component
+    const ToolbarComponent = options.ToolbarComponent
+    const registeredOptions: CreatePostHogWidgetNodeOptions<T> = options.views || options.ToolbarComponent
+        ? {
+              ...options,
+              Component: (props: NotebookNodeProps<T>): JSX.Element | null => {
+                  const viewKey = typeof props.attributes.view === 'string' ? props.attributes.view : null
+                  const ViewComponent = (viewKey ? options.views?.[viewKey]?.Component : null) ?? DefaultComponent
+
+                  return (
+                      <>
+                          {ToolbarComponent ? <ToolbarComponent {...props} /> : null}
+                          <ViewComponent {...props} />
+                      </>
+                  )
+              },
+          }
+        : options
+
+    KNOWN_NODES[options.nodeType] = registeredOptions
+    return registeredOptions
 }
 
 export const NotebookNodeChildRenderer = ({

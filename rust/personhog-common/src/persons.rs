@@ -20,6 +20,15 @@ pub fn person_uuid(team_id: i64, distinct_id: &str) -> Uuid {
     )
 }
 
+/// Validate a configured table identifier before it is interpolated into
+/// SQL (identifiers cannot be bound as parameters).
+pub fn validate_table_name(table: &str) -> Result<(), String> {
+    if table.is_empty() || !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("invalid table name: {table:?}"));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct Person {
     pub id: i64,

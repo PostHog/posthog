@@ -1,0 +1,6 @@
+{
+    "id": "RB7",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Refuted. AGENTS.md:98 says the flag comes from provenance 'which only the two linkage-verified trigger paths stamp', and the immediately following bullet (AGENTS.md:100-104) names both paths with code anchors: the receiver leg (`process_inbox_pr_review`, entered via the `queue_inbox_pr_review` facade) and the webhook leg (re-reviews on synchronize/reopen/base retarget through `facade/inbox_hooks.py`). Those function names locate the two output={\"inbox_review\"} writes (backend/tasks/tasks.py:1064, :1229). The claim that the doc omits 'the webhook and receiver legs' is factually wrong; only literal line numbers are absent, and those go stale in docs. No prior verdict covered this claim (KB5 disputes the linkage check itself, not anchors)."
+}

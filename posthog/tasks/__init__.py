@@ -15,7 +15,9 @@ from . import (
     llm_prompt_cache,
     plugin_server,
     process_scheduled_changes,
+    proxy,
     push_notifications,
+    query_scan,
     remote_config,
     split_person,
     surveys,
@@ -24,7 +26,6 @@ from . import (
     tasks,
     team_access_cache_tasks,
     usage_report,
-    warehouse,
 )
 
 __all__ = [
@@ -42,7 +43,9 @@ __all__ = [
     "llm_prompt_cache",
     "plugin_server",
     "process_scheduled_changes",
+    "proxy",
     "push_notifications",
+    "query_scan",
     "remote_config",
     "split_person",
     "surveys",
@@ -51,5 +54,4 @@ __all__ = [
     "tasks",
     "team_access_cache_tasks",
     "usage_report",
-    "warehouse",
 ]

@@ -1,15 +1,14 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk import (
+    INSTANCE_NOT_FOUND_MESSAGE,
     ClerkResumeConfig,
     clerk_source,
     validate_credentials as validate_clerk_credentials,
@@ -42,7 +41,7 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLERK,
+            name=ExternalDataSourceType.CLERK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Clerk",
             releaseStatus=ReleaseStatus.GA,
@@ -114,11 +113,36 @@ The secret key starts with `sk_live_`.
             # instance. Scoped to this path, not all of api.clerk.com, since 422 elsewhere can mean
             # a genuinely bad request that's worth investigating rather than an account limitation.
             "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/saml_connections": "SAML connections (Enterprise SSO) aren't available on your Clerk plan or instance. Turn off syncing for this table, or enable SAML connections in your Clerk dashboard.",
+            # Clerk answers 422 feature_requires_email_address_enabled for enterprise_connections when
+            # Enterprise SSO isn't available on the instance. The unfiltered list request is identical
+            # every run, so it re-fails on every schedule; classify it so the schema pauses instead of
+            # retrying. Scoped to this path, mirroring saml_connections, since a 422 elsewhere can be a
+            # genuinely bad request worth investigating rather than an account limitation.
+            "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/enterprise_connections": "Enterprise SSO connections aren't available on your Clerk plan or instance. Turn off syncing for this table, or enable Enterprise SSO in your Clerk dashboard.",
             # Clerk's list api_keys endpoint requires a subject (a user or organization id), so the
             # unfiltered list request we send is rejected with a 400 every run. Scoped to this path,
             # not all of api.clerk.com, since a 400 elsewhere can be a genuinely bad request worth
             # investigating rather than an endpoint that can't be listed.
             "400 Client Error: Bad Request for url: https://api.clerk.com/v1/api_keys": "The API keys table can't be synced from Clerk. Turn off syncing for this table.",
+            # Clerk answers 404 resource_not_found for redirect_urls on instances/plans where the
+            # resource isn't available. The request is identical every run, so it re-fails on every
+            # schedule; classify it so the schema is paused instead of burning a job each time. Scoped
+            # to this path, not all of api.clerk.com, since a 404 elsewhere can be a genuinely missing
+            # record worth investigating rather than an account limitation.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/redirect_urls": "The redirect URLs table isn't available on your Clerk plan or instance. Turn off syncing for this table.",
+            # Clerk answers the same 404 resource_not_found for jwt_templates on instances/plans
+            # that don't serve the resource. An instance that does serve it returns 200 with an
+            # empty array when no template exists, so the 404 can't mean "none configured". The
+            # unfiltered list request is identical every run, so it re-fails on every schedule.
+            # Scoped to this path for the same reason as redirect_urls above.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/jwt_templates": "The JWT templates table isn't available on your Clerk plan or instance. Turn off syncing for this table.",
+            # The users list exists on every Clerk instance, and an instance with no users answers
+            # 200 with an empty array, so a 404 resource_not_found here can't mean a missing record
+            # — Clerk won't resolve the instance the key belongs to at all. The request is identical
+            # every run, so it re-fails on every schedule. Scoped to this path, like the two
+            # entries above; `users` is also the parent of the sessions fan-out, so the copy names
+            # the key rather than one table.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/users": INSTANCE_NOT_FOUND_MESSAGE,
             **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 

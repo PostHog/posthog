@@ -7,6 +7,8 @@ import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 export { nonCollidingKeys } from '../../core/label-collision'
 export type { LabelBox } from '../../core/label-collision'
 
+export type SliceValueDisplay = 'value' | 'percent' | 'both'
+
 export interface SliceLabelsProps {
     valueFormatter?: (value: number) => string
     /** Show the slice's value above the slice. Default true. */
@@ -14,6 +16,9 @@ export interface SliceLabelsProps {
     /** Show the breakdown label above the slice. Default false. When both are true, the
      *  label sits above the value. */
     showLabelOnSlice?: boolean
+    /** What the numeric line contains. Defaults to `'percent'` when `isPercent` is set, else
+     *  `'value'`. `'both'` renders `value (percent)`. */
+    sliceValueDisplay?: SliceValueDisplay
     /** Hide labels for slices with `fraction < threshold`. Default 0.05. */
     minSlicePercentForLabel?: number
     /** Where labels sit along the radius: 0 = center, 1 = outer edge. Default 0.5 (mid-slice). */
@@ -49,14 +54,23 @@ function formatPercent(fraction: number): string {
     return `${Math.round(fraction * 1000) / 10}%`
 }
 
+function formatSliceValue(display: SliceValueDisplay, value: string, percent: string): string {
+    if (display === 'percent') {
+        return percent
+    }
+    return display === 'both' ? `${value} (${percent})` : value
+}
+
 export function SliceLabels({
     valueFormatter = defaultFormatter,
     showValueOnSlice = true,
     showLabelOnSlice = false,
+    sliceValueDisplay,
     minSlicePercentForLabel = 0.05,
     labelRadiusRatio = 0.5,
     isPercent = false,
 }: SliceLabelsProps): React.ReactElement | null {
+    const valueDisplay: SliceValueDisplay = sliceValueDisplay ?? (isPercent ? 'percent' : 'value')
     const { layout } = useRadialLayout()
     if (!showValueOnSlice && !showLabelOnSlice) {
         return null
@@ -75,7 +89,7 @@ export function SliceLabels({
             lines.push(slice.series.label)
         }
         if (showValueOnSlice) {
-            lines.push(isPercent ? formatPercent(slice.fraction) : valueFormatter(slice.value))
+            lines.push(formatSliceValue(valueDisplay, valueFormatter(slice.value), formatPercent(slice.fraction)))
         }
         const width = Math.max(0, ...lines.map((line) => measureLabelWidth(line, LABEL_FONT)))
         boxes.push({

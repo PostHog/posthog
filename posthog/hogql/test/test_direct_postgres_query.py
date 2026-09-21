@@ -1,3 +1,4 @@
+import socket
 from datetime import date, timedelta
 from typing import Any, cast
 from uuid import uuid4
@@ -15,13 +16,16 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
-from posthog.hogql.direct_sql.postgres_adapter import (
+from posthog.hogql.direct_sql.pgwire import (
     LenientDirectPostgresDateLoader,
-    direct_postgres_session_setup_sql,
-    get_runtime_direct_postgres_connection_metadata,
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
+)
+from posthog.hogql.direct_sql.postgres_adapter import (
+    PostgresAdapter,
+    direct_postgres_session_setup_sql,
+    get_runtime_direct_postgres_connection_metadata,
 )
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError
@@ -32,7 +36,9 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.models import Team
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.facade.source_management import SSL_REQUIRED_AFTER_DATE
+from products.warehouse_sources.backend.facade.source_management import SSL_REQUIRED_AFTER_DATE, HostNotAllowedError
+
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
 
 class TestDirectPostgresQuery(APIBaseTest):
@@ -1053,11 +1059,8 @@ class TestDirectPostgresQuery(APIBaseTest):
             f"USE {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_executes_raw_query_and_preserves_hogql_when_printable(
-        self, mock_connect, mock_capture_exception
-    ):
+    def test_send_raw_query_executes_raw_query_without_hogql_preparation(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1092,21 +1095,21 @@ class TestDirectPostgresQuery(APIBaseTest):
             send_raw_query=True,
         )
 
-        response = executor.execute()
+        with patch.object(HogQLQueryExecutor, "_prepare_execution") as mock_prepare_execution:
+            response = executor.execute()
 
         self.assertEqual(response.results, [(1,)])
         self.assertEqual(response.clickhouse, "SELECT 1 AS value")
         self.assertEqual(response.columns, ["value"])
-        self.assertIsNotNone(response.hogql)
+        self.assertIsNone(response.hogql)
+        mock_prepare_execution.assert_not_called()
         mocked_connection.execute.assert_called_once_with(
             f"SET search_path TO {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
-        mock_capture_exception.assert_not_called()
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_captures_parse_failures_after_success(self, mock_connect, mock_capture_exception):
+    def test_send_raw_query_unsupported_by_hogql_succeeds_without_hogql(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1148,11 +1151,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.columns, ["value"])
         self.assertIsNone(response.hogql)
         mocked_cursor.execute.assert_called_once_with("SELECT 1 IS TRUE AS value", None)
-        mock_capture_exception.assert_called_once()
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect, mock_capture_exception):
+    def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1193,7 +1194,6 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("USE ducklake")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
-        mock_capture_exception.assert_not_called()
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_skips_session_setup_when_schema_is_blank(self, mock_connect):
@@ -1236,6 +1236,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("SELECT current_database(), version()")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
+        timing_keys = {timing.k for timing in response.timings or []}
+        self.assertTrue(any(key.endswith("/postgres_connection_metadata") for key in timing_keys))
+        self.assertFalse(any(key.endswith("/postgres_session_setup") for key in timing_keys))
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_handles_statements_without_result_set(self, mock_connect):
@@ -1459,6 +1462,175 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
         mock_connect.assert_not_called()
 
+    # Staging rather than US or EU, because the internal-host allowlist there exempts one team id
+    # per region and this test cannot choose the team it gets.
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_execute_direct_postgres_query_exposes_a_resolver_blip_at_connect(self, mock_connect):
+        # The host check before the query resolves the host, then the resolver answers "try again"
+        # on the connect-time check a moment later. Nothing is wrong with the source, so the query
+        # must come back as a query error telling the user to retry, not an unexpected server error.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "db.example.com",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        resolved = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("52.1.2.3", 0))]
+        blip = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=[resolved, blip]),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with self.assertRaises(ExposedHogQLError) as error:
+                executor.execute()
+
+        self.assertIn("Try again in a moment", str(error.exception))
+        mock_connect.assert_not_called()
+
+    # The host check before the connect passes here, and the pin's own lookup refuses the host a
+    # moment later — the two answers disagreeing is the case the pin exists to catch. The refusal
+    # is raised inside the execute block, so it has to reach the same handler a driver error does.
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.pinned_host_kwargs",
+        side_effect=HostNotAllowedError(
+            "Database host not allowed: This host points to an internal or private IP address, "
+            "which PostHog can't reach. Use a host that's reachable from the public internet."
+        ),
+    )
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_execute_direct_postgres_query_exposes_host_rejected_at_connect(self, mock_connect, _mock_pinned_host):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "db.example.com",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            executor.execute()
+
+        self.assertEqual(
+            str(error.exception),
+            "Database host not allowed: This host points to an internal or private IP address, "
+            "which PostHog can't reach. Use a host that's reachable from the public internet.",
+        )
+        mock_connect.assert_not_called()
+
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_execute_direct_postgres_query_surfaces_connect_time_host_rejection_as_user_error(self, mock_connect):
+        # A host can pass the validation-layer check and still be rejected at connect time, because
+        # each check resolves the host again and a short-TTL record can answer public then private.
+        # That connect-time rejection must reach the user as an ExposedHogQLError (a 4xx that the
+        # query runner does not capture), not a bare Exception captured as a platform failure.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+            HostNotAllowedError,
+            HostResolution,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "db.example.com",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        host_rejection = HostNotAllowedError(
+            "Database host not allowed: This host points to an internal or private IP address, "
+            "which PostHog can't reach. Use a host that's reachable from the public internet."
+        )
+        # Validation passes (host resolves public); the connect-time tunnel open rejects it.
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.resolve_safe_host",
+                return_value=HostResolution(connect_host="db.example.com", error=None),
+            ),
+            patch.object(PostgresSource, "with_ssh_tunnel", side_effect=host_rejection),
+        ):
+            with self.assertRaises(ExposedHogQLError) as error:
+                executor.execute()
+
+        self.assertEqual(str(error.exception), str(host_rejection))
+        mock_connect.assert_not_called()
+
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_exposes_database_errors(self, mock_connect):
         source = ExternalDataSource.objects.create(
@@ -1617,7 +1789,24 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertTrue(any(timing.k.endswith("/postgres_execute") for timing in response.timings or []))
+        timing_keys = {timing.k for timing in response.timings or []}
+        for timing_suffix in (
+            "/postgres_source_validation",
+            "/postgres_source_helpers_import",
+            "/postgres_source_config",
+            "/postgres_source_capability",
+            "/postgres_source_registry",
+            "/postgres_source_parse_config",
+            "/postgres_ssh_validation",
+            "/postgres_host_validation",
+            "/postgres_execute",
+            "/postgres_tunnel_open",
+            "/postgres_connect",
+            "/postgres_session_setup",
+            "/postgres_query_execute",
+            "/postgres_query_fetch",
+        ):
+            self.assertTrue(any(key.endswith(timing_suffix) for key in timing_keys))
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_reraises_unexpected_errors(self, mock_connect):
@@ -2035,3 +2224,26 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn("Invalid connectionId", str(ctx.exception))
         mock_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("empty", {}),
+            ("partial", {"host": "localhost", "schema": "public"}),
+        ]
+    )
+    def test_validate_source_config_raises_exposed_error_for_incomplete_job_inputs(self, _name: str, job_inputs: dict):
+        # A direct-capable Postgres source with missing connection credentials must surface a clean
+        # ExposedHogQLError, not a raw TypeError from config building that leaks to error tracking.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs=job_inputs,
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            PostgresAdapter().validate_source_config(source, self.team)

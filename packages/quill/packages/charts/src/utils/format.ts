@@ -102,6 +102,26 @@ export function humanFriendlyDuration(
     return units.slice(0, maxUnits ?? undefined).join(' ')
 }
 
+const threeSignificantDigits = (value: number): number =>
+    Math.min(Math.max(0, 2 - Math.floor(Math.log10(Math.abs(value)))), 4)
+
+/** Below a minute `humanFriendlyDuration` rounds to whole milliseconds or seconds, which collapses
+ *  neighbouring axis ticks onto one label — 3.5ms and 4ms both render as "4ms". */
+export function formatDurationMilliseconds(milliseconds: number): string {
+    const absolute = Math.abs(milliseconds)
+    if (absolute === 0) {
+        return '0s'
+    }
+    if (absolute < 1_000) {
+        return `${humanFriendlyNumber(milliseconds, threeSignificantDigits(milliseconds))}ms`
+    }
+    const seconds = milliseconds / 1_000
+    if (absolute < 60_000) {
+        return `${humanFriendlyNumber(seconds, threeSignificantDigits(seconds))}s`
+    }
+    return humanFriendlyDuration(seconds)
+}
+
 export function percentage(
     division: number,
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,

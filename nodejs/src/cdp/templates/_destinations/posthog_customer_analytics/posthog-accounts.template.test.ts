@@ -150,6 +150,37 @@ describe('posthog customer analytics account templates', () => {
         })
     })
 
+    describe('update account property queued fetch body', () => {
+        const tester = new TemplateTester(updateAccountPropertyTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+        })
+
+        it('sends an explicit property clear as API null', async () => {
+            const response = await tester.invoke({
+                external_id: 'acme-1',
+                properties: { '0197f9f0-0000-0000-0000-000000000000': { __posthog_clear_property: true } },
+            })
+
+            expect(response.error).toBeUndefined()
+            expect(response.finished).toBe(false)
+
+            const body = parseJSON((response.invocation.queueParameters as any).body)
+            expect(body.properties).toEqual({ '0197f9f0-0000-0000-0000-000000000000': null })
+        })
+
+        it('rejects a property template that resolves to null', async () => {
+            const response = await tester.invoke({
+                external_id: 'acme-1',
+                properties: { '0197f9f0-0000-0000-0000-000000000000': '{event.properties.plan}' },
+            })
+
+            expect(response.error).toContain("received null for property '0197f9f0-0000-0000-0000-000000000000'")
+            expect(response.invocation.queueParameters).toBeUndefined()
+        })
+    })
+
     describe('update account relationships queued fetch body', () => {
         const tester = new TemplateTester(updateAccountRelationshipsTemplate)
 

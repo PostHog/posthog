@@ -1,10 +1,11 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import type { InsightQueryNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, ChartDisplayType, FunnelVizType, TeamType } from '~/types'
@@ -17,10 +18,12 @@ import {
     escapePropertyAsHogQLIdentifier,
     getDisplay,
     hogql,
+    isMetricInsightQuery,
     queryUsesDataWarehouse,
     queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
     supportsBarValueStacking,
+    taxonomicSessionFilterToHogQL,
 } from './utils'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
@@ -155,6 +158,29 @@ describe('escapeDottedHogQLIdentifier', () => {
 
     it('quotes each dotted segment independently when needed', () => {
         expect(escapeDottedHogQLIdentifier('demo.order items')).toEqual('demo."order items"')
+    })
+})
+
+describe('taxonomicSessionFilterToHogQL', () => {
+    it('maps session properties to the session prefix', () => {
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.SessionProperties, '$entry_current_url')).toEqual(
+            'session.$entry_current_url'
+        )
+    })
+
+    it('maps person properties to person.properties', () => {
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.PersonProperties, '$browser')).toEqual(
+            'person.properties.$browser'
+        )
+    })
+
+    it('passes SQL expressions through', () => {
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.HogQLExpression, 'count()')).toEqual('count()')
+    })
+
+    it('rejects event-scoped picks, which the sessions table cannot resolve', () => {
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.EventProperties, '$browser')).toBeNull()
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.EventFeatureFlags, '$feature/foo')).toBeNull()
     })
 })
 
@@ -453,5 +479,42 @@ describe('getDisplay', () => {
         ],
     ])('normalizes the deprecated ActionsStackedBar alias to ActionsBar for %s', (_, query) => {
         expect(getDisplay(query as InsightQueryNode)).toEqual(ChartDisplayType.ActionsBar)
+    })
+})
+
+describe('isMetricInsightQuery', () => {
+    it.each([
+        [
+            'SQL metric',
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                display: ChartDisplayType.Metric,
+            },
+            true,
+        ],
+        [
+            'trends metric',
+            {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { display: ChartDisplayType.Metric },
+                },
+            },
+            true,
+        ],
+        [
+            'SQL line chart',
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            false,
+        ],
+    ])('identifies a %s', (_label, query, expected) => {
+        expect(isMetricInsightQuery(query as Node)).toBe(expected)
     })
 })

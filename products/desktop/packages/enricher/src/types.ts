@@ -110,15 +110,6 @@ export const DEFAULT_CONFIG: DetectionConfig = {
 
 // ── Supported languages ──
 
-export type SupportedLanguage =
-  | "javascript"
-  | "javascriptreact"
-  | "typescript"
-  | "typescriptreact"
-  | "python"
-  | "go"
-  | "ruby";
-
 // ── PostHog entity types (for flag classification / stale detection) ──
 
 export interface FeatureFlag {
@@ -285,6 +276,7 @@ export interface EnrichedEvent {
 export interface EnricherApiConfig {
   apiKey: string;
   host: string;
+  publicHost?: string;
   projectId: number;
   /** Timeout in ms for each API request (default: 10 000). */
   timeoutMs?: number;

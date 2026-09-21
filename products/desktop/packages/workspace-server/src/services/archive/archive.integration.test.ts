@@ -1,4 +1,5 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -45,21 +46,22 @@ import {
 } from "@posthog/workspace-server/db/repositories/worktree-repository.mock";
 import { ArchiveService } from "./archive";
 
-async function createTempGitRepo(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "archive-test-"));
-  execSync("git init", { cwd: dir, stdio: "pipe" });
-  execSync("git config user.email 'test@test.com'", {
-    cwd: dir,
-    stdio: "pipe",
-  });
-  execSync("git config user.name 'Test'", { cwd: dir, stdio: "pipe" });
-  execSync("git config commit.gpgsign false", { cwd: dir, stdio: "pipe" });
-  await fs.writeFile(path.join(dir, "README.md"), "# Test Repo");
-  execSync("git add . && git commit -m 'Initial commit'", {
-    cwd: dir,
-    stdio: "pipe",
-  });
-  return dir;
+async function createTempRepo(): Promise<string> {
+  return fs.mkdtemp(path.join(os.tmpdir(), "archive-test-"));
+}
+
+function initializeGitRepo(dir: string): void {
+  const git = (args: string[]): void => {
+    execFileSync("git", args, { cwd: dir, stdio: "pipe" });
+  };
+  git(["init"]);
+  git(["config", "user.email", "test@test.com"]);
+  git(["config", "user.name", "Test"]);
+  git(["config", "commit.gpgsign", "false"]);
+  git(["config", "tag.gpgsign", "false"]);
+  writeFileSync(path.join(dir, "README.md"), "# Test Repo");
+  git(["add", "."]);
+  git(["commit", "-m", "Initial commit"]);
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -106,8 +108,20 @@ async function withTestContext(
   fn: (ctx: TestContext) => Promise<void>,
 ): Promise<void> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "archive-int-"));
-  const repoPath = await createTempGitRepo();
+  const repoPath =
+    opts.hasWorkspace === false
+      ? path.join(tempDir, "repo")
+      : await createTempRepo();
   const worktreeBasePath = path.join(tempDir, "worktrees");
+  let gitRepoInitialized = false;
+
+  const ensureGitRepo = (): void => {
+    if (gitRepoInitialized) {
+      return;
+    }
+    initializeGitRepo(repoPath);
+    gitRepoInitialized = true;
+  };
   await fs.mkdir(worktreeBasePath, { recursive: true });
 
   testWorktreeBasePath = worktreeBasePath;
@@ -163,12 +177,14 @@ async function withTestContext(
     archiveLogger as never,
   );
 
-  const git = (cmd: string) =>
-    execSync(`git ${cmd}`, {
+  const git = (cmd: string) => {
+    ensureGitRepo();
+    return execSync(`git ${cmd}`, {
       cwd: repoPath,
       encoding: "utf8",
       stdio: "pipe",
     }).trim();
+  };
 
   const archiveInput = () => ({ taskId: TASK_ID });
 
@@ -176,6 +192,7 @@ async function withTestContext(
     method: "detached" | "branch",
     branchName?: string,
   ) => {
+    ensureGitRepo();
     const manager = new WorktreeManager({
       mainRepoPath: repoPath,
       worktreeBasePath,
@@ -377,8 +394,7 @@ describe("ArchiveService integration", () => {
     it("archive and unarchive preserves branch name", () =>
       withTestContext({}, async (ctx) => {
         const branchName = "feature/my-branch";
-        ctx.git(`checkout -b ${branchName}`);
-        ctx.git("checkout -");
+        ctx.git(`branch ${branchName}`);
 
         const { worktreePath } = await ctx.setupWorktree("branch", branchName);
 
@@ -395,8 +411,7 @@ describe("ArchiveService integration", () => {
     it("unarchive with recreateBranch creates new branch", () =>
       withTestContext({}, async (ctx) => {
         const branchName = "feature/old-branch";
-        ctx.git(`checkout -b ${branchName}`);
-        ctx.git("checkout -");
+        ctx.git(`branch ${branchName}`);
 
         const { worktreePath } = await ctx.setupWorktree("branch", branchName);
         await fs.writeFile(path.join(worktreePath, "work.txt"), "my work");
@@ -437,15 +452,36 @@ describe("ArchiveService integration", () => {
         expect(await pathExists(worktreePath)).toBe(false);
       }));
 
-    it("throws when trying to archive already archived task", () =>
+    it("archiving an already archived task returns the existing record", () =>
       withTestContext({}, async (ctx) => {
         await ctx.setupWorktree("detached");
 
         await ctx.service.archiveTask(ctx.archiveInput());
+        const second = await ctx.service.archiveTask(ctx.archiveInput());
 
-        await expect(
+        expect(second).toEqual(ctx.service.getArchivedTasks()[0]);
+        expect(ctx.service.getArchivedTaskIds()).toEqual([TASK_ID]);
+      }));
+
+    it("overlapping archive requests share one archive", () =>
+      withTestContext({}, async (ctx) => {
+        const { worktreePath } = await ctx.setupWorktree("detached");
+        await fs.writeFile(path.join(worktreePath, "file.txt"), "content");
+
+        // Both requests start before either finishes, so neither can see the
+        // other's archive row. A second teardown would delete the checkpoint
+        // the surviving archive restores from.
+        const [first, second] = await Promise.all([
           ctx.service.archiveTask(ctx.archiveInput()),
-        ).rejects.toThrow("already archived");
+          ctx.service.archiveTask(ctx.archiveInput()),
+        ]);
+
+        expect(second).toEqual(first);
+        expect(ctx.archiveRepo.findAll()).toHaveLength(1);
+        expect(first.checkpointId).toBeTruthy();
+        expect(ctx.git("for-each-ref --format='%(refname)'")).toContain(
+          first.checkpointId,
+        );
       }));
 
     it("archive finds worktree at legacy path format", () =>
@@ -599,12 +635,36 @@ describe("ArchiveService integration", () => {
         );
       }));
 
-    it("rejects archiving a rowless task that is already archived", () =>
+    it("archiving an already archived rowless task returns the existing record", () =>
       withTestContext({ hasWorkspace: false }, async (ctx) => {
         await ctx.service.archiveTask({ taskId: "nonexistent" });
-        await expect(
-          ctx.service.archiveTask({ taskId: "nonexistent" }),
-        ).rejects.toThrow("already archived");
+        const second = await ctx.service.archiveTask({ taskId: "nonexistent" });
+
+        expect(second).toEqual(ctx.service.getArchivedTasks()[0]);
+        expect(ctx.service.getArchivedTaskIds()).toEqual(["nonexistent"]);
+      }));
+
+    it("only lists a server-imported archive for its account and project", () =>
+      withTestContext({ hasWorkspace: false }, async (ctx) => {
+        await ctx.service.archiveTask({
+          taskId: "server-archive",
+          title: "Private server task",
+          serverArchiveScope: "us:user-a:42",
+        });
+        await ctx.service.archiveTask({ taskId: "local-archive" });
+
+        expect(ctx.service.getArchivedTaskIds("us:user-a:42")).toEqual([
+          "server-archive",
+          "local-archive",
+        ]);
+        expect(ctx.service.getArchivedTaskIds("us:user-b:42")).toEqual([
+          "local-archive",
+        ]);
+        expect(
+          ctx.service
+            .getArchivedTasks("us:user-b:42")
+            .map((task) => task.title),
+        ).not.toContain("Private server task");
       }));
 
     // Unarchive and delete are parallel "remove a rowless task from the archived
@@ -688,7 +748,7 @@ describe("ArchiveService integration", () => {
       }));
 
     it("throws when workspace not found for unarchive", () =>
-      withTestContext({}, async (ctx) => {
+      withTestContext({ hasWorkspace: false }, async (ctx) => {
         await expect(ctx.service.unarchiveTask("nonexistent")).rejects.toThrow(
           "Workspace not found",
         );
@@ -779,7 +839,7 @@ describe("ArchiveService integration", () => {
       }));
 
     it("throws when workspace not found for delete", () =>
-      withTestContext({}, async (ctx) => {
+      withTestContext({ hasWorkspace: false }, async (ctx) => {
         await expect(
           ctx.service.deleteArchivedTask("nonexistent"),
         ).rejects.toThrow("Workspace not found");

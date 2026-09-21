@@ -4,6 +4,7 @@
 CREATE TABLE posthog.adhoc_events_deletion (
   team_id Int64,
   uuid UUID,
+  data_deletion_request_id Nullable(UUID),
   created_at DateTime64(6, 'UTC') DEFAULT now64(),
   deleted_at DateTime,
   is_deleted UInt8 DEFAULT 0
@@ -70,6 +71,21 @@ CREATE TABLE posthog.ai_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('ai_events', 'posthog', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))));
+CREATE TABLE posthog.billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
 CREATE TABLE posthog.channel_definition (
   domain String,
   kind String,
@@ -77,6 +93,34 @@ CREATE TABLE posthog.channel_definition (
   type_if_paid Nullable(String),
   type_if_organic Nullable(String)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.channel_definition', '{replica}-{shard}') ORDER BY (domain, kind) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.clickhouse_cleanup_deleted_persons (
+  run_id String,
+  team_id Int64,
+  person_id UUID,
+  max_version UInt64,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_deleted_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_orphaned_distinct_ids (
+  run_id String,
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  own_tombstone UInt8,
+  max_version Int64,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_orphaned_distinct_ids', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, distinct_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_revived_distinct_ids (
+  run_id String,
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_distinct_ids', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, distinct_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_revived_persons (
+  run_id String,
+  team_id Int64,
+  person_id UUID,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.cohort_membership (
   team_id Int64,
   cohort_id Int64,
@@ -190,6 +234,7 @@ CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   issue_name Nullable(String),
   issue_description Nullable(String),
   issue_status String,
+  issue_severity Nullable(String),
   assigned_user_id Nullable(Int64),
   assigned_role_id Nullable(UUID),
   first_seen DateTime64(3, 'UTC'),
@@ -337,7 +382,7 @@ CREATE TABLE posthog.kafka_events_json (
   dmat_string_7 Nullable(String),
   dmat_string_8 Nullable(String),
   dmat_string_9 Nullable(String)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_events_json\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.kafka_performance_events (
   uuid UUID,
   session_id String,
@@ -386,14 +431,14 @@ CREATE TABLE posthog.kafka_performance_events (
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_performance_events\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_performance_events';
 CREATE TABLE posthog.kafka_person_distinct_id (
   distinct_id String,
   person_id UUID,
   team_id Int64,
   _sign Nullable(Int8),
   is_deleted Nullable(Int8)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_person_unique_id\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_person_unique_id';
 CREATE TABLE posthog.kafka_person_overrides (
   team_id Int32,
   old_person_id UUID,
@@ -557,6 +602,12 @@ CREATE TABLE posthog.person_overrides (
   created_at DateTime64(6, 'UTC') DEFAULT now(),
   version Int32
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_overrides', '{replica}-{shard}', version) ORDER BY (team_id, old_person_id) PARTITION BY toYYYYMM(oldest_event) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.person_property_mutation_log (
+  team_id Int64,
+  event_uuid UUID,
+  properties String,
+  ingested_at DateTime('UTC')
+) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
 CREATE TABLE posthog.person_static_cohort (
   id UUID,
   person_id UUID,
@@ -1156,7 +1207,7 @@ CREATE TABLE posthog.sharded_events_recent (
   _timestamp DateTime,
   _offset UInt64,
   inserted_at DateTime64(6, 'UTC') DEFAULT now64()
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDateTime(inserted_at) + toIntervalDay(7) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDate(inserted_at) + toIntervalDay(9) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -1171,41 +1222,29 @@ CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, entity_id, breakdown_value) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_flag_evaluations (
-  team_id Int64,
   uuid UUID,
+  event LowCardinality(String),
+  properties String,
   timestamp DateTime64(6, 'UTC'),
-  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  team_id Int64,
   distinct_id String,
-  session_id String,
-  device_id String,
-  flag_key String,
-  response LowCardinality(String),
-  flag_id UInt64,
-  flag_version UInt32,
-  reason LowCardinality(String),
-  request_id String,
-  evaluated_at DateTime64(6, 'UTC') DEFAULT timestamp,
-  error String,
-  locally_evaluated Bool,
-  lib LowCardinality(String),
-  lib_version LowCardinality(String),
-  is_server Bool,
-  os LowCardinality(String),
-  os_version LowCardinality(String),
-  app_version LowCardinality(String),
-  current_url String,
-  pathname String,
-  country_code LowCardinality(String),
-  subdivision_1_code LowCardinality(String),
-  group_0 String,
-  group_1 String,
-  group_2 String,
-  group_3 String,
-  group_4 String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
+  $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
+  $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
+  $group_3 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3',
+  $group_4 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4',
+  flag_key String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag',
+  response LowCardinality(String) DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response',
+  session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id',
+  request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id',
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64,
   INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
@@ -1579,13 +1618,14 @@ CREATE TABLE posthog.sharded_raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool),
   INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+  INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
   INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
   INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
   INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
@@ -1604,11 +1644,7 @@ CREATE TABLE posthog.sharded_session_replay_events (
   distinct_id String,
   min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
   max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-  block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-  block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-  block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
   first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   click_count SimpleAggregateFunction(sum, Int64),
   keypress_count SimpleAggregateFunction(sum, Int64),
   mouse_activity_count SimpleAggregateFunction(sum, Int64),
@@ -1619,15 +1655,20 @@ CREATE TABLE posthog.sharded_session_replay_events (
   size SimpleAggregateFunction(sum, Int64),
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
-  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-  snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
+  snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+  block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+  block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
+  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.session_replay_events', '{replica}') ORDER BY (toDate(min_first_timestamp), team_id, session_id) PARTITION BY toYYYYMM(min_first_timestamp) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.sharded_sessions (
   session_id String,
@@ -2254,7 +2295,7 @@ CREATE TABLE posthog.writable_raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
@@ -2290,15 +2331,16 @@ CREATE TABLE posthog.writable_session_replay_events (
   size SimpleAggregateFunction(sum, Int64),
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
-  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
+  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-  surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
+  surfacing_score SimpleAggregateFunction(max, Nullable(Float32))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_sessions (
   session_id String,
@@ -2706,10 +2748,10 @@ GROUP BY
   `$session_id`, team_id;
 CREATE VIEW posthog.custom_metrics_backups AS WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
-  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS `values`,
   ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
   ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('instance', hostname()) AS labels,
@@ -2764,10 +2806,10 @@ FROM
   );
 CREATE VIEW posthog.custom_metrics_replication_queue AS WITH
   ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
-  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS `values`,
   ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
   ['gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('table', `table`, 'instance', hostname()) AS labels,
@@ -3121,37 +3163,24 @@ CREATE TABLE posthog.experiment_exposures_preaggregated (
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_experiment_exposures_preaggregated', cityHash64(entity_id));
 CREATE TABLE posthog.flag_evaluations (
-  team_id Int64,
   uuid UUID,
+  event LowCardinality(String),
+  properties String,
   timestamp DateTime64(6, 'UTC'),
-  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  team_id Int64,
   distinct_id String,
-  session_id String,
-  device_id String,
-  flag_key String,
-  response LowCardinality(String),
-  flag_id UInt64,
-  flag_version UInt32,
-  reason LowCardinality(String),
-  request_id String,
-  evaluated_at DateTime64(6, 'UTC') DEFAULT timestamp,
-  error String,
-  locally_evaluated Bool,
-  lib LowCardinality(String),
-  lib_version LowCardinality(String),
-  is_server Bool,
-  os LowCardinality(String),
-  os_version LowCardinality(String),
-  app_version LowCardinality(String),
-  current_url String,
-  pathname String,
-  country_code LowCardinality(String),
-  subdivision_1_code LowCardinality(String),
-  group_0 String,
-  group_1 String,
-  group_2 String,
-  group_3 String,
-  group_4 String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  $group_0 String COMMENT 'column_materializer::$group_0',
+  $group_1 String COMMENT 'column_materializer::$group_1',
+  $group_2 String COMMENT 'column_materializer::$group_2',
+  $group_3 String COMMENT 'column_materializer::$group_3',
+  $group_4 String COMMENT 'column_materializer::$group_4',
+  flag_key String COMMENT 'column_materializer::properties::$feature_flag',
+  response LowCardinality(String) COMMENT 'column_materializer::properties::$feature_flag_response',
+  session_id String COMMENT 'column_materializer::properties::$session_id',
+  request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id',
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
@@ -3377,7 +3406,7 @@ CREATE TABLE posthog.raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
@@ -3398,11 +3427,7 @@ CREATE TABLE posthog.session_replay_events (
   distinct_id String,
   min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
   max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-  block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-  block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-  block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
   first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   click_count SimpleAggregateFunction(sum, Int64),
   keypress_count SimpleAggregateFunction(sum, Int64),
   mouse_activity_count SimpleAggregateFunction(sum, Int64),
@@ -3413,15 +3438,20 @@ CREATE TABLE posthog.session_replay_events (
   size SimpleAggregateFunction(sum, Int64),
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
-  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-  snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
+  snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+  block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+  block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
+  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.sessions (
   session_id String,
@@ -3706,7 +3736,7 @@ CREATE VIEW posthog.raw_sessions_v3_v AS SELECT
   uniqExactMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
-  groupUniqArrayMapMerge(flag_values) AS flag_values,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
   groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,

@@ -17,24 +17,26 @@ import type {
 import {
   fetchCurrentUser,
   fetchInsightByShortId,
+  readCachedQuery,
   runQuery,
 } from "./posthogApi";
 
-// Last-resort attribution if we can't resolve the signed-in user (and the
-// canvas didn't pass its own distinctId).
 const FALLBACK_DISTINCT_ID = "freeform-canvas";
 const MAX_CANVAS_RESULT_ROWS = 1_000;
 const MAX_CANVAS_RESULT_BYTES = 2 * 1024 * 1024;
+const REVALIDATE_MIN_INTERVAL_MS = 30_000;
+const MAX_REVALIDATION_ENTRIES = 512;
 
 const utf8Encoder = new TextEncoder();
 
-// True when the JSON's UTF-8 encoding exceeds the byte limit. UTF-8 is 1–3
-// bytes per UTF-16 code unit, so the string length bounds the byte count from
-// both sides — only payloads in the ambiguous band pay for a full encode.
 function exceedsByteLimit(json: string): boolean {
   if (json.length > MAX_CANVAS_RESULT_BYTES) return true;
   if (json.length * 3 <= MAX_CANVAS_RESULT_BYTES) return false;
   return utf8Encoder.encode(json).byteLength > MAX_CANVAS_RESULT_BYTES;
+}
+
+function normalizeHogQLRows(results: unknown[]): unknown[] {
+  return results.map((result) => (Array.isArray(result) ? result : [result]));
 }
 
 function boundedResult(result: CanvasDataResult): CanvasDataResult {
@@ -47,29 +49,37 @@ function boundedResult(result: CanvasDataResult): CanvasDataResult {
   return result;
 }
 
-/**
- * The host-side data avenue behind a freeform canvas's `ph.query` shim.
- *
- * Runs HogQL through PostHog's cached query runner — the SAME avenue insights
- * use, so caching and cold-boot are handled for us — by passing
- * `refresh: "blocking"` (return a fresh cached result if one exists, else
- * compute synchronously). The PostHog token is injected here via
- * `authenticatedFetch`; it never crosses into the iframe.
- *
- * Edit-mode only for now (inline HogQL). The published/view tier (Phase 3) will
- * reject inline HogQL and require a named, server-stored insight referenced by
- * `ph.run(name, params)`, validated against a per-canvas allowlist.
- */
+function sameVariableValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+// Reject ignored overrides because the insight can return plausible saved defaults.
+function assertVariablesApplied(
+  requested: Record<string, unknown> | undefined,
+  resolved: Record<string, unknown>,
+  shortId: string,
+): void {
+  for (const [codeName, requestedValue] of Object.entries(requested ?? {})) {
+    if (!(codeName in resolved)) {
+      const known = Object.keys(resolved);
+      throw new Error(
+        `Insight "${shortId}" has no SQL variable "${codeName}" (it uses: ${known.length > 0 ? known.join(", ") : "none"})`,
+      );
+    }
+    if (!sameVariableValue(resolved[codeName], requestedValue)) {
+      throw new Error(
+        `SQL variable "${codeName}" was not applied to insight "${shortId}" — it resolved to ${JSON.stringify(resolved[codeName])}, not ${JSON.stringify(requestedValue)}`,
+      );
+    }
+  }
+}
+
 @injectable()
 export class CanvasDataService {
   private readonly log: ScopedLogger;
-  // The public capture key (phc_…) per project id. Keyed by project so switching
-  // projects in the same session doesn't reuse the previous project's key (this
-  // is a singleton service).
   private readonly projectTokens = new Map<number, string>();
-  // The signed-in user's distinct_id, the default attribution in edit mode.
-  // Per-user (not per-project), so a single cached value is correct.
   private userDistinctId: string | undefined;
+  private readonly revalidatedAt = new Map<string, number>();
 
   constructor(
     @inject(AUTH_SERVICE)
@@ -82,26 +92,42 @@ export class CanvasDataService {
 
   async query(input: CanvasDataQueryInput): Promise<CanvasDataResult> {
     try {
-      // A typed query node (TrendsQuery/etc.) runs as-is so the numbers match the
-      // PostHog UI; an inline HogQL string is the escape hatch. Cache-first
-      // execution (the insights avenue): serve a fresh cached result if present,
-      // otherwise compute it now.
       const isTyped = input.query != null;
       const node = isTyped
         ? (input.query as Record<string, unknown>)
         : { kind: "HogQLQuery", query: input.hogql as string };
+      // Typed results are series objects. Wrapping them makes their values read as zero.
+      const shaped = (results: unknown[]): unknown[] =>
+        isTyped ? results : normalizeHogQLRows(results);
+
+      if (input.refresh != null) {
+        // A failed cache probe must not block the query runner.
+        const cached = await readCachedQuery(this.authService, node).catch(
+          (err) => {
+            this.log.warn("Canvas cached-read probe failed", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+            return null;
+          },
+        );
+        if (cached) {
+          const age =
+            cached.lastRefresh != null
+              ? Date.now() - Date.parse(cached.lastRefresh)
+              : Number.POSITIVE_INFINITY;
+          const stale = !(age <= input.refresh * 1_000);
+          if (stale) this.revalidate(node);
+          return boundedResult({
+            columns: cached.columns,
+            results: shaped(cached.results),
+            ...(stale ? { stale: true } : {}),
+          });
+        }
+      }
       const { columns, results } = await runQuery(this.authService, node, {
         refresh: "blocking",
       });
-      return boundedResult({
-        columns,
-        // HogQL returns rows; normalise a bare scalar row to a 1-cell array.
-        // Typed nodes return SERIES OBJECTS — pass them through untouched (wrapping
-        // them in arrays is what made every value read as 0).
-        results: isTyped
-          ? results
-          : results.map((r) => (Array.isArray(r) ? r : [r])),
-      });
+      return boundedResult({ columns, results: shaped(results) });
     } catch (err) {
       this.log.warn("Canvas query failed", {
         error: err instanceof Error ? err.message : String(err),
@@ -110,26 +136,42 @@ export class CanvasDataService {
     }
   }
 
-  // The preferred data avenue: load a SAVED insight by short id and return its
-  // STORED result from the insights endpoint (not a fresh /query/ run). The
-  // canvas date picker's window rides along as the insight's date override.
+  private revalidate(node: Record<string, unknown>): void {
+    const key = JSON.stringify(node);
+    const last = this.revalidatedAt.get(key);
+    if (last != null && Date.now() - last < REVALIDATE_MIN_INTERVAL_MS) return;
+    // Re-insert the key so the size cap removes the least recently refreshed query.
+    this.revalidatedAt.delete(key);
+    this.revalidatedAt.set(key, Date.now());
+    if (this.revalidatedAt.size > MAX_REVALIDATION_ENTRIES) {
+      const oldest = this.revalidatedAt.keys().next().value;
+      if (oldest !== undefined) this.revalidatedAt.delete(oldest);
+    }
+    void runQuery(this.authService, node, { refresh: "force_async" }).catch(
+      (err) => {
+        this.log.warn("Canvas background refresh failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      },
+    );
+  }
+
   async loadInsight(input: CanvasLoadInsightInput): Promise<CanvasDataResult> {
     try {
       const insight = await fetchInsightByShortId(
         this.authService,
         input.shortId,
-        { dateRange: input.dateRange },
+        { dateRange: input.dateRange, variables: input.variables },
       );
-      // Mirror the shape handling in `query`: a SQL insight returns rows (coerce a
-      // bare scalar row to a 1-cell array); a trends-style insight returns SERIES
-      // OBJECTS, which must pass through untouched (wrapping them reads every value
-      // as 0).
+      assertVariablesApplied(
+        input.variables,
+        insight.resolvedVariables,
+        input.shortId,
+      );
       const isRows = insight.queryKind === "HogQLQuery";
       return boundedResult({
         columns: insight.columns,
-        results: isRows
-          ? insight.results.map((r) => (Array.isArray(r) ? r : [r]))
-          : insight.results,
+        results: isRows ? normalizeHogQLRows(insight.results) : insight.results,
       });
     } catch (err) {
       this.log.warn("Canvas loadInsight failed", {
@@ -140,9 +182,6 @@ export class CanvasDataService {
     }
   }
 
-  // The bootstrap config the iframe needs to run posthog-js (analytics +
-  // session replay) itself: the public capture key + the signed-in user's
-  // distinct_id. The private read token is never included.
   async captureConfig(): Promise<CanvasCaptureConfig> {
     const { apiHost } = await this.authService.getValidAccessToken();
     const projectId = this.authService.getState().currentProjectId;
@@ -156,9 +195,6 @@ export class CanvasDataService {
     return { apiHost, publicKey, distinctId };
   }
 
-  // Send an analytics event to the host's project using the PUBLIC project key.
-  // This is the `ph.capture` avenue: the canvas never holds a key, the host
-  // attaches the (safe-to-be-public) capture token and posts the event.
   async capture(input: CanvasCaptureInput): Promise<CanvasCaptureResult> {
     const { apiHost } = await this.authService.getValidAccessToken();
     const projectId = this.authService.getState().currentProjectId;
@@ -167,9 +203,6 @@ export class CanvasDataService {
     }
 
     const apiKey = await this.getProjectToken(apiHost, projectId);
-    // Attribution order: an explicit distinctId the canvas passed (e.g. a
-    // per-visitor id once sharing exists) wins; otherwise the signed-in user
-    // (edit mode); otherwise a stable fallback.
     const distinctId =
       input.distinctId ??
       (await this.getUserDistinctId()) ??
@@ -183,7 +216,6 @@ export class CanvasDataService {
         distinct_id: distinctId,
         properties: {
           ...input.properties,
-          // Mark provenance so these are easy to find/filter in the project.
           $lib: "posthog-canvas",
         },
       }),
@@ -196,9 +228,6 @@ export class CanvasDataService {
     return { ok: true };
   }
 
-  // The project's public capture key. Fetched from the authenticated project
-  // endpoint (which the user can already read) and cached; capture itself uses
-  // the public key, not the bearer token.
   private async getProjectToken(
     apiHost: string,
     projectId: number,
@@ -218,8 +247,6 @@ export class CanvasDataService {
     return data.api_token;
   }
 
-  // The signed-in user's distinct_id (so edit-mode captures attribute to "me" in
-  // PostHog, not a placeholder). Cached; returns undefined if unavailable.
   private async getUserDistinctId(): Promise<string | undefined> {
     if (this.userDistinctId !== undefined) return this.userDistinctId;
     const user = await fetchCurrentUser(this.authService);

@@ -1,6 +1,4 @@
 import { ArrowDown, XCircle } from "@phosphor-icons/react";
-import { WorkerPoolContextProvider } from "@pierre/diffs/react";
-import { useService } from "@posthog/di/react";
 import {
   Button,
   cn,
@@ -15,12 +13,8 @@ import type {
   ConversationItem,
   TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import { ConversationSearchBar } from "@posthog/ui/features/sessions/components/ConversationSearchBar";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { THREAD_HOTKEY_OPTIONS } from "@posthog/ui/features/sessions/components/chat-thread/threadHotkeys";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
@@ -49,7 +43,6 @@ import {
   type VirtualizedListHandle,
 } from "@posthog/ui/features/sessions/components/VirtualizedList";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
-import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import { useConversationSearch } from "@posthog/ui/features/sessions/hooks/useConversationSearch";
 import {
@@ -65,11 +58,8 @@ import {
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
-import {
-  DIFF_WORKER_FACTORY,
-  type DiffWorkerFactory,
-} from "@posthog/ui/shell/diffWorkerHost";
 import { Box, Flex, Text } from "@radix-ui/themes";
 import {
   memo,
@@ -102,6 +92,10 @@ export interface ConversationViewProps {
    * plain Up/Down presses (caret at the input boundary) to it.
    */
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
+  /** See `SharedChatThreadProps.olderHistoryCursor`. */
+  olderHistoryCursor?: number;
+  isLoadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
 }
 
 export function ConversationView({
@@ -116,19 +110,6 @@ export function ConversationView({
   scrollX = true,
   promptRecallRef,
 }: ConversationViewProps) {
-  const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
-  const diffsPoolOptions = useMemo(
-    () => ({
-      workerFactory: () => diffWorkerFactory(),
-      totalASTLRUCacheSize: 200,
-      // Each pooled highlighter worker is a full V8 isolate with shiki
-      // grammars loaded (~40MB RSS); the library default of 8 costs hundreds
-      // of MB for parallelism conversation diffs don't need.
-      poolSize: 2,
-    }),
-    [diffWorkerFactory],
-  );
-
   const listRef = useRef<VirtualizedListHandle>(null);
   const isAtBottomRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -147,7 +128,10 @@ export function ConversationView({
     items: conversationItems,
     lastTurnInfo,
     isCompacting,
+    isClearing,
+    isBackgroundTurnActive,
     completedToolCallCount,
+    lastActivityAt,
   } = useConversationItems(events, isPromptPending, {
     showDebugLogs,
   });
@@ -294,7 +278,7 @@ export function ConversationView({
       const nextMessage = userMessages[nextIndex];
       if (!nextMessage) return;
 
-      useSettingsStore.getState().markHintLearned(PROMPT_RECALL_HINT_KEY);
+      useSettingsStore.getState().markHintLearned(TIP_KEYS.recallMessageNav);
       setKeyboardFocusedMessageId(nextMessage.id);
       scrollToUserMessage(nextMessage.id, nextMessage.index);
     },
@@ -326,9 +310,12 @@ export function ConversationView({
   const handleJumpToMessage = useCallback(
     (id: string) => {
       const message = userMessages.find((entry) => entry.id === id);
-      if (!message) return;
+      // Reported, not swallowed: a request for a message this list has not built yet is
+      // retried by the caller rather than dropped.
+      if (!message) return false;
       setKeyboardFocusedMessageId(id);
       scrollToUserMessage(id, message.index);
+      return true;
     },
     [userMessages, scrollToUserMessage],
   );
@@ -476,7 +463,6 @@ export function ConversationView({
 
   const footer = (
     <div className={compact ? "pb-1" : "pb-16"}>
-      <CloudArtifactDownloads taskId={taskId} task={task} />
       <SessionFooter
         task={task}
         isPromptPending={isPromptPending}
@@ -491,76 +477,74 @@ export function ConversationView({
         hasPendingPermission={pendingPermissionsCount > 0}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
+        isClearing={isClearing}
+        isBackgroundTurnActive={isBackgroundTurnActive}
         completedToolCallCount={completedToolCallCount}
+        lastActivityAt={lastActivityAt}
       />
     </div>
   );
 
   return (
-    <WorkerPoolContextProvider
-      poolOptions={diffsPoolOptions}
-      highlighterOptions={DIFFS_HIGHLIGHTER_OPTIONS}
+    <div
+      ref={containerRef}
+      className="group/thread relative flex-1"
+      onPointerDownCapture={clearKeyboardFocus}
     >
-      <div
-        ref={containerRef}
-        className="group/thread relative flex-1"
-        onPointerDownCapture={clearKeyboardFocus}
-      >
-        {search.open && (
-          <ConversationSearchBar
-            ref={search.searchBarRef}
-            query={search.query}
-            currentMatch={search.currentIndex}
-            totalMatches={search.totalMatches}
-            onQueryChange={search.setQuery}
-            onNext={search.next}
-            onPrev={search.prev}
-            onClose={search.close}
-          />
-        )}
-
-        <MessageJumpPicker
-          open={jumpPickerOpen}
-          onOpenChange={setJumpPickerOpen}
-          items={items}
-          onJumpToMessage={handleJumpToMessage}
+      {search.open && (
+        <ConversationSearchBar
+          ref={search.searchBarRef}
+          query={search.query}
+          currentMatch={search.currentIndex}
+          totalMatches={search.totalMatches}
+          onQueryChange={search.setQuery}
+          onNext={search.next}
+          onPrev={search.prev}
+          onClose={search.close}
         />
+      )}
 
-        <SessionTaskIdProvider taskId={taskId}>
-          <VirtualizedList<ConversationTurn>
-            ref={listRef}
-            items={turns}
-            getItemKey={getTurnKey}
-            renderItem={renderTurn}
-            onScrollStateChange={handleScrollStateChange}
-            keepMounted={turnKeepMounted}
-            className="absolute inset-0 bg-background"
-            itemClassName="mx-auto px-2"
-            itemStyle={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
-            footer={footer}
-            scrollX={scrollX}
-          />
-        </SessionTaskIdProvider>
-        {showScrollButton && (
-          <Box className="absolute right-6 bottom-4 z-10">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="icon-lg"
-                    variant="outline"
-                    onClick={scrollToBottom}
-                  >
-                    <ArrowDown size={14} weight="bold" />
-                  </Button>
-                }
-              />
-              <TooltipContent>Scroll to bottom</TooltipContent>
-            </Tooltip>
-          </Box>
-        )}
-      </div>
-    </WorkerPoolContextProvider>
+      <MessageJumpPicker
+        open={jumpPickerOpen}
+        onOpenChange={setJumpPickerOpen}
+        items={items}
+        onJumpToMessage={handleJumpToMessage}
+      />
+
+      <SessionTaskIdProvider taskId={taskId}>
+        <VirtualizedList<ConversationTurn>
+          ref={listRef}
+          items={turns}
+          getItemKey={getTurnKey}
+          renderItem={renderTurn}
+          onScrollStateChange={handleScrollStateChange}
+          keepMounted={turnKeepMounted}
+          className="absolute inset-0 bg-background"
+          itemClassName="mx-auto px-2"
+          itemStyle={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
+          footer={footer}
+          scrollX={scrollX}
+        />
+      </SessionTaskIdProvider>
+      {showScrollButton && (
+        <Box className="absolute right-6 bottom-4 z-10">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-lg"
+                  variant="outline"
+                  onClick={scrollToBottom}
+                >
+                  <ArrowDown size={14} weight="bold" />
+                </Button>
+              }
+            />
+            <TooltipContent>Scroll to bottom</TooltipContent>
+          </Tooltip>
+        </Box>
+      )}
+    </div>
   );
 }
 

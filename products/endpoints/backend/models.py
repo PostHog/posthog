@@ -16,6 +16,7 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.exceptions_capture import capture_exception
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -186,6 +187,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         on_delete=models.CASCADE,
         null=True,
         help_text="Team this version belongs to (denormalized from endpoint for HogQL system table access)",
+        related_name="+",
     )
     version = models.IntegerField()
     query = models.JSONField(help_text="Immutable query snapshot")
@@ -208,7 +210,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         blank=True,
         db_index=False,
         on_delete=models.SET_NULL,
-        related_name="endpoint_versions",
+        related_name="+",
         help_text="The underlying materialized view for this version",
     )
     is_active = models.BooleanField(
@@ -353,7 +355,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
 
 
-class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
+class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
     """Model for storing endpoints that can be accessed via API endpoints.
 
     Endpoints allow creating reusable query endpoints like:
@@ -368,7 +370,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         validators=[validate_endpoint_name],
         help_text="URL-safe name for the endpoint",
     )
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
 
     derived_from_insight = models.CharField(
         max_length=12,
@@ -381,7 +383,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
 
     current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
 
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_executed_at = models.DateTimeField(

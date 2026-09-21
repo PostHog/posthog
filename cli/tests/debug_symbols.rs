@@ -1,10 +1,8 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use posthog_cli::api::symbol_sets::SymbolSetUpload;
-use posthog_cli::debug_symbols::{
-    dedup_uploads_by_chunk_id, discover, elf_debug_id, package_dsym_bundles, report_problems,
-};
+use posthog_cli::api::symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload};
+use posthog_cli::debug_symbols::{discover, elf_debug_id, package_dsym_bundles, report_problems};
 use posthog_cli::dsym::source_bundle::extract_source_paths_from_dwarf_bytes;
 use posthog_symbol_data::{read_symbol_data, AppleDsym, ElfDebugInfo};
 
@@ -313,6 +311,7 @@ fn dedup_preserves_per_format_chunk_id_casing() {
         chunk_id: chunk_id.to_string(),
         release_id: None,
         data: data.to_vec(),
+        content_hash: None,
     };
 
     let deduped = dedup_uploads_by_chunk_id(vec![

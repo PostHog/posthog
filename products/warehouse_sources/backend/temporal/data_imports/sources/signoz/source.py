@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -56,7 +54,7 @@ class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SIG_NOZ,
+            name=ExternalDataSourceType.SIGNOZ,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="SigNoz",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -96,6 +94,22 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
             "401 Client Error": "Invalid SigNoz API key. Generate a new key from a service account and reconnect.",
             "403 Client Error": "Your SigNoz API key lacks the required permissions for this data. Check the service account's role and reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The configured SigNoz host is not allowed. Check the host and try again.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows`'s tenacity retry already retries a 429/5xx (the "SigNoz API error
+        # (retryable)" sentinel), a dropped connection, and a read timeout up to MAX_RETRIES.
+        # The query_range telemetry fetch is a POST, which the tracked session's own urllib3
+        # retry skips (it only covers GET/HEAD/OPTIONS), so an exhausted read timeout there
+        # surfaces as the raw "Read timed out" message; a GET config fetch or a failed connect
+        # instead exhausts that adapter-level retry first and surfaces wrapped as "Max retries
+        # exceeded with url". Either way, Temporal retries the whole activity once tenacity's
+        # budget is exhausted, so the failure is self-recovering. The host is
+        # customer-controlled, so match only the stable, host-independent parts of the message.
+        return {
+            "SigNoz API error (retryable)",
+            "Read timed out",
+            "Max retries exceeded with url",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

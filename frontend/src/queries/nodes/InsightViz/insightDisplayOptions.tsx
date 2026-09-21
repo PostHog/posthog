@@ -3,29 +3,44 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import type { TrendsFilter } from '~/queries/schema/schema-general'
+import type { RetentionFilter, TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import {
-    BAR_DISPLAYS,
-    displayMatches,
-    DisplayOptions,
-    isDefaultTrendsLineDisplay,
-    LINE_DISPLAYS,
-    SectionHeader,
-} from './DisplayOptions'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
-// The "Options" menu in the insight editor's display config bar. `count` is the number of non-default
-// active options, badged on the Options button.
-export function useInsightDisplayOptions(): { items: LemonMenuItems; count: number } {
+import { DisplayOption, DisplayOptions } from './DisplayOptions'
+import { BAR_DISPLAYS, displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'
+
+export interface DisplayOptionSection {
+    key: string
+    title?: string
+    tooltip?: string
+    dataAttr?: string
+    items: DisplayOption[]
+}
+
+export type DisplayOptionTabKey = 'general' | 'axes' | 'lines'
+
+export interface DisplayOptionTab {
+    key: DisplayOptionTabKey
+    label: string
+    sections: DisplayOptionSection[]
+    count: number
+}
+
+function countTruthy(...flags: (boolean | null | undefined)[]): number {
+    return flags.filter(Boolean).length
+}
+
+// The "Options" panel in the insight editor's display config bar. `count` is the total number of
+// non-default active options across all tabs, badged on the Options button.
+export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: number } {
     const { insightProps } = useValues(insightLogic)
     const {
         querySource,
@@ -45,7 +60,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         supportsResultCustomizationBy,
         yAxisScaleType,
         showMultipleYAxes,
+        showAlertThresholdLines,
         showAnnotations,
+        annotationsScope,
         isNonTimeSeriesDisplay,
         interval,
         usesInChartLegend,
@@ -59,15 +76,12 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         showConfidenceIntervals,
         showMovingAverage,
     } = useValues(trendsDataLogic(insightProps))
-    // Hide weekends is superseded by the days-of-week date filter and is being sunset: the option
-    // only renders on insights that already have it on, so it can be turned off but not on. Gating
-    // on the value rather than the key matters — the key is persisted as false on most insights.
-    const hasHideWeekends = !!trendsFilter?.hideWeekends
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
     const isSlopeGraph = display === ChartDisplayType.SlopeGraph
     const isMetric = display === ChartDisplayType.Metric
+    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const hideContinuousChartOptions = isNonTimeSeriesDisplay || isMetric || isSlopeGraph
     const showSmoothing =
         isTrends &&
@@ -75,9 +89,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
         !!interval &&
         (smoothingOptions[interval]?.length ?? 0) > 0
-    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions && !isBoxPlot
     const showAlertThresholdLinesConfig = isTrends && !hideContinuousChartOptions
-    const showAnnotationsConfig = (isTrends && !hideContinuousChartOptions) || isTrendsFunnel
+    const showAnnotationsConfig = ((isTrends && !hideContinuousChartOptions) || isTrendsFunnel) && !isBoxPlot
+    const showTrendLinesConfig = (isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions
     // Stickiness defaults to its line chart when display is unset, same as trends does — but
     // isDefaultTrendsLineDisplay only matches TrendsQuery, so we handle the stickiness case here.
     const isLineDisplay =
@@ -87,8 +102,11 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const showAxisLabelsConfig = isTrends && (isLineDisplay || isBarDisplay)
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
-    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
+    const isPie = !!display && PIE_DISPLAY_TYPES.includes(display)
+    // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
+    // A pie is the exception: it can show the value and the percentage together.
+    const showsRawValues = !showPercentStackView || (isPie && !!showValuesOnSeries)
     // When the chart draws its own positioned in-chart legend, show the position selector instead
     // of the legacy show/hide checkbox. usesInChartLegend is the single source of truth (same
     // selector used by InsightVizDisplay to suppress the side legend). Funnel trends with breakdown
@@ -98,16 +116,22 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
     const showYAxisScale = !hideContinuousChartOptions && isTrends && !isCalendarHeatmap
+    // Bars encode magnitude as length from zero, so a bounded baseline misreads them: 10 vs 11
+    // would draw as 1 vs 2.
+    const showYAxisRangeConfig = showYAxisScale && isLineDisplay
     // Only the quill line charts (trends/stickiness line and area, retention and funnel-trends
     // graphs) draw curves, so they're the only ones with curvature to straighten. Retention and
     // funnel trends default to their line graph when display is unset.
     const isLineChartInsight = isLineDisplay || ((isRetention || isTrendsFunnel) && !display)
     const showLineStyleConfig = (isTrends || isStickiness || isRetention || isTrendsFunnel) && isLineChartInsight
+    const showStatisticalOverlays = showYAxisScale && !isBoxPlot
+    const showUnit = showsRawValues && isTrends && !isCalendarHeatmap
+    const showDecimalPlaces = mightContainFractionalNumbers && isTrends && !isCalendarHeatmap
 
     // The box plot and slope graph only show a couple of options each; everything else falls
     // through to the full shared list.
-    const getDisplayItems = (): LemonMenuItem[] => {
-        const displayItems: LemonMenuItem[] = []
+    const getDisplayItems = (): DisplayOption[] => {
+        const displayItems: DisplayOption[] = []
 
         if (isBoxPlot) {
             if (hasLegend) {
@@ -147,26 +171,14 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if ((hasLegend || showFunnelLegendConfig) && !useQuillLegendOptions) {
             displayItems.push(DisplayOptions.Legend)
         }
-        if (display === ChartDisplayType.ActionsPie) {
-            displayItems.push(DisplayOptions.PieTotal)
-        }
-        if (showAlertThresholdLinesConfig) {
-            displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)
-        }
-        if (showMultipleYAxesConfig) {
-            displayItems.push(DisplayOptions.MultipleYAxes)
-        }
-        if ((isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions) {
-            displayItems.push(DisplayOptions.TrendLines)
+        if (isPie) {
+            displayItems.push(DisplayOptions.SliceNames, DisplayOptions.PieTotal)
         }
         if (isTrendsFunnel && !hideContinuousChartOptions) {
             displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
         }
-        if (isTrends && !hideContinuousChartOptions && hasHideWeekends) {
-            displayItems.push(DisplayOptions.HideWeekends)
-        }
-        if (showAnnotationsConfig) {
-            displayItems.push(DisplayOptions.Annotations)
+        if (showAlertThresholdLinesConfig) {
+            displayItems.push(DisplayOptions.AlertAnomalyPoints)
         }
         if (useQuillLegendOptions) {
             displayItems.push(DisplayOptions.LegendOptions)
@@ -174,99 +186,178 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         return displayItems
     }
 
-    const items: LemonMenuItems = []
-
-    if (showSmoothing) {
-        items.push({ title: 'Smoothing', items: [DisplayOptions.Smoothing] })
+    const displaySections: DisplayOptionSection[] = []
+    const displayItems = getDisplayItems()
+    if (showDisplaySection && displayItems.length > 0) {
+        displaySections.push({ key: 'display', dataAttr: 'options-display-section', items: displayItems })
     }
-
-    if (showDisplaySection) {
-        items.push({
-            title: <SectionHeader dataAttr="options-display-section">Display</SectionHeader>,
-            items: getDisplayItems(),
+    if (showAnnotationsConfig) {
+        displaySections.push({
+            key: 'annotations',
+            title: 'Annotations',
+            tooltip:
+                'Annotations are saved on an insight, a dashboard, the project, or the organization. Choose which of those to show here.',
+            items: [DisplayOptions.Annotations],
         })
     }
-
+    if (showUnit) {
+        displaySections.push({ key: 'unit', title: 'Unit', items: [DisplayOptions.Unit] })
+    }
     if (supportsResultCustomizationBy) {
-        items.push({
-            title: (
-                <SectionHeader tooltip="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                    Color customization by
-                </SectionHeader>
-            ),
+        displaySections.push({
+            key: 'color-customization',
+            title: 'Color customization by',
+            tooltip:
+                "You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).",
             items: [DisplayOptions.ResultCustomizationBy],
         })
     }
-
-    if (!showPercentStackView && isTrends && !isCalendarHeatmap) {
-        items.push({
-            title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
-            items: [DisplayOptions.Unit],
+    if (showDecimalPlaces) {
+        displaySections.push({
+            key: 'decimal-places',
+            title: 'Decimal places',
+            items: [DisplayOptions.DecimalPrecision],
         })
     }
-
-    if (showYAxisScale) {
-        items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
-    }
-
-    if (showLineStyleConfig) {
-        items.push({ title: 'Line style', items: [DisplayOptions.LineStyle] })
-    }
-
-    if (showYAxisScale && !isBoxPlot) {
-        const statisticalItems: LemonMenuItem[] = [DisplayOptions.ConfidenceInterval]
-        if (showConfidenceIntervals) {
-            statisticalItems.push(DisplayOptions.ConfidenceLevel)
-        }
-        statisticalItems.push(DisplayOptions.MovingAverage)
-        if (showMovingAverage) {
-            statisticalItems.push(DisplayOptions.MovingAverageIntervals)
-        }
-        items.push({ title: 'Statistical analysis', items: statisticalItems })
-    }
-
-    if (showAxisLabelsConfig) {
-        items.push({ title: 'Axis labels', items: [DisplayOptions.AxisLabels] })
-    }
-
-    if (mightContainFractionalNumbers && isTrends && !isCalendarHeatmap) {
-        items.push({ title: 'Decimal places', items: [DisplayOptions.DecimalPrecision] })
-    }
-
     if (isRetention) {
-        items.push({ title: 'On dashboards', items: [DisplayOptions.RetentionDashboardDisplay] })
-        items.push({
-            title: (
-                <SectionHeader tooltip="Controls the starting index used to label cohort columns. Display only, does not affect the calculations.">
-                    Cohort labels start at
-                </SectionHeader>
-            ),
+        displaySections.push({
+            key: 'retention-dashboards',
+            title: 'On dashboards',
+            items: [DisplayOptions.RetentionDashboardDisplay],
+        })
+        displaySections.push({
+            key: 'retention-cohort-labels',
+            title: 'Cohort labels start at',
+            tooltip:
+                'Controls the starting index used to label cohort columns. Display only, does not affect the calculations.',
             items: [DisplayOptions.RetentionCohortLabelStart],
         })
     }
 
-    const count: number =
-        (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
-        (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
-        (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
-        (showPercentStackView ? 1 : 0) +
-        (!showPercentStackView &&
-        isTrends &&
-        trendsFilter?.aggregationAxisFormat &&
-        trendsFilter.aggregationAxisFormat !== 'numeric'
-            ? 1
-            : 0) +
-        ((hasLegend || showFunnelLegendConfig) && showLegend ? 1 : 0) +
-        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
-        (showLineStyleConfig && (insightFilter as TrendsFilter | undefined)?.chartStyle?.curve === 'linear' ? 1 : 0) +
-        (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
-        (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
-        (showMultipleYAxes ? 1 : 0) +
-        (hasHideWeekends ? 1 : 0) +
-        (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
-        (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
-        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
-        (isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total' ? 1 : 0)
+    // Scale sits directly above the range, so the log scale that disables the range is in view.
+    const axesSections: DisplayOptionSection[] = []
+    if (showAxisLabelsConfig) {
+        axesSections.push({ key: 'x-axis', title: 'X-axis', items: [DisplayOptions.XAxisLabel] })
+    }
+    const yAxisItems: DisplayOption[] = []
+    if (showAxisLabelsConfig) {
+        yAxisItems.push(DisplayOptions.YAxisLabel)
+    }
+    if (showMultipleYAxesConfig) {
+        yAxisItems.push(DisplayOptions.MultipleYAxes)
+    }
+    if (showYAxisScale) {
+        yAxisItems.push(DisplayOptions.Scale)
+    }
+    if (showYAxisRangeConfig) {
+        yAxisItems.push(DisplayOptions.YAxisRange)
+    }
+    if (yAxisItems.length > 0) {
+        axesSections.push({ key: 'y-axis', title: 'Y-axis', items: yAxisItems })
+    }
 
-    return { items, count }
+    const styleItems: DisplayOption[] = []
+    if (showLineStyleConfig) {
+        styleItems.push(DisplayOptions.LineStyle)
+    }
+    if (showSmoothing) {
+        styleItems.push(DisplayOptions.Smoothing)
+    }
+    const overlayItems: DisplayOption[] = []
+    if (showTrendLinesConfig && !isBoxPlot) {
+        overlayItems.push(DisplayOptions.TrendLines)
+    }
+    if (showStatisticalOverlays) {
+        overlayItems.push(DisplayOptions.MovingAverage)
+        if (showMovingAverage) {
+            overlayItems.push(DisplayOptions.MovingAverageIntervals)
+        }
+        overlayItems.push(DisplayOptions.ConfidenceInterval)
+        if (showConfidenceIntervals) {
+            overlayItems.push(DisplayOptions.ConfidenceLevel)
+        }
+    }
+    if (showAlertThresholdLinesConfig && !isBoxPlot) {
+        overlayItems.push(DisplayOptions.AlertThresholdLines)
+    }
+    if (isRetention && isLineChartInsight) {
+        overlayItems.push(DisplayOptions.RetentionMeanLine)
+    }
+    const linesSections: DisplayOptionSection[] = []
+    if (styleItems.length > 0) {
+        linesSections.push({ key: 'style', title: 'Style', items: styleItems })
+    }
+    if (isRetention && isLineChartInsight) {
+        linesSections.push({
+            key: 'retention-series-colors',
+            title: 'Cohort line colors',
+            tooltip: 'One shade draws every cohort in the same color, with the newest cohort the most solid.',
+            items: [DisplayOptions.RetentionSeriesColorMode],
+        })
+    }
+    if (overlayItems.length > 0) {
+        linesSections.push({
+            key: 'overlays',
+            title: 'Overlays',
+            dataAttr: 'options-overlays-section',
+            items: overlayItems,
+        })
+    }
+
+    const unitIsSet =
+        showUnit && !!trendsFilter?.aggregationAxisFormat && trendsFilter.aggregationAxisFormat !== 'numeric'
+    const displayCount = countTruthy(
+        supportsValueOnSeries && showValuesOnSeries,
+        isLifecycle && showPercentagesOnSeries,
+        showPercentStackView,
+        isPie && trendsFilter?.showLabelsOnSeries,
+        unitIsSet,
+        (hasLegend || showFunnelLegendConfig) && showLegend,
+        showAnnotationsConfig && (showAnnotations === false || !!annotationsScope),
+        isMetric && trendsFilter?.metricShowChange === false,
+        isMetric && trendsFilter?.metricColorByDirection,
+        isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total'
+    )
+    const axesCount = countTruthy(
+        showMultipleYAxesConfig && showMultipleYAxes,
+        showYAxisScale && !!yAxisScaleType && yAxisScaleType !== 'linear',
+        showYAxisRangeConfig && trendsFilter?.yAxisStartAtZero === false,
+        showYAxisRangeConfig && trendsFilter?.yAxisStartAtZero === false && typeof trendsFilter?.yAxisMin === 'number',
+        showYAxisRangeConfig && typeof trendsFilter?.yAxisMax === 'number',
+        showAxisLabelsConfig && !!normalizeAxisLabel(trendsFilter?.xAxisLabel),
+        showAxisLabelsConfig && !!normalizeAxisLabel(trendsFilter?.yAxisLabel)
+    )
+    const linesCount = countTruthy(
+        showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1,
+        showLineStyleConfig && (insightFilter as TrendsFilter | undefined)?.chartStyle?.curve === 'linear',
+        showTrendLinesConfig && !isBoxPlot && (insightFilter as TrendsFilter | undefined)?.showTrendLines,
+        showStatisticalOverlays && showMovingAverage,
+        showStatisticalOverlays && showConfidenceIntervals,
+        showAlertThresholdLinesConfig && !isBoxPlot && showAlertThresholdLines,
+        isRetention &&
+            isLineChartInsight &&
+            (insightFilter as TrendsFilter | undefined)?.chartStyle?.seriesColorMode === 'opacity',
+        isRetention && isLineChartInsight && (insightFilter as RetentionFilter | undefined)?.showMeanLine
+    )
+
+    const allTabs: DisplayOptionTab[] = [
+        { key: 'general', label: 'General', sections: displaySections, count: displayCount },
+        { key: 'axes', label: 'Axes', sections: axesSections, count: axesCount },
+        { key: 'lines', label: 'Lines', sections: linesSections, count: linesCount },
+    ]
+    // Only trends has enough options to need tabs; the other insight types keep one flat list.
+    const tabs = (
+        isTrends
+            ? allTabs
+            : [
+                  {
+                      key: 'general' as const,
+                      label: 'General',
+                      sections: allTabs.flatMap((tab) => tab.sections),
+                      count: allTabs.reduce((sum, tab) => sum + tab.count, 0),
+                  },
+              ]
+    ).filter((tab) => tab.sections.length > 0)
+
+    return { tabs, count: tabs.reduce((sum, tab) => sum + tab.count, 0) }
 }

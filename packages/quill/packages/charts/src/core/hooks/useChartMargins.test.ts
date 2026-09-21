@@ -54,8 +54,13 @@ describe('useChartMargins', () => {
         expect(render({ xAxisLabel: '   ' }).bottom).toBe(DEFAULT_MARGINS.bottom)
     })
 
-    it('collapses left margin when hideYAxis is true', () => {
-        expect(render({ hideYAxis: true }).left).toBe(8)
+    it('collapses the left margin when hideYAxis is true, floored on the first x label half-width', () => {
+        // Widest label "Mon" measures 30px mocked → half 15 + 4 edge padding = 19.
+        expect(render({ hideYAxis: true }).left).toBe(19)
+    })
+
+    it('fully collapses the left margin when both axes are hidden', () => {
+        expect(render({ hideYAxis: true, hideXAxis: true }).left).toBe(8)
     })
 
     it('left margin is at least 20 when y-axis is shown', () => {

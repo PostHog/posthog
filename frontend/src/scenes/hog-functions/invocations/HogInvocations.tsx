@@ -29,12 +29,13 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
 import { DateMappingOption, HogFunctionTypeType, PersonType } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { LogsViewer } from '../logs/LogsViewer'
 import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
@@ -58,6 +59,7 @@ const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'running', label: 'Running' },
     { value: 'succeeded', label: 'Succeeded' },
     { value: 'failed', label: 'Failed' },
+    { value: 'canceled', label: 'Canceled' },
 ]
 
 /**
@@ -118,6 +120,8 @@ const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
             return 'success'
         case 'failed':
             return 'danger'
+        case 'canceled':
+            return 'muted'
         case 'running':
         default:
             return 'warning'
@@ -265,6 +269,8 @@ export function HogInvocations({
         personPropertiesById,
         sparkline,
         sparklineLoading,
+        cancellingInvocationIds,
+        cancellingAll,
     } = useValues(logic)
     const {
         loadMore,
@@ -275,6 +281,8 @@ export function HogInvocations({
         setSelectedIds,
         setExpanded,
         rerunInvocations,
+        cancelInvocations,
+        cancelAllInvocations,
         bulkRerun,
     } = useActions(logic)
     const [rerunModalOpen, setRerunModalOpen] = useState(false)
@@ -471,6 +479,37 @@ export function HogInvocations({
                 if (isRerunWrapperKind(row.function_kind)) {
                     return null
                 }
+                // Cancel is workflows-only: a workflow run in flight is usually parked on a delay
+                // or wait that an operator may need to stop, while a hog function run completes in
+                // seconds, so its in-flight rows keep the disabled Rerun instead.
+                if (functionKind === 'hog_flow' && row.status === 'running') {
+                    return (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            status="danger"
+                            loading={cancellingInvocationIds.includes(row.invocation_id)}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Cancel this run?',
+                                    // Two sentences of copy; the default dialog width spans the screen.
+                                    maxWidth: '30rem',
+                                    content:
+                                        'The run stops before its next step. Steps that already ran, ' +
+                                        'like sent emails, are not undone.',
+                                    primaryButton: {
+                                        children: 'Cancel run',
+                                        status: 'danger',
+                                        onClick: () => cancelInvocations([row.invocation_id]),
+                                    },
+                                    secondaryButton: { children: 'Keep running' },
+                                })
+                            }}
+                        >
+                            Cancel
+                        </LemonButton>
+                    )
+                }
                 return (
                     <LemonButton
                         size="xsmall"
@@ -588,6 +627,35 @@ export function HogInvocations({
                     >
                         Refresh
                     </LemonButton>
+                    {/* Workflow-wide cancel. Hidden in a parent-run-scoped or compact view, where
+                        its whole-workflow scope would read as scoped to the visible subset. */}
+                    {functionKind === 'hog_flow' && !compact && !parentRunId ? (
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            icon={<IconX />}
+                            loading={cancellingAll}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Cancel all in-flight runs?',
+                                    maxWidth: '30rem',
+                                    content:
+                                        'Every run of this workflow that has not finished stops before its ' +
+                                        'next step, including runs parked on delays and waits. Steps that ' +
+                                        'already ran, like sent emails, are not undone.',
+                                    primaryButton: {
+                                        children: 'Cancel all runs',
+                                        status: 'danger',
+                                        onClick: () => cancelAllInvocations(),
+                                    },
+                                    secondaryButton: { children: 'Keep running' },
+                                })
+                            }}
+                        >
+                            Cancel in-flight runs
+                        </LemonButton>
+                    ) : null}
                     {compact ? null : (
                         <LemonButton
                             size="small"

@@ -3,7 +3,14 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { CompressionField, FileFormatField, MaxFileSizeField, validateAzureContainerName } from './common'
+import {
+    CompressionField,
+    FileFormatField,
+    MaxFileSizeField,
+    PERSON_PROPERTIES_EVENT_FIELD,
+    ParquetExtensionField,
+    validateAzureContainerName,
+} from './common'
 import type { DestinationDefinition } from './types'
 
 export const azureBlobDefinition: DestinationDefinition = {
@@ -14,12 +21,20 @@ export const azureBlobDefinition: DestinationDefinition = {
         compression: 'zstd',
     }),
     requiredFields: ({ isNew }) => ['integration_id', 'container_name', ...(isNew ? ['file_format'] : [])],
-    configKeys: ['container_name', 'prefix', 'compression', 'file_format', 'max_file_size_mb'],
+    configKeys: [
+        'container_name',
+        'prefix',
+        'compression',
+        'file_format',
+        'max_file_size_mb',
+        'legacy_parquet_extension',
+    ],
     validate: (formValues) => ({
         container_name: validateAzureContainerName(formValues.container_name),
     }),
     eventTableOverrides: { teamIdHogql: 'team_id' },
-    Fields: function AzureBlobFields({ formValues }) {
+    eventTableExtraFields: { ...PERSON_PROPERTIES_EVENT_FIELD },
+    Fields: function AzureBlobFields({ isNew, formValues, savedConfig }) {
         return (
             <>
                 <LemonField name="integration_id" label="Azure connection">
@@ -61,6 +76,13 @@ export const azureBlobDefinition: DestinationDefinition = {
                 </div>
 
                 <CompressionField fileFormat={formValues.file_format} />
+
+                <ParquetExtensionField
+                    isNew={isNew}
+                    fileFormat={formValues.file_format}
+                    compression={formValues.compression}
+                    savedConfig={savedConfig}
+                />
             </>
         )
     },

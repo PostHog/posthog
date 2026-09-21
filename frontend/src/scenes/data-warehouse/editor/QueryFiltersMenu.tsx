@@ -1,8 +1,8 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { memo, useState } from 'react'
 
 import { IconFilter, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
 
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 
@@ -12,7 +12,6 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import type { HogQLFilters, HogQLQuery } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 
-import { queryUsesFiltersPlaceholder } from './sql-utils'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 const hasDateRange = (filters?: HogQLFilters): boolean => {
@@ -27,9 +26,33 @@ const hasActiveFilters = (filters?: HogQLFilters): boolean => {
     return hasDateRange(filters) || hasPropertyFilters(filters) || !!filters?.filterTestAccounts
 }
 
-export function QueryFiltersMenu(): JSX.Element | null {
-    const { sourceQuery, queryInput } = useValues(sqlEditorLogic)
+const filtersTooltip = ({
+    filtersMissingPlaceholder,
+    bindingsMissingTimestamp,
+    usesFiltersPlaceholder,
+}: {
+    filtersMissingPlaceholder: boolean
+    bindingsMissingTimestamp: boolean
+    usesFiltersPlaceholder: boolean
+}): string | undefined => {
+    if (filtersMissingPlaceholder) {
+        return "Filters are present, but this SQL query doesn't include a {filters} tag"
+    }
+    if (bindingsMissingTimestamp) {
+        return "This query's {filters(...)} bindings have no timestamp key, so it can't take a date filter"
+    }
+    if (!usesFiltersPlaceholder) {
+        return 'Insert {filters} into your SQL query to apply filters'
+    }
+    return undefined
+}
+
+// QueryWindow subscribes to queryInput, so it renders on every keystroke. memo stops that render from
+// reaching this menu, and the selectors below keep the menu's own subscriptions off the keystroke path.
+export const QueryFiltersMenu = memo(function QueryFiltersMenu(): JSX.Element | null {
+    const { sourceQuery, hasFiltersPlaceholder, filtersPlaceholderBindings } = useValues(sqlEditorLogic)
     const { setSourceQuery, runQuery, insertTextAtCursor } = useActions(sqlEditorLogic)
+    const logic = useMountedLogic(sqlEditorLogic)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     if (!isHogQLQuery(sourceQuery.source)) {
@@ -39,8 +62,10 @@ export function QueryFiltersMenu(): JSX.Element | null {
     const source = sourceQuery.source
     const filters = source.filters
     const hasFilters = hasActiveFilters(filters)
-    const usesFiltersPlaceholder = queryUsesFiltersPlaceholder(queryInput ?? source.query)
+    const usesFiltersPlaceholder = hasFiltersPlaceholder
     const filtersMissingPlaceholder = hasFilters && !usesFiltersPlaceholder
+    const bindingsMissingTimestamp =
+        filtersPlaceholderBindings !== null && !filtersPlaceholderBindings.includes('timestamp')
 
     const setHogQLQuery = (query: HogQLQuery): void => {
         const nextSourceQuery = {
@@ -51,7 +76,7 @@ export function QueryFiltersMenu(): JSX.Element | null {
         setSourceQuery(nextSourceQuery)
 
         if (usesFiltersPlaceholder) {
-            runQuery(queryInput ?? query.query)
+            runQuery(logic.values.queryInput ?? query.query)
         }
     }
 
@@ -70,17 +95,47 @@ export function QueryFiltersMenu(): JSX.Element | null {
                     className={`${CLICK_OUTSIDE_BLOCK_CLASS} w-[360px] max-w-[calc(100vw-2rem)] p-2 space-y-3`}
                     onClick={(event) => event.stopPropagation()}
                 >
-                    {filtersMissingPlaceholder ? (
+                    {bindingsMissingTimestamp ? (
                         <div className="text-xs text-warning">
-                            Filters are present, but this SQL query doesn't include a <code>{'{filters}'}</code> tag.
-                            Add it to your SQL query <code>where</code> clause to apply these filters. Supported source
-                            tables are <code>events</code>, <code>sessions</code>, <code>groups</code>.
+                            This query binds its own columns with <code>{'{filters(...)}'}</code> but has no{' '}
+                            <code>timestamp</code> key, so it can't take a date filter. A dashboard applies its date
+                            range to every tile, so the query fails once you add it to one. Bind your time column, for
+                            example <code>{'{filters(created_at AS timestamp)}'}</code>, or write{' '}
+                            <code>null AS timestamp</code> to exempt the query from date filtering.{' '}
+                            <Link
+                                to="https://posthog.com/docs/data-warehouse/sql/variables#applying-dashboard-filters"
+                                target="_blank"
+                            >
+                                Learn more
+                            </Link>
+                        </div>
+                    ) : filtersMissingPlaceholder ? (
+                        <div className="text-xs text-warning">
+                            Filters are set, but this SQL query doesn't include a <code>{'{filters}'}</code>{' '}
+                            placeholder, so they aren't applied. Add <code>{'{filters}'}</code> to your{' '}
+                            <code>where</code> clause when selecting from PostHog tables like <code>events</code>,{' '}
+                            <code>persons</code>, <code>groups</code>, or <code>sessions</code>. For any other table or
+                            view, bind your own columns, for example{' '}
+                            <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
+                            <Link
+                                to="https://posthog.com/docs/data-warehouse/sql/variables#applying-dashboard-filters"
+                                target="_blank"
+                            >
+                                Learn more
+                            </Link>
                         </div>
                     ) : (
                         <div className="text-xs text-muted">
                             Use <code>{'{filters}'}</code> in your SQL query <code>where</code> clause to apply these
-                            filters. Supported source tables are <code>events</code>, <code>sessions</code>,{' '}
-                            <code>groups</code>.
+                            filters when selecting from PostHog tables like <code>events</code>, <code>persons</code>,{' '}
+                            <code>groups</code>, or <code>sessions</code>. For any other table or view, bind your own
+                            columns, for example <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
+                            <Link
+                                to="https://posthog.com/docs/data-warehouse/sql/variables#applying-dashboard-filters"
+                                target="_blank"
+                            >
+                                Learn more
+                            </Link>
                         </div>
                     )}
                     <div className="space-y-1">
@@ -131,17 +186,19 @@ export function QueryFiltersMenu(): JSX.Element | null {
                     </span>
                 }
                 data-attr="sql-editor-filters-button"
-                sideIcon={filtersMissingPlaceholder ? <IconWarning className="text-warning" /> : undefined}
-                tooltip={
-                    filtersMissingPlaceholder
-                        ? "Filters are present, but this SQL query doesn't include a {filters} tag"
-                        : usesFiltersPlaceholder
-                          ? undefined
-                          : 'Insert {filters} into your SQL query to apply filters'
+                sideIcon={
+                    filtersMissingPlaceholder || bindingsMissingTimestamp ? (
+                        <IconWarning className="text-warning" />
+                    ) : undefined
                 }
+                tooltip={filtersTooltip({
+                    filtersMissingPlaceholder,
+                    bindingsMissingTimestamp,
+                    usesFiltersPlaceholder,
+                })}
             >
                 Filters
             </LemonButton>
         </LemonMenu>
     )
-}
+})

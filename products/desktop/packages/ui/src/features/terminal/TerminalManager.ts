@@ -35,7 +35,7 @@ function getParkingContainer(): HTMLElement {
   return parkingContainer;
 }
 
-export interface TerminalInstance {
+interface TerminalInstance {
   term: XTerm;
   fitAddon: FitAddon;
   serializeAddon: SerializeAddon;
@@ -50,19 +50,29 @@ export interface TerminalInstance {
   resizeObserver: ResizeObserver | null;
   saveTimeout: number | null;
   persistenceKey: string;
+  sensitive: boolean;
   cwd?: string;
   taskId?: string;
   command?: string;
+  commandEnv?: CommandEnv;
   recoveryPromise: Promise<void> | null;
 }
 
-export interface CreateOptions {
+export interface CommandEnv {
+  additionalEnv?: Record<string, string>;
+  unsetEnv?: string[];
+}
+
+interface CreateOptions {
   sessionId: string;
   persistenceKey: string;
   cwd?: string;
   initialState?: string;
   taskId?: string;
   command?: string;
+  additionalEnv?: Record<string, string>;
+  unsetEnv?: string[];
+  sensitive?: boolean;
 }
 
 type ReadyPayload = { sessionId: string; persistenceKey: string };
@@ -184,13 +194,24 @@ class TerminalManagerImpl {
   }
 
   create(options: CreateOptions): TerminalInstance {
-    const { sessionId, persistenceKey, cwd, initialState, taskId, command } =
-      options;
+    const {
+      sessionId,
+      persistenceKey,
+      cwd,
+      initialState,
+      taskId,
+      command,
+      additionalEnv,
+      unsetEnv,
+      sensitive,
+    } = options;
 
     const existing = this.instances.get(sessionId);
     if (existing) {
       return existing;
     }
+
+    const shellClient = resolveService<ShellClient>(SHELL_CLIENT);
 
     const term = new XTerm({
       cursorBlink: true,
@@ -220,9 +241,11 @@ class TerminalManagerImpl {
       resizeObserver: null,
       saveTimeout: null,
       persistenceKey,
+      sensitive: sensitive === true,
       cwd,
       taskId,
       command,
+      commandEnv: { additionalEnv, unsetEnv },
       recoveryPromise: null,
     };
 
@@ -231,21 +254,29 @@ class TerminalManagerImpl {
     }
 
     // Setup user input handler
-    const disposable = term.onData((data: string) => {
-      resolveService<ShellClient>(SHELL_CLIENT)
-        .write({ sessionId, data })
-        .catch((error: Error) => {
-          this.handleMissingSessionError(sessionId, instance, error, {
-            reason: "write",
-            retryData: data,
-          });
+    const inputDisposable = term.onData((data: string) => {
+      shellClient.write({ sessionId, data }).catch((error: Error) => {
+        this.handleMissingSessionError(sessionId, instance, error, {
+          reason: "write",
+          retryData: data,
         });
+      });
       this.scheduleSave(sessionId, instance);
     });
-    instance.cleanups.push(() => disposable.dispose());
+    instance.cleanups.push(() => inputDisposable.dispose());
+
+    // Instance-lifetime, not component-lifetime: pty output while the tab is unmounted would otherwise be dropped
+    const dataSub = shellClient.onData(sessionId, (event) => {
+      this.writeData(event.sessionId, event.data);
+    });
+    const exitSub = shellClient.onExit(sessionId, (event) => {
+      this.handleExit(event.sessionId, event.exitCode ?? undefined);
+    });
+    instance.cleanups.push(() => dataSub.unsubscribe());
+    instance.cleanups.push(() => exitSub.unsubscribe());
 
     // Initialize shell session
-    this.initializeSession(sessionId, instance, cwd, taskId, command);
+    this.initializeSession(sessionId, instance);
 
     this.instances.set(sessionId, instance);
     return instance;
@@ -254,10 +285,8 @@ class TerminalManagerImpl {
   private async initializeSession(
     sessionId: string,
     instance: TerminalInstance,
-    cwd?: string,
-    taskId?: string,
-    command?: string,
   ): Promise<void> {
+    const { cwd, taskId, command, commandEnv } = instance;
     try {
       const sessionExists = await resolveService<ShellClient>(
         SHELL_CLIENT,
@@ -273,6 +302,8 @@ class TerminalManagerImpl {
             command,
             cwd,
             taskId,
+            additionalEnv: commandEnv?.additionalEnv,
+            unsetEnv: commandEnv?.unsetEnv,
           });
         } else {
           await resolveService<ShellClient>(SHELL_CLIENT).create({
@@ -310,7 +341,7 @@ class TerminalManagerImpl {
     }
   }
 
-  writeData(sessionId: string, data: string): void {
+  private writeData(sessionId: string, data: string): void {
     const instance = this.instances.get(sessionId);
     if (!instance) {
       return;
@@ -343,7 +374,7 @@ class TerminalManagerImpl {
     this.scheduleSave(sessionId, instance);
   }
 
-  handleExit(sessionId: string, exitCode?: number): void {
+  private handleExit(sessionId: string, exitCode?: number): void {
     const instance = this.instances.get(sessionId);
     if (instance) {
       // Without this, ResizeObserver keeps firing shell.resize against the dead
@@ -417,8 +448,6 @@ class TerminalManagerImpl {
     instance.recoveryPromise = this.initializeSession(
       sessionId,
       instance,
-      instance.cwd,
-      instance.taskId,
     ).finally(() => {
       instance.recoveryPromise = null;
     });
@@ -427,6 +456,10 @@ class TerminalManagerImpl {
   }
 
   private scheduleSave(sessionId: string, instance: TerminalInstance): void {
+    if (instance.sensitive) {
+      return;
+    }
+
     if (instance.saveTimeout) {
       clearTimeout(instance.saveTimeout);
     }
@@ -533,12 +566,13 @@ class TerminalManagerImpl {
     // Drain buffered output so the serialized snapshot reflects the latest data.
     this.flushWrite(sessionId, instance);
 
-    const serialized = instance.serializeAddon.serialize();
-    this.emit("stateChange", {
-      sessionId,
-      persistenceKey: instance.persistenceKey,
-      serializedState: serialized,
-    });
+    if (!instance.sensitive) {
+      this.emit("stateChange", {
+        sessionId,
+        persistenceKey: instance.persistenceKey,
+        serializedState: instance.serializeAddon.serialize(),
+      });
+    }
 
     if (instance.terminalElement) {
       getParkingContainer().appendChild(instance.terminalElement);

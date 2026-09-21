@@ -67,7 +67,8 @@ export function ScannerOverviewFilters({ scannerId }: { scannerId: string }): JS
             )}
             {scannerType === 'classifier' && tagOptions.length > 0 && (
                 <FilterPill<string>
-                    label="Tag"
+                    label="Category"
+                    searchPlaceholder="Search categories"
                     options={tagOptions}
                     value={overviewTagFilter}
                     onChange={setOverviewTagFilter}

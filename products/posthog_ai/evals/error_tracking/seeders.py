@@ -267,6 +267,7 @@ def _insert_fingerprint_issue_state(
             "issue_name": issue.name,
             "issue_description": issue.description,
             "issue_status": issue.status,
+            "issue_severity": issue.severity,
             "assigned_user_id": None,
             "assigned_role_id": None,
             "first_seen": format_clickhouse_timestamp(first_seen) if first_seen else None,
@@ -312,6 +313,7 @@ def _insert_session_replay_summary(
             "block_last_timestamps": [last_timestamp],
             "retention_period_days": 30,
             "is_deleted": 0,
+            "surfacing_score": None,
             "_timestamp": first_timestamp.timestamp(),
         },
     )

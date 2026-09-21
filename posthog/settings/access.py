@@ -38,6 +38,11 @@ IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
 TRUST_ALL_PROXIES = get_from_env("TRUST_ALL_PROXIES", False, type_cast=str_to_bool)
 
+# Keys the managed reverse proxy uses to sign the client IP it forwards (ManagedProxyClientIPMiddleware).
+# Comma-separated, newest first: "<new>,<old>" while a rotation is in progress. Django accepts a
+# signature from any key. When the list is empty, Django never trusts the signed client IP headers.
+MANAGED_PROXY_SIGNING_KEYS: list[str] = get_list(os.getenv("MANAGED_PROXY_SIGNING_KEYS", ""))
+
 
 if IS_BEHIND_PROXY:
     USE_X_FORWARDED_HOST = True
@@ -144,11 +149,17 @@ AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET
 
 # ReviewHog production label trigger. The trigger endpoint (POST /api/review_hog/trigger) authenticates
 # CI by comparing the request's bearer token to REVIEWHOG_TRIGGER_TOKEN (a shared secret provisioned to
-# both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is the
-# team the review runs and publishes under; REVIEWHOG_RUN_USER_ID is the user the sandbox tasks run as
-# (falls back to the team's GitHub integration creator when unset).
+# both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is a
+# comma-separated list of team ids allowed to use ReviewHog's UI trigger; the FIRST id is the team
+# label-triggered runs execute and publish under. REVIEWHOG_RUN_USER_ID is the user the sandbox tasks
+# run as (falls back to the team's GitHub integration creator when unset).
 REVIEWHOG_TRIGGER_TOKEN: str | None = os.getenv("REVIEWHOG_TRIGGER_TOKEN") or None
-REVIEWHOG_TEAM_ID: int | None = get_from_env("REVIEWHOG_TEAM_ID", optional=True, type_cast=int)
+# The env var stays singular (production charts provision it by that name); a single id parses to [id].
+REVIEWHOG_TEAM_IDS: list[int] = get_from_env(
+    "REVIEWHOG_TEAM_ID",
+    default=[],
+    type_cast=lambda raw: [int(part) for part in str(raw).split(",") if part.strip()],
+)
 REVIEWHOG_RUN_USER_ID: int | None = get_from_env("REVIEWHOG_RUN_USER_ID", optional=True, type_cast=int)
 # The GitHub App's bot login (`<app slug>[bot]`) ReviewHog posts as. When set, the marker-based
 # idempotency scans only trust comments/reviews authored by this exact identity — otherwise any
@@ -175,3 +186,5 @@ BLOCKED_GEOIP_REGIONS = get_list(os.getenv("BLOCKED_GEOIP_REGIONS", ""))
 # development can reach localhost services. Set this to run the production validation path in dev —
 # e.g. to reproduce or test SSRF fixes — without flipping DEBUG globally.
 FORCE_URL_VALIDATION: bool = get_from_env("POSTHOG_FORCE_URL_VALIDATION", False, type_cast=str_to_bool)
+
+SSRF_TRUSTED_PROXY_URLS: list[str] = get_list(get_from_env("SSRF_TRUSTED_PROXY_URLS", ""))

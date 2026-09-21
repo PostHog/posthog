@@ -1,20 +1,25 @@
 import uuid
 import datetime as dt
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluation_reports import EvaluationReportRunSerializer
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
@@ -262,8 +267,25 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_list_reports(self):
-        self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
-        self._create_report(evaluation=self._create_boolean_evaluation())
+        report_with_runs = self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
+        report_without_runs = self._create_report(evaluation=self._create_boolean_evaluation())
+        with time_machine.travel("2026-08-10T12:00:00Z", tick=False):
+            EvaluationReportRun.objects.create(
+                report=report_with_runs,
+                content={},
+                metadata={},
+                period_start=timezone.now() - dt.timedelta(hours=1),
+                period_end=timezone.now(),
+            )
+        with time_machine.travel("2026-08-11T12:00:00Z", tick=False):
+            EvaluationReportRun.objects.create(
+                report=report_with_runs,
+                content={},
+                metadata={},
+                period_start=timezone.now() - dt.timedelta(hours=1),
+                period_end=timezone.now(),
+            )
+
         response = self.client.get(self.base_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
@@ -272,6 +294,44 @@ class TestEvaluationReportApi(APIBaseTest):
         first = results[0]
         for field in ("delivery_targets", "rrule", "starts_at", "timezone_name", "report_prompt_guidance"):
             self.assertIn(field, first)
+
+        results_by_id = {result["id"]: result for result in results}
+        self.assertEqual(results_by_id[str(report_with_runs.id)]["generated_report_count"], 2)
+        self.assertEqual(results_by_id[str(report_with_runs.id)]["last_generated_at"], "2026-08-11T12:00:00Z")
+        self.assertEqual(results_by_id[str(report_without_runs.id)]["generated_report_count"], 0)
+        self.assertIsNone(results_by_id[str(report_without_runs.id)]["last_generated_at"])
+
+    @parameterized.expand(
+        [
+            ("report_configs", EvaluationReport._meta.db_table, ""),
+            ("report_runs", EvaluationReportRun._meta.db_table, "{report_id}/runs/"),
+        ]
+    )
+    def test_paginated_list_orders_by_a_unique_tie_breaker(self, _name: str, table: str, path_suffix: str) -> None:
+        # created_at is not unique, so offset pagination skips or repeats tied rows unless the
+        # query also orders by id.
+        report = self._create_report()
+        EvaluationReportRun.objects.create(
+            report=report,
+            content={},
+            metadata={},
+            period_start=timezone.now() - dt.timedelta(hours=1),
+            period_end=timezone.now(),
+        )
+        url = self.base_url + path_suffix.format(report_id=report.id)
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ordered_selects = [
+            query["sql"]
+            for query in captured.captured_queries
+            if f'FROM "{table}"' in query["sql"] and "ORDER BY" in query["sql"]
+        ]
+        self.assertTrue(ordered_selects, f"no ordered select on {table} was captured")
+        order_by = ordered_selects[-1].split("ORDER BY")[-1].split("LIMIT")[0]
+        self.assertRegex(order_by, rf'"{table}"\."created_at" DESC.*"{table}"\."id" ASC')
 
     def test_list_filters_by_evaluation(self) -> None:
         report = self._create_report()
@@ -497,7 +557,7 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.json().get("attr"), "rrule")
 
     def test_create_scheduled_defaults_starts_at(self):
-        with freeze_time("2026-01-15T16:37:42Z"):
+        with time_machine.travel("2026-01-15T16:37:42Z", tick=False):
             response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         report = EvaluationReport.objects.get()
@@ -686,7 +746,7 @@ class TestEvaluationReportApi(APIBaseTest):
 
     def test_update_report(self):
         report = self._create_report()
-        with freeze_time("2026-01-15T16:37:42Z"):
+        with time_machine.travel("2026-01-15T16:37:42Z", tick=False):
             response = self.client.patch(
                 f"{self.base_url}{report.id}/",
                 {"frequency": "scheduled", "rrule": "FREQ=WEEKLY;BYDAY=MO"},
@@ -764,7 +824,7 @@ class TestEvaluationReportApi(APIBaseTest):
     # requests are rejected with "This action does not support Personal API Key access".
     @parameterized.expand(
         [
-            ("read_scope_allowed", ["llm_analytics:read"], status.HTTP_200_OK),
+            ("read_scope_allowed", ["evaluation:read"], status.HTTP_200_OK),
             ("wrong_scope_denied", ["insight:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
@@ -778,8 +838,8 @@ class TestEvaluationReportApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("write_scope_allowed", ["llm_analytics:write"], status.HTTP_202_ACCEPTED),
-            ("wrong_scope_denied", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("write_scope_allowed", ["evaluation:write"], status.HTTP_202_ACCEPTED),
+            ("wrong_scope_denied", ["evaluation:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
     @patch("products.ai_observability.backend.api.evaluation_reports.async_to_sync")
@@ -826,3 +886,133 @@ class TestEvaluationReportApi(APIBaseTest):
         response = self.client.patch(f"{self.base_url}{report.id}/", {"deleted": True}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_report.assert_not_called()
+
+
+class TestEvaluationReportAccessControl(APIBaseTest):
+    # Reports moved from the coarse `llm_analytics` resource onto `evaluation`, which owns them.
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+        self.report = EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=self.evaluation,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[{"type": "email", "value": "test@example.com"}],
+        )
+        self.base_url = f"/api/environments/{self.team.id}/llm_analytics/evaluation_reports/"
+        self.other_user = User.objects.create_and_join(self.organization, "report-viewer@posthog.com", "testtest")
+
+    def _grant(self, resource: str, access_level: str, resource_id: str | None = None) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=OrganizationMembership.objects.get(
+                user=self.other_user, organization=self.organization
+            ),
+        )
+
+    def test_evaluation_viewer_can_read_runs_but_not_generate(self):
+        self._grant("evaluation", "viewer")
+        self.client.force_login(self.other_user)
+
+        runs_response = self.client.get(f"{self.base_url}{self.report.id}/runs/")
+        assert runs_response.status_code == status.HTTP_200_OK
+
+        generate_response = self.client.post(f"{self.base_url}{self.report.id}/generate/")
+        assert generate_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_llm_analytics_grant_alone_does_not_reach_reports(self):
+        self._grant("evaluation", "none")
+        self._grant("llm_analytics", "editor")
+        self.client.force_login(self.other_user)
+
+        response = self.client.get(self.base_url)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_evaluation_specific_editor_cannot_redirect_another_evaluations_report(self) -> None:
+        visible_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Visible Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+        self._grant("evaluation", "none")
+        self._grant("evaluation", "editor", resource_id=str(visible_evaluation.id))
+        self.client.force_login(self.other_user)
+
+        response = self.client.patch(
+            f"{self.base_url}{self.report.id}/",
+            {"delivery_targets": [{"type": "email", "value": "attacker@example.com"}]},
+            format="json",
+        )
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        self.report.refresh_from_db()
+        assert self.report.delivery_targets == [{"type": "email", "value": "test@example.com"}]
+
+    def test_evaluation_specific_editor_cannot_upsert_another_evaluations_report(self) -> None:
+        visible_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Visible Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+        self._grant("evaluation", "none")
+        self._grant("evaluation", "editor", resource_id=str(visible_evaluation.id))
+        self.client.force_login(self.other_user)
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": EvaluationReport.Frequency.EVERY_N,
+                "trigger_threshold": 100,
+                "delivery_targets": [{"type": "email", "value": "attacker@example.com"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.report.refresh_from_db()
+        assert self.report.delivery_targets == [{"type": "email", "value": "test@example.com"}]
+
+    def test_evaluation_specific_editor_can_upsert_its_report(self) -> None:
+        self._grant("evaluation", "none")
+        self._grant("evaluation", "editor", resource_id=str(self.evaluation.id))
+        self.client.force_login(self.other_user)
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": EvaluationReport.Frequency.EVERY_N,
+                "trigger_threshold": 100,
+                "delivery_targets": [{"type": "email", "value": "editor@example.com"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.report.refresh_from_db()
+        assert self.report.delivery_targets == [{"type": "email", "value": "editor@example.com"}]

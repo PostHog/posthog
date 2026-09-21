@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, NativeMarketingSource
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     BingAdsConfig,
@@ -28,6 +28,20 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+
+class FactoryTestMixin:
+    team: Team
+
+    def _make_factory(self) -> MarketingSourceFactory:
+        date_range = QueryDateRange(
+            date_range=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
+        context = QueryContext(date_range=date_range, team=self.team, base_currency=DEFAULT_CURRENCY)
+        return MarketingSourceFactory(context=context)
 
 
 class TestMarketingSourceFactoryCustomSourceMappings(BaseTest):
@@ -161,7 +175,7 @@ class TestMarketingSourceFactoryCustomSourceMappings(BaseTest):
         assert "custom_source" not in str(mappings)
 
 
-class TestMetaAdsConfigDiscovery(BaseTest):
+class TestMetaAdsConfigDiscovery(FactoryTestMixin, BaseTest):
     """Test suite for native config discovery of optional ad-group / ad tables.
 
     The factory must correctly populate `adset_table` / `adset_stats_table` /
@@ -178,16 +192,6 @@ class TestMetaAdsConfigDiscovery(BaseTest):
         table = Mock()
         table.name = f"metaads_{schema_name}"
         return cast(DataWarehouseTable, table)
-
-    def _make_factory(self) -> MarketingSourceFactory:
-        date_range = QueryDateRange(
-            date_range=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-        context = QueryContext(date_range=date_range, team=self.team, base_currency=DEFAULT_CURRENCY)
-        return MarketingSourceFactory(context=context)
 
     def _make_source(self) -> Mock:
         source = Mock()
@@ -273,7 +277,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
         assert self._create_meta_config(factory, tables_no_campaign) is None
 
 
-class TestNativeHierarchicalConfigDiscovery(BaseTest):
+class TestNativeHierarchicalConfigDiscovery(FactoryTestMixin, BaseTest):
     """Verifies `_create_native_config` populates adset/ad slots for every native source
     that has a hierarchy entry. Without this, a working sync looks dead in the UI: the
     factory loads a campaign-only config and `supports_level(AD_GROUP/AD)` returns False.
@@ -404,16 +408,6 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         table.name = f"{prefix}_{schema_name}"
         return cast(DataWarehouseTable, table)
 
-    def _make_factory(self) -> MarketingSourceFactory:
-        date_range = QueryDateRange(
-            date_range=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-        context = QueryContext(date_range=date_range, team=self.team, base_currency=DEFAULT_CURRENCY)
-        return MarketingSourceFactory(context=context)
-
     def _make_source(self, source_type: str) -> Mock:
         source = Mock()
         source.id = f"{source_type}_source_id"
@@ -488,3 +482,68 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
             assert config.adset_table is config.adset_stats_table, (
                 f"{source_type}: unified mode should wire the same DataWarehouseTable into both adset slots"
             )
+
+
+class TestNativeCampaignTableResolution(FactoryTestMixin, BaseTest):
+    def _make_source(self, prefix: str = "") -> Mock:
+        source = Mock()
+        source.id = "googleads_source_id"
+        source.source_type = "GoogleAds"
+        source.prefix = prefix
+        return source
+
+    def _make_table(self, schema_name: str, prefix: str = "") -> DataWarehouseTable:
+        table = Mock()
+        # Duplicates `build_table_name`, which warehouse_sources keeps out of its public
+        # interface — this format is what the factory parses back apart, so it has to match.
+        table.name = f"{prefix}googleads_{schema_name}".lower()
+        return cast(DataWarehouseTable, table)
+
+    def _create_config(self, tables: list[DataWarehouseTable]) -> GoogleAdsConfig | None:
+        return cast(
+            GoogleAdsConfig | None,
+            self._make_factory()._create_native_config(
+                self._make_source(), tables, NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig
+            ),
+        )
+
+    @parameterized.expand([("budget_last", False), ("budget_first", True)])
+    def test_campaign_budget_never_wins_the_campaign_slot(self, _name: str, reverse: bool):
+        """`campaign_budget` contains the `campaign` keyword but has no campaign columns,
+        so binding it made every marketing analytics query fail to resolve with
+        `Field not found: campaign_id`. It used to win whenever it came last, and the
+        queryset supplying these tables has no ordering.
+        """
+        campaign = self._make_table("campaign")
+        stats = self._make_table("campaign_overview_stats")
+        budget = self._make_table("campaign_budget")
+        tables = [campaign, stats, budget]
+
+        config = self._create_config(list(reversed(tables)) if reverse else tables)
+
+        assert config is not None
+        assert config.campaign_table is campaign
+        assert config.stats_table is stats
+
+    def test_campaign_budget_without_campaign_yields_no_config(self):
+        """The state already-affected projects are in: `campaign_budget` synced, `campaign`
+        not. Nothing can serve the campaign slot, so the source must be dropped rather
+        than wired up to a table that will fail to resolve at query time.
+        """
+        tables = [self._make_table("campaign_budget"), self._make_table("campaign_overview_stats")]
+
+        assert self._create_config(tables) is None
+
+    @parameterized.expand([("plain", "analytics_"), ("prefix_repeats_source_type", "googleads_")])
+    def test_user_prefix_is_stripped_before_matching(self, _name: str, prefix: str):
+        """The source prefix is free text, so it can repeat the source type. Exact matching
+        only works if the schema name survives prefix stripping in both cases.
+        """
+        campaign = self._make_table("campaign", prefix=prefix)
+        stats = self._make_table("campaign_overview_stats", prefix=prefix)
+
+        config = self._create_config([campaign, stats])
+
+        assert config is not None
+        assert config.campaign_table is campaign
+        assert config.stats_table is stats

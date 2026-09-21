@@ -18,7 +18,12 @@ from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
-from posthog.helpers.email_utils import EmailNormalizer, validate_display_name, validate_message_body
+from posthog.helpers.email_utils import (
+    EmailNormalizer,
+    reject_plus_addressed_email,
+    validate_display_name,
+    validate_message_body,
+)
 from posthog.models import OrganizationDomain, OrganizationInvite, OrganizationMembership
 from posthog.models.onboarding_delegation import (
     get_existing_pending_delegation_invite,
@@ -39,8 +44,9 @@ from posthog.rate_limit import (
     OrganizationInviteBurstThrottle,
     OrganizationInviteSustainedThrottle,
 )
-from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.tasks.email import send_invite
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, ordered_access_levels
 
 logger = structlog.get_logger(__name__)
 
@@ -189,6 +195,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
     def validate_target_email(self, email: str):
         email = EmailNormalizer.normalize(email)
+        reject_plus_addressed_email(email)
         validate_invite_target_email_domain(self.context["get_organization"](), email)
         return email
 
@@ -266,7 +273,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 # User is not an org admin/owner
                 pass
 
-            from ee.models.rbac.access_control import AccessControl
+            from products.access_control.backend.models.access_control import AccessControl
 
             # Check if the team has an access control row that applies to the entire resource
             team_access_controls = AccessControl.objects.filter(
@@ -373,7 +380,9 @@ class OrganizationInviteDelegateSerializer(serializers.Serializer):
     )
 
     def validate_target_email(self, email: str) -> str:
-        return EmailNormalizer.normalize(email)
+        email = EmailNormalizer.normalize(email)
+        reject_plus_addressed_email(email)
+        return email
 
     def validate_message(self, value: str | None) -> str | None:
         # Mirror the standard invite serializer's body validation so URLs / control chars

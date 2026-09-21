@@ -10,6 +10,7 @@ from django.views.generic import RedirectView
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from posthog.admin import register_all_admin
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
@@ -22,7 +23,7 @@ from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import authentication, billing, conversation, core_memory, license, subscription
+from .api import authentication, billing, conversation, core_memory, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
@@ -34,10 +35,9 @@ def extend_api_router() -> None:
         router as root_router,
     )
 
-    from ee.api import hands_free, max_tools, session_summaries
+    from ee.api import hands_free, max_tools
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
-    root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     organization_roles_router = organizations_router.register(
         r"roles",
@@ -71,13 +71,14 @@ def extend_api_router() -> None:
 
     projects_router.register(r"max_hands_free", hands_free.MaxHandsFreeViewSet, "project_max_hands_free", ["team_id"])
 
-    projects_router.register(
-        r"session_summaries", session_summaries.SessionSummariesViewSet, "project_session_summaries", ["team_id"]
-    )
-
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 if settings.ADMIN_PORTAL_ENABLED:
+    # `AdminSite.get_urls()` derives the `admin:app_list` URL pattern from the registry
+    # when `admin.site.urls` below is read, and never rebuilds it. `LazyAdminRegistry`
+    # fills the registry first, but `posthog/apps.py` skips it under `settings.TEST`.
+    register_all_admin()
+
     # these models are auto-registered but we don't want to expose them to staff
     for model in (StaticDevice, TOTPDevice):
         try:
@@ -244,29 +245,29 @@ urlpatterns: list[Any] = [
         vercel_connect.VercelConnectLinkViewSet.as_view({"get": "session_info"}),
     ),
     path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
-    path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
+    path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(
-        "scim/v2/<uuid:domain_id>/Users/<int:user_id>",
+        "scim/v2/<str:scim_slug>/Users/<int:user_id>",
         csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
         name="scim_user_detail",
     ),
-    path("scim/v2/<uuid:domain_id>/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups"),
+    path("scim/v2/<str:scim_slug>/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups"),
     path(
-        "scim/v2/<uuid:domain_id>/Groups/<uuid:group_id>",
+        "scim/v2/<str:scim_slug>/Groups/<uuid:group_id>",
         csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
         name="scim_group_detail",
     ),
     path(
-        "scim/v2/<uuid:domain_id>/ServiceProviderConfig",
+        "scim/v2/<str:scim_slug>/ServiceProviderConfig",
         csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
         name="scim_service_provider_config",
     ),
     path(
-        "scim/v2/<uuid:domain_id>/ResourceTypes",
+        "scim/v2/<str:scim_slug>/ResourceTypes",
         csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
         name="scim_resource_types",
     ),
-    path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
     # Stripe Projects provisioning (APP 0.1d)
     path("api/partners/stripe/", include("ee.partners.stripe.api.provisioning.urls")),
     # Agentic provisioning (partner account/resource provisioning + deep-link login)

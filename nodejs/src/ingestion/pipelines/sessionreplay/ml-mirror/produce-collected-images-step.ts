@@ -2,10 +2,15 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
-import { CollectedImage } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
 import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
+
+import { MlSessionKeys } from './keys/key-store'
+import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'
+import { MlMirrorMetrics } from './metrics'
+import { CollectedImage } from './parse-and-anonymize-step'
+import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 /**
  * The Rust collector only dedupes within one message, leaving this as the sole thing between a hot
@@ -20,49 +25,70 @@ const PRODUCED_REF_CACHE_MAX = 500_000
 
 /**
  * Produce collected original images to the scrub topic as a fire-and-forget side effect, keyed by
- * their `image:<pseudoTeam>:<hash>` ref. Delivery is deliberately not awaited and never blocks or
+ * their `image:<teamId>:<hash>` ref. Delivery is deliberately not awaited and never blocks or
  * fails the message: the mirrored lines already carry the refs, and a ref whose image never lands
  * is defined as equivalent to a placeholder for training joins.
  */
-export function createProduceCollectedImagesStep<T extends { collectedImages?: CollectedImage[] }>(
+export function createProduceCollectedImagesStep<
+    T extends {
+        team?: { teamId: number }
+        headers?: { session_id: string }
+        collectedImages?: CollectedImage[]
+        message: { timestamp?: number }
+        mlKeys?: MlSessionKeys
+    },
+>(
     outputs: IngestionOutputs<MlImageScrubOutput>,
     producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX
 ): ProcessingStep<T, T> {
     const producedRefs = new RefDedupCache('image_scrub_producer', producedRefCacheMax)
 
     return function produceCollectedImagesStep(input) {
+        const sessionId = input.headers?.session_id
+        const key = sessionId && usesRawSessionIdentifiers(sessionId) ? input.mlKeys?.session : undefined
         const images = input.collectedImages
         if (!images?.length) {
             return Promise.resolve(ok(input))
         }
 
-        const fresh = images.filter((image) => !producedRefs.has(image.ref))
-        SessionRecordingIngesterMetrics.incrementMlImagesCollected('deduped', images.length - fresh.length)
+        const cacheRef = (ref: string): string => (key ? `${key.identity.sessionId}:${ref}` : ref)
+        const fresh = images.filter((image) => !producedRefs.has(cacheRef(image.ref)))
+        MlMirrorMetrics.incrementMlImagesCollected('deduped', images.length - fresh.length)
         if (fresh.length === 0) {
             return Promise.resolve(ok({ ...input, collectedImages: undefined }))
         }
 
         let bytes = 0
         for (const image of fresh) {
-            producedRefs.add(image.ref)
+            producedRefs.add(cacheRef(image.ref))
             bytes += image.bytes.length
         }
-        SessionRecordingIngesterMetrics.incrementMlImagesCollected('queued', fresh.length)
+        MlMirrorMetrics.incrementMlImagesCollected('queued', fresh.length)
+        const captureTimestampMs = input.message.timestamp
+        const headers =
+            captureTimestampMs !== undefined && Number.isSafeInteger(captureTimestampMs) && captureTimestampMs > 0
+                ? { [CAPTURE_TIMESTAMP_HEADER]: String(captureTimestampMs) }
+                : undefined
 
         // The ack handlers must capture only the refs: `image.bytes` are subarray views into the
         // whole packed FFI buffer (up to 32 MB per source message), and queueMessages copies the
         // slices synchronously — a closure holding `fresh` would pin the full packed buffer per
         // in-flight produce, unbounded by the producer queue's byte accounting.
-        const refs = fresh.map((image) => image.ref)
+        const refs = fresh.map((image) => cacheRef(image.ref))
         const produce = outputs
             .queueMessages(
                 ML_IMAGE_SCRUB_OUTPUT,
-                fresh.map((image) => ({ key: image.ref, value: image.bytes }))
+                fresh.map((image) => {
+                    validateImageOwner(image.ref, key)
+                    const record = mlKafkaRecord(mlWireVersion(key), image.bytes)
+                    return { key: image.ref, value: record.value, headers: { ...headers, ...record.headers } }
+                })
             )
             .then(() => {
                 // queueMessages resolves on delivery acks, so `produced` counts what actually landed.
-                SessionRecordingIngesterMetrics.incrementMlImagesCollected('produced', refs.length)
-                SessionRecordingIngesterMetrics.incrementMlImageBytesProduced(bytes)
+                MlMirrorMetrics.incrementMlImagesCollected('produced', refs.length)
+                MlMirrorMetrics.incrementMlProducedVersion('image', mlWireVersion(key), refs.length)
+                MlMirrorMetrics.incrementMlImageBytesProduced(bytes)
             })
             .catch((error) => {
                 // A dangling ref reads as a placeholder downstream, so a failed produce is logged,
@@ -73,7 +99,10 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
                     producedRefs.delete(ref)
                 }
                 logger.warn('🖼️', 'ml_image_scrub_produce_failed', { count: refs.length, error: String(error) })
-                SessionRecordingIngesterMetrics.incrementMlImagesCollected('produce_failed', refs.length)
+                MlMirrorMetrics.incrementMlImagesCollected('produce_failed', refs.length)
+                if (key) {
+                    throw error
+                }
             })
         return Promise.resolve(ok({ ...input, collectedImages: undefined }, [produce]))
     }

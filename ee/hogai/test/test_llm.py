@@ -1,8 +1,12 @@
+import re
 from datetime import datetime
 from functools import cached_property
+from pathlib import Path
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 import anthropic
 from langchain_anthropic import ChatAnthropic
@@ -10,11 +14,26 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.outputs import ChatGeneration, Generation, LLMResult
 from parameterized import parameterized
 
-from ee.hogai.llm import BILLING_SKIPPED_COUNTER, MaxChatAnthropic, MaxChatOpenAI
+from posthog.settings import BASE_DIR
+
+from ee.hogai.llm import BILLING_SKIPPED_COUNTER, PROJECT_ORG_USER_CONTEXT_PROMPT, MaxChatAnthropic, MaxChatOpenAI
 
 
 @patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key", "ANTHROPIC_API_KEY": "test-api-key"})
 class TestMaxChatOpenAI(BaseTest):
+    @parameterized.expand(
+        [
+            ("openai", MaxChatOpenAI, {}, "openai"),
+            ("anthropic", MaxChatAnthropic, {"model": "claude"}, "anthropic"),
+        ]
+    )
+    def test_provider_is_included_in_callback_metadata(self, _name, llm_class, llm_kwargs, expected_provider):
+        llm = llm_class(user=self.user, team=self.team, **llm_kwargs)
+
+        call_kwargs = llm._with_posthog_properties()
+
+        self.assertEqual(call_kwargs["metadata"]["ls_provider"], expected_provider)
+
     def setUp(self):
         super().setUp()
         # Setup test data
@@ -541,3 +560,52 @@ class TestMaxChatOpenAI(BaseTest):
         self.assertIsInstance(ChatAnthropic.__dict__["_async_client"], cached_property)
         self.assertTrue(callable(ChatAnthropic.__dict__["_client"].func))
         self.assertTrue(callable(ChatAnthropic.__dict__["_async_client"].func))
+
+
+class TestProjectOrgUserContextPrompt(SimpleTestCase):
+    """`PROJECT_ORG_USER_CONTEXT_PROMPT` is the only place the assistant learns app URL patterns
+    from, and nothing else validates the settings section IDs it names against the real ones. A
+    plausible-but-fake ID such as `/settings/project-members` (members live at
+    `organization-members`) renders a "Setting not found" page for whoever follows the link."""
+
+    SETTINGS_MAP_PATH = ("frontend", "src", "scenes", "settings", "SettingsMap.tsx")
+    SECTION_ID_PATTERN = r"^        id: '([a-z0-9-]+)',$"
+    # `canonicalSettingsSection` in settingsSceneLogic.ts rewrites `environment-` to `project-`
+    # for every section but these, so these two keep their level prefix in the URL.
+    UNRENAMED_SUFFIXES = ("-details", "-danger-zone")
+
+    @cached_property
+    def resolvable_section_ids(self) -> set[str]:
+        """Section IDs that render a section rather than a not-found page. `settingsLogic`'s
+        `sections` selector renames every `environment-` section to `project-`, so the `project-`
+        spelling always resolves, while the raw `environment-` spelling only resolves for the
+        sections the router rewrites on the way in."""
+        settings_map = Path(BASE_DIR, *self.SETTINGS_MAP_PATH)
+        declared = re.findall(self.SECTION_ID_PATTERN, settings_map.read_text(), re.MULTILINE)
+        if not declared:
+            self.fail(f"Could not parse any section IDs out of {settings_map}")
+        renamed = {raw.replace("environment-", "project-") for raw in declared}
+        rewritten_by_router = {
+            raw for raw in declared if raw.startswith("environment-") and not raw.endswith(self.UNRENAMED_SUFFIXES)
+        }
+        return renamed | rewritten_by_router
+
+    def test_parsed_section_ids_look_sane(self):
+        """Guard the guard: if SettingsMap.tsx is reformatted, fail here rather than vacuously passing."""
+        self.assertIn("organization-members", self.resolvable_section_ids)
+        self.assertIn("environment-replay", self.resolvable_section_ids)  # the router rewrites this
+        self.assertIn("project-replay", self.resolvable_section_ids)  # what `sections` exposes
+        self.assertNotIn("project-members", self.resolvable_section_ids)
+        # `-details` and `-danger-zone` are not rewritten, so only the `project-` spelling resolves.
+        self.assertIn("project-details", self.resolvable_section_ids)
+        self.assertNotIn("environment-details", self.resolvable_section_ids)
+
+    def test_settings_urls_in_prompt_resolve_to_real_sections(self):
+        referenced = set(re.findall(r"/settings/([a-z0-9-]+)", PROJECT_ORG_USER_CONTEXT_PROMPT))
+        self.assertTrue(referenced, "Expected the prompt to give at least one settings URL example")
+        self.assertEqual(
+            referenced - self.resolvable_section_ids,
+            set(),
+            "The prompt names settings sections that don't resolve, so the assistant will link users "
+            'to "Setting not found" pages. Valid IDs come from frontend/src/scenes/settings/SettingsMap.tsx.',
+        )

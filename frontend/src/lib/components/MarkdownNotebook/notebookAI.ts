@@ -4,6 +4,28 @@ import { getNodeFingerprint, getNodeSignature, getNodeText } from './utils'
 
 export const NOTEBOOK_AI_WRITING_PLACEHOLDER = 'Thinking...'
 
+export function preserveNotebookAIQuestion(markdown: string, retainedQuestionMarkdown?: string): string {
+    if (!retainedQuestionMarkdown) {
+        return markdown
+    }
+    const document = parseMarkdownNotebook(markdown)
+    const questionNodes = parseMarkdownNotebook(retainedQuestionMarkdown).nodes
+    const existingFingerprints = new Set(document.nodes.map(getNodeFingerprint))
+    const missingQuestionNodes = questionNodes.filter((node) => !existingFingerprints.has(getNodeFingerprint(node)))
+    if (!missingQuestionNodes.length) {
+        return markdown
+    }
+    const insertionIndex = document.nodes[0]?.type === 'heading' ? 1 : 0
+    return serializeMarkdownNotebook({
+        ...document,
+        nodes: [
+            ...document.nodes.slice(0, insertionIndex),
+            ...missingQuestionNodes,
+            ...document.nodes.slice(insertionIndex),
+        ],
+    })
+}
+
 export type NotebookAIResponseMarkdownResult = {
     markdown: string
     responseNodeIndex: number
@@ -22,18 +44,32 @@ export function replaceNotebookAIResponseMarkdown(
     markdown: string,
     responseNodeIndex: number,
     replacementMarkdown: string,
-    replacedNodeCount: number = 1
+    replacedNodeCount: number = 1,
+    enabledComponentTags: readonly string[] = ['Query']
 ): NotebookAIResponseMarkdownResult {
-    return applyNotebookAIResponseMarkdown(markdown, responseNodeIndex, replacementMarkdown, replacedNodeCount)
+    return applyNotebookAIResponseMarkdown(
+        markdown,
+        responseNodeIndex,
+        replacementMarkdown,
+        replacedNodeCount,
+        enabledComponentTags
+    )
 }
 
 export function streamNotebookAIResponseMarkdown(
     markdown: string,
     responseNodeIndex: number,
     replacementMarkdown: string,
-    replacedNodeCount: number = 1
+    replacedNodeCount: number = 1,
+    enabledComponentTags: readonly string[] = ['Query']
 ): NotebookAIStreamResponseMarkdownResult {
-    return applyNotebookAIStreamResponseMarkdown(markdown, responseNodeIndex, replacementMarkdown, replacedNodeCount)
+    return applyNotebookAIStreamResponseMarkdown(
+        markdown,
+        responseNodeIndex,
+        replacementMarkdown,
+        replacedNodeCount,
+        enabledComponentTags
+    )
 }
 
 export function rebaseNotebookAIResponseRange(
@@ -54,11 +90,33 @@ export function rebaseNotebookAIResponseRange(
         previousDocument.nodes.length,
         previousRange.insertionIndex + previousRange.deleteCount
     )
-    const nextStartIndex = getRebasedNotebookAIResponseStartIndex(
+    const nextStartBoundaryIndex = getRebasedNotebookAIResponseStartIndex(
         previousDocument.nodes,
         nextDocument.nodes,
         previousStartIndex
     )
+    const nextEndBoundaryIndex = getRebasedNotebookAIResponseEndIndex(
+        previousDocument.nodes,
+        nextDocument.nodes,
+        previousEndIndex,
+        nextStartBoundaryIndex
+    )
+    const latestPossibleResponseStartIndex = Math.max(
+        nextStartBoundaryIndex,
+        nextEndBoundaryIndex - previousRange.deleteCount
+    )
+    const previousResponseStartNode = previousDocument.nodes[previousStartIndex]
+    let nextResponseStartIndex: number | null = null
+    if (previousResponseStartNode) {
+        nextResponseStartIndex =
+            getLastMatchingNodeFingerprintIndex(
+                previousResponseStartNode,
+                nextDocument.nodes,
+                nextStartBoundaryIndex,
+                latestPossibleResponseStartIndex
+            ) ?? getMatchingNodeFingerprintIndex(previousResponseStartNode, nextDocument.nodes, nextStartBoundaryIndex)
+    }
+    const nextStartIndex = nextResponseStartIndex ?? nextStartBoundaryIndex
     const nextEndIndex = getRebasedNotebookAIResponseEndIndex(
         previousDocument.nodes,
         nextDocument.nodes,
@@ -114,9 +172,10 @@ function applyNotebookAIResponseMarkdown(
     markdown: string,
     responseNodeIndex: number,
     insertedMarkdown: string,
-    replacedNodeCount: number = 1
+    replacedNodeCount: number = 1,
+    enabledComponentTags: readonly string[] = ['Query']
 ): NotebookAIResponseMarkdownResult {
-    const trimmedInsertedMarkdown = normalizeNotebookAIInsertedMarkdown(insertedMarkdown).trim()
+    const trimmedInsertedMarkdown = normalizeNotebookAIInsertedMarkdown(insertedMarkdown, enabledComponentTags).trim()
     if (!trimmedInsertedMarkdown) {
         return { markdown, responseNodeIndex }
     }
@@ -126,7 +185,7 @@ function applyNotebookAIResponseMarkdown(
         return { markdown, responseNodeIndex }
     }
 
-    const parsedReplacementNodes = withDefaultAIComponentProps(parseMarkdownNotebook(trimmedInsertedMarkdown).nodes)
+    const parsedReplacementNodes = parseMarkdownNotebook(trimmedInsertedMarkdown).nodes
     if (!parsedReplacementNodes.length) {
         return { markdown, responseNodeIndex }
     }
@@ -161,9 +220,10 @@ function applyNotebookAIStreamResponseMarkdown(
     markdown: string,
     responseNodeIndex: number,
     insertedMarkdown: string,
-    replacedNodeCount: number = 1
+    replacedNodeCount: number = 1,
+    enabledComponentTags: readonly string[] = ['Query']
 ): NotebookAIStreamResponseMarkdownResult {
-    const trimmedInsertedMarkdown = normalizeNotebookAIInsertedMarkdown(insertedMarkdown).trim()
+    const trimmedInsertedMarkdown = normalizeNotebookAIInsertedMarkdown(insertedMarkdown, enabledComponentTags).trim()
     if (!trimmedInsertedMarkdown) {
         return { markdown, responseNodeIndex, responseNodeCount: Math.max(1, replacedNodeCount) }
     }
@@ -173,7 +233,7 @@ function applyNotebookAIStreamResponseMarkdown(
         return { markdown, responseNodeIndex, responseNodeCount: Math.max(1, replacedNodeCount) }
     }
 
-    const parsedReplacementNodes = withDefaultAIComponentProps(parseMarkdownNotebook(trimmedInsertedMarkdown).nodes)
+    const parsedReplacementNodes = parseMarkdownNotebook(trimmedInsertedMarkdown).nodes
     if (!parsedReplacementNodes.length) {
         return { markdown, responseNodeIndex, responseNodeCount: Math.max(1, replacedNodeCount) }
     }
@@ -278,6 +338,22 @@ function getMatchingNodeFingerprintIndex(
     return null
 }
 
+function getLastMatchingNodeFingerprintIndex(
+    node: NotebookBlockNode,
+    candidateNodes: NotebookBlockNode[],
+    startIndex: number,
+    endIndex: number
+): number | null {
+    const nodeFingerprint = getNodeFingerprint(node)
+    for (let index = Math.min(endIndex, candidateNodes.length - 1); index >= Math.max(0, startIndex); index--) {
+        if (getNodeFingerprint(candidateNodes[index]) === nodeFingerprint) {
+            return index
+        }
+    }
+
+    return null
+}
+
 function getNextReplacementSearchIndexForPreservedNodes(
     currentNodes: NotebookBlockNode[],
     replacementNodes: NotebookBlockNode[]
@@ -342,8 +418,8 @@ function getCommonPrefixLength(leftText: string, rightText: string): number {
     return maxLength
 }
 
-function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
-    return markdown
+function normalizeNotebookAIInsertedMarkdown(markdown: string, enabledComponentTags: readonly string[]): string {
+    const normalizedMarkdown = markdown
         .replace(
             /(^|\n)<insight>\s*([A-Za-z0-9_-]+)\s*<\/insight>(?=\n|$)/gi,
             (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
@@ -352,26 +428,46 @@ function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
             /(^|\n)<Insight\s+(?:id|shortId)=["']([A-Za-z0-9_-]+)["']\s*\/>(?=\n|$)/g,
             (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
         )
-}
 
-function withDefaultAIComponentProps(nodes: NotebookBlockNode[]): NotebookBlockNode[] {
-    return nodes.map((node) => {
-        if (node.type === 'component' && node.tagName === 'Query' && typeof node.props.hideFilters !== 'boolean') {
-            return {
-                ...node,
-                props: {
-                    ...node.props,
-                    hideFilters: true,
-                },
-            }
+    if (!normalizedMarkdown.includes('```')) {
+        return normalizedMarkdown
+    }
+
+    const document = parseMarkdownNotebook(normalizedMarkdown)
+    let unwrappedComponent = false
+    const nodes = document.nodes.flatMap((node): NotebookBlockNode[] => {
+        if (
+            node.type !== 'code' ||
+            !['', 'md', 'markdown', 'mdx', 'jsx'].includes(node.language ?? '') ||
+            node.refs?.length
+        ) {
+            return [node]
         }
 
-        return node
+        const componentDocument = parseMarkdownNotebook(node.text)
+        if (
+            componentDocument.errors.length ||
+            !componentDocument.nodes.length ||
+            componentDocument.nodes.some(
+                (candidate) =>
+                    candidate.type !== 'component' ||
+                    !enabledComponentTags.includes(candidate.tagName) ||
+                    candidate.errors?.length
+            )
+        ) {
+            return [node]
+        }
+
+        unwrappedComponent = true
+        componentDocument.nodes[0] = { ...componentDocument.nodes[0], startsGroup: node.startsGroup }
+        return componentDocument.nodes
     })
+
+    return unwrappedComponent ? serializeMarkdownNotebook({ ...document, nodes }) : normalizedMarkdown
 }
 
 function getSavedInsightQueryMarkdown(shortId: string): string {
-    return `<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"${shortId}"}} />`
+    return `<Query query={{"kind":"SavedInsightNode","shortId":"${shortId}"}} />`
 }
 
 function stripEchoedNotebookContextBeforeAIResponse(

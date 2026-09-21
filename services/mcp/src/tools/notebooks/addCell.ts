@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import type { Context, ToolBase } from '@/tools/types'
 
 import {
@@ -24,13 +25,15 @@ import {
     type CellTagBlock,
 } from './cellTags'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
+import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
+import { getNotebookWidgetTagNames, getNotebookWidgetViewError } from './widgetCatalog'
 
 /** The cell header renders a title on a single ellipsized line, so anything longer is cut off anyway. */
 const CELL_TITLE_MAX_LENGTH = 120
 
-export const NotebooksAddCellSchema = z
+const AddCellInputSchema = z
     .object({
-        notebook_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
+        notebook_id: z.string().describe(NOTEBOOK_SHORT_ID_DESCRIPTION),
         cell_type: z
             .enum(['sql', 'python', 'markdown', 'saved_insight', 'component'])
             .describe(
@@ -47,13 +50,13 @@ export const NotebooksAddCellSchema = z
             .regex(COMPONENT_TAG_REGEX)
             .optional()
             .describe(
-                "Component cells: the notebook component to insert, e.g. 'Query' (product analytics charts and event tables via its query prop), 'Image', 'Embed', 'Latex', 'FeatureFlag', 'Survey', 'Experiment', 'Person', 'Cohort', 'Recording', 'RecordingPlaylist'. Executable cells are not allowed here — use cell_type sql/python."
+                `Component cells: the notebook component to insert. Object widgets with named views: ${getNotebookWidgetTagNames().join(', ')}. Other components include Query (product analytics charts and event tables via its query prop), Image, Embed, Latex, Person, Recording, and RecordingPlaylist. For generated interactive visualizations, search for notebooks-widget-generate to check availability and learn how to insert a Widget tag. Executable cells are not allowed here — use cell_type sql/python.`
             ),
         props: z
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-                'Component cells: the props for the tag, matching what the notebook UI stores for that component. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here — use cell_type sql, which charts its result too.'
+                'Component cells: the props for the tag, matching what the notebook UI stores for that component. Object widgets take their identity prop plus an optional view, for example {"id": 123, "view": "summary"}. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here — use cell_type sql, which charts its result too.'
             ),
         dataframe_name: z
             .string()
@@ -72,9 +75,13 @@ export const NotebooksAddCellSchema = z
         after_node_id: z
             .string()
             .optional()
-            .describe('Insert after this cell (node_id from a previous add). Defaults to the end of the document.'),
+            .describe(
+                'Insert after this block: any node_id notebooks-get returns, a markdown block included. Defaults to the end of the document. A markdown block id comes from the text, so pass one from the read you are acting on.'
+            ),
     })
     .strict()
+
+export const NotebooksAddCellSchema = z.preprocess(notebookIdAliases('notebook_id'), AddCellInputSchema)
 
 export interface AddCellResult {
     node_id?: string
@@ -89,8 +96,149 @@ export interface AddCellResult {
  */
 const BLOCK_SEPARATOR = '\n\n\n'
 
-function insertBlock(markdown: string, block: string, afterNodeId: string | undefined): string {
+/**
+ * A block id the document stores, written on its own line above the block it names. Mirrors
+ * `serializeNodeAnchor` in frontend/src/lib/components/MarkdownNotebook/markdown.ts.
+ *
+ * A markdown block otherwise has no identity of its own: the backend derives its id from the
+ * block text, so the id dies with the next edit to that text. An anchor gives a block the same
+ * durable id a cell tag carries in its `nodeId` prop.
+ */
+function anchoredMarkdownBlock(nodeId: string, markdown: string): string {
+    return `<!--ph:${nodeId}-->\n${markdown}`
+}
+
+/** Matches `STORED_NODE_ID_PREFIX` in the editor, which writes an anchor back only for these. */
+const STORED_NODE_ID_PREFIX = 'phb-'
+
+/**
+ * A prose block resolved through the state endpoint, which owns the block grammar this side
+ * cannot reproduce. `source` re-locates the block when an edit elsewhere has moved the offsets.
+ */
+interface ProseAnchor {
+    nodeId: string
+    source: string
+    start: number
+    end: number
+    /** Notebook version the span was read at. The span is exact for that version only. */
+    version: number | null
+}
+
+// Notebook markdown keeps CRLF and lone-CR line endings, and the backend walk splits on all three.
+// The lookahead keeps the two halves of a CRLF from counting as two line breaks.
+const EOL = '(?:\\r\\n|\\r(?!\\n)|\\n)'
+
+/**
+ * Whether the text at `index` stands as a block of its own, rather than sitting inside a longer
+ * one. A blank line separates two blocks, so a match with one on each side covers a whole block.
+ *
+ * Deliberately strict. A layout this does not recognize is refused and the caller reads again,
+ * which costs a round trip. Accepting a match inside a longer paragraph would split that
+ * paragraph around the inserted cell, which costs the reader their text.
+ */
+const BLOCK_START_BOUNDARY = new RegExp(`(?:^|${EOL}[ \\t]*${EOL}[ \\t]*)$`)
+const BLOCK_END_BOUNDARY = new RegExp(`^(?:[ \\t]*${EOL}[ \\t]*${EOL}|[ \\t]*${EOL}?$)`)
+
+function isWholeBlockAt(markdown: string, index: number, source: string): boolean {
+    return (
+        BLOCK_START_BOUNDARY.test(markdown.slice(0, index)) &&
+        BLOCK_END_BOUNDARY.test(markdown.slice(index + source.length))
+    )
+}
+
+/**
+ * Where the anchor block ends in `markdown`, by the offsets the read reported, or by its text
+ * when an edit elsewhere has moved them.
+ *
+ * Refuses a source that now appears more than once rather than picking one: the insert would
+ * land on a block the caller never saw. The same refusal guards a prose edit in updateCell.ts.
+ */
+function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor, version: number): number {
+    // The backend's grammar set this span, so it is trusted only for the version it was read at.
+    // In a later version the same offsets can still hold the same text while the block has grown
+    // past them, and an insert at the old end would split the block.
+    if (version === anchor.version && markdown.slice(anchor.start, anchor.end) === anchor.source) {
+        return anchor.end
+    }
+    // A stored id is written into the document above its block, so it names the block exactly.
+    // Matching on it never confuses two blocks that read the same, which the text search below
+    // can only refuse.
+    if (anchor.nodeId.startsWith(STORED_NODE_ID_PREFIX)) {
+        return locateStoredAnchorEnd(markdown, anchor)
+    }
+    const matches: number[] = []
+    for (
+        let index = markdown.indexOf(anchor.source);
+        index !== -1;
+        index = markdown.indexOf(anchor.source, index + 1)
+    ) {
+        if (isWholeBlockAt(markdown, index, anchor.source)) {
+            matches.push(index)
+        }
+    }
+    if (matches.length === 0) {
+        throw new Error(
+            `Block ${anchor.nodeId} is no longer a block of its own in notebook, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry with the id it returns.`
+        )
+    }
+    if (matches.length > 1) {
+        throw new Error(
+            `Block ${anchor.nodeId} now matches more than one block, so it cannot name one of them. Read the notebook again with notebooks-get and retry with the id it returns.`
+        )
+    }
+    return matches[0]! + anchor.source.length
+}
+
+const ANCHOR_TERMINATOR = new RegExp(`^${EOL}`)
+
+/**
+ * Where the block under `<!--ph:id-->` ends. The anchor finds the block, and the source the read
+ * reported measures it, because a fenced block holds blank lines and a search for the next one
+ * would end the block inside the fence.
+ */
+function locateStoredAnchorEnd(markdown: string, anchor: ProseAnchor): number {
+    const marker = `<!--ph:${anchor.nodeId}-->`
+    const bodyStarts: number[] = []
+    for (let at = markdown.indexOf(marker); at !== -1; at = markdown.indexOf(marker, at + 1)) {
+        const terminator = ANCHOR_TERMINATOR.exec(markdown.slice(at + marker.length, at + marker.length + 2))
+        if (terminator) {
+            bodyStarts.push(at + marker.length + terminator[0].length)
+        }
+    }
+    if (bodyStarts.length === 0) {
+        throw new Error(
+            `Block ${anchor.nodeId} is no longer in notebook, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry with the id it returns.`
+        )
+    }
+    if (bodyStarts.length > 1) {
+        throw new Error(
+            `Block ${anchor.nodeId} names more than one block in notebook, so it cannot name one of them. Read the notebook again with notebooks-get.`
+        )
+    }
+    const bodyStart = bodyStarts[0]!
+    const bodyEnd = bodyStart + anchor.source.length
+    if (!markdown.startsWith(anchor.source, bodyStart) || !BLOCK_END_BOUNDARY.test(markdown.slice(bodyEnd))) {
+        throw new Error(
+            `Block ${anchor.nodeId} changed since it was read, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry.`
+        )
+    }
+    return bodyEnd
+}
+
+function insertBlock(
+    markdown: string,
+    block: string,
+    afterNodeId: string | undefined,
+    proseAnchor: ProseAnchor | undefined,
+    version: number
+): string {
     const trimmed = markdown.replace(/\s+$/, '')
+    if (proseAnchor) {
+        const end = locateProseAnchorEnd(markdown, proseAnchor, version)
+        const rest = markdown.slice(end).replace(/^[\r\n]+/, '')
+        const head = `${markdown.slice(0, end)}${BLOCK_SEPARATOR}${block}`
+        return rest ? `${head}${BLOCK_SEPARATOR}${rest}` : `${head}\n`
+    }
     if (afterNodeId) {
         const anchor = findCellTag(markdown, afterNodeId)
         if (!anchor) {
@@ -103,6 +251,51 @@ function insertBlock(markdown: string, block: string, afterNodeId: string | unde
     return trimmed ? `${trimmed}${BLOCK_SEPARATOR}${block}\n` : `${block}\n`
 }
 
+/**
+ * Resolve `after_node_id` to a prose anchor, or to `undefined` when a cell tag already carries
+ * the id and `insertBlock` can find it in the markdown on its own.
+ *
+ * A prose id is derived from block text, so it resolves only against the read that produced it.
+ * Only the state endpoint walks prose, so a miss in the tag scan goes there rather than failing.
+ */
+async function resolveInsertAnchor(
+    context: Context,
+    notebookId: string,
+    afterNodeId: string | undefined
+): Promise<ProseAnchor | undefined> {
+    if (!afterNodeId) {
+        return undefined
+    }
+    const { markdown } = await fetchMarkdownNotebook(context, notebookId)
+    if (findCellTag(markdown, afterNodeId)) {
+        return undefined
+    }
+
+    const projectId = await context.stateManager.getProjectId()
+    const state = await context.api.request<{ version: number | null; cells: Schemas.NotebookCellState[] }>({
+        method: 'GET',
+        path: `${notebookPathFor(projectId, notebookId)}sql_v2/state/`,
+    })
+    const matches = state.cells.filter((cell) => cell.node_id === afterNodeId)
+    if (matches.length === 0) {
+        throw new Error(
+            `No block with node_id ${afterNodeId} in notebook ${notebookId} to insert after. Read the current ids with notebooks-get; an insight short id is not one of them.`
+        )
+    }
+    if (matches.length > 1) {
+        throw new Error(
+            `Block ${afterNodeId} names ${matches.length} blocks in notebook ${notebookId}, so it cannot name one of them. Read the notebook again with notebooks-get.`
+        )
+    }
+    const block = matches[0]!
+    if (block.cell_type !== 'markdown') {
+        throw new Error(
+            `Cell ${afterNodeId} is a ${block.cell_type} cell but carries no tag identity, so a cell cannot be placed after it. Insert at the end by omitting after_node_id.`
+        )
+    }
+    return { nodeId: afterNodeId, source: block.code, start: block.start, end: block.end, version: state.version }
+}
+
 async function runAndWriteBack(
     context: Context,
     notebookId: string,
@@ -110,7 +303,8 @@ async function runAndWriteBack(
     nodeType: 'hogql' | 'python',
     code: string,
     outputName: string,
-    cells: CellTagBlock[]
+    cells: CellTagBlock[],
+    variables: Schemas.NotebookVariable[] | undefined
 ): Promise<ShapedRunResult> {
     const projectId = await context.stateManager.getProjectId()
     const notebookPath = notebookPathFor(projectId, notebookId)
@@ -121,6 +315,7 @@ async function runAndWriteBack(
         code,
         output_name: outputName,
         refs,
+        variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
     // Mirror the editor's write-back so humans opening the notebook see the result: runId
@@ -188,9 +383,16 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
                 "Use cell_type 'sql' for SQL instead of a component with a HogQLQuery source. A sql cell runs the query, names a dataframe other cells can reference, and charts its result."
             )
         }
+        const widgetViewError = getNotebookWidgetViewError(params.tag_name, params.props?.view)
+        if (widgetViewError) {
+            throw new Error(widgetViewError)
+        }
     }
 
     const title = params.title?.trim() || undefined
+    // Resolved before any branch, so every cell type places after prose the same way and a bad
+    // anchor fails before a cell is created or a query runs.
+    const proseAnchor = await resolveInsertAnchor(context, params.notebook_id, params.after_node_id)
 
     if (params.cell_type === 'markdown') {
         if (title) {
@@ -198,10 +400,17 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
                 'A markdown cell has no header to title — put the heading in the markdown itself (e.g. "## Weekly signups").'
             )
         }
-        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, params.markdown!.trim(), params.after_node_id)
+        const proseNodeId = `${STORED_NODE_ID_PREFIX}${uuidv4()}`
+        await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
+            insertBlock(
+                markdown,
+                anchoredMarkdownBlock(proseNodeId, params.markdown!.trim()),
+                params.after_node_id,
+                proseAnchor,
+                version
+            )
         )
-        return {}
+        return { node_id: proseNodeId }
     }
 
     const nodeId = uuidv4()
@@ -211,10 +420,9 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             nodeId,
             title,
             query: { kind: 'SavedInsightNode', shortId: params.insight_short_id },
-            hideFilters: true,
         })
-        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, tag, params.after_node_id)
+        await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
+            insertBlock(markdown, tag, params.after_node_id, proseAnchor, version)
         )
         return { node_id: nodeId }
     }
@@ -222,8 +430,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     if (params.cell_type === 'component') {
         // `title` last only when set, so a component that carries its own title prop keeps it.
         const tag = buildCellTag(params.tag_name!, { ...params.props, nodeId, ...(title ? { title } : {}) })
-        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, tag, params.after_node_id)
+        await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
+            insertBlock(markdown, tag, params.after_node_id, proseAnchor, version)
         )
         return { node_id: nodeId }
     }
@@ -232,11 +440,18 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     const initial = await fetchMarkdownNotebook(context, params.notebook_id)
     const dataframeName =
         params.dataframe_name ??
-        uniqueDataframeName(params.cell_type === 'sql' ? 'sql_df' : 'df', parseCellTags(initial.markdown))
+        uniqueDataframeName(
+            params.cell_type === 'sql' ? 'sql_df' : 'df',
+            parseCellTags(initial.markdown),
+            (initial.notebook.variables ?? []).map((variable) => variable.name)
+        )
     const tag = buildCellTag(tagName, { nodeId, title, code: params.code, returnVariable: dataframeName })
 
-    const { markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
-        insertBlock(current, tag, params.after_node_id)
+    // The save response carries the notebook as it stood when the save committed, so it holds a
+    // variable edit that landed after the read above. The run binds those values to stay in step
+    // with what the notebook now declares.
+    const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current, version) =>
+        insertBlock(current, tag, params.after_node_id, proseAnchor, version)
     )
     const run = await runAndWriteBack(
         context,
@@ -245,7 +460,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         params.cell_type === 'sql' ? 'hogql' : 'python',
         params.code!,
         dataframeName,
-        parseCellTags(markdown)
+        parseCellTags(markdown),
+        notebook.variables
     )
     return wrapRunResultAsInformational({ node_id: nodeId, dataframe_name: dataframeName, run })
 }

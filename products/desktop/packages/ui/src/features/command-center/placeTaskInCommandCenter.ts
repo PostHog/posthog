@@ -2,7 +2,9 @@ import {
   type ExpandDirection,
   getExpandedLayout,
   getExpansionCellIndex,
+  resizeCellsForLayout,
 } from "@posthog/core/command-center/grid";
+import { planCommandCenterPlacement } from "@posthog/core/command-center/placement";
 import { navigateToCommandCenter } from "@posthog/ui/router/navigationBridge";
 import { useCommandCenterStore } from "./commandCenterStore";
 
@@ -15,22 +17,151 @@ export function placeTaskInCommandCenter(
   taskId: string,
   taskTitle: string,
 ): void {
-  useCommandCenterStore.getState().requestPlacement(taskId, taskTitle);
+  useCommandCenterStore.getState().requestPlacement({
+    kind: "task",
+    id: taskId,
+    title: taskTitle,
+  });
   navigateToCommandCenter();
 }
 
-/** Grows the grid by one column or row and puts the task in the slot picked. */
-export function expandCommandCenterInto(
+export function placeCanvasInCommandCenter(
+  canvasId: string,
+  canvasTitle: string,
+): void {
+  useCommandCenterStore.getState().requestPlacement({
+    kind: "canvas",
+    id: canvasId,
+    title: canvasTitle,
+  });
+  navigateToCommandCenter();
+}
+
+export interface BulkPlacementResult {
+  placed: number;
+  overflow: number;
+  alreadyPresent: number;
+}
+
+/**
+ * Tiles a whole selection at once. Unlike the single-task flow there is no
+ * picker — asking for a slot per session doesn't scale — so it navigates to the
+ * grid instead, where a batch that had to grow the layout is self-evident.
+ */
+export function placeTasksInCommandCenter(
+  taskIds: string[],
+  liveTaskIds: ReadonlySet<string> | null,
+): BulkPlacementResult {
+  const state = useCommandCenterStore.getState();
+  const plan = planCommandCenterPlacement({
+    cells: state.cells,
+    layout: state.layout,
+    taskIds,
+    liveTaskIds,
+  });
+
+  if (state.composer) {
+    navigateToCommandCenter();
+    return {
+      placed: 0,
+      overflow: plan.placed.length + plan.overflow.length,
+      alreadyPresent: plan.alreadyPresent.length,
+    };
+  }
+
+  if (plan.placed.length > 0) {
+    state.applyPlacement({ layout: plan.layout, cells: plan.cells });
+  }
+  navigateToCommandCenter();
+
+  return {
+    placed: plan.placed.length,
+    overflow: plan.overflow.length,
+    alreadyPresent: plan.alreadyPresent.length,
+  };
+}
+
+/**
+ * The live set widened to cover a task just written into a tile. A `null` set
+ * already holds every filled tile, so the assigned task is safe there; a known
+ * set can lag behind a task created elsewhere, and without the id the batch
+ * would tile over the very cell it was just placed in.
+ */
+function withAssignedTask(
+  liveTaskIds: ReadonlySet<string> | null,
+  taskId: string,
+): ReadonlySet<string> | null {
+  return liveTaskIds == null ? null : new Set([...liveTaskIds, taskId]);
+}
+
+export function placeTasksInCommandCenterCell(
+  taskIds: string[],
+  cellIndex: number,
+  liveTaskIds: ReadonlySet<string> | null,
+): void {
+  const [firstTaskId, ...remainingTaskIds] = taskIds;
+  if (!firstTaskId) return;
+
+  useCommandCenterStore.getState().assignTask(cellIndex, firstTaskId);
+  if (remainingTaskIds.length > 0) {
+    placeTasksInCommandCenter(
+      remainingTaskIds,
+      withAssignedTask(liveTaskIds, firstTaskId),
+    );
+  }
+}
+
+export function placeCanvasInCommandCenterCell(
+  canvasId: string,
+  cellIndex: number,
+): void {
+  useCommandCenterStore.getState().setCanvasCell(cellIndex, canvasId);
+}
+
+export function expandCanvasInCommandCenterInto(
   direction: ExpandDirection,
   slot: number,
-  taskId: string,
+  canvasId: string,
 ): void {
   const state = useCommandCenterStore.getState();
+  if (state.composer) return;
   const expanded = getExpandedLayout(state.layout, direction);
   if (!expanded) return;
 
-  state.setLayout(expanded);
+  state.setLayout(
+    expanded,
+    resizeCellsForLayout(state.cells, state.layout, expanded),
+  );
   useCommandCenterStore
     .getState()
-    .assignTask(getExpansionCellIndex(expanded, direction, slot), taskId);
+    .setCanvasCell(getExpansionCellIndex(expanded, direction, slot), canvasId);
+}
+
+export function expandTasksInCommandCenterInto(
+  direction: ExpandDirection,
+  slot: number,
+  taskIds: string[],
+  liveTaskIds: ReadonlySet<string> | null,
+): void {
+  const [firstTaskId, ...remainingTaskIds] = taskIds;
+  if (!firstTaskId) return;
+
+  const state = useCommandCenterStore.getState();
+  if (state.composer) return;
+  const expanded = getExpandedLayout(state.layout, direction);
+  if (!expanded) return;
+
+  state.setLayout(
+    expanded,
+    resizeCellsForLayout(state.cells, state.layout, expanded),
+  );
+  useCommandCenterStore
+    .getState()
+    .assignTask(getExpansionCellIndex(expanded, direction, slot), firstTaskId);
+  if (remainingTaskIds.length > 0) {
+    placeTasksInCommandCenter(
+      remainingTaskIds,
+      withAssignedTask(liveTaskIds, firstTaskId),
+    );
+  }
 }
