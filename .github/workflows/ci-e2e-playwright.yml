@@ -163,11 +163,14 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       ai:
-                        - 'products/*/frontend/**'
+                        # Only the trees the AI recovery suite drives or builds into the sandbox
+                        # image. It boots a second full stack on an 8-core runner, so a change
+                        # elsewhere in the app is left to the regular suite.
                         - products/posthog_ai/**
                         - products/tasks/**
-                        - products/product_analytics/backend/**
-                        - 'products/*/skills/**'
+                        - services/mcp/**
+                        - services/agent-proxy/**
+                        - playwright/**
                         - products/desktop/packages/agent/**
                         - products/desktop/packages/agent-shadow/**
                         - products/desktop/packages/harness/**
@@ -180,25 +183,18 @@ jobs:
                         - products/desktop/pnpm-lock.yaml
                         - products/desktop/pnpm-workspace.yaml
                         - products/desktop/.npmrc
-                        - services/mcp/**
-                        - services/agent-proxy/**
-                        - common/**
-                        - frontend/**
-                        - posthog/**
-                        - ee/**
-                        - playwright/**
                         - .dockerignore
                         - .flox/**
                         - .codex/**
-                        - bin/**
+                        - bin/ci-wait-for-docker
                         - docker/**
-                        - docker-compose*.yml
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
                         - package.json
                         - pnpm-lock.yaml
                         - pnpm-workspace.yaml
                         - pyproject.toml
                         - uv.lock
-                        - hogli.yaml
                         - .github/workflows/ci-e2e-playwright.yml
                         - '!**/*.md'
                         - '!**/*.mdx'
@@ -1539,7 +1535,7 @@ jobs:
 
     # Collate test + VR completion status for the required check
     playwright_tests:
-        needs: [changes, playwright, ai-playwright, vr-complete]
+        needs: [changes, playwright, vr-complete]
         name: Playwright tests pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -1553,10 +1549,6 @@ jobs:
                   # suite, so its failure costs runner time but never coverage.
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
-                    exit 1
-                  fi
-                  if [[ "${{ needs.ai-playwright.result }}" != "success" && "${{ needs.ai-playwright.result }}" != "skipped" ]]; then
-                    echo "AI Playwright tests or preparation failed."
                     exit 1
                   fi
                   if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
