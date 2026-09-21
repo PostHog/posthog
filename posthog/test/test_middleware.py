@@ -22,6 +22,7 @@ from django.urls import reverse
 import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from prometheus_client import REGISTRY
 from rest_framework import status
 from social_core.backends.base import BaseAuth
@@ -34,12 +35,14 @@ from posthog.middleware import (
     ManagedProxyClientIPMiddleware,
     ManagedProxyClientIPOutcome,
     app_csp_header_name,
+    auth_page_csp_header_name,
     per_request_logging_context_middleware,
 )
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.security.auth_page_csp import CSP_AUTH_PAGES_FLAG, AuthPageCsp
 from posthog.settings import SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
@@ -2338,6 +2341,99 @@ class TestCSPMiddleware(APIBaseTest):
             assert "report-to" not in policy
             assert "Reporting-Endpoints" not in response
 
+    def _auth_pages_rollout(self, payload: object) -> Any:
+        return patch(
+            "posthog.security.auth_page_csp.posthoganalytics.get_feature_flag_result",
+            return_value=FeatureFlagResult(
+                key=CSP_AUTH_PAGES_FLAG, enabled=True, variant=None, payload=payload, reason=None
+            ),
+        )
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_auth_page_is_enforced_once_its_route_is_rolled_out(self):
+        self.client.logout()
+        with self._auth_pages_rollout({"enforce": {"login": 100}, "report_sample_rate": {"login": 1}}):
+            response = self.client.get("/login")
+
+        policy = response["Content-Security-Policy"]
+        assert "'strict-dynamic'" in policy
+        assert "Content-Security-Policy-Report-Only" not in response
+        # A flow the auth pages see a few times a day produces almost no reports at the default rate.
+        assert "sample_rate=1" in policy
+        assert "sample_rate=0.1" not in policy
+
+    @override_settings(CSP_REPORT_ENDPOINT="")
+    def test_auth_page_policy_admits_only_what_the_auth_flows_load(self):
+        # Each source here has its reason in build_auth_page_policy. Adding one widens what a markup
+        # injection on a credentials page can reach, so it needs a reason there, not only a new entry.
+        self.client.logout()
+        with self._auth_pages_rollout({}):
+            response = self.client.get("/signup")
+
+        directives = {
+            name: ["'nonce'" if source.startswith("'nonce-") else source for source in sources]
+            for name, *sources in (part.split() for part in response["Content-Security-Policy-Report-Only"].split("; "))
+        }
+        assert directives == {
+            "default-src": ["'self'", "http://localhost:8234"],
+            "script-src": [
+                "'nonce'",
+                "'strict-dynamic'",
+                "'wasm-unsafe-eval'",
+                "'self'",
+                "http://localhost:8234",
+                "https://challenges.cloudflare.com",
+            ],
+            "style-src": ["'self'", "'unsafe-inline'", "http://localhost:8234"],
+            "font-src": ["'self'", "data:", "http://localhost:8234"],
+            "img-src": ["'self'", "data:", "http://localhost:8234", "https://www.gravatar.com"],
+            "connect-src": ["'self'", "http://localhost:8234", "ws://localhost:8234"],
+            "worker-src": ["'self'", "blob:"],
+            "frame-src": ["https://challenges.cloudflare.com"],
+            "child-src": ["'none'"],
+            "object-src": ["'none'"],
+            "media-src": ["'none'"],
+            "manifest-src": ["'self'"],
+            "base-uri": ["'self'"],
+            "form-action": ["'self'", "https://accounts.google.com"],
+            "frame-ancestors": ["https://posthog.com", "https://preview.posthog.com"],
+        }
+        # Report-only must still enforce framing, as on every other app document.
+        assert response["Content-Security-Policy"] == "frame-ancestors https://posthog.com https://preview.posthog.com"
+
+    @parameterized.expand(
+        [
+            # Turning the flag off is the kill switch, so it must restore the app policy.
+            ("flag_off", {"return_value": None}, False),
+            ("flag_lookup_fails", {"side_effect": Exception("flags unavailable")}, False),
+            # CSPMiddleware runs before AuthenticationMiddleware. Deciding before the view would see
+            # every visitor as anonymous and hand the app, which a signed-in visitor on /login is sent
+            # to in the same document, a policy that refuses its origins.
+            (
+                "signed_in_visitor",
+                {
+                    "return_value": FeatureFlagResult(
+                        key=CSP_AUTH_PAGES_FLAG,
+                        enabled=True,
+                        variant=None,
+                        payload={"enforce": {"login": 100}},
+                        reason=None,
+                    )
+                },
+                True,
+            ),
+        ]
+    )
+    def test_login_keeps_the_app_policy_outside_the_rollout(self, _name, flag, signed_in):
+        if not signed_in:
+            self.client.logout()
+        with patch("posthog.security.auth_page_csp.posthoganalytics.get_feature_flag_result", **flag):
+            response = self.client.get("/login")
+
+        reported = response["Content-Security-Policy-Report-Only"]
+        assert "'strict-dynamic'" not in reported
+        assert "frame-src 'self' https:" in reported
+
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
@@ -2868,6 +2964,22 @@ class TestAppCspHeaderName(SimpleTestCase):
     def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag):
         # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
         assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
+
+    @parameterized.expand(
+        [
+            ("drawn_into_enforcement", True, False, "Content-Security-Policy"),
+            # The consent page is signed in, so the app rollout may already enforce a policy for this
+            # person. The auth pages' rollout must not move them back to report-only.
+            ("enforced_by_the_app_rollout", False, True, "Content-Security-Policy"),
+            ("neither", False, False, "Content-Security-Policy-Report-Only"),
+        ]
+    )
+    def test_auth_page_header_never_downgrades_an_enforced_visitor(
+        self, _name, drawn_into_enforcement, app_rollout_enforces, expected
+    ):
+        auth_csp = AuthPageCsp(route="oauth", enforced=drawn_into_enforcement, report_sample_rate=0.1)
+        with patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=app_rollout_enforces):
+            assert auth_page_csp_header_name(self._request("/oauth/authorize"), auth_csp) == expected
 
 
 class TestViewManagedCsp(SimpleTestCase):

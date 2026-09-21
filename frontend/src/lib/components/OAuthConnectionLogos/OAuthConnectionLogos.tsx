@@ -3,10 +3,23 @@ import { useState } from 'react'
 import { IconPlug } from '@posthog/icons'
 
 import { Logomark } from 'lib/brand'
+import { getAppContext } from 'lib/utils/getAppContext'
+
+/** The auth pages' CSP refuses images from a host the application's registrant chose. */
+function isLogoAllowed(logoUri: string): boolean {
+    if (!getAppContext()?.auth_page_csp) {
+        return true
+    }
+    try {
+        return new URL(logoUri, window.location.href).origin === window.location.origin
+    } catch {
+        return false
+    }
+}
 
 export function OAuthConnectionLogos({ appName, logoUri }: { appName: string; logoUri: string | null }): JSX.Element {
     const [logoFailed, setLogoFailed] = useState(false)
-    const resolvedLogoUri = logoFailed ? null : logoUri
+    const resolvedLogoUri = logoFailed || !logoUri || !isLogoAllowed(logoUri) ? null : logoUri
 
     return (
         // pinned: `data-attr` value read by autocapture dashboards, so it keeps the name it was

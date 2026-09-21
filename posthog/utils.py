@@ -58,6 +58,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.security.auth_page_csp import auth_page_csp
 from posthog.security.url_validation import has_ambiguous_authority
 
 from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
@@ -533,8 +534,8 @@ def _build_template_context(
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
         <!-- Vite development server -->
-        <script type="module" src="{js_url}/@vite/client"></script>
-        <script type="module" src="{js_url}/{source_path}"></script>"""
+        <script nonce="{csp_nonce}" type="module" src="{js_url}/@vite/client"></script>
+        <script nonce="{csp_nonce}" type="module" src="{js_url}/{source_path}"></script>"""
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
@@ -573,6 +574,10 @@ def _build_template_context(
         ),
         "anonymous": not request.user or not request.user.is_authenticated,
     }
+    if auth_page_csp(request) is not None:
+        # The document runs under the auth pages' CSP. OAuthConnectionLogos skips a logo that
+        # policy refuses, and sceneLogic reloads before an app scene can run under it.
+        posthog_app_context["auth_page_csp"] = True
 
     posthog_bootstrap: dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None

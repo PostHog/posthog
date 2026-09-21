@@ -11,9 +11,11 @@ from django.http import HttpResponse
 from django.test import RequestFactory
 
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import UserHomeSettings
+from posthog.security.auth_page_csp import CSP_AUTH_PAGES_FLAG
 from posthog.utils import get_context_for_template
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
@@ -86,6 +88,29 @@ class TestGetContextForTemplate(APIBaseTest):
 
         app_context = json.loads(actual["posthog_app_context"])
         assert sorted(app_context["current_project"]["tags"]) == ["eu-region", "production"]
+
+    @parameterized.expand(
+        [
+            ("auth_page_under_the_rollout", {"enforce": {}}, True),
+            ("rollout_off", None, False),
+        ]
+    )
+    def test_marks_a_document_under_the_auth_page_policy(self, _name, payload, expected):
+        # OAuthConnectionLogos and sceneLogic read this. Without it, a document under the auth pages'
+        # policy requests a logo that policy refuses, and an app scene can run under it.
+        request = RequestFactory().get("/login")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = AnonymousUser()
+        flag = (
+            None
+            if payload is None
+            else FeatureFlagResult(key=CSP_AUTH_PAGES_FLAG, enabled=True, variant=None, payload=payload, reason=None)
+        )
+
+        with mock.patch("posthog.security.auth_page_csp.posthoganalytics.get_feature_flag_result", return_value=flag):
+            actual = get_context_for_template("layout", request)
+
+        assert json.loads(actual["posthog_app_context"]).get("auth_page_csp", False) is expected
 
     @parameterized.expand(
         [

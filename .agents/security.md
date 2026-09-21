@@ -164,9 +164,10 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 Treat it as enforced.
 A refused resource produces no user-visible error, so the feature simply does not work, and the only signal is a `$csp_violation` event in project 2.
 
-Three policies exist, and a change lands in whichever one covers the page:
+Four policies exist, and a change lands in whichever one covers the page:
 
 - **The app policy** governs every SPA page. It is enforced per user behind the `csp-enforce-app-policy` flag, and report-only otherwise.
+- **The auth pages policy** replaces it on login, signup, password reset and email verification for anonymous visitors, and on the OAuth consent and toolbar authorization pages for everyone. It is stricter: `'strict-dynamic'` scripts, images and fonts from the bundle host only, and the Turnstile frame alone. The `csp-auth-pages-policy` flag turns it on, and its payload sets the enforced share of documents per route.
 - **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 
@@ -192,8 +193,9 @@ Three policies exist, and a change lands in whichever one covers the page:
 
 Add the source to the policy that covers the document, which is not always `CSPMiddleware`.
 An app or admin page takes the matching list in `CSPMiddleware`.
+An auth page takes `build_auth_page_policy()` in `posthog/security/auth_page_csp.py`, and needs a reason there, because each source widens what an injection on a credentials page can reach.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/api/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.
-Say why the source is needed in a comment either way, then run `posthog/test/test_middleware.py::TestCSPMiddleware`.
+Say why the source is needed in a comment either way, then run `posthog/test/test_middleware.py::TestCSPMiddleware`, which pins the auth pages policy source by source.
 To see what the policy currently blocks, query `$csp_violation` events in project 2.
 Filter to the current policy text and exclude browser extensions on both the source file and the blocked URL, or the result is mostly noise.

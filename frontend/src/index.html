@@ -37,7 +37,8 @@
             <link rel="preload" href="{{ js_url }}/{{ preload_css_url }}" as="style" crossorigin="anonymous">
         {% endif %}
         {% for url in preload_js_urls %}
-            <link rel="modulepreload" href="{{ js_url }}/{{ url }}">
+            {# The nonce lets a policy with 'strict-dynamic', which ignores host sources, admit the preload #}
+            <link rel="modulepreload" href="{{ js_url }}/{{ url }}" nonce="{{ request.csp_nonce }}">
         {% endfor %}
     </head>
     <body>

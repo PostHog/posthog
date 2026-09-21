@@ -53,6 +53,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER, activity_storage, client_from_header
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
+from posthog.security.auth_page_csp import AuthPageCsp, auth_page_csp, build_auth_page_policy, static_asset_origin
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -1355,6 +1356,15 @@ def app_csp_header_name(request: HttpRequest) -> str:
     return "Content-Security-Policy-Report-Only"
 
 
+def auth_page_csp_header_name(request: HttpRequest, auth_csp: AuthPageCsp) -> str:
+    # The consent and toolbar pages are signed in, so the app rollout already enforces a policy
+    # there for the people it covers. Checking it too means the auth pages' rollout never moves
+    # anyone from an enforced policy back to a report-only one.
+    if auth_csp.enforced or csp_enforcement_enabled(request):
+        return "Content-Security-Policy"
+    return "Content-Security-Policy-Report-Only"
+
+
 class CSPMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1548,6 +1558,16 @@ class CSPMiddleware:
                 "form-action 'self' https://accounts.google.com",
             ]
 
+            auth_csp = auth_page_csp(request)
+            if auth_csp is not None:
+                csp_parts = build_auth_page_policy(
+                    nonce=nonce,
+                    resource_url=resource_url,
+                    static_origin=static_asset_origin(),
+                    frame_ancestors=frame_ancestors,
+                    connect_debug_url=connect_debug_url,
+                )
+
             # Both values are read inside one narrowed block, so nothing below re-checks `user`.
             user = getattr(request, "user", None)
             if user is not None and user.is_authenticated:
@@ -1567,6 +1587,10 @@ class CSPMiddleware:
             # the enforced population exactly. The flag widens until it covers everyone, and would
             # silently take the whole fleet to unsampled reporting; staff stays bounded.
             sample_rate = "1" if is_staff else "0.1"
+            if auth_csp is not None and not is_staff:
+                # A flow the auth pages see a few times a day yields almost no reports at 0.1, so the
+                # rollout sets this rate while it runs.
+                sample_rate = f"{auth_csp.report_sample_rate:g}"
 
             report_uri = csp_report_endpoint(sample_rate=sample_rate)
             if report_uri:
@@ -1580,7 +1604,9 @@ class CSPMiddleware:
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
-            header_name = app_csp_header_name(request)
+            header_name = (
+                auth_page_csp_header_name(request, auth_csp) if auth_csp is not None else app_csp_header_name(request)
+            )
             response.headers[header_name] = "; ".join(csp_parts)
             if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
                 # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces

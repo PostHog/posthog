@@ -77,6 +77,9 @@ interface MountedSceneLogic {
     unmount: () => void
 }
 
+// Read at import, before any navigation, so it is the path the server built this document for.
+const DOCUMENT_PATHNAME = window.location.pathname
+
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
 /**
@@ -835,6 +838,20 @@ export const sceneLogic = kea<sceneLogicType>([
         },
         openScene: ({ sceneId, sceneKey, params, method }) => {
             const sceneConfig = sceneConfigurations[sceneId] || {}
+
+            if (
+                getAppContext()?.auth_page_csp &&
+                !sceneConfig.onlyUnauthenticated &&
+                !sceneConfig.allowUnauthenticated &&
+                window.location.pathname !== DOCUMENT_PATHNAME
+            ) {
+                // The auth pages' CSP refuses origins app scenes load from. The URL already points at
+                // the app scene, so a reload fetches it as a new document under the app policy. The
+                // pathname check stops a loop if the server ever serves this policy for an app path.
+                window.location.reload()
+                return
+            }
+
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
 

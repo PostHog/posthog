@@ -5250,6 +5250,8 @@ export interface AppContext {
     oauth_scope_resolution?: OAuthScopeResolution
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+    /** The document runs under the auth pages' CSP, which refuses third-party images and the app's other third-party origins. */
+    auth_page_csp?: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
