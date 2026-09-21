@@ -521,6 +521,15 @@ class _DispatchingViewTestCase(SimpleTestCase):
             },
         )
 
+    def _pandadoc_request(self, *, signing_secret: str = SECRET):
+        body = json.dumps([{"event": "document_state_changed"}]).encode()
+        return self.factory.post(
+            "/webhooks/pandadoc/",
+            data=body,
+            content_type="application/json",
+            headers={"X-PandaDoc-Signature": hmac.digest(signing_secret.encode(), body, "sha256").hex()},
+        )
+
 
 class TestRegionalForwarding(_DispatchingViewTestCase):
     def setUp(self) -> None:
@@ -805,6 +814,41 @@ class TestUnacceptedDelivery(_DispatchingViewTestCase):
         # the request is not receipted, and names what cost it.
         warnings = {call.args[0]: call.kwargs for call in logger.warning.call_args_list}
         self.assertEqual(warnings.get("ingress_delivery_retry_requested", {}).get("consumers"), warned_about)
+
+    @parameterized.expand(
+        [
+            ("a_consumer_that_raised_asks_for_a_redelivery", True, SECRET, SECRET, 500, 1),
+            ("a_delivery_that_applied_is_receipted", False, SECRET, SECRET, 202, 1),
+            ("a_bad_signature_still_withholds_the_endpoint", False, "wrong-secret", SECRET, 404, 0),
+            ("a_missing_secret_still_withholds_the_endpoint", False, SECRET, "", 404, 0),
+        ]
+    )
+    def test_pandadoc_answers_a_retryable_status_only_after_a_valid_signature(
+        self,
+        _name: str,
+        handler_raises: bool,
+        signing_secret: str,
+        configured_secret: str,
+        status: int,
+        handler_calls: int,
+    ) -> None:
+        # Recording a signature used to answer 500 from the product's own view, which PandaDoc
+        # redelivers after. Dropping back to the 202 receipt loses the signature silently.
+        if handler_raises:
+            self.handler.side_effect = RuntimeError("the signature write failed")
+        view = self._view(
+            [_consumer(PANDADOC_SPEC, name="legal_documents_signatures", handler=self.handler)],
+            provider=build_pandadoc_provider(),
+        )
+
+        with (
+            override_settings(PANDADOC_WEBHOOK_SECRET=configured_secret),
+            patch("posthog.ingress.dispatch.dispatcher.capture_exception"),
+        ):
+            response = view(self._pandadoc_request(signing_secret=signing_secret))
+
+        self.assertEqual(response.status_code, status)
+        self.assertEqual(self.handler.call_count, handler_calls)
 
     def test_a_consumer_the_budget_skipped_costs_the_receipt_the_same_way(self) -> None:
         elapsed = {"seconds": 0.0}
