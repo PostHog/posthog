@@ -1,8 +1,22 @@
 from typing import Any, Literal
+from uuid import UUID
+
+from django.db import connection, transaction
 
 from posthog.dataclasses import frozen
 
 from products.access_control.backend.models.role import RoleMembership
+
+
+def lock_approval_policies(organization_id: UUID) -> None:
+    # Org scope covers both team policies and the org fallback, including policies not yet created.
+    if not connection.in_atomic_block:
+        raise transaction.TransactionManagementError("Approval policy locks require an atomic block")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"approval-policies:{organization_id}"],
+        )
 
 
 @frozen

@@ -8,21 +8,25 @@ exist, and these flags are invented test rows.
 
 import copy
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import OperationalError, connection, transaction
 from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
 from posthog.models import Organization, Team
 
 from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.serializers import ApprovalPolicySerializer
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.facade import (
     api as flag_facade,
@@ -351,6 +355,98 @@ class TestV2Concurrency(V2UpdateTestCase):
         flag.refresh_from_db()
         assert flag.version == 4
         assert flag.filters == config(targeted())
+
+    @parameterized.expand([("team", True), ("organization", False)])
+    def test_a_policy_enabled_after_validation_denies_the_update(self, _name: str, team_policy: bool) -> None:
+        flag = self.flag()
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"version": 3, "name": "Renamed"},
+            partial=True,
+            context={
+                "request": ServiceRequest(self.user, method="PATCH"),
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        policy = ApprovalPolicySerializer(
+            data={"action_key": "feature_flag.update", "approver_config": {"quorum": 1}, "enabled": True}
+        )
+        policy.is_valid(raise_exception=True)
+        policy.save(organization=self.organization, team=self.team if team_policy else None)
+
+        with self.assertRaises(ValidationError) as error:
+            serializer.save()
+
+        assert error.exception.get_codes() == ["unsupported_config_version"]
+        flag.refresh_from_db()
+        assert flag.name != "Renamed"
+        assert flag.version == 3
+
+
+class TestV2ApprovalPolicyLocking(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            ("team_create", True, False),
+            ("org_create", False, False),
+            ("team_enable", True, True),
+            ("org_enable", False, True),
+        ]
+    )
+    def test_policy_write_waits_for_flag_commit(self, _name: str, team_policy: bool, existing_policy: bool) -> None:
+        team = self.team if team_policy else None
+        policy = (
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=team,
+                action_key="feature_flag.update",
+                approver_config={"quorum": 1},
+                enabled=False,
+            )
+            if existing_policy
+            else None
+        )
+        flag = FeatureFlag.objects.create(team=self.team, key="v2-policy-lock", filters=config(), version=3)
+
+        def enable_policy() -> None:
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '100ms'")
+                    serializer = ApprovalPolicySerializer(
+                        policy,
+                        data={"action_key": "feature_flag.update", "approver_config": {"quorum": 1}, "enabled": True},
+                        partial=existing_policy,
+                    )
+                    serializer.is_valid(raise_exception=True)
+                    serializer.save(organization=self.organization, team=team)
+            finally:
+                connection.close()
+
+        save_flag = FeatureFlag.save
+
+        def save_with_concurrent_policy(instance: FeatureFlag, *args: Any, **kwargs: Any) -> None:
+            save_flag(instance, *args, **kwargs)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                with self.assertRaises(OperationalError) as error:
+                    executor.submit(enable_policy).result(timeout=10)
+            assert getattr(error.exception.__cause__, "sqlstate", None) == "55P03"
+
+        with (
+            admit_v2_updates(),
+            patch.object(FeatureFlag, "save", autospec=True, side_effect=save_with_concurrent_policy),
+        ):
+            flag_facade.update_flag(flag, {"version": 3, "name": "Renamed"}, team=self.team, user=self.user)
+
+        flag.refresh_from_db()
+        assert (flag.name, flag.version) == ("Renamed", 4)
+        assert not ApprovalPolicy.objects.filter(organization=self.organization, enabled=True).exists()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(enable_policy).result(timeout=10)
+        assert ApprovalPolicy.objects.filter(organization=self.organization, team=team, enabled=True).exists()
 
 
 @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"})

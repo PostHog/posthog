@@ -89,7 +89,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
-from products.approvals.backend.policies import PolicyEngine
+from products.approvals.backend.policies import PolicyEngine, lock_approval_policies
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -1693,6 +1693,9 @@ class FeatureFlagSerializer(
         get_team = self.context.get("get_team")
         assert isinstance(self.instance, FeatureFlag)
         team = (get_team() if get_team else None) or self.instance.team
+        self._reject_v2_approval_policy(team)
+
+    def _reject_v2_approval_policy(self, team: Team) -> None:
         engine = PolicyEngine()
         # Deliberately broader than the gate's own detect(): any enabled flag-write policy on
         # this team denies the write, because a v2 change that needs approval has nowhere to go.
@@ -2522,6 +2525,9 @@ class FeatureFlagSerializer(
 
         try:
             with transaction.atomic():
+                v2_limits = self._v2_update_limits
+                if v2_limits is not None:
+                    lock_approval_policies(instance.team.organization_id)
                 # select_for_update locks the database row so we ensure version updates are atomic.
                 # Uses objects_including_soft_deleted so that restoring a soft-deleted flag
                 # (setting deleted=False) can acquire the lock.
@@ -2529,8 +2535,8 @@ class FeatureFlagSerializer(
                 locked_version = locked_instance.version or 0
 
                 # NOW check for conflicts after all transformations
-                v2_limits = self._v2_update_limits
                 if v2_limits is not None:
+                    self._reject_v2_approval_policy(locked_instance.team)
                     self._apply_v2_update(locked_instance, validated_data, locked_version, v2_limits)
                 elif version != -1 and version != locked_version:
                     # Not a serializer field, so the client controls its type; the conflict helpers

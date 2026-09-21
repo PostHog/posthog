@@ -68,5 +68,6 @@ When the policy admits updates, a stored v2 row that is not remote-configured an
 - Identity resolution and validation both run against the locked row inside the existing update transaction, so warnings describe the real before/proposed pair. A stored document the validator cannot accept is rejected rather than replaced.
 - Request bytes that repeat a JSON key are rejected before normalization can hide the duplicate. Non-finite numbers and percentages with more than two decimal places are rejected by the validator itself.
 - An enabled flag-write approval policy denies the update, and an approved change cannot be applied to a v2 row: PH-WRITE-APPROVAL owns that path. Nothing here creates a pending v2 change request.
+  The final policy lookup and flag mutation share an organization-scoped transaction lock with policy creation and updates, so a policy cannot be enabled between that lookup and commit.
 
 Rollback closes the policy and reverts the update routing. Format guards and readers stay in place for whatever data exists at that point; there is no automatic v2-to-v1 conversion, and v1-to-v2 dependency protection is not removed.
