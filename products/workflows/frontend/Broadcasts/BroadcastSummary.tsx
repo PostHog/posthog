@@ -353,7 +353,7 @@ function RecipientsTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.
 }
 
 export function BroadcastSummary(): JSX.Element {
-    const { broadcast, broadcastId, name, batchJobs, batchJobsLoading, summaryTab, isScheduled } =
+    const { broadcast, broadcastId, name, batchJobs, batchJobsLoading, batchJobsResolved, summaryTab, isScheduled } =
         useValues(broadcastWizardLogic)
     const { setSummaryTab, cancelSchedule } = useActions(broadcastWizardLogic)
     const { archiveBroadcast, restoreBroadcast, duplicateBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
@@ -364,7 +364,10 @@ export function BroadcastSummary(): JSX.Element {
     const latestBatchJob = batchJobs[0]
     const latestBatchJobId = latestBatchJob?.id
     const metricsSourceId = latestBatchJobId ?? broadcastId
-    const logicKey = `broadcast-${metricsSourceId}`
+    // Keyed on whether the runs have resolved, not just on the source: until they have, the source
+    // is the flow, which is the one id these metrics are never recorded against. Querying it would
+    // spend a request to render zeros, then throw them away when the run id arrives.
+    const logicKey = `broadcast-${metricsSourceId}-${batchJobsResolved ? 'ready' : 'pending'}`
     // Mounting with force params here pins the metrics query to this run; EmailMetricsSummary
     // reads the same keyed logic below. The date window follows the run rather than a fixed
     // lookback, so a send older than 30 days still shows its counts. Hourly buckets for a run,
@@ -372,7 +375,7 @@ export function BroadcastSummary(): JSX.Element {
     useValues(
         appMetricsLogic({
             logicKey,
-            loadOnMount: true,
+            loadOnMount: batchJobsResolved,
             loadOnChanges: true,
             forceParams: {
                 appSource: 'hog_flow',

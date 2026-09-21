@@ -133,6 +133,7 @@ export interface broadcastWizardLogicValues {
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
+    batchJobsResolved: boolean
     blastRadius: BlastRadiusApi | null
     blastRadiusLoading: boolean
     breadcrumbs: Breadcrumb[]
@@ -426,6 +427,18 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     reducers(({ props }) => ({
+        // Whether the runs are known yet. `batchJobsLoading` cannot answer this: it is false both
+        // before the request starts and after it finishes, and the metrics query needs the run id.
+        batchJobsResolved: [
+            false as boolean,
+            {
+                // A draft never loads its runs, so hydrating one is the answer: it has none.
+                hydrateFromBroadcast: (state: boolean, { broadcast }: { broadcast: HogFlowApi | null }) =>
+                    state || broadcast?.status === 'draft',
+                loadBatchJobsSuccess: () => true,
+                loadBatchJobsFailure: () => true,
+            },
+        ],
         broadcast: {
             saveBroadcastFinished: (state: HogFlowApi | null, { broadcast }: { broadcast: HogFlowApi | null }) =>
                 broadcast ?? state,
