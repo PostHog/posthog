@@ -64,6 +64,8 @@ _NO_REPL_ROLE = ("rolreplication", [(False,)])
 _MAX_SLOTS_10 = ("max_replication_slots", [("10",)])
 _SLOT_COUNT_2 = ("FROM pg_replication_slots", [("2",)])
 _SLOT_COUNT_10 = ("FROM pg_replication_slots", [("10",)])
+_OWNS_TABLES = ("pg_has_role", [(True,)])
+_DOES_NOT_OWN_TABLES = ("pg_has_role", [(False,)])
 _SLOT_EXISTS = ("slot_name", [(1,)])
 _SLOT_NOT_EXISTS: tuple[str, list] = ("slot_name", [])
 _PUB_EXISTS = ("pubname", [(1,)])
@@ -129,6 +131,40 @@ class TestValidateCDCPrerequisites:
         conn = _mock_conn([_PG_15, _WAL_LOGICAL, _HAS_PK, _NO_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2])
         errors = validate_cdc_prerequisites(conn=conn, management_mode="posthog", tables=["users"])
         assert any("replication slots" in e.lower() for e in errors)
+
+    def test_table_not_owned_by_database_user(self):
+        # A role with REPLICATION and SELECT but no ownership passes every other check and then
+        # fails at CREATE PUBLICATION with "must be owner of table" during enable or repair.
+        conn = _mock_conn(
+            [_PG_15, _WAL_LOGICAL, _HAS_PK, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2, _DOES_NOT_OWN_TABLES]
+        )
+        errors = validate_cdc_prerequisites(conn=conn, management_mode="posthog", tables=["users"])
+        assert any("does not own table 'public.users'" in e for e in errors)
+
+    def test_owned_table_passes_ownership_check(self):
+        conn = _mock_conn([_PG_15, _WAL_LOGICAL, _HAS_PK, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2, _OWNS_TABLES])
+        errors = validate_cdc_prerequisites(conn=conn, management_mode="posthog", tables=["users"])
+        assert errors == []
+
+    def test_self_managed_skips_ownership_check(self):
+        # The DBA owns the publication in self-managed mode, so PostHog never publishes the table
+        # and ownership is not required.
+        conn = _mock_conn(
+            [
+                _PG_15,
+                _WAL_LOGICAL,
+                _HAS_PK,
+                _HAS_REPL_ROLE,
+                _MAX_SLOTS_10,
+                _SLOT_COUNT_2,
+                _DOES_NOT_OWN_TABLES,
+                _PUB_EXISTS,
+            ]
+        )
+        errors = validate_cdc_prerequisites(
+            conn=conn, management_mode="self_managed", tables=["users"], publication_name="my_pub"
+        )
+        assert errors == []
 
     def test_no_replication_slot_capacity(self):
         conn = _mock_conn([_PG_15, _WAL_LOGICAL, _HAS_PK, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_10])

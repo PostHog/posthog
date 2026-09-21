@@ -83,6 +83,13 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         customer/upstream connection failures as error-tracking noise."""
         ...
 
+    def permission_error_message(self, exc: BaseException) -> str | None:
+        """A user-facing explanation when the exception means the database user lacks a
+        privilege that CDC setup needs (PG: ownership of a published table, the replication
+        attribute), or None for anything else. Callers surface the message as a 400 without
+        capturing it, because the fix is a grant on the customer's database, not a code change."""
+        ...
+
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         """Interpret a single engine-specific exception as a CDC error category, or None
         when unrecognized (the caller falls back to the engine-agnostic default). Mirrors
