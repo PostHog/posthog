@@ -279,13 +279,21 @@ def push_refresh_metrics(
     in remote_config_cache. One function so the next field added reaches both without
     anyone having to remember the fork exists.
 
-    Both ends of the run are pushed. The before sample is the clean number, taken
-    before the run touches a team. The before sample minus the after sample is what the
-    run drained, because a refresh re-scores its cache out of the due window. One run's
-    before sample minus the previous run's after sample is the net change between runs,
-    not an arrival rate. Rebuilds that complete in the gap re-score out of the window as
-    well, routed ones included, so they cancel part of the arrivals. A single sample
-    answers none of those, which is why the run carries its own starting reading here.
+    Both ends of the run are pushed, because neither reading means anything alone. The
+    before sample is the clean one, taken before the run touches a team.
+
+    A member leaves the due window only when something writes its cache and re-scores it.
+    So `before - after` is what a run that builds its own teams drained. A run that routes
+    its refreshes writes nothing, so its teams hold their scores until the other builder
+    rebuilds them, and the same subtraction returns close to zero.
+
+    One run's before sample minus the previous run's after sample is the net change
+    between runs, not an arrival rate. Rebuilds that complete in the gap re-score out of
+    the window and cancel part of the arrivals.
+
+    To see whether the queue is growing, read the before series run over run. Its slope is
+    arrivals minus completions, so a rising series means the sweep is falling behind.
+    Nothing here counts entries as they enter the window.
 
     An empty run pushes too. Pushgateway keeps serving the last value pushed, so
     skipping it would latch a drained backlog at whatever the last busy run saw.
