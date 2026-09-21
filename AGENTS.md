@@ -30,11 +30,6 @@
   - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
     - In a PostHog Tasks cloud run (`POSTHOG_TASK_RUN_ID` set), the boot sequence, prewarmed test database and scoped-test rules differ — read [Cloud task sandbox](docs/internal/cloud-task-sandbox.md) before starting the stack or running tests there
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
-- LSP: the repo plugin `posthog-lsp` runs ty for Python and tsgo for TypeScript.
-  Use the `LSP` tool (`findReferences`, `incomingCalls`, `goToDefinition`) before you rename, move, or change the signature of a symbol, and when grep returns too many hits for a name.
-  Use grep for strings, config keys, and names that cross language boundaries.
-  ty reports Python errors after each edit; tsgo reports none, so run the TypeScript check.
-  mypy and `typescript:check` in CI decide what is a type error.
 - Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
   **Local agents must use it too**: when a hogli command or local dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Do not run it from cloud tasks or agent-server sandboxes; the command is a no-op there.
 

@@ -20,15 +20,6 @@
         ]
     },
     "enabledPlugins": {
-        "posthog-lsp@posthog": true,
         "typescript-lsp@claude-plugins-official": false
-    },
-    "extraKnownMarketplaces": {
-        "posthog": {
-            "source": {
-                "source": "directory",
-                "path": "."
-            }
-        }
     }
 }

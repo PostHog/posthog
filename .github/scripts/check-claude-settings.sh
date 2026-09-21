@@ -4,7 +4,7 @@
 # (gitignored). Checked against the git index so the staged version is what counts.
 set -euo pipefail
 
-SHARED_KEYS='["$schema", "hooks", "enabledPlugins", "extraKnownMarketplaces"]'
+SHARED_KEYS='["$schema", "hooks", "enabledPlugins"]'
 
 personal=$(git show :.claude/settings.json | node -e '
     const shared = JSON.parse(process.argv[1])
