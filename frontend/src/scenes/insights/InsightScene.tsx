@@ -6,7 +6,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { InsightAsScene } from 'scenes/insights/InsightAsScene'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
-import { InsightSubscriptionNotFound } from 'scenes/insights/InsightSubscriptionNotFound'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +15,7 @@ import { ItemMode } from '~/types'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 export function InsightScene(): JSX.Element {
-    const { insightId, insight, insightLoading, insightMode, dashboardId, itemId } = useValues(insightSceneLogic)
+    const { insightId, insight, insightLoading, insightMode, dashboardId } = useValues(insightSceneLogic)
 
     useAttachedContext(
         insight?.short_id && insight?.query
@@ -49,10 +48,6 @@ export function InsightScene(): JSX.Element {
 
     if (insightLoading) {
         return <InsightSkeleton />
-    }
-
-    if (insightMode === ItemMode.Subscriptions && itemId !== null && insightId) {
-        return <InsightSubscriptionNotFound insightShortId={insightId} subscriptionId={itemId} />
     }
 
     return <NotFound object="insight" />
