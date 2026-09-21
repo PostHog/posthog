@@ -342,7 +342,7 @@ export interface ProjectMenuActionProperties {
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
-  group_by: "repository" | "date";
+  group_by: "repository" | "date" | "space";
   sort_by: "updated" | "created" | "alpha";
   surface: TaskListSurface;
 }
@@ -358,7 +358,13 @@ export interface BrowserTabTileCountProperties {
 }
 
 export interface TaskListAppearanceChangedProperties {
-  secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
+  secondary_fields: (
+    | "space"
+    | "repository"
+    | "branch"
+    | "creator"
+    | "activity"
+  )[];
   secondary_field_count: number;
   surface: TaskListSurface;
 }
@@ -1177,7 +1183,8 @@ export type ChannelsSurface =
   | "thread_panel"
   | "activity_panel"
   | "activity"
-  | "canvases_pane";
+  | "canvases_pane"
+  | "spaces_index";
 
 type ChannelActionType =
   | "enter_space"
