@@ -8,7 +8,10 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
-from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    connect_github_jobs,
+    connect_github_source_without_data,
+)
 
 T_REPLAY_PRS = "products/replay/backend/tests/test_snap/TestSnap::test_prs"
 T_REPLAY_RERUN = "products/replay/backend/tests/test_playlist/TestPlaylist::test_rerun"
@@ -201,6 +204,15 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             f"('uuid-{i}', {cls.team.id}, 'trace-{i}', 'span-{i}', 'parent', '{name}', 1, "
             f"'{stamp}', '{stamp}', '{stamp}', 0, '{service}', map({', '.join(attr_pairs)}), "
             f"map({', '.join(resource_pairs)}))"
+        )
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Both runs whose spans read as a setup break failed across three jobs on GitHub too.
+        connect_github_jobs(
+            self,
+            prefix="teams",
+            jobs=[(run * 10 + index, run, 1, "failure") for run in (901, 902) for index in (1, 2, 3)],
         )
 
     def _get(self, endpoint: str, **params: str) -> dict:

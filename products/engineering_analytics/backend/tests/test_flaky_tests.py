@@ -14,6 +14,7 @@ from products.engineering_analytics.backend.logic.queries._test_spans import sel
 from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
 from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
+    connect_github_jobs,
     connect_github_source_without_data,
     create_github_warehouse_table,
 )
@@ -39,6 +40,7 @@ T_OTHER_REPO = "posthog/api/test/test_other_repo/TestOtherRepo::test_flaky"
 T_JEST_RECOVERY = "products/surveys/frontend/surveyLogic.test.ts::surveyLogic saves"
 T_JEST_CROSS_LEG = "frontend/src/scenes/legacy.test.ts::legacy scene renders"
 T_SETUP_BREAK = "posthog/api/test/test_setup/TestSetup::test_errors_when_setup_breaks"
+T_SPAN_ONLY_BREAK = "posthog/api/test/test_setup/TestSetup::test_errors_without_a_broken_run"
 
 
 class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
@@ -155,6 +157,19 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                     "error",
                     ts=recent,
                     run="1700",
+                    branch="master",
+                    job=f"backend:core:{shard}",
+                )
+                for shard in (1, 2, 3)
+            ],
+            # The same shape in a run GitHub reports as healthy.
+            *[
+                cls._span(
+                    50 + shard,
+                    f"{T_SPAN_ONLY_BREAK}_{shard}",
+                    "error",
+                    ts=recent,
+                    run="1800",
                     branch="master",
                     job=f"backend:core:{shard}",
                 )
@@ -305,6 +320,16 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             f"'{stamp}', '{stamp}', '{stamp}', 0, '{service}', {attrs}, {resource})"
         )
 
+    def setUp(self) -> None:
+        super().setUp()
+        # Run 1700 failed across three jobs on GitHub; run 1800 passed. Only 1700 may drop evidence.
+        connect_github_jobs(
+            self,
+            prefix="flaky",
+            jobs=[(70 + shard, 1700, 1, "failure") for shard in (1, 2, 3)]
+            + [(80 + shard, 1800, 1, "success") for shard in (1, 2, 3)],
+        )
+
     def _get(self, **params: str) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/flaky_tests/", params)
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -317,7 +342,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         data = self._get()
 
         # The 2-PR test is below the bar; the out-of-window, foreign-service, other-repo, CI setup break,
-        # and outcome-less job-root spans must never qualify.
+        # and outcome-less job-root spans must never qualify. Run 1800 carries run 1700's shape without
+        # GitHub's failed jobs, so its tests keep their failures.
         assert {row["nodeid"] for row in data["items"]} == {
             T_RERUN_RECOVERY,
             T_STALE_REREPORT,
@@ -333,6 +359,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             T_NO_RUN_ID,
             T_JEST_RECOVERY,
             T_JEST_CROSS_LEG,
+            *(f"{T_SPAN_ONLY_BREAK}_{shard}" for shard in (1, 2, 3)),
         }
         assert data["truncated"] is False
         assert data["limit"] == 50

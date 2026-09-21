@@ -23,12 +23,17 @@ Failures with no recovery prove nothing about determinism. This surface answers 
 test costs us, so unproven failures are ranked by blast radius and never called flaky.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.workload import Workload
+
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.merge_queue import source_pr_string_expr
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import job_created_floor_constant
 
 # On a merge-queue gate run the emitter stamps ``ci.pr_number`` from the webhook payload, which names
 # the throwaway PR the queue opened rather than the PR being landed. Every blast-radius read here
@@ -104,7 +109,7 @@ _RUN_EVIDENCE = """
                 max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
                 max(span_timestamp) AS trial_at
             FROM (__SPAN_SCAN__)
-            WHERE (run_id, attempt) NOT IN (__SETUP_BREAK_RUN_ATTEMPTS__)
+            WHERE NOT has({setup_break_run_attempts}, (run_id, toString(attempt)))
             GROUP BY runner, nodeid, run_id, job_key, attempt
         )
         GROUP BY runner, nodeid, run_id, job_key
@@ -118,19 +123,27 @@ _RUN_EVIDENCE = """
 
 # A CI setup break errors tests in many jobs, or tests of many owning teams, in one run attempt. Those
 # errors describe the attempt, not any one test, so run_evidence() drops every trial of that attempt:
-# its failures are not failures of a test, and its passes are not recovery proof. The attempts come from
-# an IN set rather than a window function, so an incident-sized scan never sorts every span in memory.
-# The thresholds are placeholders, not literals, because callers render the evidence SQL at import time.
+# its failures are not failures of a test, and its passes are not recovery proof.
 SETUP_BREAK_MIN_JOBS = 3
 SETUP_BREAK_MIN_TEAMS = 3
 
-_SETUP_BREAK_RUN_ATTEMPTS = """
+# CI stamps every attribute the rule below reads, and the warehouse is the side of the pair the
+# emitter cannot write, so both must agree before any evidence is dropped.
+_SETUP_BREAK_CANDIDATES = """
     SELECT run_id, attempt
     FROM (__SPAN_SCAN__)
     WHERE outcome = 'error'
     GROUP BY run_id, attempt
     HAVING uniq(job_key) >= {setup_break_min_jobs}
         OR uniqIf(owner_team, owner_team != {unowned_team}) >= {setup_break_min_teams}
+"""
+
+_BROADLY_FAILED_ATTEMPTS = """
+    SELECT toString(run_id) AS run_id, run_attempt
+    FROM __JOBS_SOURCE__
+    WHERE run_id IN {candidate_run_ids}
+    GROUP BY run_id, run_attempt
+    HAVING uniqIf(name, conclusion = 'failure') >= {setup_break_min_jobs}
 """
 
 
@@ -140,11 +153,10 @@ def run_evidence(*, bounded: bool) -> str:
     Every consumer groups this, never the raw spans, so all of them count at the same grain and
     agree on what the signal means. See the module docstring for why the run is the grain.
 
-    ``bounded`` adds the upper time bound; some callers scan to now.
+    ``bounded`` adds the upper time bound; some callers scan to now. The caller binds
+    {setup_break_run_attempts} through ``scan_placeholders``, from ``query_setup_break_attempts``.
     """
-    return _RUN_EVIDENCE.replace("__SETUP_BREAK_RUN_ATTEMPTS__", _SETUP_BREAK_RUN_ATTEMPTS).replace(
-        "__SPAN_SCAN__", _scan(bounded=bounded)
-    )
+    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", _scan(bounded=bounded))
 
 
 def _scan(*, bounded: bool) -> str:
@@ -207,6 +219,7 @@ def scan_placeholders(
     date_from: datetime,
     scan_from: datetime | None = None,
     date_to: datetime | None = None,
+    setup_break_run_attempts: Sequence[tuple[str, int]] = (),
 ) -> dict[str, ast.Expr]:
     placeholders: dict[str, ast.Expr] = {
         "service_names": ast.Constant(value=CI_SERVICE_NAMES),
@@ -217,10 +230,67 @@ def scan_placeholders(
         "scan_from": ast.Constant(value=scan_from if scan_from is not None else date_from),
         "setup_break_min_jobs": ast.Constant(value=SETUP_BREAK_MIN_JOBS),
         "setup_break_min_teams": ast.Constant(value=SETUP_BREAK_MIN_TEAMS),
+        "setup_break_run_attempts": ast.Array(
+            exprs=[
+                ast.Tuple(exprs=[ast.Constant(value=run_id), ast.Constant(value=str(attempt))])
+                for run_id, attempt in setup_break_run_attempts
+            ]
+        ),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
     return placeholders
+
+
+def query_setup_break_attempts(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    scan_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> tuple[tuple[str, int], ...]:
+    """The ``(run_id, attempt)`` pairs whose CI setup broke, for ``scan_placeholders``.
+
+    Two sources have to agree. The spans name the attempts that look broken, and GitHub's synced job
+    rows say which of those really failed across jobs. An attempt GitHub does not report that way keeps
+    its trials, so no test's evidence rests on the span attributes alone.
+    """
+    jobs_source = curated.jobs_source(created_floor=True)
+    if not curated.repository or jobs_source is None:
+        return ()
+
+    window_start = scan_from if scan_from is not None else date_from
+    candidates = (
+        curated.run(
+            _SETUP_BREAK_CANDIDATES.replace("__SPAN_SCAN__", _scan(bounded=date_to is not None)),
+            query_type="engineering_analytics.setup_break_candidates",
+            placeholders=scan_placeholders(
+                repository=curated.repository, date_from=date_from, scan_from=scan_from, date_to=date_to
+            ),
+            workload=Workload.LOGS,
+        ).results
+        or []
+    )
+    # An unstamped span falls back to its trace ID, which names no GitHub run.
+    candidate_run_ids = {int(run_id) for run_id, _attempt in candidates if str(run_id).isdigit()}
+    if not candidate_run_ids:
+        return ()
+
+    confirmed = (
+        curated.run(
+            _BROADLY_FAILED_ATTEMPTS.replace("__JOBS_SOURCE__", jobs_source),
+            query_type="engineering_analytics.setup_break_confirmation",
+            placeholders={
+                "candidate_run_ids": ast.Constant(value=sorted(candidate_run_ids)),
+                "setup_break_min_jobs": ast.Constant(value=SETUP_BREAK_MIN_JOBS),
+                "job_created_floor": job_created_floor_constant(window_start),
+            },
+        ).results
+        or []
+    )
+    confirmed_attempts = {(str(run_id), int(attempt)) for run_id, attempt in confirmed}
+    candidate_attempts = {(str(run_id), int(attempt)) for run_id, attempt in candidates}
+    return tuple(sorted(candidate_attempts & confirmed_attempts))
 
 
 def rerun_recovered_job_attempts(*, scan_from: str) -> str:
