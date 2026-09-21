@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
+import { sessionFrameResponse } from '~/mocks/fixtures/sessionFrame'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
 
@@ -226,6 +227,16 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
         started_at: '2026-05-11T09:00:00Z',
         completed_at: '2026-05-11T09:01:00Z',
         created_at: '2026-05-11T09:00:00Z',
+        media: [
+            {
+                id: '00000000-0000-0000-0000-0000000000f1',
+                kind: 'thumbnail',
+                asset_id: 4001,
+                description: null,
+                video_start_ms: 24000,
+                video_end_ms: null,
+            },
+        ],
         ...overrides,
     }) as ReplayObservationApi
 
@@ -252,6 +263,8 @@ const observations = {
             scanner_result: null,
             recording_subject_email: null,
             distinct_id: null,
+            // A scan that never produced a result never rendered a frame either.
+            media: [],
         }),
         observation({
             id: '00000000-0000-0000-0000-0000000000b4',
@@ -602,6 +615,10 @@ const meta: Meta = {
                     evaluation_session_cap: 25,
                 },
                 '/api/projects/:team_id/vision/observations/:id/': observationDetail,
+                // Real bytes, so the poster in the table and on the detail page renders as a reader sees it.
+                '/api/projects/:team_id/vision/observations/:id/thumbnail/': () => sessionFrameResponse(),
+                '/api/projects/:team_id/vision/scanners/:scannerId/observations/:id/thumbnail/': () =>
+                    sessionFrameResponse(),
                 '/api/environments/:team_id/session_recordings/': { results: onDemandRecordings, has_next: false },
                 '/api/environments/:team_id/session_recordings/matching_events': { results: [] },
                 '/api/projects/:team_id/signals/scout/configs/': [],

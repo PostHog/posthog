@@ -14,9 +14,9 @@ import {
     filterEffortForModel,
     getEffortLabel,
     getEffortsForModel,
+    getHarnessLabel,
     getModelCost,
     getModelLabel,
-    getRuntimeAdapterLabel,
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModels'
@@ -24,7 +24,7 @@ import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schema
 
 import { type AIRunPreferenceDraft, taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
 
-const PI_HARNESS_LABEL = 'Pi'
+const PI_HARNESS_LABEL = getHarnessLabel(TaskRuntimeEnumApi.Pi)
 
 function PreferenceEditor({
     draft,
@@ -55,7 +55,7 @@ function PreferenceEditor({
     // Slack and PostHog Desktop drive today.
     const modelOptions = useMemo(() => {
         const groups = listRuntimeAdapters(catalogue).map((adapter) => ({
-            title: getRuntimeAdapterLabel(adapter),
+            title: getHarnessLabel(adapter),
             options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
                 value: choice.model,
                 label: choice.display_name,

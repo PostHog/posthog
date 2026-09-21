@@ -120,6 +120,25 @@ default_cookie_options = {
 
 cookie_api_paths_to_ignore = {"api", "flags", "scim"}
 
+# Both regions share the `posthog.com` domain, so a browser signed in to both carries both of
+# these, which is what lets the OAuth region picker tell one live region apart from two. The
+# `ph_*` cookies above cannot: they are one slot, last writer wins.
+REGION_AUTHENTICATED_COOKIES = {"US": "ph_authenticated_us", "EU": "ph_authenticated_eu"}
+
+
+def region_authenticated_cookie_name() -> str | None:
+    return REGION_AUTHENTICATED_COOKIES.get((settings.CLOUD_DEPLOYMENT or "").upper())
+
+
+def session_age_for_user(user: User) -> int:
+    org_id = user.current_organization_id
+    if org_id:
+        org_session_age = cache.get(f"org_session_age:{org_id}")
+        if org_session_age is not None:
+            return org_session_age
+    return settings.SESSION_COOKIE_AGE
+
+
 MANAGED_PROXY_SIGNATURE_MAX_AGE_SECONDS = 60
 MANAGED_PROXY_SIGNATURE_MAX_CLOCK_SKEW_SECONDS = 5
 
@@ -917,6 +936,11 @@ class PostHogTokenCookieMiddleware(MiddlewareMixin):
             # clears the cookies that were previously set, except for ph_current_instance as that is used for the website login button
             response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
+            # Unlike the two above, leaving this one behind would redirect the picker into a
+            # region the visitor just left.
+            region_cookie = region_authenticated_cookie_name()
+            if region_cookie:
+                response.delete_cookie(region_cookie, domain=default_cookie_options["domain"])
         if request.user and request.user.is_authenticated:
             if request.user.team:
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
@@ -954,6 +978,30 @@ class PostHogTokenCookieMiddleware(MiddlewareMixin):
                     secure=default_cookie_options["secure"],
                     samesite=default_cookie_options["samesite"],
                 )
+
+            region_cookie = region_authenticated_cookie_name()
+            session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+            if region_cookie and session_created_at:
+                # SessionAgeMiddleware ages a session from creation and never slides that
+                # deadline, so count down to the same instant rather than renew a window here.
+                remaining = int(session_created_at + session_age_for_user(request.user) - time.time())
+                if remaining > 0:
+                    response.set_cookie(
+                        key=region_cookie,
+                        value="1",
+                        max_age=remaining,
+                        expires=None,
+                        path=default_cookie_options["path"],
+                        domain=default_cookie_options["domain"],
+                        secure=default_cookie_options["secure"],
+                        # The oauth.posthog.com worker reads this from the request Cookie header,
+                        # so nothing in the browser needs it. HttpOnly keeps a script on any
+                        # sibling posthog.com origin from reading or overwriting it.
+                        httponly=True,
+                        # Strict, used above, is withheld on the cross-site top-level navigation
+                        # an OAuth client sends the visitor to oauth.posthog.com by.
+                        samesite="Lax",
+                    )
 
             auth_backend = request.session.get("_auth_user_backend")
             login_method = AUTH_BACKEND_KEYS.get(auth_backend)
@@ -996,14 +1044,7 @@ class SessionAgeMiddleware:
         # Get session creation time
         session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
         if session_created_at:
-            # Get timeout from Redis cache first, fallback to settings
-            org_id = request.user.current_organization_id
-            session_age = None
-            if org_id:
-                session_age = cache.get(f"org_session_age:{org_id}")
-
-            if session_age is None:
-                session_age = settings.SESSION_COOKIE_AGE
+            session_age = session_age_for_user(request.user)
 
             current_time = time.time()
             if current_time - session_created_at > session_age:

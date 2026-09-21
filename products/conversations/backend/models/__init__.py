@@ -1,5 +1,11 @@
 from .assignment import TicketAssignment
 from .constants import Channel, ChannelDetail, Priority, RuleType, Status
+from .delivery import (
+    ConversationDelivery,
+    ConversationDeliveryChannel,
+    ConversationDeliveryPart,
+    DeliverySnapshotTooLargeError,
+)
 from .email_channel_setup import EmailChannelSetup, EmailChannelSetupProvider
 from .email_message_mapping import EmailMessageMapping
 from .email_outbox_message import EmailOutboxMessage
@@ -29,9 +35,13 @@ from .zendesk_import_job import ZendeskImportJob
 __all__ = [
     "Channel",
     "ChannelDetail",
+    "ConversationDelivery",
+    "ConversationDeliveryChannel",
+    "ConversationDeliveryPart",
     "ConversationInboundEvent",
     "ConversationInboundEventSource",
     "ConversationRestoreToken",
+    "DeliverySnapshotTooLargeError",
     "EmailChannel",
     "EmailChannelConnectionStatus",
     "EmailChannelKind",
