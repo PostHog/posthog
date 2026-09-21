@@ -168,6 +168,12 @@ class GitHubRepoFiles:
             raise OwnershipUnavailable(too_large)
         body = bytearray()
         for chunk in response.iter_content(chunk_size=8192):
+            # The request timeout starts again on every chunk received, so a host that sends the body
+            # slowly enough holds this read for as long as the byte limit allows. _fetch_all stops
+            # waiting for a fetch at the deadline, so the fetch stops at the first chunk after it,
+            # which the request timeout puts within _TIMEOUT_SECONDS of the deadline.
+            if monotonic() > self._deadline:
+                raise OwnershipUnavailable(f"reading {path} from {self.repository} passed the resolution budget")
             body.extend(chunk)
             if len(body) > _MAX_FILE_BYTES:
                 raise OwnershipUnavailable(too_large)
@@ -281,17 +287,17 @@ def _fetch_all(fetch: Callable[[str], _T], paths: Iterable[str], deadline: float
     todo = list(dict.fromkeys(paths))
     if not todo:
         return {}
-    with ThreadPoolExecutor(max_workers=min(_FETCH_WORKERS, len(todo))) as pool:
+    pool = ThreadPoolExecutor(max_workers=min(_FETCH_WORKERS, len(todo)))
+    try:
         futures = {path: pool.submit(fetch, path) for path in todo}
-        try:
-            return {path: future.result(max(deadline - monotonic(), 0)) for path, future in futures.items()}
-        except TimeoutError as e:
-            pool.shutdown(cancel_futures=True)
-            raise OwnershipUnavailable(f"ownership took longer than {_RESOLVE_BUDGET_SECONDS}s") from e
-        except Exception:
-            # The batch is already lost, so drop the rest instead of holding the request thread.
-            pool.shutdown(cancel_futures=True)
-            raise
+        return {path: future.result(max(deadline - monotonic(), 0)) for path, future in futures.items()}
+    except TimeoutError as e:
+        raise OwnershipUnavailable(f"ownership took longer than {_RESOLVE_BUDGET_SECONDS}s") from e
+    finally:
+        # Not a `with` block: its exit waits for every running fetch, which holds the request thread
+        # past the deadline. A lost batch drops the queued fetches and leaves the running ones to
+        # stop at the same deadline on their own, which the read in _capped_text enforces.
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _candidate_paths(test: QuarantinedTestFile) -> list[str]:
