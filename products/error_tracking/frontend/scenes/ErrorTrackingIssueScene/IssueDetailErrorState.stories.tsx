@@ -30,6 +30,9 @@ export const Failed: Story = {
 }
 
 export const Retrying: Story = {
+    // The button stays in its loading state for the life of the story, so the runner's default wait
+    // for every loader to disappear can never be satisfied.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     render: () => (
         <Pane>
             <IssueDetailErrorState loading onRetry={() => {}} />

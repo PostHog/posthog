@@ -16,8 +16,10 @@ from __future__ import annotations
 import logging
 from argparse import ArgumentParser
 from typing import Any
+from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.db.models import TextField
 from django.db.models.functions import Cast
 
@@ -95,6 +97,23 @@ def rewrite_inputs(destination: HogFunction) -> tuple[dict[str, Any] | None, str
     return (rewritten, None) if changed else (None, None)
 
 
+def rewrite_locked(destination_id: UUID) -> tuple[bool, str | None]:
+    """Re-read one destination under a row lock, then rewrite and save it. Returns whether it
+    changed, and the compiler error when one input cannot be recompiled. The save writes the whole
+    inputs JSON back, so without the lock a destination edit that commits between the scan and this
+    write would be overwritten by the values the scan read."""
+    with transaction.atomic():
+        destination = HogFunction.objects.select_for_update().filter(id=destination_id).first()
+        if destination is None:
+            return False, None
+        rewritten, error = rewrite_inputs(destination)
+        if error is not None or rewritten is None:
+            return False, error
+        destination.inputs = rewritten
+        destination.save(update_fields=["inputs", "updated_at"])
+        return True, None
+
+
 class Command(BaseCommand):
     help = "URL-encode the exception timestamp in error tracking alert deep links on existing destinations."
 
@@ -138,16 +157,15 @@ class Command(BaseCommand):
         for batch_start in range(0, len(matching_ids), batch_size):
             batch = matching_ids[batch_start : batch_start + batch_size]
             for destination in HogFunction.objects.filter(id__in=batch):
-                rewritten_inputs, error = rewrite_inputs(destination)
+                if live_run:
+                    changed, error = rewrite_locked(destination.id)
+                else:
+                    rewritten_inputs, error = rewrite_inputs(destination)
+                    changed = error is None and rewritten_inputs is not None
                 if error is not None:
                     failed.append((str(destination.id), destination.team_id, error))
-                    continue
-                if rewritten_inputs is None:
-                    continue
-                updated += 1
-                if live_run:
-                    destination.inputs = rewritten_inputs
-                    destination.save(update_fields=["inputs", "updated_at"])
+                elif changed:
+                    updated += 1
 
         logger.info(
             "alert_link_encoding_backfill_complete",
