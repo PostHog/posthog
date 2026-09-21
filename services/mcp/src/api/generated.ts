@@ -7233,9 +7233,11 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingExternalReference {
+      external_id: string;
       external_url: string;
       id: string;
       integration: ErrorTrackingExternalReferenceIntegration;
+      title: string;
     }
 
     export interface FirstEvent {
@@ -34488,6 +34490,10 @@ export namespace Schemas {
       readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
       /** URL of the linked external issue in the provider's system. */
       readonly external_url: string;
+      /** Provider-native identifier of the linked issue. */
+      readonly external_id: string;
+      /** Title of the linked issue. */
+      readonly title: string;
       /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
       integration_id: number;
       /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
@@ -34497,7 +34503,7 @@ export namespace Schemas {
     }
 
     /**
-     * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
      */
     export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
 
@@ -34506,7 +34512,7 @@ export namespace Schemas {
       integration_id: number;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
-      /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
       external_context: ErrorTrackingExternalReferenceLinkExternalContext;
     }
 
@@ -34520,6 +34526,10 @@ export namespace Schemas {
       readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
       /** URL of the linked external issue in the provider's system. */
       readonly external_url: string;
+      /** Provider-native identifier of the linked issue. */
+      readonly external_id: string;
+      /** Title of the linked issue. */
+      readonly title: string;
     }
 
     export interface ErrorTrackingFingerprint {
@@ -49038,7 +49048,7 @@ export namespace Schemas {
       kind?: 'MCPToolCallBreakdownQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCallBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49082,7 +49092,7 @@ export namespace Schemas {
       kind?: 'MCPToolCallsAndErrorsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCallsAndErrorsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49126,7 +49136,7 @@ export namespace Schemas {
       kind?: 'MCPHarnessBreakdownQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPHarnessBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
@@ -49176,7 +49186,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Number of individual models to skip when includeAllModels is enabled. */
       offset?: number | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPModelBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49490,6 +49500,7 @@ export namespace Schemas {
       /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
       categories?: string[] | null;
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolQualityRowsQuery';
       /** Page size. The server defaults to 50 and caps this at 100. */
       limit?: number | null;
@@ -49497,6 +49508,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Number of matching tools to skip. */
       offset?: number | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolQualityRowsQueryResponse | null;
       /** Case-insensitive substring search on the effective tool name. */
       search?: string | null;
@@ -49544,11 +49556,13 @@ export namespace Schemas {
       /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
       categories?: string[] | null;
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
       interval?: IntervalType | null;
       kind?: 'MCPToolQualityDailyStatsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolQualityDailyStatsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** Restrict to a single $mcp_tool_name; omitted means the aggregate across all tools. */
@@ -49586,9 +49600,11 @@ export namespace Schemas {
 
     export interface MCPToolCategoryCountsQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolCategoryCountsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCategoryCountsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49623,9 +49639,11 @@ export namespace Schemas {
 
     export interface MCPToolCategoriesQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolCategoriesQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCategoriesQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -57635,6 +57653,8 @@ export namespace Schemas {
       readonly label: ReplayObservationLabel | null;
       /** Whether the calling user has opened this observation. */
       readonly viewed: boolean;
+      /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
+      readonly summary_line: string;
       /** @nullable */
       started_at?: string | null;
       /** @nullable */
@@ -83636,6 +83656,8 @@ export namespace Schemas {
          */
       readonly source_id: string | null;
       readonly created_at: string;
+      /** When this config last changed: an edit through this API, or a status change the system made such as an automatic pause. A scheduled run does not bump it — the coordinator stamps `last_run_at` with a direct write — so this reads as when the scout was last tuned rather than when it last ran. */
+      readonly updated_at: string;
     }
 
     /**
@@ -101622,13 +101644,21 @@ export namespace Schemas {
     filters_override?: string;
     format?: DashboardsRunInsightsRetrieveFormat;
     /**
-     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     * Per-tile character budget for 'optimized' output, truncation marker included. A longer table keeps its header and both ends, and names how many rows were dropped from the middle. Defaults to 2000; pass 0 for the whole table, or 200 or more, since a smaller budget cannot carry the marker. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run.
+     */
+    max_result_chars?: number;
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight, bounded by max_result_chars. 'json' returns the raw query result objects, unbounded.
      */
     output_format?: DashboardsRunInsightsRetrieveOutputFormat;
     /**
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh;
+    /**
+     * Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.
+     */
+    tile_ids?: string;
     /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
@@ -103122,7 +103152,7 @@ export namespace Schemas {
      */
     repository?: string;
     /**
-     * Text to match against existing issue titles / keys in the provider. GitHub matches it as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
      */
     search?: string;
     };

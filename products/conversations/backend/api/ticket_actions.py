@@ -509,24 +509,28 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
             # to the workflow that made the change.
             with ActivityTriggerContext(workflow_trigger):
                 if tags_mode == "remove":
-                    for tagged_item in ticket.tagged_items.filter(tag__name__in=normalized_tags).select_related(
-                        "tag__team", "ticket"
+                    for tagged_item in (
+                        ticket.tagged_items.filter(tag__name__in=normalized_tags)
+                        .select_related("tag__team", "ticket")
+                        .prefetch_related("uuid_object")
                     ):
                         tagged_item.delete()
                     Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
                 elif tags_mode == "set":
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
-                    for tagged_item in ticket.tagged_items.exclude(tag__name__in=normalized_tags).select_related(
-                        "tag__team", "ticket"
+                        ticket.tagged_items.get_or_create(tag=tag_instance)
+                    for tagged_item in (
+                        ticket.tagged_items.exclude(tag__name__in=normalized_tags)
+                        .select_related("tag__team", "ticket")
+                        .prefetch_related("uuid_object")
                     ):
                         tagged_item.delete()
                     Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
                 else:
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                        ticket.tagged_items.get_or_create(tag=tag_instance)
         except Exception as e:
             capture_exception(e, {"ticket_id": str(ticket.id)})
             return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)
