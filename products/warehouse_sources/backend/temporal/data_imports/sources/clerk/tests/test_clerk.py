@@ -526,6 +526,12 @@ class TestClerkFeatureGatedEndpoints:
             ("domains", 404, {"errors": [{"code": "resource_not_found"}]}),
             # Organizations off: the invitations list answers the same 404 resource_not_found.
             ("organization_invitations", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Organizations off: every other instance-wide Organizations list answers it too.
+            ("organizations", 404, {"errors": [{"code": "resource_not_found"}]}),
+            ("organization_memberships", 404, {"errors": [{"code": "resource_not_found"}]}),
+            ("organization_domains", 404, {"errors": [{"code": "resource_not_found"}]}),
+            ("organization_roles", 404, {"errors": [{"code": "resource_not_found"}]}),
+            ("organization_permissions", 404, {"errors": [{"code": "resource_not_found"}]}),
             # Invitations unavailable: the list answers the same 404 resource_not_found.
             ("invitations", 404, {"errors": [{"code": "resource_not_found"}]}),
             # SMS off: the SMS template list answers the same 404 resource_not_found.
