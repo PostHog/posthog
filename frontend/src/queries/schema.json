@@ -22533,6 +22533,9 @@
         "ErrorTrackingExternalReference": {
             "additionalProperties": false,
             "properties": {
+                "external_id": {
+                    "type": "string"
+                },
                 "external_url": {
                     "type": "string"
                 },
@@ -22541,9 +22544,12 @@
                 },
                 "integration": {
                     "$ref": "#/definitions/ErrorTrackingExternalReferenceIntegration"
+                },
+                "title": {
+                    "type": "string"
                 }
             },
-            "required": ["id", "external_url", "integration"],
+            "required": ["id", "external_url", "external_id", "title", "integration"],
             "type": "object"
         },
         "ErrorTrackingExternalReferenceIntegration": {
@@ -24633,7 +24639,11 @@
                 },
                 "conversion_window": {
                     "$ref": "#/definitions/integer",
-                    "description": "Conversion window duration."
+                    "description": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
+                    "description": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
                 },
                 "denominator": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
@@ -24642,6 +24652,10 @@
                 "denominator_outlier_handling": {
                     "$ref": "#/definitions/ExperimentMetricOutlierHandling",
                     "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                },
+                "funnel_order_type": {
+                    "$ref": "#/definitions/StepOrderValue",
+                    "description": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                 },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal",
@@ -31544,6 +31558,19 @@
             "required": ["type"],
             "type": "object"
         },
+        "MCPAnalyticsPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                }
+            ]
+        },
         "MCPHarnessBreakdownItem": {
             "additionalProperties": false,
             "description": "One row of the MCP harness (client) breakdown: a resolved customer label and its activity.",
@@ -31588,7 +31615,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -31864,7 +31891,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -31993,7 +32020,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32118,7 +32145,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32208,6 +32235,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolCategoriesQuery",
                     "type": "string"
@@ -32215,6 +32245,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolCategoriesQueryResponse"
@@ -32316,6 +32352,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolCategoryCountsQuery",
                     "type": "string"
@@ -32323,6 +32362,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolCategoryCountsQueryResponse"
@@ -33201,6 +33246,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."
@@ -33212,6 +33260,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityDailyStatsQueryResponse"
@@ -33363,6 +33417,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolQualityRowsQuery",
                     "type": "string"
@@ -33378,6 +33435,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of matching tools to skip."
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityRowsQueryResponse"

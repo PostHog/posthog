@@ -1,3 +1,4 @@
+import type { FeedbackSubmissionInput } from "@posthog/platform/feedback-context";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,7 +26,8 @@ import { FeedbackModal, type FeedbackModalMode } from "./FeedbackModal";
 
 const readRecentLogs = vi.fn<() => Promise<string | null>>();
 const captureScreenshot = vi.fn<() => Promise<string | null>>();
-const submitFeedback = vi.fn<() => Promise<void>>();
+const submitFeedback =
+  vi.fn<(input: FeedbackSubmissionInput) => Promise<void>>();
 
 async function renderModal(
   mode: FeedbackModalMode | null,
@@ -94,6 +96,42 @@ describe("FeedbackModal", () => {
   });
 
   it.each([
+    { label: "Bug", value: "bug" },
+    { label: "Feature", value: "feature" },
+    { label: "General", value: "general" },
+  ])("sends the selected $label feedback type", async ({ label, value }) => {
+    const user = userEvent.setup();
+    await renderModal("feedback");
+    const selector = screen.getByRole("combobox", { name: "Feedback type" });
+    expect(screen.getByLabelText("Feedback type")).toBe(selector);
+    expect(selector).toHaveTextContent("General");
+    await user.click(selector);
+    await user.click(screen.getByRole("option", { name: label }));
+    await user.type(
+      screen.getByPlaceholderText("What happened, and what did you expect?"),
+      "Example feedback",
+    );
+    await user.click(screen.getByRole("button", { name: "Send feedback" }));
+    expect(submitFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ feedbackType: value }),
+    );
+  });
+
+  it("does not ask for a type before opening PostHog web", async () => {
+    const user = userEvent.setup();
+    await renderModal("posthog-web");
+    expect(
+      screen.queryByRole("combobox", { name: "Feedback type" }),
+    ).not.toBeInTheDocument();
+    await user.type(
+      screen.getByPlaceholderText("What are you looking for in PostHog web?"),
+      "Example feedback",
+    );
+    await user.click(screen.getByRole("button", { name: "Send feedback" }));
+    expect(submitFeedback.mock.calls[0][0]).not.toHaveProperty("feedbackType");
+  });
+
+  it.each([
     { mode: "posthog-web" as const, expected: "Skip", missing: "Cancel" },
     { mode: "feedback" as const, expected: "Cancel", missing: "Skip" },
   ])(
@@ -145,6 +183,7 @@ describe("FeedbackModal", () => {
     expect(submitFeedback).toHaveBeenCalledWith({
       response: "improve search",
       source: "Generic (Leave feedback button)",
+      feedbackType: "general",
       feedbackView: "task-detail",
       feedbackTaskId: "task-123",
       sessionId: "00000000-0000-0000-0000-000000000001",
