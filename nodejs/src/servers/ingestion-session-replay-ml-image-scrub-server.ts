@@ -62,9 +62,14 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
             await this.keyManager.start()
         }
         const s3Client = requireS3Client(buildSessionRecordingS3Client(this.config))
+        if (!this.config.AI_RESEARCH_REPLAY_S3_BUCKET) {
+            throw new Error(
+                'AI_RESEARCH_REPLAY_S3_BUCKET must be set: images of months after the v3 cutoff write there'
+            )
+        }
         const store = new ImageShardStore(
             s3Client,
-            this.config.SESSION_RECORDING_V2_S3_BUCKET,
+            { v2: this.config.SESSION_RECORDING_V2_S3_BUCKET, v3: this.config.AI_RESEARCH_REPLAY_S3_BUCKET },
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX,
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS
         )
