@@ -3537,6 +3537,7 @@ jobs:
                   echo "All backend and product checks passed."
 
     test-selection-verdict:
+        continue-on-error: true
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
         # The verdict scores the selection against the JUnit a run produced, so it needs

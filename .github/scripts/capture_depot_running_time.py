@@ -129,7 +129,7 @@ def build_events(
         event(
             EVENT,
             {
-                "duration_seconds": math.floor((now - parse_time(started_at)).total_seconds()),
+                "duration_seconds": max(0, math.floor((now - parse_time(started_at)).total_seconds())),
                 "url": url,
                 "attempt": attempt,
                 "started_at": started_at,

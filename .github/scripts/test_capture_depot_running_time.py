@@ -88,6 +88,19 @@ def test_builds_run_and_job_events_from_this_workflow_only() -> None:
     ]
 
 
+def test_clamps_workflow_duration_when_started_at_is_in_the_future() -> None:
+    events = capture.build_events(
+        [check_run(1, "wf1", OWN_JOB, "2026-09-18T15:31:00Z")],
+        OWN_JOB,
+        CONTEXT,
+        "success",
+        1,
+        NOW,
+    )
+
+    assert events[0]["properties"]["duration_seconds"] == 0
+
+
 @pytest.mark.parametrize(
     "check_runs",
     [
