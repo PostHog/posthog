@@ -29,7 +29,6 @@ export function DeleteUserModal({
     const { organizationToDelete, blockingOrganizations, hasPendingOrganizationDeletion, deleteAccountDisabledReason } =
         useValues(userDangerZoneLogic)
     const { leaveOrganization, setOrganizationToDelete, setIsUserDeletionConfirmed } = useActions(userDangerZoneLogic)
-    const organizations = blockingOrganizations
     const { keys } = useValues(personalAPIKeysLogic)
     const { loadKeys } = useActions(personalAPIKeysLogic)
 
@@ -53,7 +52,7 @@ export function DeleteUserModal({
                         </LemonButton>
                         <LemonButton
                             type="secondary"
-                            disabledReason={deleteAccountDisabledReason ?? undefined}
+                            disabledReason={deleteAccountDisabledReason}
                             loading={userLoading}
                             data-attr="delete-user-ok"
                             status="danger"
@@ -65,7 +64,7 @@ export function DeleteUserModal({
                 }
                 isOpen={isOpen}
             >
-                {organizations.length > 0 && (
+                {blockingOrganizations.length > 0 && (
                     <>
                         <p className="text-danger font-semibold">
                             {hasPendingOrganizationDeletion
@@ -73,7 +72,7 @@ export function DeleteUserModal({
                                 : 'You must leave or delete all organizations before deleting your account.'}
                         </p>
                         <LemonTable
-                            dataSource={organizations}
+                            dataSource={blockingOrganizations}
                             size="small"
                             columns={[
                                 {
@@ -158,7 +157,7 @@ export function DeleteUserModal({
                         />
                     </>
                 )}
-                {organizations.length === 0 && (
+                {blockingOrganizations.length === 0 && (
                     <>
                         <p>
                             Account deletion <b>cannot be undone</b>. You will lose all your data permanently.
