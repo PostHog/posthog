@@ -7,7 +7,6 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
-import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { StatCard } from '../components/StatCard'
@@ -70,7 +69,13 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
     ]
 
     if (trunkQuarantineStatus === 'error') {
-        return <CIAnalyticsLoadError onRetry={loadTrunkQuarantine} />
+        return (
+            <CIAnalyticsLoadError
+                onRetry={loadTrunkQuarantine}
+                title="Couldn't load Trunk quarantine data"
+                description="Loading quarantined tests from Trunk failed. Retry, or check the Trunk source's sync status."
+            />
+        )
     }
     if (trunkQuarantineStatus === 'notConnected' || (trunkQuarantine && !trunkQuarantine.available)) {
         return (
@@ -171,16 +176,6 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
 }
 
 export function EngineeringAnalyticsTestHealth(): JSX.Element {
-    const { quarantineStatus } = useValues(engineeringAnalyticsLogic)
-    const { loadQuarantine } = useActions(engineeringAnalyticsLogic)
-
-    if (quarantineStatus === 'notConnected') {
-        return <ConnectGitHubSource />
-    }
-    if (quarantineStatus === 'error') {
-        return <CIAnalyticsLoadError onRetry={loadQuarantine} />
-    }
-
     return (
         <div className="flex flex-col gap-8">
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />

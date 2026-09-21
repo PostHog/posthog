@@ -6,6 +6,7 @@ import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog
 import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
+import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { CountCell } from '../components/CountCell'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
@@ -20,7 +21,7 @@ function detailUrlOf(ownerTeam: string, sourceId: string | null): string {
 }
 
 export function EngineeringAnalyticsTeams(): JSX.Element {
-    const { teams, teamsFailed, teamsLoading, sourceId } = useValues(teamsLogic)
+    const { teams, teamsFailed, teamsLoading, teamsNotConnected, sourceId } = useValues(teamsLogic)
     const { loadTeams } = useActions(teamsLogic)
 
     const columns: LemonTableColumns<TeamCIHealthRow> = [
@@ -82,6 +83,10 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             render: (_, row) => <CountCell value={row.regressionTestCount} />,
         },
     ]
+
+    if (teamsNotConnected) {
+        return <ConnectGitHubSource />
+    }
 
     return (
         <div className="flex flex-col gap-4">

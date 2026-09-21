@@ -60,7 +60,7 @@ export function DeliveryPipeline({
     mergeToDeploy: MergeToDeployLeg | null
     loading?: boolean
 }): JSX.Element {
-    if (!pipeline) {
+    if (!pipeline && mergeToDeploy?.medianSeconds == null) {
         return (
             <LemonCard hoverEffect={false} className="flex h-full flex-col gap-3 p-3">
                 {[0, 1, 2].map((row) => (
@@ -69,7 +69,7 @@ export function DeliveryPipeline({
             </LemonCard>
         )
     }
-    const legs: RenderedLeg[] = pipeline.stages
+    const legs: RenderedLeg[] = (pipeline?.stages ?? [])
         .filter((leg) => leg.median_seconds != null)
         .map((leg) => ({
             key: leg.stage,
@@ -91,7 +91,7 @@ export function DeliveryPipeline({
     if (legs.length === 0) {
         return (
             <LemonCard hoverEffect={false} className="flex h-full items-center p-4 text-xs text-secondary">
-                {pipeline.merged_pr_count === 0
+                {pipeline?.merged_pr_count === 0
                     ? 'Nothing merged in the window.'
                     : 'No merged PR in the window has a measurable step yet.'}
             </LemonCard>

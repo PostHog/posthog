@@ -43,8 +43,16 @@ export function RepoOverviewScene(): JSX.Element {
         prPreviewCount,
         workflowPreviewCount,
     } = useValues(repoOverviewLogic)
-    const { pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, activeSource } =
-        useValues(engineeringAnalyticsLogic)
+    const {
+        pullRequestsLoading,
+        pullRequestsStatus,
+        workflowHealth,
+        workflowHealthLoadError,
+        workflowHealthLoading,
+        sourceId,
+        activeSource,
+    } = useValues(engineeringAnalyticsLogic)
+    const { loadPullRequests, loadWorkflowHealth } = useActions(engineeringAnalyticsLogic)
     const { loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
 
@@ -197,39 +205,43 @@ export function RepoOverviewScene(): JSX.Element {
                         ) : undefined
                     }
                 >
-                    <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                        <WorkflowHealthTable
-                            rows={shownWorkflows}
-                            loading={workflowHealthLoading}
-                            sourceId={sourceId}
-                            showCost={jobsAvailable}
-                            embedded
-                            compact
-                            pageSize={HUB_PREVIEW_MAX}
-                            emptyState="No workflow runs in the window."
-                        />
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                            <span>
-                                Showing top {shownWorkflows.length} of {workflowHealth.length} workflows
-                            </span>
-                            <div className="flex items-center gap-3">
-                                {canShowMoreWorkflows && (
-                                    <LemonButton size="xsmall" onClick={showMoreWorkflows}>
-                                        Show more
-                                    </LemonButton>
-                                )}
-                                <Link
-                                    to={
-                                        // A bare link would reset the shared window / run scope / repo (the filters
-                                        // logic re-hydrates from the URL on every route), so carry it, plus the source.
-                                        withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
-                                    }
-                                >
-                                    View all →
-                                </Link>
+                    {workflowHealthLoadError ? (
+                        <CIAnalyticsLoadError onRetry={loadWorkflowHealth} loading={workflowHealthLoading} />
+                    ) : (
+                        <LemonCard hoverEffect={false} className="overflow-hidden p-0">
+                            <WorkflowHealthTable
+                                rows={shownWorkflows}
+                                loading={workflowHealthLoading}
+                                sourceId={sourceId}
+                                showCost={jobsAvailable}
+                                embedded
+                                compact
+                                pageSize={HUB_PREVIEW_MAX}
+                                emptyState="No workflow runs in the window."
+                            />
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                                <span>
+                                    Showing top {shownWorkflows.length} of {workflowHealth.length} workflows
+                                </span>
+                                <div className="flex items-center gap-3">
+                                    {canShowMoreWorkflows && (
+                                        <LemonButton size="xsmall" onClick={showMoreWorkflows}>
+                                            Show more
+                                        </LemonButton>
+                                    )}
+                                    <Link
+                                        to={
+                                            // A bare link would reset the shared window / run scope / repo (the filters
+                                            // logic re-hydrates from the URL on every route), so carry it, plus the source.
+                                            withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
+                                        }
+                                    >
+                                        View all →
+                                    </Link>
+                                </div>
                             </div>
-                        </div>
-                    </LemonCard>
+                        </LemonCard>
+                    )}
                 </Section>
             </ScopePanel>
 
@@ -238,32 +250,37 @@ export function RepoOverviewScene(): JSX.Element {
                 title="Pull requests needing attention"
                 note="Current open backlog. Not affected by the date range."
             >
-                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                    <PullRequestTable
-                        rows={shownPrs}
-                        loading={pullRequestsLoading}
-                        sourceId={sourceId}
-                        embedded
-                        pageSize={HUB_PREVIEW_MAX}
-                        emptyState="Nothing failing or stuck in the open backlog."
-                        dataAttr="engineering-analytics-attention-prs"
-                    />
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                        <span>
-                            Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing attention
-                        </span>
-                        <div className="flex items-center gap-3">
-                            {canShowMorePrs && (
-                                <LemonButton size="xsmall" onClick={showMorePrs}>
-                                    Show more
-                                </LemonButton>
-                            )}
-                            <Link to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
-                                View all →
-                            </Link>
+                {pullRequestsStatus === 'error' ? (
+                    <CIAnalyticsLoadError onRetry={loadPullRequests} loading={pullRequestsLoading} />
+                ) : (
+                    <LemonCard hoverEffect={false} className="overflow-hidden p-0">
+                        <PullRequestTable
+                            rows={shownPrs}
+                            loading={pullRequestsLoading}
+                            sourceId={sourceId}
+                            embedded
+                            pageSize={HUB_PREVIEW_MAX}
+                            emptyState="Nothing failing or stuck in the open backlog."
+                            dataAttr="engineering-analytics-attention-prs"
+                        />
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                            <span>
+                                Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing
+                                attention
+                            </span>
+                            <div className="flex items-center gap-3">
+                                {canShowMorePrs && (
+                                    <LemonButton size="xsmall" onClick={showMorePrs}>
+                                        Show more
+                                    </LemonButton>
+                                )}
+                                <Link to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                                    View all →
+                                </Link>
+                            </div>
                         </div>
-                    </div>
-                </LemonCard>
+                    </LemonCard>
+                )}
             </Section>
         </div>
     )
