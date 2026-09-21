@@ -181,7 +181,7 @@ class FetchPRDataInput:
     review_mode: str = REVIEW_MODE_FULL
 
 
-@dataclass
+@dataclass(frozen=False)
 class ReviewMeta:
     """Small fetch result the parent threads through the rest of the run (no big payloads)."""
 
@@ -230,7 +230,7 @@ class ResolveActingUserInput:
     default_user_id: int | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class ResolveActingUserResult:
     # The user whose enabled perspectives drive this review; None when nothing in the resolution
     # chain maps to a PostHog org user — the parent then skips the review.
