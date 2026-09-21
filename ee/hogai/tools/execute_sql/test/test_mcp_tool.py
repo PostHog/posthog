@@ -104,8 +104,8 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("variadic_greatest", "SELECT greatest(1, 2, 3) FROM events", "greatest(a, greatest(b, c))"),
-            ("variadic_least", "SELECT least(1, 2, 3) FROM events", "least(a, least(b, c))"),
+            ("variadic_greatest", "SELECT greatest(1, 2, 3) FROM events", "greatest(x1, greatest(x2, x3))"),
+            ("variadic_least", "SELECT least(1, 2, 3) FROM events", "least(x1, least(x2, x3))"),
             ("like_escape", r"SELECT 1 FROM events WHERE event LIKE '%\_x%'", "position("),
             ("width_suffixed_cast", "SELECT CAST(1 AS Float64) FROM events", "CAST(x AS Float)"),
         ]

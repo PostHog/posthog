@@ -43,6 +43,7 @@ from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.warehouse import serialize_database_schema
 
 from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
+from .errors import hogql_validation_message
 from .prompts import (
     HOGQL_GENERATOR_SYSTEM_PROMPT,
     SQL_EXPRESSIONS_DOCS,
@@ -89,26 +90,6 @@ class HogQLDatabaseMixin:
     async def _serialize_database_schema(self):
         database = await self._aget_database()
         return await serialize_database_schema(database, self._get_default_hogql_context(database))
-
-
-# A parser message plus the fragment it points at is enough to locate the bad construct without
-# echoing the whole query back, which for a long query buries the one part that needs rewriting.
-_MAX_SYNTAX_DETAIL_CHARS = 200
-_MAX_SYNTAX_FRAGMENT_CHARS = 60
-
-
-def describe_syntax_error(detail: str, query: str, start: int | None, end: int | None) -> str:
-    """Turn a terse parser message into one that names the construct that failed."""
-    clipped = _clip(detail, _MAX_SYNTAX_DETAIL_CHARS).rstrip(".")
-    message = f"HogQL parsing error: this query isn't valid HogQL. Parser detail: {clipped}."
-    if start is None or end is None or not 0 <= start < end <= len(query):
-        return message
-    fragment = _clip(query[start:end].strip(), _MAX_SYNTAX_FRAGMENT_CHARS)
-    return f"{message} The query failed at character {start}, near: {fragment}" if fragment else message
-
-
-def _clip(text: str, limit: int) -> str:
-    return f"{text[:limit]}…" if len(text) > limit else text
 
 
 class HogQLOutputParserMixin(HogQLDatabaseMixin):
@@ -207,24 +188,9 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
 
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
-            err_msg = str(err)
-            # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
-            # terse low-level error wording on syntax failures ("no viable alternative…",
-            # "trailing tokens after expression…", "unexpected token in expression…",
-            # "mismatched input … expecting …"). Lead with a human/LLM-friendly sentence, but keep
-            # the terse detail and the offending fragment after it — alone they read as parser
-            # internals, and without them the caller cannot tell which construct was rejected, so
-            # it retries the same query instead of rewriting the one bad part.
-            if err_msg.startswith(
-                (
-                    "no viable alternative",
-                    "trailing tokens after expression",
-                    "unexpected token in expression",
-                    "mismatched input",
-                )
-            ):
-                err_msg = describe_syntax_error(err_msg, cleaned_query, err.start, err.end)
-            raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
+            raise PydanticOutputParserException(
+                llm_output=cleaned_query, validation_message=hogql_validation_message(err, cleaned_query)
+            )
 
         return AssistantHogQLQuery(query=cleaned_query)
 

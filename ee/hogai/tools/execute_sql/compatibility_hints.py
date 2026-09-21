@@ -9,16 +9,34 @@ instead. Each rule below adds the one accepted rewrite for a failure we see repe
 
 import re
 
-# ClickHouse takes any number of arguments for these; HogQL caps both at 2 (see `mapping.py`), and
-# nesting is exact rather than approximate because both are associative.
+# ClickHouse takes any number of arguments for these; HogQL caps both at 2, and nesting is exact
+# rather than approximate because both are associative. `test_nesting_rewrite_is_actually_accepted`
+# pins the cap against the validator, so lifting it in `mapping.py` fails a test rather than leaving
+# this advice quietly wrong.
 NESTABLE_BINARY_FUNCTIONS = ("greatest", "least")
 
 # The type names `visit_type_cast` accepts, one per target type. Anything else — including every
 # width-suffixed ClickHouse spelling such as `Float64` — is rejected.
 ACCEPTED_CAST_TYPES = ("Int", "Float", "String", "Boolean", "Date", "DateTime")
 
-# ClickHouse width and nullability decorations that carry no meaning for a HogQL cast.
-_CAST_DECORATION_RE = re.compile(r"^(?:nullable|lowcardinality)\((.*)\)$|^u?([a-z]+?)\d*$")
+# ClickHouse spellings mapped onto the accepted name, longest prefix first so `datetime64` resolves
+# to DateTime and `date32` to Date. Matching a caller's spelling against this list beats deriving it
+# from ACCEPTED_CAST_TYPES, which cannot tell `date32` from an abbreviation of `datetime`.
+_CAST_TYPE_PREFIXES = (
+    ("datetime", "DateTime"),
+    ("timestamp", "DateTime"),
+    ("date", "Date"),
+    ("string", "String"),
+    ("float", "Float"),
+    ("decimal", "Float"),
+    ("double", "Float"),
+    ("bool", "Boolean"),
+    ("int", "Int"),
+)
+
+# ClickHouse decorations that carry no meaning for a HogQL cast.
+_CAST_WRAPPER_RE = re.compile(r"^(?:nullable|lowcardinality)\((.*)\)$")
+_CAST_WIDTH_RE = re.compile(r"^u?(.+?)\d*$")
 
 _TOO_MANY_ARGS_RE = re.compile(r"Function '(\w+)' expects (\d+) arguments?, found (\d+)")
 _BAD_ESCAPE_RE = re.compile(r"unrecognised escape '\\(.)'")
@@ -26,39 +44,35 @@ _BAD_CAST_RE = re.compile(r"Unsupported type cast to '([^']{1,40})'")
 
 
 def _nested_call(name: str, arity: int) -> str:
-    """Render the accepted nesting for an over-arity call, e.g. `greatest(a, greatest(b, c))`."""
-    args = [chr(ord("a") + i) for i in range(arity)]
-    call = args[-1]
-    for arg in reversed(args[:-1]):
-        call = f"{name}({arg}, {call})"
+    """Render the accepted nesting for an over-arity call, e.g. `greatest(x1, greatest(x2, x3))`."""
+    call = f"x{arity}"
+    for position in range(arity - 1, 0, -1):
+        call = f"{name}(x{position}, {call})"
     return call
 
 
 def suggest_cast_type(type_name: str) -> str | None:
     """Map a rejected ClickHouse cast type name onto the HogQL spelling, if one matches."""
-    match = _CAST_DECORATION_RE.match(type_name.strip().lower())
-    if match is None:
+    normalized = type_name.strip().lower()
+    if wrapper := _CAST_WRAPPER_RE.match(normalized):
+        return suggest_cast_type(wrapper.group(1))
+    width = _CAST_WIDTH_RE.match(normalized)
+    if width is None:
         return None
-    inner, bare = match.groups()
-    if inner is not None:
-        return suggest_cast_type(inner)
-    # Longest match first, so `datetime` resolves to DateTime rather than to its Date prefix.
-    for accepted in sorted(ACCEPTED_CAST_TYPES, key=len, reverse=True):
-        if accepted.lower().startswith(bare) or bare.startswith(accepted.lower()):
+    bare = width.group(1)
+    for prefix, accepted in _CAST_TYPE_PREFIXES:
+        if bare.startswith(prefix):
             return accepted
     return None
 
 
 def build_compatibility_hint(error_message: str) -> str | None:
     """Build an additive hint naming the accepted rewrite, or None if no rule matches."""
-    rewrites = [
-        rewrite
-        for rule in (_arity_rewrite, _escape_rewrite, _cast_rewrite)
-        if (rewrite := rule(error_message)) is not None
-    ]
-    if not rewrites:
-        return None
-    return "\n".join(["<hogql_compatibility_hint>", *rewrites, "</hogql_compatibility_hint>"])
+    for rule in (_arity_rewrite, _escape_rewrite, _cast_rewrite):
+        rewrite = rule(error_message)
+        if rewrite is not None:
+            return f"<hogql_compatibility_hint>\n{rewrite}\n</hogql_compatibility_hint>"
+    return None
 
 
 def _arity_rewrite(error_message: str) -> str | None:

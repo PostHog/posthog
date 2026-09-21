@@ -12,6 +12,8 @@ class TestSuggestCastType:
             ("UInt8", "Int"),
             ("Integer", "Int"),
             ("DateTime64", "DateTime"),
+            ("Date32", "Date"),
+            ("Timestamp", "DateTime"),
             ("Nullable(Float64)", "Float"),
             ("LowCardinality(String)", "String"),
         ]
@@ -19,7 +21,7 @@ class TestSuggestCastType:
     def test_maps_clickhouse_spelling_to_hogql(self, type_name: str, expected: str) -> None:
         assert suggest_cast_type(type_name) == expected
 
-    @parameterized.expand([("Map(String, String)",), ("Tuple",), ("Enum8",)])
+    @parameterized.expand([("Map(String, String)",), ("Tuple",), ("Enum8",), ("d",)])
     def test_no_suggestion_for_unmappable_type(self, type_name: str) -> None:
         assert suggest_cast_type(type_name) is None
 
@@ -30,12 +32,12 @@ class TestBuildCompatibilityHint:
 
     @parameterized.expand(
         [
-            ("greatest", "Function 'greatest' expects 2 arguments, found 3", "greatest(a, greatest(b, c))"),
-            ("least", "Function 'least' expects 2 arguments, found 3", "least(a, least(b, c))"),
+            ("greatest", "Function 'greatest' expects 2 arguments, found 3", "greatest(x1, greatest(x2, x3))"),
+            ("least", "Function 'least' expects 2 arguments, found 3", "least(x1, least(x2, x3))"),
             (
                 "four_args",
                 "Function 'greatest' expects 2 arguments, found 4",
-                "greatest(a, greatest(b, greatest(c, d)))",
+                "greatest(x1, greatest(x2, greatest(x3, x4)))",
             ),
         ]
     )
