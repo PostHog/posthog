@@ -81,6 +81,7 @@ A PR whose body and file paths no source can supply is judged **title-only** and
 
 Then split the list before you spend anything on it.
 First record the **deploy batches**, bots included, because a new error after a deploy can belong to a dependency bump, and the side-effect sweep needs the whole batch to attribute it.
+Every member of a batch you sweep gets its file paths fetched (the paged files endpoint, not `gh pr view`), bots included, or the sweep has nothing to match a bump's regression against; the body and linked issues are fetched only for claim candidates.
 A batch is what went live together, not what merged in the same fortnight: with a deploy signal (`references/deploy-ladder.md`) it is the PRs whose merges sit between two consecutive production deployment SHAs (the `compare` check against each), and with only the soak proxy it is the PRs whose proxy onsets fall in the same 24h.
 Then pick the **claim candidates** from that batch on metadata alone: drop bots (`dependabot`, `renovate`, `github-actions`, anything `pull-requests` marks `is_bot`), drop anything a `noise:pr_follow_up:` entry names, and drop a PR whose `pr:` entry says `recheck` with a date that has not passed yet (it is neither due nor deferred, so it takes no slot).
 Once the pool is hydrated, also drop PRs that only touch docs, tests, CI, lockfiles, or formatting (from the fetched file paths), and write each one a `noise:pr_follow_up:<owner/repo>#<n>` entry saying `docs-only`, so the cursor can pass it and no later run hydrates it again to reach the same answer.
@@ -102,7 +103,8 @@ Say how many you deferred and how many rechecks you took in the close-out.
 
 Establish that the merge commit is live before you measure anything; `references/deploy-ladder.md` carries the rungs and their commands.
 Strongest first: GitHub deployments in the warehouse, `gh` deployments and releases, GIT deploy annotations, then the soak proxy (24h server-side, 72h or more client-side and mobile, named in anything you file).
-Two rules hold on every rung: only commit containment (`compare` reads `ahead` or `identical`) sets the onset, never ordering, and only a persistent production environment counts.
+Two rules hold on every signal-bearing rung (the first three): only commit containment (`compare` reads `ahead` or `identical`) sets the onset, never ordering, and only a persistent production environment counts.
+The soak proxy is the one exception, because it has no deployment to check: its onset is merge time plus the surface's soak, it is always estimated, and every report built on it says which soak it used.
 Record which rung this project supports in `pattern:pr_follow_up:deploy-signal` so later runs go straight to it.
 
 The deploy time is your **onset**: every probe compares a post-onset window against a pre-merge window of the same length, with `toDateTime('<ts>', 'UTC')` for timestamp literals.

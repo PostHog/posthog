@@ -3,7 +3,7 @@
 Establish that the merge commit is live before you measure anything.
 Strongest first; record which rung this project supports in `pattern:pr_follow_up:deploy-signal` so later runs go straight to it.
 
-Two rules hold on every rung.
+Two rules hold on every signal-bearing rung (rungs 1 to 3); rung 4 has no deployment to check and is the stated exception.
 **Ordering is not proof**: a deployment or marker after the merge can come from another branch, a hotfix, or another environment, so only commit containment sets the onset, which `gh api repos/<owner>/<repo>/compare/<merge_sha>...<deploy_sha> --jq .status` confirms by reading `ahead` or `identical`.
 **Only persistent production counts**: a per-PR preview, a staging environment, or an ephemeral environment named after a branch never sets the onset, whatever its status.
 
@@ -35,7 +35,8 @@ A marker whose content names no commit cannot prove containment, so it corrobora
 ## Rung 4: soak proxy
 
 Nothing above exists: use merge time + 24h for server-side code, + 72h or more for web client bundles and mobile apps (judge from the paths: a mobile repository, an SDK, a frontend bundle).
-Say "assumed live after a 24h soak, this project has no deploy signal" in anything you file, and never call a claim failed inside the soak.
+Say "assumed live after a <24h or 72h> soak, this project has no deploy signal" in anything you file, with the soak you actually applied to that surface, and never call a claim failed inside the soak.
+Neither rule above applies here: there is no commit to contain and no environment to name, so the onset is always estimated, and the report says so.
 
 ## The onset
 
