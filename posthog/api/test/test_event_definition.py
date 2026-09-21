@@ -286,6 +286,21 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert len(body["results"]) == 3
         assert body["next"] is not None
 
+    def test_capped_count_pages_more_than_one_page_past_the_cap(self):
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.api.event_definition.LARGE_PROJECT_COUNT_CAP", 1),
+        ):
+            offsets = [
+                self.client.get(f"/api/projects/@current/event_definitions/?limit=1&offset={o}") for o in (1, 2, 3)
+            ]
+
+        for response in offsets:
+            assert response.status_code == status.HTTP_200_OK
+            assert len(response.json()["results"]) == 1, response.json()
+            assert response.json()["next"] is not None
+
     def test_uncapped_count_reports_the_flag_as_false(self):
         cache.clear()
         response = self.client.get("/api/projects/@current/event_definitions/")
