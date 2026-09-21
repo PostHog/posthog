@@ -765,7 +765,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def get_llm_detector_available(self, obj: AlertConfiguration) -> bool | None:
         # One flag evaluation per alert is fine on the alert detail view, and nowhere else: not on
         # a list, and not when the alert is nested inside another resource such as a dashboard.
-        if self.parent is not None or getattr(self.context.get("view"), "action", None) != "retrieve":
+        if self.root is not self or getattr(self.context.get("view"), "action", None) != "retrieve":
             return None
         if obj.created_by is None:
             return False
