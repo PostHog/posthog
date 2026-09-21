@@ -65,6 +65,7 @@ from ..models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
+from ..oauth_credentials import oauth_credentials_source_is_allowed
 from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
 from .visibility import slack_dev_mcp_ui_enabled
 
@@ -304,6 +305,9 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
     is_revoked_for_you = serializers.SerializerMethodField(
         help_text="True when an admin has turned this server off for the requesting user."
     )
+    is_team_enabled = serializers.SerializerMethodField(
+        help_text="True when this server is enabled and available to the project."
+    )
 
     class Meta:
         model = MCPGatewayServer
@@ -346,6 +350,14 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
         if obj.template is not None:
             return obj.template.auth_type
         return obj.auth_type or None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_team_enabled(self, obj: MCPGatewayServer) -> bool:
+        if obj.template is not None and not oauth_credentials_source_is_allowed(
+            obj.template.oauth_credentials_source, obj.team_id
+        ):
+            return False
+        return obj.is_team_enabled
 
     @extend_schema_field(serializers.IntegerField())
     def get_tool_count(self, obj: MCPGatewayServer) -> int:

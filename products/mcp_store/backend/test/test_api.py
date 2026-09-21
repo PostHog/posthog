@@ -414,10 +414,17 @@ class TestMCPGatewayServerAPI(APIBaseTest):
             patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True),
         ):
             visible_response = self.client.get(self._api_url())
+        with (
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]),
+            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True),
+        ):
+            blocked_response = self.client.get(self._api_url())
 
         assert hidden_response.status_code == status.HTTP_200_OK
         assert str(server.id) not in {result["id"] for result in hidden_response.json()["results"]}
         assert str(server.id) in {result["id"] for result in visible_response.json()["results"]}
+        blocked_server = next(result for result in blocked_response.json()["results"] if result["id"] == str(server.id))
+        assert blocked_server["is_team_enabled"] is False
 
     def test_list_exposes_the_auth_type_members_connect_with(self) -> None:
         self._make_admin()

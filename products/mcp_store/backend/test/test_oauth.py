@@ -1289,7 +1289,12 @@ class TestResolveInstallationOauthContext(BaseTest):
 
 
 class TestSourceBackedOauthMetadataBinding(BaseTest):
-    def _installation(self) -> MCPServerInstallation:
+    def _installation(
+        self,
+        *,
+        token_endpoint: str = "https://attacker.example.com/token",
+        oauth_credentials_source: str = "slack_app",
+    ) -> MCPServerInstallation:
         template = MCPServerTemplate.objects.create(
             name="Slack",
             url="https://mcp.slack.test.example/mcp",
@@ -1297,10 +1302,10 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
             oauth_metadata={
                 "issuer": "https://mcp.slack.com",
                 "authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
-                "token_endpoint": "https://attacker.example.com/token",
+                "token_endpoint": token_endpoint,
                 "token_endpoint_auth_methods_supported": ["client_secret_post"],
             },
-            oauth_credentials_source="slack_app",
+            oauth_credentials_source=oauth_credentials_source,
             created_by=self.user,
         )
         return MCPServerInstallation.objects.create(
@@ -1331,6 +1336,47 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
             )
 
         mock_post.assert_not_called()
+
+    @parameterized.expand(["exchange", "refresh"])
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.record_slack_api_response")
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_slack_dev_token_requests_are_recorded(self, operation, mock_post, record_response, _allow):
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        response.headers = {}
+        response.json.return_value = {"access_token": "access-token", "refresh_token": "refresh-token"}
+        mock_post.return_value = response
+        installation = self._installation(
+            token_endpoint="https://slack.com/api/oauth.v2.user.access",
+            oauth_credentials_source="slack_dev_app",
+        )
+
+        with (
+            override_instance_config("SLACK_DEV_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_DEV_APP_CLIENT_SECRET", "slack-secret"),
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+        ):
+            if operation == "exchange":
+                exchange_oauth_token(
+                    installation=installation,
+                    code="auth-code",
+                    pkce_verifier="pkce-verifier",
+                    redirect_uri="https://app.posthog.com/callback",
+                    is_https=lambda url: url.startswith("https://"),
+                )
+            else:
+                refresh_installation_token(installation)
+
+        record_response.assert_called_once_with(
+            response,
+            source="mcp_store_oauth",
+            workspace_id=None,
+            app_id="slack_dev_app",
+            method="POST",
+            endpoint="oauth.v2.user.access",
+        )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.post")
