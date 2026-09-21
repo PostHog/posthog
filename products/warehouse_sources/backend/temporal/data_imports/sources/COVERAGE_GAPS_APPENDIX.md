@@ -2135,14 +2135,14 @@ Note: Coveralls has an unusually small read surface: only GET /api/v1/repos is a
 
 ## CratesIO — gaps
 
-Today (4): `crates`, `downloads`, `owners`, `versions`
+Today (8): `categories`, `crates`, `dependencies`, `downloads`, `keywords`, `owners`, `reverse_dependencies`, `versions`
 
 Diffed against: <https://crates.io/api/openapi.json>
 
-- [ ] `/api/v1/crates/{name}/{version}/dependencies` — per-version dependency edges - the dependency graph is the main analytical object crates.io exposes (high)
-- [ ] `/api/v1/crates/{name}/reverse_dependencies` — who depends on your crate; the headline adoption metric for a crate owner (high)
-- [ ] `/api/v1/categories (and /api/v1/category_slugs)` — lookup table resolving the category slugs carried on every crate record (medium)
-- [ ] `/api/v1/keywords` — lookup table resolving the keyword IDs on crates, plus per-keyword crate counts (medium)
+- [x] `/api/v1/crates/{name}/{version}/dependencies` — per-version dependency edges - the dependency graph is the main analytical object crates.io exposes (high)
+- [x] `/api/v1/crates/{name}/reverse_dependencies` — who depends on your crate; the headline adoption metric for a crate owner (high)
+- [x] `/api/v1/categories (and /api/v1/category_slugs)` — lookup table resolving the category slugs carried on every crate record (medium). `/api/v1/category_slugs` returns a strict subset of the `/api/v1/categories` fields (id, slug, description), so only `categories` is synced.
+- [x] `/api/v1/keywords` — lookup table resolving the keyword IDs on crates, plus per-keyword crate counts (medium)
 - [ ] `/api/v1/users/{user} and /api/v1/teams/{team}` — lookup resolving the user/team IDs returned by the owners endpoints (low)
 - [ ] `/api/v1/crates/{name}/{version}/downloads` — per-version download series, finer grain than the crate-level downloads table (low)
 
