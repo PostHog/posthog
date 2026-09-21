@@ -107,6 +107,7 @@ const DELTA_RESPONSE = {
     dropped_duplicate_cards: 0,
     too_early: false,
     empty_reason: null,
+    detectable_share: 0.9,
 }
 
 const PURCHASE_METRIC = {
@@ -2073,6 +2074,7 @@ describe('experimentReplayTabLogic', () => {
             compared_enrollment_hours: 744,
             sessions_truncated: false,
             events_truncated: false,
+            detectable_share: 0.9,
             experiment_ended: true,
             // Read off the fixture rather than hardcoded, so the assertion still states the same
             // distance as real time moves past the run window.
@@ -2231,5 +2233,80 @@ describe('experimentReplayTabLogic', () => {
 
         await expectLogic(withError).toFinishAllListeners().toMatchValues({ linkedScanners: [] })
         withError.unmount()
+    })
+
+    it('offers the shelf its own scanner link, without the variant the list is filtered to', async () => {
+        // The shelf's comparison read every variant that cleared the floor, so a scanner started
+        // from it must not inherit the list's variant: prefilled that way it would watch one arm of
+        // the finding that prompted it. The tab's own banner sits with the list and keeps the filter.
+        await expectLogic(logic, () => {
+            logic.actions.setSelectedVariantKey('test')
+        }).toFinishAllListeners()
+
+        expect(logic.values.scannerSetupUrl).toContain('variant=test')
+        expect(logic.values.shelfScannerSetupUrl).toContain('experiment=42')
+        expect(logic.values.shelfScannerSetupUrl).not.toContain('variant=')
+    })
+
+    it.each([
+        {
+            state: 'the comparison found nothing and had the size to have found something',
+            delta: { empty_reason: 'no_separation' },
+            scanners: [],
+            shown: true,
+        },
+        {
+            // A project whose events are nearly all page views and autocaptures has nothing the
+            // size question fits, so the share comes back null. That is the reader a scanner helps
+            // most, and reading null as "too small" would have hidden the offer from them.
+            state: 'the comparison found nothing and its own size could not be measured',
+            delta: { empty_reason: 'no_separation', detectable_share: null },
+            scanners: [],
+            shown: true,
+        },
+        {
+            // The one a later change is most likely to drop, because it looks like the state above.
+            // Here the reader needs more people, and a scanner is metered, so offering one sells
+            // against them.
+            state: 'the comparison was too small to tell',
+            delta: { empty_reason: 'underpowered' },
+            scanners: [],
+            shown: false,
+        },
+        {
+            state: 'there is no recording for a scanner to watch either',
+            delta: { empty_reason: 'no_recordings' },
+            scanners: [],
+            shown: false,
+        },
+        {
+            state: 'a scanner already watches this experiment',
+            delta: { empty_reason: 'no_separation' },
+            scanners: [{ id: 's1', name: 'Checkout', scanner_type: 'classifier', observations_this_month: 3 }],
+            shown: false,
+        },
+    ])('shows the shelf scanner cross-sell: $shown when $state', async ({ delta, scanners, shown }) => {
+        // The tab reads this to hold back its own banner, so a wrong answer either shows the same
+        // offer twice or drops it from the one state where it answers the reader's question.
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON]: true,
+            [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true,
+        })
+        ;(visionScannersList as jest.Mock).mockResolvedValue({ results: scanners })
+        ;(experimentsSessionEventDeltasCreate as jest.Mock).mockResolvedValue({
+            ...DELTA_RESPONSE,
+            cards: [],
+            ...delta,
+        })
+        const shelf = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        shelf.mount()
+
+        await expectLogic(shelf, () => {
+            shelf.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(shelf.values.shelfVisionCrossSellShown).toBe(shown)
+        shelf.unmount()
     })
 })

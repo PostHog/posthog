@@ -348,6 +348,10 @@ export interface ExperimentWatchShelfContext {
     sessions_truncated: boolean
     /** The project has more event names than one comparison ranks, so some were never considered. */
     events_truncated: boolean
+    /** The share of the commonly done events on which a doubling would have earned a card, null when
+     * nothing was compared. What the comparison could have found rather than what it found, and the
+     * only way to check the underpowered cutoff against projects it was not set from. */
+    detectable_share: number | null
     /** Whether the experiment has stopped enrolling, so waiting cannot fill an empty shelf. */
     experiment_ended: boolean
     /** Whole days from the launch to this load, null when the experiment has not launched. */
