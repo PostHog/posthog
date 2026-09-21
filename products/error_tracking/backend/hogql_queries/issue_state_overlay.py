@@ -66,6 +66,19 @@ def latest_issue_state_watermark(team_id: int) -> datetime.datetime | None:
     )
 
 
+def issue_state_changed_within_window(
+    watermark: datetime.datetime | None, *, current_time: datetime.datetime | None = None
+) -> bool:
+    """Whether load_recent_issue_states can return a row, given the team's latest state change.
+
+    The watermark is the newest state_updated_at on the team, so a watermark outside the window
+    means no row can pass the overlay filter and the read is guaranteed to return nothing.
+    """
+    if watermark is None:
+        return False
+    return watermark >= (current_time or timezone.now()) - RECENT_ISSUE_STATE_WINDOW
+
+
 def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | None = None) -> list[RecentIssueState]:
     threshold = (current_time or timezone.now()) - RECENT_ISSUE_STATE_WINDOW
     # The filter matches the partial (team, state_updated_at) index, which this read depends on.
@@ -84,6 +97,9 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
     )
 
     RECENT_ISSUE_STATE_ROW_COUNT.observe(len(rows))
+    # Truncating instead would leave is_present false for the dropped issues, which tells the query
+    # they did not change and makes it use their stale ClickHouse state. Discard the whole overlay so
+    # that every issue falls back to ClickHouse together.
     if len(rows) > MAX_RECENT_ISSUE_STATES:
         return []
 

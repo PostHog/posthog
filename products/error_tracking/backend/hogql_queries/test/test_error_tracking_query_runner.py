@@ -752,6 +752,33 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         with self.assertNumQueries(1):
             self.assertEqual(load_recent_issue_states(self.team.pk), [])
 
+    @parameterized.expand(
+        [
+            ("within_window", 0, 1, 1),
+            ("outside_window", 61, 0, 0),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_watermark_decides_whether_the_overlay_reads(
+        self, _name, state_age_seconds, expected_queries, expected_states
+    ):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            state_updated_at=now() - timedelta(seconds=state_age_seconds)
+        )
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="all"),
+                orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+                volumeResolution=1,
+            ),
+        )
+        runner.get_cache_payload()
+
+        with self.assertNumQueries(expected_queries):
+            self.assertEqual(len(runner.recent_issue_states()), expected_states)
+
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_recent_issue_state_applies_to_more_than_fifty_fingerprints(self):
         for index in range(50):
