@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -234,8 +234,9 @@ export function Info(): JSX.Element {
                 </div>
             </div>
             {experiment.conclusion && experiment.end_date && experiment.conclusion_comment && (
-                <div
-                    className="mt-2 border border-primary rounded bg-[var(--color-bg-table)] px-3 py-2.5"
+                <LemonCard
+                    hoverEffect={false}
+                    className="mt-2 bg-[var(--color-bg-table)] px-3 py-2.5"
                     data-attr="experiment-conclusion-comment"
                 >
                     <div className="flex items-center gap-2">
@@ -253,7 +254,7 @@ export function Info(): JSX.Element {
                     <p className="metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap break-words">
                         {experiment.conclusion_comment}
                     </p>
-                </div>
+                </LemonCard>
             )}
         </>
     )
