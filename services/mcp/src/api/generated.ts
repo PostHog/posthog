@@ -52585,6 +52585,18 @@ export namespace Schemas {
       Metric: 'metric',
     } as const;
 
+    /**
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse
+     */
+    export type NodeOriginEnum = typeof NodeOriginEnum[keyof typeof NodeOriginEnum];
+
+
+    export const NodeOriginEnum = {
+      Posthog: 'posthog',
+      Warehouse: 'warehouse',
+    } as const;
+
     export interface NodeSuspension {
       /** When the node was suspended. */
       at: string;
@@ -52620,6 +52632,16 @@ export namespace Schemas {
       /** @nullable */
       readonly metric_id: string | null;
       readonly lineage_issue: LineageIssue | null;
+      /** Where a table originates, or null for legacy and unrecognized nodes.
+       *
+       * * `posthog` - posthog
+       * * `warehouse` - warehouse */
+      readonly origin: NodeOriginEnum | null;
+      /**
+         * Warehouse table identifier for an imported table, or null when unavailable.
+         * @nullable
+         */
+      readonly warehouse_table_id: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -70447,6 +70469,16 @@ export namespace Schemas {
       /** @nullable */
       readonly metric_id?: string | null;
       readonly lineage_issue?: LineageIssue | null;
+      /** Where a table originates, or null for legacy and unrecognized nodes.
+       *
+       * * `posthog` - posthog
+       * * `warehouse` - warehouse */
+      readonly origin?: NodeOriginEnum | null;
+      /**
+         * Warehouse table identifier for an imported table, or null when unavailable.
+         * @nullable
+         */
+      readonly warehouse_table_id?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;

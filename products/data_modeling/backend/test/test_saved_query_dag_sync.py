@@ -204,6 +204,28 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert edge is not None
         self.assertEqual(edge.dag_id, dag.id)
 
+    def test_sync_refreshes_the_table_id_when_a_warehouse_table_is_recreated(self):
+        old_table = DataWarehouseTable.objects.create(team=self.team, name="orders", format="Parquet")
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="order_summary",
+            team=self.team,
+            query={"query": "SELECT * FROM orders", "kind": "HogQLQuery"},
+        )
+
+        sync_saved_query_to_dag(saved_query)
+        table_node = Node.objects.get(team=self.team, dag__name=DEFAULT_DAG_NAME, name="orders")
+        self.assertEqual(table_node.properties["warehouse_table_id"], str(old_table.id))
+
+        old_table.deleted = True
+        old_table.save(update_fields=["deleted"])
+        new_table = DataWarehouseTable.objects.create(team=self.team, name="orders", format="Parquet")
+
+        sync_saved_query_to_dag(saved_query)
+
+        table_node.refresh_from_db()
+        self.assertEqual(table_node.properties["origin"], "warehouse")
+        self.assertEqual(table_node.properties["warehouse_table_id"], str(new_table.id))
+
     def test_sync_creates_edges_for_multiple_dependencies(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",

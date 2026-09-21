@@ -18,7 +18,11 @@ import { ModelMetadata } from 'products/data_modeling/frontend/nodeDetail/ModelM
 
 import { NodeDetailHeader } from './NodeDetailHeader'
 import { NodeDetailOverview } from './NodeDetailOverview'
-import type { NodeDetailSceneLogicProps, NodeDetailSceneTab } from './nodeDetailSceneLogic'
+import type {
+    NodeDetailDataQualitySubject,
+    NodeDetailSceneLogicProps,
+    NodeDetailSceneTab,
+} from './nodeDetailSceneLogic'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { NodeDetailLineage } from './tabs/NodeDetailLineage'
 import { NodeDetailMaterialization } from './tabs/NodeDetailMaterialization'
@@ -41,17 +45,29 @@ const TAB_LABELS: Record<NodeDetailSceneTab, string> = {
     history: 'History',
 }
 
-function tabLabel(tab: NodeDetailSceneTab, savedQueryId: string | null | undefined): JSX.Element | string {
-    if (tab === 'tests' && savedQueryId) {
-        return <NodeDetailTestsTabLabel subjectId={savedQueryId} />
+function tabLabel(
+    tab: NodeDetailSceneTab,
+    dataQualitySubject: NodeDetailDataQualitySubject | null
+): JSX.Element | string {
+    if (tab === 'tests' && dataQualitySubject) {
+        return <NodeDetailTestsTabLabel {...dataQualitySubject} />
     }
     return TAB_LABELS[tab]
 }
 
 export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element {
-    const { node, savedQuery, savedQueryLoading, nodeLoading, availableTabs, effectiveTab, visitedTabs } = useValues(
-        nodeDetailSceneLogic({ id })
-    )
+    const {
+        node,
+        savedQuery,
+        savedQueryLoading,
+        nodeLoading,
+        availableTabs,
+        effectiveTab,
+        visitedTabs,
+        dataQualitySubject,
+        tableDetails,
+        tableDetailsLoading,
+    } = useValues(nodeDetailSceneLogic({ id }))
 
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
@@ -90,13 +106,13 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                     />
                 )
             case 'tests':
-                return <NodeDetailTests id={id} subjectId={savedQueryId ?? ''} />
+                return dataQualitySubject ? <NodeDetailTests id={id} {...dataQualitySubject} /> : <></>
         }
     }
 
     const tabs: LemonTab<NodeDetailSceneTab>[] = availableTabs.map((tab) => ({
         key: tab,
-        label: tabLabel(tab, savedQueryId),
+        label: tabLabel(tab, dataQualitySubject),
         link: urls.nodeDetail(id, tab),
         'data-attr': `node-detail-${tab}-tab`,
     }))
@@ -104,18 +120,31 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
     return (
         <SceneContent>
             <NodeDetailHeader id={id} />
-            {/* A node row's timestamps describe the node, not the model: editing the
-                description here patches the node and bumps its updated_at while the saved
-                query stays untouched. So they stand in only for a node that has no saved
-                query, and a failed load says nothing rather than the node's dates. */}
             <NodeDetailOverview
                 id={id}
                 metadata={
                     <ModelMetadata
-                        createdBy={savedQuery?.created_by}
-                        createdAt={node.saved_query_id ? savedQuery?.created_at : node.created_at}
-                        updatedAt={node.saved_query_id ? undefined : node.updated_at}
-                        loading={!!node.saved_query_id && savedQueryLoading && !savedQuery}
+                        createdBy={
+                            node.saved_query_id
+                                ? savedQuery?.created_by
+                                : tableDetails?.source
+                                  ? undefined
+                                  : tableDetails?.table.created_by
+                        }
+                        createdByEmail={node.saved_query_id ? undefined : tableDetails?.source?.created_by}
+                        createdByLabel={node.origin === 'posthog' ? 'PostHog' : undefined}
+                        createdAt={
+                            node.saved_query_id
+                                ? savedQuery?.created_at
+                                : node.origin === 'posthog'
+                                  ? node.created_at
+                                  : (tableDetails?.source?.created_at ?? tableDetails?.table.created_at ?? node.created_at)
+                        }
+                        updatedAt={node.saved_query_id || tableDetails ? undefined : node.updated_at}
+                        loading={
+                            (!!node.saved_query_id && savedQueryLoading && !savedQuery) ||
+                            (!!node.warehouse_table_id && tableDetailsLoading && !tableDetails)
+                        }
                     />
                 }
             />

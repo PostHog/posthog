@@ -7,6 +7,8 @@ import { pluralize } from 'lib/utils/strings'
 
 import { dataQualityChecksLogic } from 'products/data_quality/frontend/dataQualityChecksLogic'
 
+import type { NodeDetailTestsSubjectType } from './NodeDetailTests'
+
 /** Erroring means a check could not run at all, so it reports no failure count to speak of. */
 const TONES: Record<string, string> = {
     failing: 'text-danger',
@@ -14,8 +16,14 @@ const TONES: Record<string, string> = {
     erroring: 'text-warning',
 }
 
-export function NodeDetailTestsTabLabel({ subjectId }: { subjectId: string }): JSX.Element {
-    const { health } = useValues(dataQualityChecksLogic({ subjectType: 'view', subjectId }))
+export function NodeDetailTestsTabLabel({
+    subjectType,
+    subjectId,
+}: {
+    subjectType: NodeDetailTestsSubjectType
+    subjectId: string
+}): JSX.Element {
+    const { health } = useValues(dataQualityChecksLogic({ subjectType, subjectId }))
     const tone = health ? TONES[health.health] : undefined
     const explanation =
         health?.health === 'erroring'

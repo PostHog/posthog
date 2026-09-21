@@ -120,6 +120,69 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.currentTab).toEqual('lineage')
     })
 
+    it('adds data quality for a warehouse table ID and loads its details', async () => {
+        node = buildNode('table', { warehouse_table_id: 'table-1' })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_tables/:id/': {
+                    id: 'table-1',
+                    name: 'orders',
+                    format: 'Parquet',
+                    external_data_source: { id: 'source-1' },
+                    external_schema: { id: 'schema-1' },
+                },
+                '/api/environments/:team_id/external_data_sources/:id/': {
+                    id: 'source-1',
+                    source_type: 'Stripe',
+                },
+                '/api/environments/:team_id/external_data_schemas/:id/': {
+                    id: 'schema-1',
+                    sync_type: 'incremental',
+                    sync_frequency: '24hour',
+                },
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.dataQualitySubject).toEqual({ subjectType: 'table', subjectId: 'table-1' })
+        expect(logic.values.tableDetails).toMatchObject({
+            table: { id: 'table-1' },
+            source: { id: 'source-1' },
+            schema: { id: 'schema-1' },
+        })
+    })
+
+    it('does not load details or data quality for a PostHog table', async () => {
+        node = buildNode('table', { origin: 'posthog' })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.availableTabs).toEqual(['lineage'])
+        expect(logic.values.dataQualitySubject).toBeNull()
+        expect(logic.values.tableDetails).toBeNull()
+        expect(logic.values.tableDetailsError).toBe(false)
+    })
+
+    it('records table detail access denials', async () => {
+        node = buildNode('table', { warehouse_table_id: 'table-1' })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_tables/:id/': () => [403, {}],
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.tableDetailsAccessDenied).toBe(true)
+        expect(logic.values.tableDetailsError).toBe(true)
+    })
+
     it('shows ten columns on each query page', async () => {
         savedQuery = {
             ...savedQuery,

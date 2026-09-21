@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { CADENCE_LABELS, modeDisabledReason } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
@@ -9,20 +8,26 @@ import { urls } from 'scenes/urls'
 import { DataModelingSyncInterval } from '~/types'
 
 import { ModelHealthSummary } from 'products/data_modeling/frontend/nodeDetail/ModelHealthSummary'
+import { ModelTableSummary } from 'products/data_modeling/frontend/nodeDetail/ModelTableSummary'
 import { ModelViewSummary } from 'products/data_modeling/frontend/nodeDetail/ModelViewSummary'
 import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
 
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: ReactNode }): JSX.Element | null {
+    const sceneLogic = nodeDetailSceneLogic({ id })
     const {
         node,
         savedQuery: sceneSavedQuery,
         isMaterialized,
         savedQueryError,
-        effectiveLastRunAt,
         effectiveLastRunStatus,
-    } = useValues(nodeDetailSceneLogic({ id }))
+        tableDetails,
+        tableDetailsAccessDenied,
+        tableDetailsLoading,
+        tableDetailsError,
+    } = useValues(sceneLogic)
+    const { loadTableDetails } = useActions(sceneLogic)
     const materializationLogic = materializationJobsLogic({
         viewId: node?.saved_query_id ?? '',
         kind: node?.type === 'endpoint' ? 'endpoint' : 'view',
@@ -42,17 +47,24 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     if (!node) {
         return null
     }
+    if (node.type === 'table') {
+        return (
+            <ModelTableSummary
+                id={id}
+                node={node}
+                table={tableDetails?.table ?? null}
+                source={tableDetails?.source ?? null}
+                schema={tableDetails?.schema ?? null}
+                loading={tableDetailsLoading}
+                error={tableDetailsError}
+                accessDenied={tableDetailsAccessDenied}
+                onRetry={loadTableDetails}
+                metadata={metadata}
+            />
+        )
+    }
     if (!(savedQuery?.is_materialized ?? isMaterialized)) {
-        return node.type === 'table' ? (
-            <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
-                {effectiveLastRunAt && (
-                    <p className="text-sm text-secondary mb-0">
-                        Last synced <TZLabel time={effectiveLastRunAt} />
-                    </p>
-                )}
-                {metadata}
-            </div>
-        ) : (
+        return (
             <ModelViewSummary
                 downstreamCount={node.downstream_count}
                 lineageUrl={urls.nodeDetail(id, 'lineage')}
