@@ -126,11 +126,11 @@ def _latest_vintage_join(table_name: str, identity_keys: list[str], vintage_colu
     return (
         f"FROM {table_name} AS raw\n"
         "INNER JOIN (\n"
-        f"    SELECT {key_list}, max({vintage_column}) AS {vintage_column}\n"
+        f"    SELECT {key_list}, max({vintage_column}) AS {vintage_column}, max(_line >= 0) AS has_ongoing_row\n"
         f"    FROM {table_name}\n"
         f"    GROUP BY {key_list}\n"
         ") AS latest\n"
-        f"    ON {conditions}"
+        f"    ON {conditions} AND (latest.has_ongoing_row = 0 OR raw._line >= 0)"
     )
 
 

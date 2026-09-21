@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
+    _ANALYTICS_SNAPSHOT_DECISION_NAMESPACE,
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
@@ -68,6 +69,12 @@ class _FakeManager(ResumableSourceManager[AppStoreConnectResumeConfig]):
         self._state = state
         self.saved: list[AppStoreConnectResumeConfig] = []
         self.cleared = 0
+        self.namespaces: dict[str, _FakeManager] = {}
+
+    def with_namespace(self, namespace: str) -> "_FakeManager":
+        if namespace not in self.namespaces:
+            self.namespaces[namespace] = _FakeManager()
+        return self.namespaces[namespace]
 
     def can_resume(self) -> bool:
         return self._state is not None
@@ -76,6 +83,7 @@ class _FakeManager(ResumableSourceManager[AppStoreConnectResumeConfig]):
         return self._state
 
     def save_state(self, data: AppStoreConnectResumeConfig) -> None:
+        self._state = data
         self.saved.append(data)
 
     def clear_state(self) -> None:
@@ -1283,6 +1291,49 @@ class TestAnalyticsSnapshotBackfill:
             (date(2026, 8, 2), -1),
             (date(2026, 8, 2), -2),
         ]
+
+    def test_snapshot_inclusion_is_saved_before_the_first_batch(self) -> None:
+        api = self._ready_api()
+        manager = _FakeManager()
+        session = MagicMock()
+        session.get.side_effect = api.get
+        session.post.side_effect = api.post
+
+        with (
+            patch(f"{MODULE}._make_session", return_value=session),
+            patch(f"{MODULE}._make_segment_download_session", return_value=session),
+        ):
+            rows = get_rows(
+                issuer_id="issuer",
+                key_id="KEY123",
+                private_key=PRIVATE_KEY_PEM,
+                vendor_number=None,
+                endpoint="analytics_app_sessions",
+                logger=MagicMock(),
+                resumable_source_manager=manager,
+                should_use_incremental_field=True,
+            )
+            next(rows)
+            rows.close()
+
+        decision = manager.namespaces[_ANALYTICS_SNAPSHOT_DECISION_NAMESPACE]
+        assert decision.saved == [AppStoreConnectResumeConfig(include_snapshot=True)]
+        assert manager.saved == []
+
+        retried_rows = _collect_analytics(
+            self._ready_api(),
+            manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 8, 1),
+        )
+
+        assert [(row["processing_date"], row["_line"]) for row in retried_rows] == [
+            (date(2026, 8, 1), 1),
+            (date(2026, 8, 2), 1),
+            (date(2026, 8, 2), -1),
+            (date(2026, 8, 2), -2),
+        ]
+        assert decision.cleared == 1
 
 
 class TestFindAnalyticsReport:

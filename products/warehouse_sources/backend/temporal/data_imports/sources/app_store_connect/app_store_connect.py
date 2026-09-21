@@ -186,6 +186,9 @@ class AppStoreConnectResumeConfig:
     include_snapshot: bool | None = None
 
 
+_ANALYTICS_SNAPSHOT_DECISION_NAMESPACE = "analytics_snapshot_decision"
+
+
 def _normalize_private_key(private_key: str) -> str:
     """Coerce a pasted App Store Connect .p8 key into PEM.
 
@@ -1326,6 +1329,8 @@ def _get_analytics_report(
 ) -> Iterator[list[dict[str, Any]]]:
     app_ids = _list_app_ids(session, token_provider, logger)
     resume = _load_resume(manager)
+    snapshot_decision_manager = manager.with_namespace(_ANALYTICS_SNAPSHOT_DECISION_NAMESPACE)
+    snapshot_decision = _load_resume(snapshot_decision_manager)
     resumed_date = _to_date(resume.processing_date) if resume is not None else None
     watermark = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
 
@@ -1337,13 +1342,17 @@ def _get_analytics_report(
     # The one-time snapshot restates all history, so it only joins the walk when the table is
     # known to be empty: a first sync, a resync (the reset clears the watermark before the run),
     # or a full refresh. An established incremental table holds ongoing history the source can't
-    # enumerate, so no report-date boundary could dedupe a snapshot against it. Retried attempts
-    # of one job reuse the first attempt's decision from the resume state, because a pipeline may
-    # persist the watermark per batch mid-job.
-    if resume is not None and resume.include_snapshot is not None:
+    # enumerate, so no report-date boundary could dedupe a snapshot against it. The decision has
+    # separate state from the main resume checkpoint, because the pipeline reads that checkpoint
+    # before this generator starts and uses it to decide whether to overwrite the first batch.
+    if snapshot_decision is not None and snapshot_decision.include_snapshot is not None:
+        include_snapshot = snapshot_decision.include_snapshot
+    elif resume is not None and resume.include_snapshot is not None:
         include_snapshot = resume.include_snapshot
     else:
         include_snapshot = watermark is None
+    if snapshot_decision is None or snapshot_decision.include_snapshot is None:
+        snapshot_decision_manager.save_state(AppStoreConnectResumeConfig(include_snapshot=include_snapshot))
 
     # Discover every app's report and instances up front, then walk processing dates in
     # ascending order ACROSS apps. Yields are then globally date-ordered, so the pipeline's
@@ -1605,6 +1614,8 @@ def get_rows(
 
     # Walked to completion, so drop the checkpoint — leaving it would let a later attempt on this job
     # resume mid-stream instead of restarting cleanly.
+    if config.kind == "analytics_report":
+        resumable_source_manager.with_namespace(_ANALYTICS_SNAPSHOT_DECISION_NAMESPACE).clear_state()
     resumable_source_manager.clear_state()
 
 
