@@ -1,8 +1,8 @@
 """Ownership resolution for a repo-relative path.
 
-Walks from the repo root toward the path, collecting ``owners.yaml`` (or aliased
-``product.yaml``) contributions, honoring ``inherit: false`` as a hard cut, and
-merges them nearest-file-wins per field. See ``docs/internal/ownership-model-proposal.md``.
+Walks from the repo root toward the path, collecting ``owners.yaml`` (or alias file)
+contributions, honoring ``inherit: false`` as a hard cut, and merges them nearest-file-wins
+per field. SPEC.md in this package defines the format.
 """
 
 from __future__ import annotations
@@ -12,13 +12,20 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol, TypedDict
+from typing import Literal, Protocol, TypedDict, runtime_checkable
 
 from .matcher import compile_pattern, normalize_path
-from .schema import UNSET, OwnersFile, Producer, TeamEntry, _Unset, parse_owners_file, parse_product_yaml_as_owners
-
-OWNERS_FILENAME = "owners.yaml"
-PRODUCT_FILENAME = "product.yaml"
+from .schema import (
+    OWNERS_FILENAME,
+    UNSET,
+    OwnersFile,
+    Producer,
+    RepoSettings,
+    TeamEntry,
+    _Unset,
+    parse_alias_file_as_owners,
+    parse_owners_file,
+)
 
 
 @dataclass(frozen=True)
@@ -108,7 +115,7 @@ class Resolution:
 
 class WireResolution(TypedDict):
     """The JSON wire shape shared by ``hogli owners:resolve --json`` and the
-    dependency-light ``python -m posthog_owners`` entrypoint. Both emit
+    dependency-light ``python -m owners_yaml`` entrypoint. Both emit
     exactly this dict per path so consumers see one format."""
 
     owners: list[str]
@@ -132,9 +139,13 @@ class ParsedOwnershipFile:
 
     path: Path  # absolute
     rel_dir: str  # repo-relative posix dir ("" = root)
-    name: str  # OWNERS_FILENAME or PRODUCT_FILENAME
+    name: str  # OWNERS_FILENAME or one of the configured alias file names
     parsed: OwnersFile | None
     errors: list[str] = field(default_factory=list)
+
+    @property
+    def is_alias(self) -> bool:
+        return self.name != OWNERS_FILENAME
 
 
 @dataclass
@@ -144,14 +155,35 @@ class _Merged:
     source: str | None = None
 
 
+class RepoRootNotFound(Exception):
+    """No repo root was given and the working directory is not inside a git worktree."""
+
+
 def _git_repo_root() -> Path:
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RepoRootNotFound(
+            "not inside a git worktree; pass --repo-root with the directory that holds the ownership files"
+        ) from exc
     return Path(result.stdout.strip())
+
+
+def _walk_files(root: Path, prefix: str | None) -> list[str]:
+    """Repo-relative paths of every file under ``root``, for a tree that is not a git worktree."""
+    start = root / prefix if prefix else root
+    if start.is_file():
+        return [start.relative_to(root).as_posix()]
+    return sorted(
+        path.relative_to(root).as_posix()
+        for path in start.rglob("*")
+        if path.is_file() and ".git" not in path.relative_to(root).parts
+    )
 
 
 class OwnershipSource(Protocol):
@@ -159,6 +191,17 @@ class OwnershipSource(Protocol):
     through this; lint and format still walk a real worktree."""
 
     def read(self, path: str) -> str | None: ...
+
+
+@runtime_checkable
+class BatchOwnershipSource(OwnershipSource, Protocol):
+    """A source that pays per read, such as one that fetches over a network. ``read_all`` hands it
+    every file a batch can need before the resolver reads any, so it can fetch them together.
+
+    ``map`` calls it twice: once for the root ``owners.yaml`` alone, which names the alias files,
+    then once for the whole batch. No file is read before a ``read_all`` that covers it."""
+
+    def read_all(self, paths: list[str]) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -177,7 +220,7 @@ VIRTUAL_ROOT = Path("/")
 
 
 class OwnersResolver:
-    """Resolves ownership by reading ``owners.yaml`` / ``product.yaml`` through an ``OwnershipSource``.
+    """Resolves ownership by reading ``owners.yaml`` and alias files through an ``OwnershipSource``.
 
     Reads a worktree by default, locating the repo root via ``git rev-parse`` (override with
     ``repo_root`` for testing). Pass ``source`` to resolve without one. Parsed files are cached per
@@ -199,6 +242,14 @@ class OwnersResolver:
         self._parsed_ownership: list[ParsedOwnershipFile] | None = None
         self._teams_cache: dict[str, TeamEntry] | None = None
 
+    def alias_files(self) -> tuple[str, ...]:
+        """The alias file names the root file declares, in the order that decides a tie."""
+        return self.settings().alias_files
+
+    def ownership_filenames(self) -> tuple[str, ...]:
+        """Every file name that counts as an ownership file, ``owners.yaml`` first."""
+        return (OWNERS_FILENAME, *self.alias_files())
+
     def _load_dir_file(self, directory: str) -> OwnersFile | None:
         """Ownership file for a repo-relative directory ("" = root), or None."""
         if directory in self._dir_cache:
@@ -213,15 +264,18 @@ class OwnersResolver:
             parsed, _errors = parse_owners_file(owners_text, path=self.repo_root / owners_rel, directory=directory)
             result = parsed
 
-        # A product.yaml alias only applies when there is no owners.yaml (a
-        # directory with both is a lint error; resolve prefers owners.yaml).
-        if result is None:
-            product_rel = f"{prefix}{PRODUCT_FILENAME}"
-            product_text = self.source.read(product_rel)
-            if product_text is not None:
-                result = parse_product_yaml_as_owners(
-                    product_text, path=self.repo_root / product_rel, directory=directory
-                )
+        # An alias only applies when there is no owners.yaml (a directory with both is a lint
+        # error; resolve prefers owners.yaml). The root directory is skipped because the alias
+        # names come from the root owners.yaml, which is the file an alias there would replace.
+        if result is None and directory:
+            for name in self.alias_files():
+                alias_rel = f"{prefix}{name}"
+                alias_text = self.source.read(alias_rel)
+                if alias_text is None:
+                    continue
+                result = parse_alias_file_as_owners(alias_text, path=self.repo_root / alias_rel, directory=directory)
+                if result is not None:
+                    break
 
         self._dir_cache[directory] = result
         return result
@@ -279,13 +333,11 @@ class OwnersResolver:
     def ownership_file_paths(self, paths: list[str]) -> list[str]:
         """Every ownership file that could decide any of ``paths``. A source that fetches over the
         network reads this first, so it can fetch the batch's files together."""
+        directories = {d for path in paths for d in self._ancestor_dirs(normalize_path(path))}
+        filenames = self.ownership_filenames()
+        # No alias applies in the root directory (see _load_dir_file), so none is listed there.
         return sorted(
-            {
-                f"{directory}/{name}" if directory else name
-                for path in paths
-                for directory in self._ancestor_dirs(normalize_path(path))
-                for name in (OWNERS_FILENAME, PRODUCT_FILENAME)
-            }
+            {OWNERS_FILENAME} | {f"{directory}/{name}" for directory in directories if directory for name in filenames}
         )
 
     def resolve(self, path: str) -> Resolution:
@@ -325,6 +377,12 @@ class OwnersResolver:
             self._teams_cache = dict(root.teams) if root is not None else {}
         return self._teams_cache
 
+    def settings(self) -> RepoSettings:
+        """Repo-wide settings from the root ``owners.yaml``. Defaults when there is no root file,
+        so a repo without one still reads the default alias files."""
+        root = self._load_dir_file("")
+        return root.settings if root is not None else RepoSettings()
+
     def _effective_slack(self, owners: list[str] | None) -> str | None:
         """The Slack channel for a path: the registry entry for the primary owner
         (team slugs only), then the derived ``#<slug>``, else None. Only a team slug
@@ -354,6 +412,11 @@ class OwnersResolver:
         return path.relative_to(self.repo_root).as_posix()
 
     def map(self, paths: list[str]) -> dict[str, Resolution]:
+        if isinstance(self.source, BatchOwnershipSource):
+            # Two fetches, because the root file names the alias files the batch needs. A source
+            # whose read() only serves what read_all fetched has nothing to answer with otherwise.
+            self.source.read_all([OWNERS_FILENAME])
+            self.source.read_all(self.ownership_file_paths(paths))
         return {p: self.resolve(p) for p in paths}
 
     def unowned(self, paths: list[str]) -> list[str]:
@@ -362,20 +425,22 @@ class OwnersResolver:
 
     def tracked_files(self, prefix: str | None = None) -> list[str]:
         """Repo-relative paths from ``git ls-files``, optionally under ``prefix``.
-        Cached per prefix — the worktree is treated as immutable per run."""
+
+        A root that is not a git worktree, such as an unpacked export, falls back to every file on
+        disk. Cached per prefix, because the tree is treated as immutable per run.
+        """
         if prefix in self._tracked_cache:
             return self._tracked_cache[prefix]
         args = ["git", "-C", str(self.repo_root), "ls-files", "-z"]
         if prefix:
             args.append(prefix)
-        result = subprocess.run(args, capture_output=True, text=True, check=True)
-        paths = [p for p in result.stdout.split("\0") if p]
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            paths = [p for p in result.stdout.split("\0") if p]
+        except (OSError, subprocess.CalledProcessError):
+            paths = _walk_files(self.repo_root, prefix)
         self._tracked_cache[prefix] = paths
         return paths
-
-    def ownership_files(self) -> list[Path]:
-        """Absolute paths of every tracked ownership file (owners.yaml + product.yaml)."""
-        return [entry.path for entry in self.parsed_ownership_files()]
 
     def parsed_ownership_files(self) -> list[ParsedOwnershipFile]:
         """Every tracked ownership file, parsed exactly once (cached). This is the
@@ -384,17 +449,40 @@ class OwnersResolver:
         if self._parsed_ownership is not None:
             return self._parsed_ownership
         entries: list[ParsedOwnershipFile] = []
+        filenames = self.ownership_filenames()
         for rel in self.tracked_files():
             name = rel.rsplit("/", 1)[-1]
-            if name not in (OWNERS_FILENAME, PRODUCT_FILENAME):
+            if name not in filenames:
+                continue
+            rel_dir = rel.rsplit("/", 1)[0] if "/" in rel else ""
+            # No alias applies in the root directory (see _load_dir_file), so listing one would
+            # hand consumers a file resolution never reads.
+            if not rel_dir and name != OWNERS_FILENAME:
                 continue
             abs_path = self.repo_root / rel
-            rel_dir = rel.rsplit("/", 1)[0] if "/" in rel else ""
-            if name == PRODUCT_FILENAME:
-                parsed = parse_product_yaml_as_owners(abs_path.read_text(), path=abs_path, directory=rel_dir)
+            if name != OWNERS_FILENAME:
+                parsed = parse_alias_file_as_owners(abs_path.read_text(), path=abs_path, directory=rel_dir)
                 errors: list[str] = []
             else:
                 parsed, errors = parse_owners_file(abs_path.read_text(), path=abs_path, directory=rel_dir)
             entries.append(ParsedOwnershipFile(path=abs_path, rel_dir=rel_dir, name=name, parsed=parsed, errors=errors))
         self._parsed_ownership = entries
         return entries
+
+    def effective_ownership_files(self) -> list[ParsedOwnershipFile]:
+        """The one file per directory that ``resolve`` reads there, ordered by directory.
+
+        ``parsed_ownership_files`` lists every tracked ownership file, including the ones a
+        directory's ``owners.yaml`` or an earlier alias shadows. A consumer that models resolution
+        must see the same precedence, or it models a file the resolver never reads. Lint is the
+        exception: reporting the shadowed file is its job.
+        """
+        rank = {name: index for index, name in enumerate(self.ownership_filenames())}
+        chosen: dict[str, ParsedOwnershipFile] = {}
+        for entry in self.parsed_ownership_files():
+            if entry.parsed is None:
+                continue
+            current = chosen.get(entry.rel_dir)
+            if current is None or rank[entry.name] < rank[current.name]:
+                chosen[entry.rel_dir] = entry
+        return [chosen[directory] for directory in sorted(chosen)]
