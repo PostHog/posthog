@@ -200,8 +200,8 @@ Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
 Oversized identifiers cannot fail a whole bulk key lookup.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
 Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
-The image scrubber writes the shards of one poll batch while it scrubs the next batch, and writes the shard groups of a batch concurrently.
-The offsets of a batch are stored after its writes complete, in batch order, so a failed write stops every later store and the pod replays from the last stored offset.
+The image scrubber hands the images it scrubbed to a write lane every 30 seconds or when its buffer is full, writes them while it scrubs the next batches, and writes the shard groups of one hand-off concurrently.
+The offsets of a hand-off are stored after its writes complete, in hand-off order, so a failed write stops every later store and the pod replays from the last stored offset.
 Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
 Its URL history expires eight days after the end of the session's UTC month.

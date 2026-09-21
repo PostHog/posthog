@@ -166,8 +166,9 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
+    SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: number
-    // Real peak memory is ~2x this: the flush does a Buffer.concat copy.
+    // Real peak memory is about 4x this: the write lane holds one hand-off writing and one queued, and the one being written is copied by Buffer.concat and again by the encryption envelope (MAX_WRITES_IN_FLIGHT in image-batcher.ts).
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: number
     /**
@@ -176,7 +177,7 @@ export type MlMirrorConfig = {
      * per entry, of which lru-cache commits about an eighth up front by preallocating its backing
      * arrays. Sized against the 2000M consumer container in
      * https://github.com/PostHog/charts/blob/main/apps/ingestion-sessionreplay-ml-image-scrub/values.yaml,
-     * which also has to hold MAX_BYTES of scrubbed images at ~2x during a flush. Start low and raise
+     * which also has to hold about 4x MAX_BYTES of scrubbed images while the write lane is full. Start low and raise
      * it off ml_mirror_ref_cache_capacity_probe_total rather than guessing.
      *
      * 0 disables only this cross-batch cache; duplicates within a poll batch always collapse.
@@ -204,7 +205,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: string
     /** Messages per poll. Bounds batch wall time against Kafka's max.poll.interval.ms (300s). */
     SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
-    // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
+    // Per-write timeout (the S3 client has no built-in one). A hand-off writes its shard groups concurrently, each as a shard, an index and per-image lookups, so a hand-off bounds at 3x this plus the lookup budget.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
 }
 
@@ -268,6 +269,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
         // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.
         SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: 'http://127.0.0.1:9010',
+        SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: 30 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: 128 * 1024 * 1024,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,

@@ -114,6 +114,8 @@ interface SettledScrub {
 }
 
 export interface ImageBatcherOptions {
+    /** How long scrubbed images accumulate before a hand-off, so images of one team-month across several polls share a shard. */
+    flushIntervalMs: number
     maxImages: number
     maxBytes: number
     scrubConcurrency: number
@@ -125,17 +127,21 @@ export interface ImageBatcherOptions {
  *
  * A batch's images spread over as many shard groups as it has team-months, which is most of them,
  * so written one after another the groups cost a round trip each and the sidecar idles for the sum.
- * Written together they cost about one. Bounded so a burst cannot exhaust the S3 client's socket
- * pool, and separate from the scrub concurrency so a write never takes a slot from the next batch.
+ * Written together they cost about one. Bounded so that, together with the store's own lookup
+ * limiter, a burst stays under the S3 client's socket pool, and separate from the scrub concurrency
+ * so a write never takes a slot from the next batch.
  */
 export const WRITE_CONCURRENCY = 8
 
 /**
- * Hand-offs the write lane may hold before the scrub waits on it: one writing, one queued.
+ * Hand-offs the write lane may hold: one writing, one queued. A batch that hands off while both
+ * are held waits for the oldest to finish before it continues.
  *
- * Writes run behind the scrub of the next batch, so an S3 slowdown would otherwise queue hand-offs
- * without limit and hold their images in memory. Waiting on the oldest hand-off bounds that at
- * two batches of scrubbed output plus the batch in flight.
+ * Writes run behind the scrub of the next batches, so an S3 slowdown would otherwise queue
+ * hand-offs without limit and hold their images in memory. The wait bounds resident scrubbed output
+ * at two hand-offs plus what the running batch has staged, and the hand-off being written is copied
+ * twice more (Buffer.concat, then the encryption envelope). That multiplier is what the MAX_BYTES
+ * comment in ml-mirror/config.ts states, so change both together.
  */
 const MAX_WRITES_IN_FLIGHT = 2
 
@@ -166,6 +172,8 @@ export class ImageBatcher {
     private outgoing: ScrubbedRef[] = []
     private outgoingBytes = 0
     private outgoingOffsets = new Map<string, TopicPartitionOffset>()
+    /** Undefined until the first hand-off, so the first batch does not wait a whole interval. */
+    private lastHandOffMs: number | undefined
     /**
      * Writes hand-offs one at a time, in the order the batches retired them.
      *
@@ -267,7 +275,7 @@ export class ImageBatcher {
         }
     }
 
-    public async handleBatch(messages: Message[]): Promise<void> {
+    public async handleBatch(messages: Message[], nowMs = Date.now()): Promise<void> {
         if (this.stopping) {
             return
         }
@@ -279,7 +287,7 @@ export class ImageBatcher {
         const controller = new AbortController()
         this.activeBatch = controller
         this.partitionsRevoked = false
-        const running = this.handleActiveBatch(messages, controller)
+        const running = this.handleActiveBatch(messages, controller, nowMs)
         this.activeBatchSettled = running.then(
             () => undefined,
             () => undefined
@@ -287,9 +295,17 @@ export class ImageBatcher {
         try {
             await running
         } catch (error) {
-            if (!(this.stopping && error instanceof ScrubAborted)) {
-                throw error
+            if (this.stopping && error instanceof ScrubAborted) {
+                return
             }
+            // The Kafka loop disconnects the client as soon as this rejects, before shutdown reaches
+            // stop(), so a hand-off still writing would find no client to store its offsets with and
+            // its shards would be written again after the restart. A poisoned lane has nothing left
+            // that could store, so its own failure is raised straight away.
+            if (error !== this.writeFailure) {
+                await this.drain().catch(() => undefined)
+            }
+            throw error
         } finally {
             // Cleared here rather than on the success path: a throwing batch that left this set would
             // have shutdown abort a controller belonging to a batch that is already over.
@@ -297,7 +313,7 @@ export class ImageBatcher {
         }
     }
 
-    private async handleActiveBatch(messages: Message[], controller: AbortController): Promise<void> {
+    private async handleActiveBatch(messages: Message[], controller: AbortController, nowMs: number): Promise<void> {
         // Skips resolve up front so the window only ever holds real work: a duplicate admitted into a
         // slot would occupy it and complete instantly, spending the pod's concurrency on no-ops.
         if (messages.length) {
@@ -363,7 +379,7 @@ export class ImageBatcher {
             ImageScrubConsumerMetrics.startBatch()
         }
         try {
-            await this.scrubAndStage(messages, planned, controller)
+            await this.scrubAndStage(messages, planned, controller, nowMs)
         } finally {
             // Empty polls arrive on a timer under callEachBatchWhenEmpty and would otherwise bury
             // the real distribution of both histograms in a zero bucket.
@@ -381,7 +397,8 @@ export class ImageBatcher {
     private async scrubAndStage(
         messages: Message[],
         planned: PlannedScrub[],
-        controller: AbortController
+        controller: AbortController,
+        nowMs: number
     ): Promise<void> {
         let spanStart = 0
         let nextToSubmit = 0
@@ -408,7 +425,7 @@ export class ImageBatcher {
             }
             // Only reachable over capacity with work left: hand off to make room rather than spin.
             if (inFlight.size === 0) {
-                await this.handOff()
+                await this.handOffOrAbort(controller, nowMs)
                 if (this.partitionsRevoked) {
                     break
                 }
@@ -470,7 +487,7 @@ export class ImageBatcher {
                 spanStart = spanEnd
             }
             if (this.overCapacity(stagedCount, stagedBytes)) {
-                await this.handOff()
+                await this.handOffOrAbort(controller, nowMs)
             }
             if (this.partitionsRevoked) {
                 controller.abort()
@@ -490,12 +507,24 @@ export class ImageBatcher {
         if (this.stopping) {
             // Deliberately no tail recordOffsets: past the last retired image nothing was finished,
             // and moving offsets over it here would lose exactly what the wait exists to protect.
-            await this.handOff()
+            await this.handOff(nowMs)
             return
         }
         // A batch whose tail is all skips, or which is nothing but skips, still has to move offsets.
         this.recordOffsets(messages.slice(spanStart))
-        await this.handOff()
+        if (this.lastHandOffMs === undefined || nowMs - this.lastHandOffMs >= this.options.flushIntervalMs) {
+            await this.handOff(nowMs)
+        }
+    }
+
+    /** A rejected wait on the lane ends the batch like a failed scrub does: the sidecar must not keep working on results nobody will read. */
+    private async handOffOrAbort(controller: AbortController, nowMs: number): Promise<void> {
+        try {
+            await this.handOff(nowMs)
+        } catch (error) {
+            controller.abort()
+            throw error
+        }
     }
 
     /**
@@ -503,7 +532,8 @@ export class ImageBatcher {
      * so the scrub of the next batch overlaps the S3 round trips of this one. The wait on the
      * oldest hand-off is the only place a slow S3 reaches the scrub, and it is what bounds memory.
      */
-    private async handOff(): Promise<void> {
+    private async handOff(nowMs: number): Promise<void> {
+        this.lastHandOffMs = nowMs
         if (this.outgoing.length === 0 && this.outgoingOffsets.size === 0) {
             return
         }
@@ -520,8 +550,13 @@ export class ImageBatcher {
             }
         }
         void write.then(forget, forget)
-        if (this.writesInFlight.length > MAX_WRITES_IN_FLIGHT) {
-            await this.writesInFlight[0]
+        if (this.writesInFlight.length >= MAX_WRITES_IN_FLIGHT) {
+            const waitedFrom = performance.now()
+            try {
+                await this.writesInFlight[0]
+            } finally {
+                ImageScrubConsumerMetrics.observeWriteWait((performance.now() - waitedFrom) / 1000)
+            }
         }
     }
 
@@ -532,6 +567,11 @@ export class ImageBatcher {
         // Found by the hand-off ahead of this one, whose offsets could not be stored: the span belongs
         // to another pod now, and writing it here would leave a second shard under a random key.
         if (this.partitionsRevoked) {
+            logger.warn('🔁', 'image_scrub_handoff_discarded_after_revoke', {
+                images: handoff.images.length,
+                partitions: handoff.offsets.map((offset) => offset.partition),
+            })
+            ImageScrubConsumerMetrics.incOffsetsDiscarded(handoff.offsets.length)
             this.forgetUnwritten(handoff.images)
             return
         }
@@ -544,9 +584,9 @@ export class ImageBatcher {
             }
             ImageScrubConsumerMetrics.incBatchFailed('write')
             throw error
-        } finally {
-            ImageScrubConsumerMetrics.observeWrite((performance.now() - startedAt) / 1000)
         }
+        // Observed on success only, so an S3 incident's retry budgets do not read as slow writes.
+        ImageScrubConsumerMetrics.observeWrite((performance.now() - startedAt) / 1000)
     }
 
     /** Retains nothing between batches, so unlike [[seenRefs]] this dedup cannot be sized wrong or disabled. */
@@ -893,6 +933,11 @@ export class ImageBatcher {
      *
      * The disconnected client throws a plain Error with no code at all, which is the same situation
      * arriving during shutdown, so it is tolerated on the same grounds.
+     *
+     * The write lane runs while the loop keeps polling, so a revoke can also land while a hand-off
+     * is still writing. Its offsets are discarded here and the new owner rescrubs that span, which
+     * can cost MAX_WRITES_IN_FLIGHT hand-offs per pod per rebalance. That is the accepted price of
+     * overlapping the writes, and incOffsetsDiscarded is where it shows.
      */
     private storeOffsetsUnlessRevoked(offsets: TopicPartitionOffset[]): void {
         try {
