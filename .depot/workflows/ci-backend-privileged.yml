@@ -70,7 +70,7 @@ jobs:
             - name: Download backend snapshot update
               id: artifact
               env:
-                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_BACKEND_TRUSTED_TOKEN }}
                   DEPOT_APP_ID: '219785'
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   GH_TOKEN: ${{ github.token }}
@@ -79,7 +79,7 @@ jobs:
                   REPO: ${{ github.repository }}
               run: |
                   set -euo pipefail
-                  [ -n "$DEPOT_TOKEN" ] || { echo "::error::DEPOT_TOKEN is not available to the trusted workflow"; exit 1; }
+                  [ -n "$DEPOT_TOKEN" ] || { echo "::error::DEPOT_CI_BACKEND_TRUSTED_TOKEN is not configured for this trusted workflow"; exit 1; }
 
                   snapshot_check_state() {
                       gh api -X GET "repos/$REPO/commits/$HEAD_SHA/check-runs" \
@@ -266,7 +266,7 @@ jobs:
             - name: Download generated OpenAPI types
               id: artifact
               env:
-                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_BACKEND_TRUSTED_TOKEN }}
                   DEPOT_APP_ID: '219785'
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   GH_TOKEN: ${{ github.token }}
@@ -275,7 +275,7 @@ jobs:
                   REPO: ${{ github.repository }}
               run: |
                   set -euo pipefail
-                  [ -n "$DEPOT_TOKEN" ] || { echo "::error::DEPOT_TOKEN is not available to the trusted workflow"; exit 1; }
+                  [ -n "$DEPOT_TOKEN" ] || { echo "::error::DEPOT_CI_BACKEND_TRUSTED_TOKEN is not configured for this trusted workflow"; exit 1; }
 
                   openapi_check_state() {
                       gh api -X GET "repos/$REPO/commits/$HEAD_SHA/check-runs" \
