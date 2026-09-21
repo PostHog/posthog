@@ -117,7 +117,8 @@ class RepoSettings:
 
 @dataclass
 class OwnersRule:
-    """A per-path override inside a file, evaluated last-match-wins within the file."""
+    """A per-path override inside a file. Every matching rule applies in file order, and each
+    replaces only the fields it sets."""
 
     match: str
     owners: list[str] | None | _Unset = UNSET

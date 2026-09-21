@@ -508,14 +508,16 @@ class CanonicalPlacer:
         code_files: list[str],
     ) -> tuple[list[str], list[str], dict[str, list[str]]]:
         current_simple_dirs: set[str] = set()  # dirs whose file fmt may delete
-        # dir -> {match: owners as written} — last occurrence wins, mirroring the
-        # resolver's last-match-wins so the diff compares against what decides.
+        # dir -> {match: owners as written}. The last rule that sets owners wins, as in
+        # the resolver, so the diff compares against what decides.
         current_rules: dict[str, dict[str, list[str] | None | _Unset]] = {}
         current_owners: dict[str, list[str] | None] = {}  # dir -> top-level owners as written
         for entry in entries:
             if entry.name != OWNERS_FILENAME or entry.parsed is None:
                 continue
-            current_rules[entry.rel_dir] = {r.match: r.owners for r in entry.parsed.rules}
+            current_rules[entry.rel_dir] = {
+                r.match: r.owners for r in entry.parsed.rules if not isinstance(r.owners, _Unset)
+            }
             current_owners[entry.rel_dir] = entry.parsed.owners
             if _is_simple_file(entry.parsed):
                 current_simple_dirs.add(entry.rel_dir)

@@ -82,7 +82,7 @@ version: 1
 owners: team-billing
 ```
 
-A file can override its own subtree with `rules:`. Within one file, the last matching rule wins:
+A file can override its own subtree with `rules:`. Every rule that matches a path applies in file order, and each one replaces only the fields it sets:
 
 ```yaml
 version: 1

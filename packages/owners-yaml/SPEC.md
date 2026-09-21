@@ -80,7 +80,7 @@ Each rule is a mapping with these fields:
 | `inherit` | no       | boolean                             | Replaces the file-level `inherit` for matching paths. |
 
 1. A rule with a list of valid patterns is equal to one rule per pattern, in list order, with the same fields.
-2. Within one file, the last rule whose pattern matches a path applies. Earlier matching rules have no effect.
+2. Within one file, every rule whose pattern matches a path applies, in file order. Each rule replaces only the fields it sets, so a later rule that sets only `status` keeps the `owners` of an earlier rule.
 3. A rule MUST NOT change the resolution of a path outside the directory of its file.
 4. A rule with a pattern that the matcher rejects is an error. A tool MUST ignore the whole rule, including its other patterns, and MAY continue with the rest of the file.
 
@@ -110,7 +110,7 @@ To resolve a path `P`:
 4. Start with an empty result: owners unset, status unset, source unset.
 5. For each file found in step 3, in order:
    1. Take the file-level `owners`, `status`, and `inherit`.
-   2. Find the last rule in the file that matches `P` (section 3.4). If one matches, replace each field that the rule sets.
+   2. For each rule in the file that matches `P`, in file order, replace each field that the rule sets (section 3.4).
    3. If `inherit` is `false`, reset the result to empty.
    4. If `owners` is `null`, set the result owners to `null` and the source to this file.
    5. If `owners` is a non-empty list, set the result owners to that list and the source to this file.
@@ -149,8 +149,8 @@ flowchart TD
     walk --> has{Has an ownership file?}
     has -- no --> more
     has -- yes --> take[Take the file's owners, status, and inherit]
-    take --> rule{Does a rule match P?<br/>The last match wins}
-    rule -- yes --> apply[Replace the fields that the rule sets]
+    take --> rule{Does a rule match P?}
+    rule -- yes --> apply[For each matching rule in file order,<br/>replace the fields that it sets]
     rule -- no --> cut
     apply --> cut{inherit is false?}
     cut -- yes --> reset[Reset the result]
@@ -413,7 +413,7 @@ rules:
 
 ## 10. Design notes (non-normative)
 
-- **Nearest file wins, per field.** Kubernetes OWNERS files add approvers from every ancestor, which fits "someone must approve". For routing, the union tags too many teams, so the nearest file wins. The merge is per field, so a child file that sets only `owners` keeps the `status` of its ancestors.
+- **Nearest file wins, per field.** Kubernetes OWNERS files add approvers from every ancestor, which fits "someone must approve". For routing, the union tags too many teams, so the nearest file wins. The merge is per field, so a child file that sets only `owners` keeps the `status` of its ancestors. Rules in one file merge the same way, so a rule that marks generated files does not undo a rule that names their owners.
 - **Rules stay in their file.** In a single CODEOWNERS file, a broad pattern added late can take over earlier specific lines. Here a rule changes only its own directory, so a new rule cannot take over paths in another directory.
 - **Unowned is a decision.** `owners: null` records that nobody owns a path on purpose. A missing owner fails the coverage check.
 - **The alias default is for old trees.** `product.yaml` is the default alias file name so that a repository written before `alias_files` existed resolves the same as it did then. A repository with no alias files sets `alias_files: []` and pays no lookups for it.
@@ -423,3 +423,4 @@ rules:
 
 - **1** (2026-09): First published version.
 - **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.
+- **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones entirely, so a file with two matching rules that set different fields now resolves differently.

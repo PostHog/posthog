@@ -302,16 +302,13 @@ class OwnersResolver:
                 collected.append(f)
         return collected
 
-    def _file_contribution(self, f: OwnersFile, path: str) -> OwnersFile | None:
-        """A shallow copy of the file's fields with its own last-matching rule
-        applied. Returns an OwnersFile whose top-level fields hold the effective
-        contribution (rules already merged in). Returns the file itself if no rule."""
+    def _file_contribution(self, f: OwnersFile, path: str) -> OwnersFile:
+        """A shallow copy of the file's fields with every matching rule applied in order.
+        Each rule replaces only the fields it sets, so a later rule that sets only ``status``
+        keeps the ``owners`` an earlier rule set. Returns the file itself if no rule matches."""
         rel = path[len(f.directory) + 1 :] if f.directory else path
-        matched = None
-        for rule in f.rules:  # last-match-wins within the file
-            if compile_pattern(rule.match).test(rel):
-                matched = rule
-        if matched is None:
+        matched = [rule for rule in f.rules if compile_pattern(rule.match).test(rel)]
+        if not matched:
             return f
 
         contrib = OwnersFile(
@@ -322,12 +319,13 @@ class OwnersResolver:
             inherit=f.inherit,
             is_alias=f.is_alias,
         )
-        if not isinstance(matched.owners, _Unset):
-            contrib.owners = matched.owners
-        if not isinstance(matched.status, _Unset):
-            contrib.status = matched.status
-        if not isinstance(matched.inherit, _Unset):
-            contrib.inherit = matched.inherit
+        for rule in matched:
+            if not isinstance(rule.owners, _Unset):
+                contrib.owners = rule.owners
+            if not isinstance(rule.status, _Unset):
+                contrib.status = rule.status
+            if not isinstance(rule.inherit, _Unset):
+                contrib.inherit = rule.inherit
         return contrib
 
     def ownership_file_paths(self, paths: list[str]) -> list[str]:
@@ -346,7 +344,6 @@ class OwnersResolver:
 
         for f in self._collect_files(norm):
             contrib = self._file_contribution(f, norm)
-            assert contrib is not None
 
             # The single `set noparent` site: contrib.inherit is the file-level
             # flag with any matched rule's override folded in, so a file-level
