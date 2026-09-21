@@ -8,6 +8,7 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_usage import (
+    SandboxDestroyOutcome,
     close_sandbox_session,
     measure_sandbox_billed_cpu_usage,
     measure_sandbox_cpu_usage,
@@ -43,6 +44,7 @@ def publish_run_stream_completion(run_id: str) -> None:
 def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     strict_cleanup = input.complete_stream_on_cleanup or input.raise_on_error
     stream_completion_safe = False
+    destroy_outcome = SandboxDestroyOutcome.NOT_ATTEMPTED
     cpu_usage_usec = None
     billed_cpu_usage_usec = None
     cpu_usage_measured_at = None
@@ -50,6 +52,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     except SandboxNotFoundError:
         stream_completion_safe = True
+        destroy_outcome = SandboxDestroyOutcome.SANDBOX_NOT_FOUND
         sandbox = None
     except Exception:
         logger.warning("cleanup_sandbox_get_by_id_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
@@ -79,12 +82,15 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
         try:
             sandbox.destroy()
             stream_completion_safe = True
+            destroy_outcome = SandboxDestroyOutcome.SUCCEEDED
         except Exception:
+            destroy_outcome = SandboxDestroyOutcome.FAILED
             logger.warning("cleanup_sandbox_destroy_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
             if strict_cleanup:
                 close_sandbox_session(
                     input.sandbox_id,
                     reason=SandboxSession.EndedReason.CLEANUP,
+                    destroy_outcome=destroy_outcome,
                     cpu_usage_usec=cpu_usage_usec,
                     billed_cpu_usage_usec=billed_cpu_usage_usec,
                     cpu_usage_measured_at=cpu_usage_measured_at,
@@ -97,6 +103,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     close_sandbox_session(
         input.sandbox_id,
         reason=SandboxSession.EndedReason.CLEANUP,
+        destroy_outcome=destroy_outcome,
         cpu_usage_usec=cpu_usage_usec,
         billed_cpu_usage_usec=billed_cpu_usage_usec,
         cpu_usage_measured_at=cpu_usage_measured_at,
