@@ -1,5 +1,5 @@
 import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
-import { Locator, Page } from '@playwright/test'
+import { Frame, Locator, Page } from '@playwright/test'
 import snappy from 'snappyjs'
 
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -175,6 +175,16 @@ function playerFrame(page: Page): Locator {
     return page.frameLocator('iframe.PlayerFrame__document').locator('.PlayerFrame__content .replayer-wrapper iframe')
 }
 
+// rrweb's cursor lives in the player frame's own document, so counting its flashes needs a Frame
+// rather than a FrameLocator: the counter has to run as script inside that document.
+function playerFrameDocument(page: Page): Frame {
+    return page.frame({ url: /replay_player_frame/ })!
+}
+
+function clickFlashCount(page: Page): Promise<number> {
+    return playerFrameDocument(page).evaluate(() => (window as any).__clickFlashes ?? 0)
+}
+
 // One button whose data-attr reflects player state and stays assertable while the auto-hiding controls chrome is hidden (hover via revealControls before clicking it).
 function playPauseButton(page: Page): Locator {
     return page.locator('[data-attr=recording-play], [data-attr=recording-pause], [data-attr=recording-rewind]').first()
@@ -312,6 +322,30 @@ test.describe('Session replay player', () => {
         await expect(page.getByText("of this recording can't be played")).toBeVisible({ timeout: 30000 })
         await revealControls(page)
         await expect(page.locator('.PlayerSeekbar__unplayable')).toBeVisible()
+    })
+
+    test('flashes the click indicator on every click, not only the first', async ({ page }) => {
+        await page.goto(`/replay/${SESSION_ID}?t=0`)
+        await expect(playerFrame(page)).toBeVisible({ timeout: 30000 })
+
+        // rrweb marks a click by re-adding a class the cursor already carries, so the flash animation
+        // replays only while something clears that class in between. The class ends up identical
+        // either way, which leaves the animation itself as the only observable difference.
+        const frameDocument = playerFrameDocument(page)
+        await frameDocument.locator('.replayer-mouse').waitFor({ timeout: 30000 })
+        await frameDocument.evaluate(() => {
+            const win = window as any
+            win.__clickFlashes = 0
+            document.querySelector('.replayer-mouse')!.addEventListener('animationend', () => {
+                win.__clickFlashes += 1
+            })
+        })
+
+        // The recording clicks at 2.4s, 3.4s and 3.8s, and the flash lasts 333ms at 1x, so the fix
+        // produces three animations. The count is two because playback starts before the listener
+        // can attach, which can cost the first one. Without the fix the cursor animates once, so
+        // two still separates the two behaviors.
+        await expect.poll(() => clickFlashCount(page), { timeout: 30000 }).toBeGreaterThanOrEqual(2)
     })
 
     test('buffers while a source is still loading and recovers when it arrives', async ({ page }) => {

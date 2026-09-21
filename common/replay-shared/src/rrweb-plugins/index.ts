@@ -1,4 +1,4 @@
-import { ReplayPlugin, playerConfig } from 'posthog-js/rrweb'
+import { Replayer, ReplayPlugin, playerConfig } from 'posthog-js/rrweb'
 
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../mobile/transformer/shared'
 
@@ -79,6 +79,30 @@ export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     // recorded content escape the sandbox into the app origin. Canvas is replayed via
     // CanvasReplayerPlugin instead, which needs no in-frame scripting.
     UNSAFE_replayCanvas: false,
+}
+
+// rrweb marks a click by removing and re-adding the `active` class on its cursor element, with a
+// forced repaint between the two calls so the browser restarts the CSS flash animation. The
+// minifier in the posthog-js publish chain drops that repaint, because it reads a layout property
+// and discards the value. Without it the browser never sees the class absent, the animation never
+// restarts, and only the first click of a session flashes. Clearing the class once the flash ends
+// makes rrweb's next add a real class change, so the animation runs again.
+export function resetClickIndicatorAfterFlash(replayer: Replayer): () => void {
+    const cursor = replayer.wrapper.querySelector('.replayer-mouse')
+    if (!cursor) {
+        return () => {}
+    }
+
+    const clearActive = (): void => cursor.classList.remove('active')
+
+    cursor.addEventListener('animationend', clearActive)
+    // A cancelled animation never fires animationend, which would leave the class stuck.
+    cursor.addEventListener('animationcancel', clearActive)
+
+    return () => {
+        cursor.removeEventListener('animationend', clearActive)
+        cursor.removeEventListener('animationcancel', clearActive)
+    }
 }
 
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'

@@ -12,6 +12,7 @@ import {
     createSegments,
     mapSnapshotsToWindowId,
     mergeInactiveSegments,
+    resetClickIndicatorAfterFlash,
     type ProcessingCache,
     type RecordingSegment,
     type ViewportResolution,
@@ -121,6 +122,8 @@ export async function createReplayer(
         plugins: [CorsPlugin, HLSPlayerPlugin, AudioMuteReplayerPlugin(true), CanvasReplayerPlugin(events)],
         speed: config.playbackSpeed,
     })
+
+    resetClickIndicatorAfterFlash(replayer)
 
     let initialURL = ''
     for (const e of events) {

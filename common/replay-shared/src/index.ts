@@ -57,5 +57,6 @@ export {
     COMMON_REPLAYER_CONFIG,
     HLSPlayerPlugin,
     createHLSPlayerPlugin,
+    resetClickIndicatorAfterFlash,
     WindowTitlePlugin,
 } from './rrweb-plugins'

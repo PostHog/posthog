@@ -30,6 +30,7 @@ import {
     CorsPlugin,
     SnapshotStore,
     createHLSPlayerPlugin,
+    resetClickIndicatorAfterFlash,
 } from '@posthog/replay-shared'
 
 import api from 'lib/api'
@@ -2503,7 +2504,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // catch the throw escapes the listener and the player buffers forever.
                     try {
                         const replayer = new Replayer(values.playableSnapshotsByWindowId[windowId], config)
-                        const iframeCleanups: (() => void)[] = []
+                        const iframeCleanups: (() => void)[] = [resetClickIndicatorAfterFlash(replayer)]
 
                         replayer.on('fullsnapshot-rebuilded', () => {
                             const iframeContentWindow = replayer.iframe.contentWindow
