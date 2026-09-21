@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -72,6 +72,7 @@ export function toTeamCIHealthRow(it: TeamCIHealthItemApi): TeamCIHealthRow {
 export interface teamsLogicValues {
     sourceId: string | null // engineeringAnalyticsLogic
     teams: TeamsData | null
+    teamsFailed: boolean
     teamsLoading: boolean
 }
 
@@ -123,6 +124,16 @@ export const teamsLogic = kea<teamsLogicType>([
             },
         ],
     })),
+    reducers({
+        teamsFailed: [
+            false,
+            {
+                loadTeams: () => false,
+                loadTeamsSuccess: () => false,
+                loadTeamsFailure: () => true,
+            },
+        ],
+    }),
     listeners(({ actions }) => ({
         setSourceId: () => actions.loadTeams(),
     })),

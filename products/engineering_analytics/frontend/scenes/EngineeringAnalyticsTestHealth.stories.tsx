@@ -133,3 +133,16 @@ export const TrunkQuarantineDebtOwnersUnavailable: Story = {
         }),
     ],
 }
+
+export const QuarantineLoadError: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: urls.engineeringAnalyticsTestHealth(),
+        testOptions: { waitForSelector: '.text-danger' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { 'api/projects/:team_id/engineering_analytics/quarantine/': () => [500, null] },
+        }),
+    ],
+}

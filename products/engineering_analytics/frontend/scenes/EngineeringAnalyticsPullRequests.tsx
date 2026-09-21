@@ -37,7 +37,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
     } = useValues(engineeringAnalyticsLogic)
     const { setStateFilter, setCiStatusFilter, setSearch, resetFilters, applyCardFilter, refresh } =
         useActions(engineeringAnalyticsLogic)
-    const { timing, timingLoading } = useValues(timeToProductionLogic)
+    const { timing, timingFailed, timingLoading } = useValues(timeToProductionLogic)
+    const { loadTiming } = useActions(timeToProductionLogic)
     const { dora, doraLoading, environmentScopeLabel, githubTeam } = useValues(doraLogic)
 
     const pipeline = timing?.delivery_pipeline
@@ -90,84 +91,98 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
 
             {/* The panel is the scope. Everything below it is the current open backlog, not windowed. */}
             <ScopePanel busy={timingLoading && !!timing}>
-                <Section id="delivery" title="Time to production" busy={timingLoading}>
-                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                        <WindowComparisonCard
-                            title={cycleTime.title}
-                            value={cycleTime.value}
-                            previousValue={cycleTime.previousValue}
-                            formatValue={compactHoursLabel}
-                            goodWhenDown
-                            loading={timingPending}
-                            tooltip={cycleTime.tooltip}
-                            emptyText="No PRs merged in the window yet."
-                        />
-                        <WindowComparisonCard
-                            title={`Median time from merge to production (${deployScopeLabel})`}
-                            value={dora?.median_merge_to_deploy_seconds}
-                            previousValue={dora?.median_merge_to_deploy_seconds_prev}
-                            formatValue={compactAgeLabel}
-                            goodWhenDown
-                            loading={doraLoading && !dora}
-                            tooltip="Median wait from a PR's merge to the first successful deploy containing it, resolved through the deploy head commit. The same measure as the Health tab, in the environment and team scope selected there."
-                            emptyText={
-                                dora && !dora.deploy_data_available
-                                    ? 'Production timing appears once the deployments source is synced.'
-                                    : 'No PR merged in the window has reached production yet.'
-                            }
-                        />
-                    </div>
-                    <DeliveryPipeline pipeline={pipeline} mergeToDeploy={mergeToDeploy} loading={timingPending} />
-                </Section>
+                {timingFailed ? (
+                    <CIAnalyticsLoadError onRetry={loadTiming} />
+                ) : (
+                    <>
+                        <Section id="delivery" title="Time to production" busy={timingLoading}>
+                            <div className="@container">
+                                <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2">
+                                    <WindowComparisonCard
+                                        title={cycleTime.title}
+                                        value={cycleTime.value}
+                                        previousValue={cycleTime.previousValue}
+                                        formatValue={compactHoursLabel}
+                                        goodWhenDown
+                                        loading={timingPending}
+                                        tooltip={cycleTime.tooltip}
+                                        emptyText="No PRs merged in the window yet."
+                                    />
+                                    <WindowComparisonCard
+                                        title={`Median time from merge to production (${deployScopeLabel})`}
+                                        value={dora?.median_merge_to_deploy_seconds}
+                                        previousValue={dora?.median_merge_to_deploy_seconds_prev}
+                                        formatValue={compactAgeLabel}
+                                        goodWhenDown
+                                        loading={doraLoading && !dora}
+                                        tooltip="Median wait from a PR's merge to the first successful deploy containing it, resolved through the deploy head commit. The same measure as the Health tab, in the environment and team scope selected there."
+                                        emptyText={
+                                            dora && !dora.deploy_data_available
+                                                ? 'Production timing appears once the deployments source is synced.'
+                                                : 'No PR merged in the window has reached production yet.'
+                                        }
+                                    />
+                                </div>
+                                <DeliveryPipeline
+                                    pipeline={pipeline}
+                                    mergeToDeploy={mergeToDeploy}
+                                    loading={timingPending}
+                                />
+                            </div>
+                        </Section>
 
-                <Section id="merge-queue" title="Merge queue" busy={timingLoading}>
-                    {timing &&
-                    timing.merge_queue_merged_pr_count === 0 &&
-                    timing.merge_queue_failed_or_cancelled_share == null ? (
-                        <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                            No merge queue activity in the window.
-                        </LemonCard>
-                    ) : (
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                            <WindowComparisonCard
-                                title="Merges retried in the queue"
-                                tooltip="Share of queue-landed merges that needed more than one gate attempt. Bisection branches count toward the attempt they investigate."
-                                value={timing?.merge_queue_multi_attempt_merge_share}
-                                previousValue={timing?.merge_queue_multi_attempt_merge_share_prev}
-                                formatValue={percent}
-                                deltaUnit="pt"
-                                goodWhenDown
-                                loading={timingPending}
-                                emptyText="No queue-landed merges in the window."
-                            />
-                            {timing?.merge_queue_trunk_available ? (
-                                <WindowComparisonCard
-                                    title="Left the queue unmerged"
-                                    tooltip="Share of concluded merge queue entries that ended failed or cancelled, from the queue's own records."
-                                    value={timing?.merge_queue_failed_or_cancelled_share}
-                                    previousValue={timing?.merge_queue_failed_or_cancelled_share_prev}
-                                    formatValue={(v) => percent(v, 1)}
-                                    deltaUnit="pt"
-                                    goodWhenDown
-                                    loading={timingPending}
-                                    emptyText="No concluded queue entries in the window."
-                                />
-                            ) : (
-                                <WindowComparisonCard
-                                    title="Merges with a failed queue run"
-                                    tooltip="Share of queue-landed merges where at least one gate run failed before the merge. Derived from CI run conclusions, not the queue's own eviction records."
-                                    value={timing?.merge_queue_failed_gate_merge_share}
-                                    previousValue={timing?.merge_queue_failed_gate_merge_share_prev}
-                                    formatValue={percent}
-                                    deltaUnit="pt"
-                                    goodWhenDown
-                                    loading={timingPending}
-                                    emptyText="No queue-landed merges in the window."
-                                />
-                            )}
-                        </div>
-                    )}
-                </Section>
+                        <Section id="merge-queue" title="Merge queue" busy={timingLoading}>
+                            <div className="@container">
+                                {timing &&
+                                timing.merge_queue_merged_pr_count === 0 &&
+                                timing.merge_queue_failed_or_cancelled_share == null ? (
+                                    <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
+                                        No merge queue activity in the window.
+                                    </LemonCard>
+                                ) : (
+                                    <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2">
+                                        <WindowComparisonCard
+                                            title="Merges retried in the queue"
+                                            tooltip="Share of queue-landed merges that needed more than one gate attempt. Bisection branches count toward the attempt they investigate."
+                                            value={timing?.merge_queue_multi_attempt_merge_share}
+                                            previousValue={timing?.merge_queue_multi_attempt_merge_share_prev}
+                                            formatValue={percent}
+                                            deltaUnit="pt"
+                                            goodWhenDown
+                                            loading={timingPending}
+                                            emptyText="No queue-landed merges in the window."
+                                        />
+                                        {timing?.merge_queue_trunk_available ? (
+                                            <WindowComparisonCard
+                                                title="Left the queue unmerged"
+                                                tooltip="Share of concluded merge queue entries that ended failed or cancelled, from the queue's own records."
+                                                value={timing?.merge_queue_failed_or_cancelled_share}
+                                                previousValue={timing?.merge_queue_failed_or_cancelled_share_prev}
+                                                formatValue={(v) => percent(v, 1)}
+                                                deltaUnit="pt"
+                                                goodWhenDown
+                                                loading={timingPending}
+                                                emptyText="No concluded queue entries in the window."
+                                            />
+                                        ) : (
+                                            <WindowComparisonCard
+                                                title="Merges with a failed queue run"
+                                                tooltip="Share of queue-landed merges where at least one gate run failed before the merge. Derived from CI run conclusions, not the queue's own eviction records."
+                                                value={timing?.merge_queue_failed_gate_merge_share}
+                                                previousValue={timing?.merge_queue_failed_gate_merge_share_prev}
+                                                formatValue={percent}
+                                                deltaUnit="pt"
+                                                goodWhenDown
+                                                loading={timingPending}
+                                                emptyText="No queue-landed merges in the window."
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </Section>
+                    </>
+                )}
             </ScopePanel>
 
             <div className="flex flex-wrap items-center gap-1">

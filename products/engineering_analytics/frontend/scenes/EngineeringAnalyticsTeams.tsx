@@ -1,13 +1,14 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconPeople } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { CountCell } from '../components/CountCell'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
+import { Section } from '../components/Section'
 import { rowNavigationProps } from '../lib/rowNavigation'
 import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_LABELS, TeamCIHealthRow, UNOWNED_TEAM, teamsLogic } from './teamsLogic'
 
@@ -19,7 +20,8 @@ function detailUrlOf(ownerTeam: string, sourceId: string | null): string {
 }
 
 export function EngineeringAnalyticsTeams(): JSX.Element {
-    const { teams, teamsLoading, sourceId } = useValues(teamsLogic)
+    const { teams, teamsFailed, teamsLoading, sourceId } = useValues(teamsLogic)
+    const { loadTeams } = useActions(teamsLogic)
 
     const columns: LemonTableColumns<TeamCIHealthRow> = [
         {
@@ -84,29 +86,33 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
-            <h3 className="m-0 flex items-center gap-1.5 text-base font-semibold">
-                <IconPeople className="text-lg" />
-                Team CI health
-            </h3>
-            <LemonTable
-                data-attr="engineering-analytics-teams-table"
-                size="small"
-                columns={columns}
-                dataSource={teams?.rows ?? []}
-                rowKey={(row) => row.ownerTeam}
-                rowClassName="cursor-pointer"
-                onRow={(row) => rowNavigationProps(detailUrlOf(row.ownerTeam, sourceId))}
-                loading={teamsLoading}
-                pagination={{ pageSize: 20 }}
-                useURLForSorting={false}
-                emptyState="No team-attributed CI signal yet. Signal appears once CI emits test spans with ownership stamps."
-                nouns={['team', 'teams']}
-            />
-            {teams?.truncated && (
-                <div className="text-xs text-tertiary">
-                    Showing the {teams.limit} teams with the most signal. More teams qualified.
-                </div>
-            )}
+            <Section id="team-ci-health" title="Team CI health">
+                {teamsFailed ? (
+                    <CIAnalyticsLoadError onRetry={loadTeams} />
+                ) : (
+                    <div className="flex flex-col gap-2">
+                        <LemonTable
+                            data-attr="engineering-analytics-teams-table"
+                            size="small"
+                            columns={columns}
+                            dataSource={teams?.rows ?? []}
+                            rowKey={(row) => row.ownerTeam}
+                            rowClassName="cursor-pointer"
+                            onRow={(row) => rowNavigationProps(detailUrlOf(row.ownerTeam, sourceId))}
+                            loading={teamsLoading}
+                            pagination={{ pageSize: 20 }}
+                            useURLForSorting={false}
+                            emptyState="No team-attributed CI signal yet. Signal appears once CI emits test spans with ownership stamps."
+                            nouns={['team', 'teams']}
+                        />
+                        {teams?.truncated && (
+                            <div className="text-xs text-tertiary">
+                                Showing the {teams.limit} teams with the most signal. More teams qualified.
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Section>
         </div>
     )
 }

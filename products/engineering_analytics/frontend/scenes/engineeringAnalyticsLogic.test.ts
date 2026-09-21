@@ -719,16 +719,17 @@ describe('engineeringAnalyticsLogic', () => {
         ])
     })
 
-    it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
-        silenceKeaLoadersErrors() // the loader failure is the scenario under test
-        mockQuarantine.mockRejectedValue(
-            new Error('Connect a GitHub data warehouse source to use engineering analytics.')
-        )
+    it.each([
+        [400, 'notConnected'],
+        [500, 'error'],
+    ])('maps a quarantine %i response to %s', async (statusCode, expectedStatus) => {
+        silenceKeaLoadersErrors()
+        mockQuarantine.mockRejectedValue(new ApiError('Quarantine request failed.', statusCode))
 
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
 
-        expect(logic.values.quarantineLoadFailed).toBe(true)
+        expect(logic.values.quarantineStatus).toBe(expectedStatus)
     })
 })

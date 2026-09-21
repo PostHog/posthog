@@ -425,8 +425,8 @@ export interface engineeringAnalyticsLogicValues {
     pullRequestsLoading: boolean
     pullRequestsStatus: LoaderStatus
     quarantine: QuarantineData | null
-    quarantineLoadFailed: boolean
     quarantineLoading: boolean
+    quarantineStatus: LoaderStatus
     readyCount: number
     readyOnly: boolean
     repo: string | null
@@ -939,13 +939,12 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadCardsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
-            // The quarantine endpoint only 400s when there's no GitHub source and no local checkout.
-            quarantineLoadFailed: [
-                false,
+            quarantineStatus: [
+                'ok' as LoaderStatus,
                 {
-                    loadQuarantine: () => false,
-                    loadQuarantineSuccess: () => false,
-                    loadQuarantineFailure: () => true,
+                    loadQuarantine: () => 'ok',
+                    loadQuarantineSuccess: () => 'ok',
+                    loadQuarantineFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
             // Whole-row click toggles a team's slice open (controlled LemonTable expansion, like the

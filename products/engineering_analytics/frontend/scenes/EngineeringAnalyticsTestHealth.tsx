@@ -6,14 +6,16 @@ import { LemonBanner, LemonButton, LemonTable, LemonTableColumns } from '@postho
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
+import { Section } from '../components/Section'
 import { StatCard } from '../components/StatCard'
 import { TeamQuarantinedTestsTable } from '../components/TeamQuarantinedTestsTable'
 import { TrunkQuarantineTeamRow, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 function teamLabel(ownerTeam: string): string {
-    return ownerTeam.replace(/^team-/, '')
+    return ownerTeam === 'unowned' ? 'Unowned' : ownerTeam
 }
 
 function TrunkQuarantineDebtBoard(): JSX.Element {
@@ -24,7 +26,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
         trunkQuarantineTestsByTeam,
         expandedTrunkQuarantineTeams,
     } = useValues(engineeringAnalyticsLogic)
-    const { toggleTrunkQuarantineTeam } = useActions(engineeringAnalyticsLogic)
+    const { loadTrunkQuarantine, toggleTrunkQuarantineTeam } = useActions(engineeringAnalyticsLogic)
 
     const ttlDays = trunkQuarantine?.ttlDays ?? 15
     const overdueCount = trunkQuarantine ? trunkQuarantine.teams.reduce((n, t) => n + t.overdueCount, 0) : null
@@ -68,7 +70,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
     ]
 
     if (trunkQuarantineStatus === 'error') {
-        return <LemonBanner type="warning">Couldn't load Trunk quarantine data. Try refreshing.</LemonBanner>
+        return <CIAnalyticsLoadError onRetry={loadTrunkQuarantine} />
     }
     if (trunkQuarantineStatus === 'notConnected' || (trunkQuarantine && !trunkQuarantine.available)) {
         return (
@@ -80,10 +82,11 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-2">
-                <h3 className="m-0 text-base font-semibold">Quarantine debt by team</h3>
-                {trunkQuarantine?.trunkUrl && (
+        <Section
+            id="quarantine-debt"
+            title="Quarantine debt by team"
+            right={
+                trunkQuarantine?.trunkUrl ? (
                     <LemonButton
                         size="small"
                         type="secondary"
@@ -94,82 +97,88 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                     >
                         Open in Trunk
                     </LemonButton>
-                )}
-            </div>
-            <div className="grid grid-cols-1 gap-3 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4">
-                <StatCard
-                    label="Quarantined tests"
-                    value={trunkQuarantine ? formatCappedCount(trunkQuarantine.tests.length) : '—'}
-                    caption="currently masked in CI"
-                    loading={trunkQuarantineLoading}
-                />
-                <StatCard
-                    label="Overdue"
-                    value={overdueCount !== null ? formatCappedCount(overdueCount) : '—'}
-                    caption={`quarantined over ${ttlDays} days`}
-                    loading={trunkQuarantineLoading}
-                />
-                <StatCard
-                    label="Teams affected"
-                    value={trunkQuarantine ? formatCappedCount(trunkQuarantine.teams.length) : '—'}
-                    caption="own at least one quarantined test"
-                    loading={trunkQuarantineLoading}
-                />
-                <StatCard
-                    label="Oldest quarantine"
-                    value={oldestAgeDays !== null ? `${oldestAgeDays}d` : '—'}
-                    caption="longest-standing masked test"
-                    loading={trunkQuarantineLoading}
-                />
-            </div>
-            {trunkQuarantine?.truncated && (
-                <div className="text-xs text-tertiary">
-                    Showing the oldest {humanFriendlyNumber(trunkQuarantine.limit)} quarantined tests. The counts above
-                    are lower bounds.
+                ) : undefined
+            }
+        >
+            <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-1 gap-3 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4">
+                    <StatCard
+                        label="Quarantined tests"
+                        value={trunkQuarantine ? formatCappedCount(trunkQuarantine.tests.length) : '—'}
+                        caption="currently masked in CI"
+                        loading={trunkQuarantineLoading}
+                    />
+                    <StatCard
+                        label="Overdue"
+                        value={overdueCount !== null ? formatCappedCount(overdueCount) : '—'}
+                        caption={`quarantined over ${ttlDays} days`}
+                        loading={trunkQuarantineLoading}
+                    />
+                    <StatCard
+                        label="Teams affected"
+                        value={trunkQuarantine ? formatCappedCount(trunkQuarantine.teams.length) : '—'}
+                        caption="own at least one quarantined test"
+                        loading={trunkQuarantineLoading}
+                    />
+                    <StatCard
+                        label="Oldest quarantine"
+                        value={oldestAgeDays !== null ? `${oldestAgeDays}d` : '—'}
+                        caption="longest-standing masked test"
+                        loading={trunkQuarantineLoading}
+                    />
                 </div>
-            )}
-            {trunkQuarantine && !trunkQuarantine.ownersResolved && (
-                <LemonBanner type="warning">
-                    We could not read {trunkQuarantine.repository}'s ownership files, so every test below is listed as
-                    unowned. Try again in a few minutes.
-                </LemonBanner>
-            )}
-            <LemonTable
-                data-attr="engineering-analytics-trunk-debt-teams-table"
-                size="small"
-                columns={teamColumns}
-                dataSource={trunkQuarantine?.teams ?? []}
-                rowKey={(row) => row.ownerTeam}
-                loading={trunkQuarantineLoading}
-                useURLForSorting={false}
-                emptyState="No tests are quarantined right now."
-                nouns={['team', 'teams']}
-                onRow={(row) => ({
-                    className: 'cursor-pointer',
-                    onClick: () => toggleTrunkQuarantineTeam(row.ownerTeam),
-                })}
-                expandable={{
-                    noIndent: true,
-                    isRowExpanded: (row) => expandedTrunkQuarantineTeams.includes(row.ownerTeam),
-                    expandedRowRender: (row) => (
-                        <TeamQuarantinedTestsTable
-                            tests={trunkQuarantineTestsByTeam[row.ownerTeam] ?? []}
-                            ttlDays={ttlDays}
-                            repository={trunkQuarantine?.repository ?? ''}
-                        />
-                    ),
-                }}
-            />
-        </div>
+                {trunkQuarantine?.truncated && (
+                    <div className="text-xs text-tertiary">
+                        Showing the oldest {humanFriendlyNumber(trunkQuarantine.limit)} quarantined tests. The counts
+                        above are lower bounds.
+                    </div>
+                )}
+                {trunkQuarantine && !trunkQuarantine.ownersResolved && (
+                    <LemonBanner type="warning">
+                        We could not read {trunkQuarantine.repository}'s ownership files, so every test below is listed
+                        as unowned. Try again in a few minutes.
+                    </LemonBanner>
+                )}
+                <LemonTable
+                    data-attr="engineering-analytics-trunk-debt-teams-table"
+                    size="small"
+                    columns={teamColumns}
+                    dataSource={trunkQuarantine?.teams ?? []}
+                    rowKey={(row) => row.ownerTeam}
+                    loading={trunkQuarantineLoading}
+                    useURLForSorting={false}
+                    emptyState="No tests are quarantined right now."
+                    nouns={['team', 'teams']}
+                    onRow={(row) => ({
+                        className: 'cursor-pointer',
+                        onClick: () => toggleTrunkQuarantineTeam(row.ownerTeam),
+                    })}
+                    expandable={{
+                        noIndent: true,
+                        isRowExpanded: (row) => expandedTrunkQuarantineTeams.includes(row.ownerTeam),
+                        expandedRowRender: (row) => (
+                            <TeamQuarantinedTestsTable
+                                tests={trunkQuarantineTestsByTeam[row.ownerTeam] ?? []}
+                                ttlDays={ttlDays}
+                                repository={trunkQuarantine?.repository ?? ''}
+                            />
+                        ),
+                    }}
+                />
+            </div>
+        </Section>
     )
 }
 
 export function EngineeringAnalyticsTestHealth(): JSX.Element {
-    const { quarantineLoadFailed } = useValues(engineeringAnalyticsLogic)
+    const { quarantineStatus } = useValues(engineeringAnalyticsLogic)
+    const { loadQuarantine } = useActions(engineeringAnalyticsLogic)
 
-    // Production with no GitHub source and no local checkout: the endpoint 400s, same as the other tabs.
-    if (quarantineLoadFailed) {
+    if (quarantineStatus === 'notConnected') {
         return <ConnectGitHubSource />
+    }
+    if (quarantineStatus === 'error') {
+        return <CIAnalyticsLoadError onRetry={loadQuarantine} />
     }
 
     return (
