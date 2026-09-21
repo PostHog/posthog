@@ -19,6 +19,11 @@ describe('renderEmailPreview', () => {
             "Hi {{ person.properties.nickname | default: 'there' }}",
             'Hi there',
         ],
+        [
+            'keeps a missing property visible when its tag spans lines',
+            'Hi {{\n person.properties.nickname \n}}',
+            'Hi {{\n person.properties.nickname \n}}',
+        ],
     ])('%s', (_name, template, expected) => {
         expect(renderEmailPreview(template, person)).toBe(expected)
     })

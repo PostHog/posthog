@@ -1,6 +1,7 @@
 import { LiquidRenderer } from 'lib/utils/liquid'
 
-const OUTPUT_REGEX = /\{\{(.*?)\}\}/g
+// [\s\S] rather than . so a merge tag broken across lines is still matched.
+const OUTPUT_REGEX = /\{\{([\s\S]*?)\}\}/g
 
 /** The person values a preview renders against, shaped like the worker's `person` global. */
 export interface EmailPreviewPerson {
