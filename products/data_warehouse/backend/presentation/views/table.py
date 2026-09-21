@@ -897,6 +897,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         # Create the table record
         try:
             # Create the table if it doesn't exist, otherwise use existing one
+            created_table = table is None
             if table is None:
                 created_by = request.user if isinstance(request.user, User) else None
                 table = DataWarehouseTable.objects.create(
@@ -933,6 +934,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 if table._is_csv_format() and table.csv_allow_double_quotes is None:
                     allow_double_quotes = table.detect_csv_double_quotes_setting()
                     if allow_double_quotes is None:
+                        # The row is persisted before the file is ever read, so a request that
+                        # created it has to take it back out. Left behind, it is an incomplete
+                        # table that the next upload of the same name silently reuses. A table
+                        # that already existed belongs to the caller, so leave it alone.
+                        if created_table:
+                            table.delete()
                         return response.Response(
                             status=status.HTTP_400_BAD_REQUEST,
                             data={"message": _file_read_error_message(FORMAT_CSV)},

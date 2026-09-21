@@ -979,6 +979,34 @@ class TestTable(APIBaseTest):
         # Verify URL pattern was set correctly
         assert table.url_pattern == f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/test_file.csv"
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: None)
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_leaves_no_table_when_csv_quoting_cannot_be_detected(
+        self, mock_boto3_client, mock_feature_enabled
+    ):
+        mock_boto3_client.return_value = MagicMock()
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("test_file.csv", b'id,name\n1,"Test\n', content_type="text/csv")
+
+        with self.settings(
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY="test_key",
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET="test_secret",
+            DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+            DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": test_file, "name": "unreadable_csv", "format": "CSVWithNames"},
+                format="multipart",
+            )
+
+        assert response.status_code == 400
+        assert "comma-separated CSV with a header row" in response.json()["message"]
+        assert not DataWarehouseTable.objects.filter(name="unreadable_csv").exists()
+
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_file_upload_api_disabled(self, mock_feature_enabled):
         from django.core.files.uploadedfile import SimpleUploadedFile
