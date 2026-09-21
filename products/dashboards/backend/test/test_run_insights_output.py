@@ -2,10 +2,12 @@ from datetime import date
 
 from django.test import SimpleTestCase
 
+from products.dashboards.backend.constants import RUN_INSIGHTS_MAX_TOTAL_CHARS
 from products.dashboards.backend.run_insights_output import (
     parse_max_result_chars,
     parse_tile_ids,
     render_unsupported_result,
+    tile_budget,
     truncate_formatted_result,
 )
 
@@ -54,3 +56,15 @@ class TestParseQueryParams(SimpleTestCase):
 class TestRenderUnsupportedResult(SimpleTestCase):
     def test_renders_a_value_json_cannot_serialize(self) -> None:
         self.assertIn("2026-01-01", render_unsupported_result([{"day": date(2026, 1, 1)}]))
+
+
+class TestTileBudget(SimpleTestCase):
+    def test_holds_a_tile_down_to_what_the_response_has_left(self) -> None:
+        # Without this a single generous max_result_chars would overshoot the whole-response budget.
+        self.assertEqual(tile_budget(1_000_000, RUN_INSIGHTS_MAX_TOTAL_CHARS - 100), 100)
+
+    def test_keeps_the_smaller_per_tile_limit(self) -> None:
+        self.assertEqual(tile_budget(50, 0), 50)
+
+    def test_zero_stays_unbounded(self) -> None:
+        self.assertEqual(tile_budget(0, RUN_INSIGHTS_MAX_TOTAL_CHARS - 1), 0)

@@ -191,6 +191,18 @@ class TestDashboardRunInsights(APIBaseTest):
         self.assertIsInstance(result, str)
         self.assertIn("Truncated to 60 characters", result)
 
+    def test_a_generous_per_tile_budget_cannot_overshoot_the_response_budget(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+
+        with patch("products.dashboards.backend.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS", 30):
+            body = self._run(dashboard_id, refresh="blocking", max_result_chars="1000000")
+
+        result = body["results"][0]["insight"]["result"]
+        if not isinstance(result, str):
+            self.skipTest("LLM formatting is unavailable, so there is nothing to truncate")
+        self.assertIn("Truncated to 30 characters", result)
+
     def test_skips_text_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})

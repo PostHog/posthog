@@ -101626,7 +101626,7 @@ export namespace Schemas {
     filters_override?: string;
     format?: DashboardsRunInsightsRetrieveFormat;
     /**
-     * Per-tile character budget for 'optimized' output. A longer table is cut to whole rows and marked as truncated. Defaults to 2000; pass 0 for the whole table. Ignored when output_format is 'json'. Whatever the value, an 'optimized' response stops running tiles after 30000 characters.
+     * Per-tile character budget for 'optimized' output. A longer table is cut to whole rows and marked as truncated. Defaults to 2000; pass 0 for the whole table. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run.
      */
     max_result_chars?: number;
     /**

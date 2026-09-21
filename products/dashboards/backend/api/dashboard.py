@@ -139,6 +139,7 @@ from products.dashboards.backend.run_insights_output import (
     parse_max_result_chars,
     parse_tile_ids,
     render_unsupported_result,
+    tile_budget,
     truncate_formatted_result,
     unrun_tile_result,
 )
@@ -3277,8 +3278,9 @@ class DashboardsViewSet(
                 description=(
                     "Per-tile character budget for 'optimized' output. A longer table is cut to whole rows "
                     f"and marked as truncated. Defaults to {RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS}; pass 0 for "
-                    "the whole table. Ignored when output_format is 'json'. Whatever the value, an "
-                    f"'optimized' response stops running tiles after {RUN_INSIGHTS_MAX_TOTAL_CHARS} characters."
+                    "the whole table. Ignored when output_format is 'json'. Any value above zero is also held "
+                    f"down to what the response has left of its {RUN_INSIGHTS_MAX_TOTAL_CHARS} character budget, "
+                    "and tiles past that budget are not run."
                 ),
             ),
             VARIABLES_OVERRIDE_PARAM,
@@ -3342,7 +3344,11 @@ class DashboardsViewSet(
                     if formatted is None:
                         # No formatter covers this query type, so the raw result still has to be bounded.
                         formatted = render_unsupported_result(raw_result)
-                    formatted = truncate_formatted_result(formatted, tile_id=tile.id, max_chars=max_result_chars)
+                    formatted = truncate_formatted_result(
+                        formatted,
+                        tile_id=tile.id,
+                        max_chars=tile_budget(max_result_chars, used_chars),
+                    )
                     insight_data["result"] = formatted
                     used_chars += len(formatted)
 

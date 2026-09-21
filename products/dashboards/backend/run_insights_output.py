@@ -44,6 +44,13 @@ def parse_max_result_chars(raw: str | None) -> int:
     return max_chars
 
 
+def tile_budget(max_result_chars: int, used_chars: int) -> int:
+    """Per-tile budget, held down to what the response has left. Zero stays unbounded."""
+    if max_result_chars <= 0:
+        return 0
+    return min(max_result_chars, RUN_INSIGHTS_MAX_TOTAL_CHARS - used_chars)
+
+
 def truncate_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -> str:
     """Cut a formatted insight table to whole lines within the budget, and say so."""
     if max_chars <= 0 or len(formatted) <= max_chars:
