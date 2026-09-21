@@ -1513,7 +1513,7 @@ export type BillingSpendTimeseriesRetrieveParams = {
 
 export type BillingUsageTimeseriesRetrieveParams = {
     /**
-     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * JSON-encoded array of breakdown dimensions. One of `[]`, `["type"]` or `["type","team"]`: usage is counted per product, so a project breakdown is served beside the product one rather than on its own. Omit for a single aggregate series.
      * @nullable
      */
     breakdowns?: string | null
