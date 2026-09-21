@@ -280,3 +280,43 @@ The `lazy_computation.executed` log line carries the same `outcome`, `cache_stat
 - While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
 - The stale enum value isn't used for anything, we just mark stale jobs as errored
 - Add posthog logging for state transitions
+
+### Experimental hourly conditional distinct plans
+
+`hourly_uniq.plan_hourly_uniq(sql, now=..., timezone=...)` builds an explicit plan for
+hourly `uniq(person_id)` / `uniqIf(person_id, predicate)` event aggregates, arithmetic,
+and one simple outer projection. Unsupported shapes return `None`. The planner preserves
+the approximate distinct algorithm, empty-hour behavior, filters, ordering and complete
+requested series. It currently rejects joins, placeholders, explicit limits, fractional
+timezone offsets and ranges crossing offset changes. It is not an automatic HogQL or
+alert optimization.
+
+`hourly_uniq_cache.warm_hourly_uniq` stores hourly states through the shared executor's
+daily jobs. `read_hourly_uniq` checks READY coverage without building or waiting, then
+returns an AST combining historical states with a live recent tail; `None` means use the
+original query. Execute that AST with the same team, permissions and modifiers used to
+plan the read, and without applying interactive dashboard pagination. Schedule warming
+separately with bounded concurrency. Its budget bounds the executor loop; an already
+running INSERT can outlive that budget.
+
+Callers must explicitly provide `HourlyUniqFreshness`: historical TTL (at most seven days),
+live hours, and an invalidation revision. The current partial UTC day always remains
+live; `live_hours` can extend that tail. Historical TTL permits stale data;
+it does not make late events, person merges, deletions or property changes disappear.
+Callers own source invalidation and refresh scheduling. Bump the revision for relevant
+changes to stop reusing old states. This experimental manual API is not wired into
+production alert evaluation while that freshness contract is unresolved. Measure builds,
+refreshes and live-tail reads as well as cache reads before enabling a caller.
+
+The opt-in `HourlyUniqFreshness.age_based(revision=...)` prototype policy refreshes
+cached days starting within the last two UTC days after one hour, the next two days
+after 18 hours, and older days after seven days plus up to six hours of deterministic
+per-day jitter. Those intervals are experimental freshness choices, not measured
+arrival-delay guarantees. The jitter spreads older refreshes; it does not stagger the
+initial build or the recent bands, so the caller still needs bounded, staggered warming.
+The stored values are hourly, but build/refresh coverage uses the shared executor's daily
+jobs. This is not yet an incremental one-hour build: today's events are queried live.
+Expired coverage causes a read miss, never an inline refresh or a stale alert result;
+a separately scheduled warm rebuilds only expired/missing daily chunks. Known source
+changes can still bypass all TTLs by changing the invalidation revision. Older backfills
+can remain invisible until expiry or explicit invalidation.

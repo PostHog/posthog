@@ -97,6 +97,7 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
+from posthog.hogql.database.schema.hourly_uniq_preaggregated import HourlyUniqPreaggregatedTable
 from posthog.hogql.database.schema.information_schema import (
     direct_connection_information_schema_node,
     disable_data_quality,
@@ -366,6 +367,7 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     # Web analytics pre-aggregated tables (internal use only)
     "web_pre_aggregated_stats": TableNode(name="web_pre_aggregated_stats", table=WebPreAggregatedStatsTable()),
     "web_pre_aggregated_bounces": TableNode(name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()),
+    "hourly_uniq_preaggregated": TableNode(name="hourly_uniq_preaggregated", table=HourlyUniqPreaggregatedTable()),
     "preaggregation_results": TableNode(name="preaggregation_results", table=PreaggregationResultsTable()),
     "experiment_exposures_preaggregated": TableNode(
         name="experiment_exposures_preaggregated", table=ExperimentExposuresPreaggregatedTable()
