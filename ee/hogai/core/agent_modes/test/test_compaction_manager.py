@@ -182,6 +182,32 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         self.assertTrue(result)
 
+    @parameterized.expand(
+        [
+            [TypeError("got an unexpected keyword argument 'thinking'")],
+            [NotImplementedError("unknown model")],
+        ]
+    )
+    async def test_calculate_token_count_falls_back_when_counter_raises(self, error):
+        """A counter that does not support the model must not end the turn."""
+        messages: list[BaseMessage] = [
+            LangchainHumanMessage(content="A" * 100),
+            LangchainAIMessage(content="B" * 100),
+            LangchainHumanMessage(content="C" * 100),
+            LangchainAIMessage(content="D" * 100),
+            LangchainHumanMessage(content="E" * 100),
+        ]
+
+        mock_model = MagicMock()
+        with (
+            patch.object(self.window_manager, "_get_token_count", new_callable=AsyncMock, side_effect=error),
+            patch("ee.hogai.core.agent_modes.compaction_manager.capture_exception") as mock_capture,
+        ):
+            result = await self.window_manager.calculate_token_count(mock_model, messages)
+
+        self.assertEqual(result, 125)
+        mock_capture.assert_called_once()
+
     def test_get_estimated_assistant_message_tokens_human_message(self):
         """Test token estimation for human messages"""
         message = HumanMessage(content="A" * 100, id="1")  # 100 chars = ~25 tokens

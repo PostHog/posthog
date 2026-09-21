@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, TypeVar, cast
 from uuid import uuid4
 
+import structlog
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -13,6 +14,7 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from posthoganalytics import capture_exception
 from pydantic import BaseModel, ValidationError
 
 from posthog.schema import (
@@ -32,6 +34,8 @@ from ee.hogai.tools.todo_write import TodoWriteTool
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantMessageUnion
+
+logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=AssistantMessageUnion)
 
@@ -119,9 +123,14 @@ class ConversationCompactionManager(ABC):
                 if not (isinstance(tool, dict) and tool.get("type", "").startswith("web_search_"))
             ]
         if len(human_messages) <= 2:
-            tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
-            return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
-        return await self._get_token_count(model, messages, tools, **kwargs)
+            return self._get_estimated_token_count(messages, tools)
+        try:
+            return await self._get_token_count(model, messages, tools, **kwargs)
+        except Exception as e:
+            # A model-specific counter only supports the models it knows. The estimate keeps the turn alive.
+            logger.exception("Model token counting failed, falling back to an estimate")
+            capture_exception(e)
+            return self._get_estimated_token_count(messages, tools)
 
     def update_window(
         self,
@@ -329,6 +338,13 @@ class ConversationCompactionManager(ABC):
         elif isinstance(message, AssistantToolCallMessage):
             char_count = len(message.content)
         return round(char_count / self.APPROXIMATE_TOKEN_LENGTH)
+
+    def _get_estimated_token_count(self, messages: list[BaseMessage], tools: LangchainTools | None = None) -> int:
+        """
+        Estimate the token count of a conversation without a model-specific counter.
+        """
+        tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
+        return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
 
     def _get_estimated_langchain_message_tokens(self, message: BaseMessage) -> int:
         """
