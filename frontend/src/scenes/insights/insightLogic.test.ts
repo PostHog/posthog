@@ -39,6 +39,7 @@ import {
 
 import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
+import { insightVizDataLogic } from './insightVizDataLogic'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -933,6 +934,76 @@ describe('insightLogic', () => {
                     }),
                 ],
             ])
+        })
+    })
+
+    describe('PostHog AI suggestions', () => {
+        const suggestedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+            },
+        }
+        let vizLogic: ReturnType<typeof insightVizDataLogic.build>
+
+        const mountInsight = async (dashboardItemId: InsightShortId | 'new'): Promise<void> => {
+            const insightProps: InsightLogicProps = { dashboardItemId }
+            logic = insightLogic(insightProps)
+            logic.mount()
+            insightDataLogic(insightProps).mount()
+            vizLogic = insightVizDataLogic(insightProps)
+            vizLogic.mount()
+            // A saved insight loads asynchronously and re-syncs the query when it arrives, which
+            // would land on top of a suggestion applied before then.
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        const suggest = (): void => {
+            logic.actions.handleInsightSuggested(suggestedQuery)
+            vizLogic.actions.setQuery(suggestedQuery)
+        }
+
+        it.each([
+            ['an unsaved', 'new' as const],
+            ['a saved', Insight42],
+        ])('keeping the changes on %s insight ends the review and holds on to the query', async (_, insightId) => {
+            await mountInsight(insightId)
+            suggest()
+
+            await expectLogic(logic, () => {
+                logic.actions.onKeepSuggestedInsight()
+            }).toMatchValues({
+                previousQuery: null,
+                suggestedQuery: null,
+                query: suggestedQuery,
+            })
+        })
+
+        it('an edit made after the suggestion keeps it, so a reject cannot revert the edit', async () => {
+            await mountInsight('new')
+            suggest()
+
+            await expectLogic(logic, () => {
+                vizLogic.actions.updateQuerySource({ filterTestAccounts: true })
+            }).toMatchValues({
+                previousQuery: null,
+                suggestedQuery: null,
+            })
+        })
+
+        it('rejecting the suggestion restores the previous query and leaves it available to reapply', async () => {
+            await mountInsight('new')
+            const queryBeforeSuggestion = logic.values.query
+            suggest()
+
+            await expectLogic(logic, () => {
+                logic.actions.onRejectSuggestedInsight()
+            }).toMatchValues({
+                previousQuery: null,
+                suggestedQuery,
+                query: queryBeforeSuggestion,
+            })
         })
     })
 

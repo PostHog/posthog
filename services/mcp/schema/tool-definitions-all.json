@@ -6215,6 +6215,20 @@
             "readOnlyHint": false
         }
     },
+    "inbox-report-checks-create": {
+        "description": "Removed. A scout run writes checks with scout-report-check-create, and the research pipeline writes its own; there is no create surface for a person or a task token. Read a report's checks with inbox-report-checks-list.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Write a follow-up check (removed)",
+        "title": "Write a follow-up check (removed)",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-report-checks-list": {
         "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
@@ -10748,6 +10762,20 @@
             "readOnlyHint": true
         }
     },
+    "scout-report-checks-list": {
+        "description": "DEPRECATED: renamed to scout-report-check-list. This alias forwards to the same endpoint and will be removed. Call scout-report-check-list directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's follow-up checks (deprecated)",
+        "title": "List a report's follow-up checks (deprecated)",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "scout-run-now": {
         "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this run alone (\"focus on the checkout regression\"): the agent reads it next to the scout's durable notes and weighs it the same way, and it is never read by another run — use it instead of `scout-notes-create`, which would also steer every later scheduled run. A run carrying a note needs `llm_skill:write` as well, since the agent reads the note verbatim while holding privileged tools. Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.",
         "category": "Signals",
@@ -12892,7 +12920,7 @@
         }
     },
     "vision-observations-list": {
-        "description": "List every replay vision observation recorded for a single session, across all scanners the caller can read. This is the \"what has Replay Vision found about this session?\" lookup — pair it with the session-recording MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one specific scanner over time instead, use `vision-scanners-observations-list`.",
+        "description": "List every replay vision observation recorded for a single session, across all scanners the caller can read. This is the \"what has Replay Vision found about this session?\" lookup — pair it with the session-recording MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced it, the observation `status` (pending/running/succeeded/failed/ineligible), and `summary_line` — one line saying what the scanner found, or why it found nothing on a terminal non-success status. The rows come back narrowed to the id, session, status and that line; read a row in full with `vision-observations-retrieve`, which carries the whole `scanner_result` and `error_reason`. To list observations for one specific scanner over time instead, use `vision-scanners-observations-list`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List a session's replay vision observations",
@@ -13077,7 +13105,7 @@
         }
     },
     "vision-scanners-observations-list": {
-        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed/ineligible), `error_reason` (set on terminal non-success statuses, e.g. `too_short`/`no_recording` for ineligible or `provider_rejected`/`validation_failed` for failed — useful for triaging why a scan produced no result), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time; to see every scanner's observations for one session, use `vision-observations-list`.",
+        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed/ineligible), `error_reason` (set on terminal non-success statuses, e.g. `too_short`/`no_recording` for ineligible or `provider_rejected`/`validation_failed` for failed), the `session_id` of the recording it analysed, and `summary_line` — one line saying what the scanner found, or why it found nothing, which is where the reason for a non-success status arrives. The rows come back narrowed to the id, session, status and that line; read a row in full with `vision-observations-retrieve`, which carries the whole `scanner_result` and `error_reason`. Use this to inspect what a scanner has found over time; to see every scanner's observations for one session, use `vision-observations-list`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List scanner observations",
