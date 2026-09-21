@@ -1,6 +1,11 @@
 import { InsightType } from '~/types'
 
-import { hasResultRows, shouldShowAIAnalysisSection, shouldShowDashboardInsightRefreshHint } from './InsightVizDisplay'
+import {
+    hasResultRows,
+    shouldShowAIAnalysisSection,
+    shouldShowDashboardInsightRefreshHint,
+    shouldShowInsightMetadataBar,
+} from './InsightVizDisplay'
 
 const ALL_INSIGHT_TYPES = Object.values(InsightType) as InsightType[]
 /** Insight types that use the dashboard refresh hint (excludes web analytics — separate UX). */
@@ -126,5 +131,51 @@ describe('InsightVizDisplay', () => {
         { name: 'no payload at all', insightData: undefined, expected: false },
     ])('hasResultRows: $name', ({ insightData, expected }) => {
         expect(hasResultRows(insightData)).toBe(expected)
+    })
+
+    const METADATA_BAR_BASE = {
+        embedded: false,
+        isFunnels: false,
+        hasFunnelResults: false,
+        isPaths: false,
+        showComputationMetadata: true,
+        hasBlockingEmptyState: false,
+        queryFailed: false,
+    }
+
+    it.each([
+        { name: 'query succeeded with results', params: {}, expected: true },
+        {
+            name: 'query errored — keep the bar so refresh stays reachable',
+            params: { hasBlockingEmptyState: true, queryFailed: true },
+            expected: true,
+        },
+        {
+            name: 'first load in flight — no bar yet',
+            params: { hasBlockingEmptyState: true },
+            expected: false,
+        },
+        {
+            name: 'funnel needs another step — refreshing would not help',
+            params: { isFunnels: true, hasBlockingEmptyState: true },
+            expected: false,
+        },
+        {
+            name: 'embedded viz never shows the bar',
+            params: { embedded: true, queryFailed: true },
+            expected: false,
+        },
+        {
+            name: 'no computation metadata to show',
+            params: { showComputationMetadata: false },
+            expected: false,
+        },
+        {
+            name: 'paths always label the canvas',
+            params: { isPaths: true, showComputationMetadata: false },
+            expected: true,
+        },
+    ])('shouldShowInsightMetadataBar: $name', ({ params, expected }) => {
+        expect(shouldShowInsightMetadataBar({ ...METADATA_BAR_BASE, ...params })).toBe(expected)
     })
 })
