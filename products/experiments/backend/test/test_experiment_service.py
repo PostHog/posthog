@@ -65,14 +65,17 @@ from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
-def _stored_metric_result(*, significant: bool | None) -> dict[str, Any]:
+def _stored_metric_result(*significant: bool | None) -> dict[str, Any]:
     # The shape recalculation stores: significance lives on each variant, and the legacy
     # top-level field stays null. A variant's significance is null when validation stopped the
     # analysis, for example on too few samples.
     return {
         "significant": None,
         "baseline": {"key": "control", "number_of_samples": 100},
-        "variant_results": [{"key": "test", "number_of_samples": 100, "significant": significant}],
+        "variant_results": [
+            {"key": f"test_{index}", "number_of_samples": 100, "significant": variant_significant}
+            for index, variant_significant in enumerate(significant)
+        ],
     }
 
 
@@ -3428,7 +3431,7 @@ class TestExperimentService(APIBaseTest):
             query_from=experiment.start_date,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,
-            result=_stored_metric_result(significant=True),
+            result=_stored_metric_result(True),
             completed_at=timezone.now(),
         )
 
@@ -3532,9 +3535,11 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("significant", _stored_metric_result(significant=True), "Primary metric: significant"),
-            ("inconclusive", _stored_metric_result(significant=False), "Primary metric: inconclusive"),
-            ("not_analyzed", _stored_metric_result(significant=None), ""),
+            ("significant", _stored_metric_result(True), "Primary metric: significant"),
+            ("inconclusive", _stored_metric_result(False), "Primary metric: inconclusive"),
+            ("not_analyzed", _stored_metric_result(None), ""),
+            ("one_of_many_significant", _stored_metric_result(False, True), "Primary metric: significant"),
+            ("analyzed_variants_decide", _stored_metric_result(None, False), "Primary metric: inconclusive"),
             ("no_result", None, ""),
         ]
     )
