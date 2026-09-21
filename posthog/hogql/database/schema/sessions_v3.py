@@ -41,9 +41,7 @@ if TYPE_CHECKING:
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "session_id_v7": UUIDDatabaseField(name="session_id_v7", nullable=False),
-    "session_timestamp": DatabaseField(
-        name="session_timestamp", nullable=False
-    ),  # not a DateTimeDatabaseField to avoid wrapping with toTimeZone
+    "session_timestamp": DateTimeDatabaseField(name="session_timestamp", nullable=False),
     "distinct_id": DatabaseField(name="distinct_id", nullable=False),
     "min_timestamp": DateTimeDatabaseField(name="min_timestamp", nullable=False),
     "max_timestamp": DateTimeDatabaseField(name="max_timestamp", nullable=False),

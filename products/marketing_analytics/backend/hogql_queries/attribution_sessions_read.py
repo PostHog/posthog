@@ -1,11 +1,6 @@
-"""Reads the attribution CTEs from the session-grain precompute instead of the sessions lazy join.
+"""Read cached session dimensions with the same event identity resolution as live attribution.
 
-A row in `marketing_sessions_dimensional_preaggregated` is a touchpoint: it carries the person, the
-session start and the dimension, all resolved at write time. That removes the channel classifier from
-the read path, which is what puts these queries on the sessions nodes at 42 GiB.
-
-Returns None rather than raising, so the caller keeps one fallback path for "not eligible", "not warm
-yet" and "blew up".
+Stored person IDs can outlive a merge, so only session dimensions come from the cache.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -16,6 +11,7 @@ import structlog
 from posthog.schema import MarketingAnalyticsAttributionBreakdown
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
@@ -47,7 +43,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-TABLE = "marketing_sessions_dimensional_preaggregated"
+_SESSIONS_CTE = "resolved_cached_sessions"
+_CONVERSIONS_CTE = "cached_session_conversions"
 
 BREAKDOWN_COLUMNS: dict[MarketingAnalyticsAttributionBreakdown, str] = {
     MarketingAnalyticsAttributionBreakdown.CHANNEL: "channel_type",
@@ -87,9 +84,7 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
         return "property_access_controlled"
 
     if runner._test_account_conditions():
-        # One job set holds internal and external traffic together, and the touchpoint side never
-        # scans `events`, so these predicates have nothing to apply to at read time. Asked through
-        # the same helper the live scans use, so the two cannot drift apart on what the filter drops.
+        # Shared dimensions include test traffic; use the live path to apply the full filter semantics.
         return "test_account_filters"
 
     read = window(runner, date_range)
@@ -185,6 +180,45 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
     if result.stale:
         handle_stale_served(team=runner.team, query=runner.query)
     return [str(j) for j in result.job_ids]
+
+
+def _read_sessions(job_ids: list[str], start: datetime, end: datetime) -> ast.SelectQuery:
+    query = parse_select(
+        """
+        WITH dimensions AS (
+            SELECT session_id_v7,
+                argMax(tuple(period_bucket, start_timestamp, channel_type, utm_source, utm_medium,
+                    utm_campaign, utm_term, utm_content, referring_domain, entry_pathname, job_id), computed_at) AS latest,
+                max(computed_at) AS computed_at
+            FROM posthog.web_sessions_dimensional_preaggregated
+            WHERE job_id IN {jobs}
+            GROUP BY session_id_v7
+        ), identities AS (
+            SELECT events.$session_id_uuid AS session_id_v7, events.person_id AS person_id,
+                min(events.timestamp) AS min_event_timestamp,
+                max(events.timestamp) AS max_event_timestamp,
+                count() AS pageview_count
+            FROM events
+            WHERE events.event = '$pageview'
+                AND events.timestamp >= {start} AND events.timestamp <= {end}
+            GROUP BY session_id_v7, person_id
+        )
+        SELECT i.session_id_v7, i.person_id, i.min_event_timestamp, i.max_event_timestamp, i.pageview_count,
+            d.latest.1 AS period_bucket, d.latest.2 AS start_timestamp, d.latest.3 AS channel_type,
+            d.latest.4 AS utm_source, d.latest.5 AS utm_medium, d.latest.6 AS utm_campaign,
+            d.latest.7 AS utm_term, d.latest.8 AS utm_content, d.latest.9 AS referring_domain,
+            d.latest.10 AS entry_pathname, d.latest.11 AS job_id, d.computed_at
+        FROM identities AS i
+        INNER JOIN dimensions AS d ON i.session_id_v7 = d.session_id_v7
+        """,
+        placeholders={
+            "jobs": ast.Tuple(exprs=[ast.Constant(value=j) for j in job_ids]),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
 
 
 def _scope(job_ids: list[str], read: ReadWindow) -> list[ast.Expr]:
@@ -292,9 +326,9 @@ def build_reach(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange
             ),
             *_exclusion_columns(runner),
         ],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", TABLE])),
+        select_from=ast.JoinExpr(table=ast.Field(chain=[_SESSIONS_CTE]), alias="cached_sessions"),
         where=ast.And(exprs=_scope(job_ids, read)),
-        group_by=[_field("session_id"), _field("person_id")],
+        group_by=[_field("session_id_v7"), _field("person_id")],
     )
     exclusions = _exclusions(runner, table_alias="s")
     return ast.SelectQuery(
@@ -366,21 +400,44 @@ def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: Qu
     )
 
 
+def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> dict[str, ast.CTE]:
+    if not runner.config.sessions_precomputation_enabled:
+        return {}
+    job_ids = _ensure(runner, date_range)
+    if job_ids is None:
+        return {}
+    read = window(runner, date_range)
+    # Reach and credit share the event scan; conversion bounds share the revenue aggregation.
+    return {
+        _SESSIONS_CTE: ast.CTE(
+            name=_SESSIONS_CTE,
+            expr=_read_sessions(job_ids, read.start, read.end),
+            cte_type="subquery",
+            materialized=True,
+        ),
+        _CONVERSIONS_CTE: ast.CTE(
+            name=_CONVERSIONS_CTE,
+            expr=_conversions_per_person(runner, date_range),
+            cte_type="subquery",
+            materialized=True,
+        ),
+    }
+
+
 def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[ast.SelectQuery]:
     """One row per converting person: its conversions, plus its touchpoints read from the precompute.
 
-    The touchpoint side joins the session rows to the converters, so it never touches `events` and
-    never resolves the channel.
+    Session dimensions stay cached while both touchpoints and conversions resolve identity from events.
     """
     job_ids = _ensure(runner, date_range)
     if job_ids is None:
         return None
     read = window(runner, date_range)
 
-    conv = _conversions_per_person(runner, date_range)
-    # The session join only needs conversion bounds, so do not build revenue arrays twice.
-    converters = runner._build_converters_select(date_range, with_bounds=True)
-    converters.select[0] = ast.Alias(alias="conv_person_id", expr=converters.select[0])
+    conv = parse_select("SELECT * FROM cached_session_conversions")
+    converters = parse_select(
+        "SELECT conv_person_id, first_conversion, last_conversion FROM cached_session_conversions"
+    )
     session_start = ast.Call(name="toUnixTimestamp", args=[_field("start_timestamp")])
     # A touchpoint outside [first conversion - window, last conversion] cannot be credited by any of
     # this person's conversions. In single-conversion mode only the first one is kept, so nothing
@@ -408,7 +465,8 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
             *_exclusion_columns(runner),
         ],
         select_from=ast.JoinExpr(
-            table=ast.Field(chain=["posthog", TABLE]),
+            table=ast.Field(chain=[_SESSIONS_CTE]),
+            alias="cached_sessions",
             next_join=ast.JoinExpr(
                 join_type="INNER JOIN",
                 table=converters,
@@ -424,7 +482,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
             ),
         ),
         where=ast.And(exprs=_scope(job_ids, read)),
-        group_by=[ast.Field(chain=["conv", "conv_person_id"]), _field("session_id")],
+        group_by=[ast.Field(chain=["conv", "conv_person_id"]), _field("session_id_v7")],
     )
 
     # Creditability is judged on the collapsed start, so a superseded row cannot decide it.

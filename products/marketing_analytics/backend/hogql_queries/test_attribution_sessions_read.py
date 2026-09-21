@@ -95,7 +95,10 @@ class TestAttributionSessionsRead(SimpleTestCase):
             "ensure_marketing_sessions_precomputed",
             return_value=LazyComputationResult(ready=True, job_ids=[UUID(int=1)]),
         ):
+            runner.config.sessions_precomputation_enabled = True
             query = attribution_sessions_read.build_person_arrays(runner, runner.query_date_range)
+            assert query is not None
+            query.ctes = attribution_sessions_read.session_ctes(runner, runner.query_date_range)
         assert query is not None
         sql = query.to_hogql()
         assert sql.count("groupArray(") == 1
@@ -148,6 +151,9 @@ class TestAttributionSessionsRead(SimpleTestCase):
         )
         with (
             tags_context(trigger=REVALIDATION_TRIGGER if refreshing else "test", feature=Feature.QUERY),
+            patch.object(
+                marketing_sessions_precompute, "execute_hogql_query", return_value=SimpleNamespace(results=[])
+            ),
             patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=flag),
             patch.object(attribution_sessions_read, "handle_stale_served") as revalidate,
             patch.object(
@@ -202,7 +208,7 @@ class TestAttributionSessionsRead(SimpleTestCase):
             return compute_query_hash(
                 LazyComputationQuery(
                     query=query,
-                    table=LazyComputationTable.MARKETING_SESSIONS_DIMENSIONAL_PREAGGREGATED,
+                    table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
                 )
             )
 

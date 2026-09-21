@@ -35,7 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from .attribution_base import PERSON_ARRAYS_CTE, PERSON_CONVERSION_COUNT, AttributionQueryRunnerBase
-from .attribution_sessions_read import build_reach
+from .attribution_sessions_read import build_reach, session_ctes
 from .attribution_weights import (
     build_first_touch_weights,
     build_last_touch_weights,
@@ -292,7 +292,7 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
     def to_query(self) -> ast.SelectQuery:
         date_range = self.query_date_range
 
-        ctes: dict[str, ast.CTE] = {}
+        ctes: dict[str, ast.CTE] = session_ctes(self, date_range)
         with self.timings.measure("attribution_reach_cte"):
             ctes[_REACH_CTE] = ast.CTE(name=_REACH_CTE, expr=self._build_reach_select(date_range), cte_type="subquery")
         with self.timings.measure("attribution_person_arrays_cte"):

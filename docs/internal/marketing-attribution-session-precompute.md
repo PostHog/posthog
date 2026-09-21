@@ -6,4 +6,6 @@ The sessions-precomputation flag enables the attribution table and paths reader.
 
 With the existing serve-stale flag, readers may use jobs expired within six hours and enqueue debounced revalidation. Only that task runs reader-initiated inserts; it takes no stale grace. Scheduled writers also require fresh jobs. Classifier expression changes and the explicit dictionary version change the shared job hash, requiring fresh materialization.
 
-The converter join now reads only identity and timestamp bounds; two event scans remain. Stored person identities can still disagree with live conversions after person merges until recomputation.
+The reader caches session dimensions, then joins them to current pageview identities by `session_id_v7`. It resolves both touchpoints and conversions through `events.person_id`, so person merges, splits, and delayed identity mappings follow the same behavior as live attribution without rebuilding session jobs. The stored `person_id` is not used for attribution.
+
+Materialized CTEs share the pageview identity scan between reach and credit, and share the conversion aggregation with the timestamp bounds. Event scans remain necessary for identity and conversions; cached dimensions avoid the sessions join and channel classification. This uses the existing `web_sessions_dimensional_preaggregated` schema and does not require a migration.

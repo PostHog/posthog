@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Optional
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -13,19 +14,26 @@ from posthog.schema import (
     ConversionGoalFilter1,
     DateRange,
     MarketingAnalyticsAttributionBreakdown,
+    MarketingAnalyticsAttributionPathsQuery,
     MarketingAnalyticsAttributionQuery,
+    MarketingAnalyticsAttributionQueryResponse,
+    PersonsOnEventsMode,
     PropertyMathType,
+    SessionTableVersion,
 )
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.models.utils import uuid7
-from posthog.test.persons import create_person
+from posthog.test.persons import add_distinct_id, create_person
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries import attribution_sessions_read
+from products.marketing_analytics.backend.hogql_queries.attribution_paths_query_runner import (
+    MarketingAnalyticsAttributionPathsQueryRunner,
+)
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -200,10 +208,10 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
 
         result = self._materialize()
         rows = sync_execute(
-            "SELECT session_id, person_id, start_timestamp, job_id, computed_at, channel_type, utm_campaign, "
+            "SELECT session_id_v7, person_id, start_timestamp, job_id, computed_at, channel_type, utm_campaign, "
             "utm_source, utm_medium, utm_term, utm_content, referring_domain, entry_pathname, period_bucket, "
             "min_event_timestamp, max_event_timestamp, expires_at "
-            "FROM marketing_sessions_dimensional_preaggregated WHERE team_id = %(team)s AND utm_campaign = 'dup'",
+            "FROM web_sessions_dimensional_preaggregated WHERE team_id = %(team)s AND utm_campaign = 'dup'",
             {"team": self.team.pk},
         )
         assert len(rows) == 1, rows
@@ -216,8 +224,8 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         second_job = next(iter(result.job_ids))
         sync_execute(
             """
-            INSERT INTO marketing_sessions_dimensional_preaggregated
-            (team_id, job_id, period_bucket, session_id, person_id, start_timestamp, min_event_timestamp,
+            INSERT INTO web_sessions_dimensional_preaggregated
+            (team_id, job_id, period_bucket, session_id_v7, person_id, start_timestamp, min_event_timestamp,
              max_event_timestamp, channel_type, utm_source, utm_medium, utm_campaign, utm_term, utm_content,
              referring_domain, entry_pathname, computed_at, expires_at)
             VALUES (%(team)s, %(job)s, %(bucket)s, %(sid)s, %(pid)s, %(start)s, %(min_ev)s, %(max_ev)s,
@@ -228,7 +236,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                 "team": self.team.pk,
                 "job": str(second_job),
                 "bucket": original[13],
-                "sid": original[0],
+                "sid": str(original[0]),
                 "pid": original[1],
                 # earlier start, as a backdated event would produce
                 "start": original[2] - timedelta(minutes=45),
@@ -247,9 +255,9 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             },
         )
         stored = sync_execute(
-            "SELECT count() FROM marketing_sessions_dimensional_preaggregated "
-            "WHERE team_id = %(team)s AND session_id = %(sid)s",
-            {"team": self.team.pk, "sid": original[0]},
+            "SELECT count() FROM web_sessions_dimensional_preaggregated "
+            "WHERE team_id = %(team)s AND session_id_v7 = toUInt128(%(sid)s)",
+            {"team": self.team.pk, "sid": str(original[0])},
         )[0][0]
         assert stored == 2, "the fixture must leave two rows for one session, or it proves nothing"
 
@@ -342,15 +350,15 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         self._materialize()
 
         original = sync_execute(
-            "SELECT session_id, person_id, start_timestamp, job_id, computed_at, period_bucket, "
+            "SELECT session_id_v7, person_id, start_timestamp, job_id, computed_at, period_bucket, "
             "min_event_timestamp, max_event_timestamp, expires_at "
-            "FROM marketing_sessions_dimensional_preaggregated WHERE team_id = %(team)s AND utm_campaign = 'was_a_campaign'",
+            "FROM web_sessions_dimensional_preaggregated WHERE team_id = %(team)s AND utm_campaign = 'was_a_campaign'",
             {"team": self.team.pk},
         )[0]
         sync_execute(
             """
-            INSERT INTO marketing_sessions_dimensional_preaggregated
-            (team_id, job_id, period_bucket, session_id, person_id, start_timestamp, min_event_timestamp,
+            INSERT INTO web_sessions_dimensional_preaggregated
+            (team_id, job_id, period_bucket, session_id_v7, person_id, start_timestamp, min_event_timestamp,
              max_event_timestamp, channel_type, utm_source, utm_medium, utm_campaign, utm_term, utm_content,
              referring_domain, entry_pathname, computed_at, expires_at)
             VALUES (%(team)s, %(job)s, %(bucket)s, %(sid)s, %(pid)s, %(start)s, %(min_ev)s, %(max_ev)s,
@@ -360,7 +368,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                 "team": self.team.pk,
                 "job": str(original[3]),
                 "bucket": original[5],
-                "sid": original[0],
+                "sid": str(original[0]),
                 "pid": original[1],
                 "start": original[2],
                 "min_ev": original[6],
@@ -429,3 +437,90 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             fresh, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
         assert used
         assert fresh == live
+
+    @parameterized.expand(
+        [
+            (state, version)
+            for state in ("merged", "override_first", "mapping_first", "split", "squashed")
+            for version in (SessionTableVersion.V2, SessionTableVersion.V3)
+        ]
+    )
+    def test_cached_dimensions_follow_current_event_identity(self, state: str, version: SessionTableVersion) -> None:
+        self.team.modifiers = {
+            "sessionTableVersion": version,
+            "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+        }
+        create_person(team=self.team, distinct_ids=["anonymous", "second-device"])
+        identified = create_person(team=self.team, distinct_ids=["identified"])
+        self._session(
+            "anonymous", datetime(2023, 1, 11, 9, tzinfo=UTC), campaign="first", event_offsets_minutes=[0, 10]
+        )
+        self._session(
+            "second-device", datetime(2023, 1, 11, 10, tzinfo=UTC), campaign="second", event_offsets_minutes=[0, 10]
+        )
+        self._conversion("identified", datetime(2023, 1, 12, 12, tzinfo=UTC))
+        flush_persons_and_events()
+        result = self._materialize()
+        stored_before = sync_execute(
+            "SELECT * FROM web_sessions_dimensional_preaggregated WHERE team_id = %(team)s ORDER BY session_id_v7",
+            {"team": self.team.pk},
+        )
+        self.assertTrue(stored_before)
+
+        def override(distinct_id: str, person_id: UUID, version: int, deleted: bool = False) -> None:
+            sync_execute(
+                "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted) VALUES",
+                [(self.team.pk, distinct_id, person_id, version, int(deleted))],
+            )
+
+        moving_ids = ["anonymous"] if state == "split" else ["anonymous", "second-device"]
+        for distinct_id in moving_ids:
+            if state != "override_first":
+                add_distinct_id(person=identified, distinct_id=distinct_id, version=1)
+            if state != "mapping_first":
+                override(distinct_id, identified.uuid, 1)
+            if state == "squashed":
+                sync_execute(
+                    "ALTER TABLE sharded_events UPDATE person_id = %(person)s "
+                    "WHERE team_id = %(team)s AND distinct_id = %(distinct)s SETTINGS mutations_sync = 2",
+                    {"person": identified.uuid, "team": self.team.pk, "distinct": distinct_id},
+                )
+                override(distinct_id, identified.uuid, 2, deleted=True)
+
+        query_args = {
+            "dateRange": DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            "breakdownBy": MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+            "conversionGoalId": GOAL_ID,
+            "properties": [],
+        }
+        for query_type, runner_type in (
+            (MarketingAnalyticsAttributionQuery, MarketingAnalyticsAttributionQueryRunner),
+            (MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
+        ):
+            responses = []
+            for precomputed in (False, True):
+                runner = runner_type(query=query_type(**query_args), team=self.team)
+                runner.config.sessions_precomputation_enabled = precomputed
+                response = runner.calculate()
+                self.assertEqual(runner._sessions_precompute_used, precomputed)
+                responses.append(response.results)
+                if isinstance(response, MarketingAnalyticsAttributionQueryResponse):
+                    self.assertEqual(response.totalConversions, 1)
+                    self.assertEqual(response.unattributedConversions, 1 if state == "mapping_first" else 0)
+                else:
+                    self.assertEqual(response.attributedConversions, 0 if state == "mapping_first" else 1)
+            self.assertCountEqual(responses[0], responses[1])
+
+        stored_after = sync_execute(
+            "SELECT * FROM web_sessions_dimensional_preaggregated WHERE team_id = %(team)s ORDER BY session_id_v7",
+            {"team": self.team.pk},
+        )
+        self.assertEqual(stored_after, stored_before)
+        hit = ensure_marketing_sessions_precomputed(
+            self.team,
+            WINDOW_START - timedelta(days=SESSION_READ_REACHBACK_DAYS),
+            datetime(2023, 1, 20, 23, 59, 59, tzinfo=UTC),
+            run_inserts=False,
+        )
+        self.assertTrue(hit.ready)
+        self.assertEqual(set(hit.job_ids), set(result.job_ids))

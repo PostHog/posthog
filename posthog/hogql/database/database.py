@@ -115,7 +115,6 @@ from posthog.hogql.database.schema.logs import (
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
-from posthog.hogql.database.schema.marketing_sessions_preaggregated import MarketingSessionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
@@ -150,6 +149,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
 )
 from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
 from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
+from posthog.hogql.database.schema.web_sessions_preaggregated import WebSessionsPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_frustration_preaggregated import WebStatsFrustrationPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
@@ -579,9 +579,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
                     ),
-                    "marketing_sessions_dimensional_preaggregated": TableNode(
-                        name="marketing_sessions_dimensional_preaggregated",
-                        table=MarketingSessionsPreaggregatedTable(),
+                    "web_sessions_dimensional_preaggregated": TableNode(
+                        name="web_sessions_dimensional_preaggregated",
+                        table=WebSessionsPreaggregatedTable(),
                     ),
                     "marketing_touchpoints_preaggregated": TableNode(
                         name="marketing_touchpoints_preaggregated",

@@ -11,7 +11,7 @@ from posthog.hogql.database.models import (
     Table,
 )
 
-from posthog.clickhouse.preaggregation.marketing_sessions_sql import DISTRIBUTED_MARKETING_SESSIONS_TABLE
+from posthog.clickhouse.preaggregation.web_sessions_sql import DISTRIBUTED_WEB_SESSIONS_TABLE
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -37,9 +37,9 @@ def _build_fields() -> dict[str, FieldOrTable]:
         "period_bucket": DateTimeDatabaseField(
             name="period_bucket", description="Hourly UTC bucket on the session's start timestamp."
         ),
-        "session_id": StringDatabaseField(name="session_id", description="The session this row describes."),
+        "session_id_v7": IntegerDatabaseField(name="session_id_v7", description="The session this row describes."),
         "person_id": StringDatabaseField(
-            name="person_id", description="Person the session belongs to; join to `persons`."
+            name="person_id", description="Person ID when this row was computed; it can change after a merge."
         ),
         "start_timestamp": DateTimeDatabaseField(name="start_timestamp", description="When the session started (UTC)."),
         "min_event_timestamp": DateTimeDatabaseField(
@@ -61,9 +61,9 @@ def _build_fields() -> dict[str, FieldOrTable]:
     return fields
 
 
-class MarketingSessionsPreaggregatedTable(Table):
+class WebSessionsPreaggregatedTable(Table):
     description: str = (
-        "Internal preaggregated table of marketing sessions (one row per session), carrying the person and the "
+        "Internal preaggregated sessions (one row per session and stored person), carrying the "
         "session's entry attribution with the channel already classified. Feeds attribution in marketing analytics."
     )
     top_level_settings: HogQLQuerySettings | None = Field(
@@ -73,7 +73,7 @@ class MarketingSessionsPreaggregatedTable(Table):
     fields: dict[str, FieldOrTable] = _build_fields()
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
-        return DISTRIBUTED_MARKETING_SESSIONS_TABLE()
+        return DISTRIBUTED_WEB_SESSIONS_TABLE()
 
     def to_printed_hogql(self) -> str:
-        return "marketing_sessions_dimensional_preaggregated"
+        return "web_sessions_dimensional_preaggregated"
