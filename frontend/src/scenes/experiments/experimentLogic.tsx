@@ -22,12 +22,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
+import { isCapacityError } from 'scenes/experiments/metricQueryErrors'
 import {
     hasMultipleVariantsActive,
     hasZeroRollout,
@@ -326,6 +328,18 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
 // prevents mass rejections and retry churn when experiments have many metrics.
 const METRIC_QUERY_CONCURRENCY_LIMIT = 10
 
+// A rate-limited metric is thrown by ClickHouse, not caused by the metric, so retry it in place
+// instead of dropping a red row the user has to click. Only capacity errors retry; every other
+// failure is terminal on this path. Bounded and backed off so a busy cluster is not hammered.
+const METRIC_RATE_LIMIT_MAX_RETRIES = 3
+const METRIC_RATE_LIMIT_RETRY_BASE_MS = 2000
+
+function metricRateLimitRetryDelayMs(attempt: number): number {
+    // Exponential backoff (2s, 4s, 8s) with jitter so concurrent metrics do not retry in lockstep.
+    const base = METRIC_RATE_LIMIT_RETRY_BASE_MS * 2 ** attempt
+    return base + Math.random() * METRIC_RATE_LIMIT_RETRY_BASE_MS
+}
+
 const loadMetrics = async ({
     metrics,
     experimentId,
@@ -358,18 +372,39 @@ const loadMetrics = async ({
             const startTime = performance.now()
             const metricIndex = metricIndexOffset + originalIndex
             const metricKind = metric.kind || 'unknown'
+            // How many times a rate-limited attempt was retried before this metric settled. Reported
+            // on success so a recovered-after-retry rate is queryable without the count of terminal
+            // backend errors moving (the failures ClickHouse still throws are unchanged).
+            let autoRetryAttempts = 0
+
+            const queryWithExperimentId = {
+                kind: NodeKind.ExperimentQuery,
+                metric: metric,
+                experiment_id: experimentId,
+            }
 
             try {
-                const queryWithExperimentId = {
-                    kind: NodeKind.ExperimentQuery,
-                    metric: metric,
-                    experiment_id: experimentId,
+                for (;;) {
+                    try {
+                        response = await performQuery(
+                            setLatestVersionsOnQuery(queryWithExperimentId),
+                            undefined,
+                            getExperimentRefreshMode(featureFlags, !!refresh)
+                        )
+                        break
+                    } catch (error: any) {
+                        const statusCode = typeof error.status === 'number' ? error.status : null
+                        const errorCode = typeof error.code === 'string' ? error.code : null
+                        if (
+                            !isCapacityError({ code: errorCode, statusCode }) ||
+                            autoRetryAttempts >= METRIC_RATE_LIMIT_MAX_RETRIES
+                        ) {
+                            throw error
+                        }
+                        await delay(metricRateLimitRetryDelayMs(autoRetryAttempts))
+                        autoRetryAttempts++
+                    }
                 }
-                response = await performQuery(
-                    setLatestVersionsOnQuery(queryWithExperimentId),
-                    undefined,
-                    getExperimentRefreshMode(featureFlags, !!refresh)
-                )
 
                 const durationMs = Math.round(performance.now() - startTime)
                 const isCached = !!response?.is_cached
@@ -398,6 +433,7 @@ const loadMetrics = async ({
                         refresh_id: refreshId,
                         metric_kind: metricKind,
                         execution_mode: getExperimentExecutionMode(featureFlags),
+                        auto_retry_attempts: autoRetryAttempts,
                     }
                 )
             } catch (error: any) {

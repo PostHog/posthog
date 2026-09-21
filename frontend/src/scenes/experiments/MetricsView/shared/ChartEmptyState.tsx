@@ -1,6 +1,7 @@
 import { IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { isNoExposuresError } from 'scenes/experiments/metricQueryErrors'
 import { isLegacyExperimentQuery } from 'scenes/experiments/utils'
 
 import { LegacyErrorChecklist } from 'products/experiments/frontend/legacy'
@@ -32,14 +33,7 @@ export function ChartEmptyState({
      * early return if experiment has not started
      */
     if (!experimentStarted) {
-        return (
-            <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
-                <LemonTag size="small" className="mr-2">
-                    <IconClock fontSize="1em" />
-                </LemonTag>
-                <span>Waiting for experiment to start&hellip;</span>
-            </div>
-        )
+        return <WaitingState>Waiting for experiment to start&hellip;</WaitingState>
     }
 
     /**
@@ -47,6 +41,14 @@ export function ChartEmptyState({
      */
     if (!error) {
         return null
+    }
+
+    /**
+     * the experiment is running but nobody has been exposed to the baseline variant yet, which is
+     * how every experiment starts out, so wait rather than report a failure the user must act on
+     */
+    if (isNoExposuresError(error)) {
+        return <WaitingState>Waiting for exposures&hellip;</WaitingState>
     }
 
     const isLegacyMetric = isLegacyExperimentQuery(metric)
@@ -81,6 +83,17 @@ export function ChartEmptyState({
                     height={height}
                 />
             )}
+        </div>
+    )
+}
+
+function WaitingState({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
+            <LemonTag size="small" className="mr-2">
+                <IconClock fontSize="1em" />
+            </LemonTag>
+            <span>{children}</span>
         </div>
     )
 }
