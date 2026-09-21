@@ -31,6 +31,7 @@ import {
   SKILLS_ZIP_URL,
 } from "./vite-main-plugins.mjs";
 import { autoServicesPlugin } from "./vite-plugin-auto-services";
+import { firstPaintPlugin } from "./vite-plugin-first-paint";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -227,6 +228,7 @@ export default defineConfig(({ mode }) => {
         react(),
         tsconfigPaths({ ignoreConfigErrors: true }),
         createPosthogPlugin(env, "posthog-code-renderer"),
+        firstPaintPlugin(),
       ].filter(Boolean),
       worker: {
         format: "es",

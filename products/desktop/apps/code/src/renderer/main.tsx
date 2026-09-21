@@ -34,25 +34,31 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "@posthog/ui/styles/globals.css";
 
-void preloadHighlighter({
-  themes: ["github-dark", "github-light"],
-  langs: [
-    "typescript",
-    "tsx",
-    "javascript",
-    "jsx",
-    "json",
-    "css",
-    "html",
-    "markdown",
-    "python",
-    "ruby",
-    "go",
-    "rust",
-    "shell",
-    "yaml",
-    "sql",
-  ],
+// Grammars and themes are megabytes of parsing that no first screen needs, so
+// they wait until the renderer is idle rather than compete with boot.
+const whenIdle =
+  window.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 2000));
+whenIdle(() => {
+  void preloadHighlighter({
+    themes: ["github-dark", "github-light"],
+    langs: [
+      "typescript",
+      "tsx",
+      "javascript",
+      "jsx",
+      "json",
+      "css",
+      "html",
+      "markdown",
+      "python",
+      "ruby",
+      "go",
+      "rust",
+      "shell",
+      "yaml",
+      "sql",
+    ],
+  });
 });
 
 // HACK(@posthog/hedgehog-mode): The package bundles react-dom 18 code that
