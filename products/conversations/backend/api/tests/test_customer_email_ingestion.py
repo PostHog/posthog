@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -17,13 +17,6 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.conversations.backend.api.email_events import (
-    MAX_FORWARDING_CHALLENGE_TOKENS,
-    MAX_RECIPIENTS,
-    _forwarding_challenge_tokens,
-    _parse_addresses,
-    _parse_sent_at,
-)
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailChannel,
@@ -42,6 +35,13 @@ from products.conversations.backend.services.email_channel_setup import (
     FORWARDING_CHALLENGE_HEADER,
     FORWARDING_CHALLENGE_MARKER,
     create_forwarding_challenge,
+)
+from products.conversations.backend.services.mailgun_events import (
+    MAX_FORWARDING_CHALLENGE_TOKENS,
+    MAX_RECIPIENTS,
+    _forwarding_challenge_tokens,
+    _parse_addresses,
+    _parse_sent_at,
 )
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 
@@ -62,7 +62,7 @@ class TestCustomerEmailIngestion(BaseTest):
             connection_status=EmailChannelConnectionStatus.ACTIVE,
         )
         signature_patcher = patch(
-            "products.conversations.backend.api.email_events.validate_webhook_signature",
+            "products.conversations.backend.services.mailgun_events.validate_webhook_signature",
             return_value=True,
         )
         signature_patcher.start()
@@ -242,7 +242,7 @@ class TestCustomerEmailIngestion(BaseTest):
         assert message.comment.content == "Can you help?"
 
     def test_pending_channel_rejects_expired_signed_challenge(self) -> None:
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             setup = self._start_google_setup(expires_at=timezone.now() + timedelta(hours=48))
             challenge = create_forwarding_challenge(
                 team_id=self.team.id,
@@ -250,7 +250,7 @@ class TestCustomerEmailIngestion(BaseTest):
                 setup_id=setup.id,
             )
 
-        with freeze_time("2026-01-02 00:00:01"):
+        with time_machine.travel("2026-01-02 00:00:01", tick=False):
             response = self._post_email(
                 message_id="<expired-challenge@posthog.com>",
                 **{FORWARDING_CHALLENGE_HEADER: challenge.token},
@@ -542,8 +542,8 @@ class TestCustomerEmailIngestion(BaseTest):
             ("secondary_error", 500, 502, False),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.request_secondary_region_status")
-    @patch("products.conversations.backend.api.email_events.is_primary_region", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.request_secondary_region_status")
+    @patch("products.conversations.backend.services.mailgun_events.is_primary_region", return_value=True)
     def test_primary_region_checks_secondary_before_ingesting(
         self,
         _name: str,
@@ -675,7 +675,7 @@ class TestForwardingChallengeTokens(SimpleTestCase):
                 raise AssertionError("challenge extraction read beyond its limit")
 
         request = self.factory.post("/", {"message-headers": "[]"})
-        with patch("products.conversations.backend.api.email_events.json.loads", return_value=HeaderValues()):
+        with patch("products.conversations.backend.services.mailgun_events.json.loads", return_value=HeaderValues()):
             tokens = _forwarding_challenge_tokens(request)
 
         assert len(tokens) == MAX_FORWARDING_CHALLENGE_TOKENS

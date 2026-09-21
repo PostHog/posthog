@@ -21,7 +21,6 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     delete_v1_saved_query_schedules,
     null_saved_query_intervals,
     preview_dag_schedules,
-    tiered_schedules_enabled,
 )
 from products.data_modeling.backend.models.dag import DAG
 
@@ -140,8 +139,6 @@ class Command(BaseCommand):
         if team is None:
             raise Anomaly("team does not exist")
         record["organization_id"] = str(team.organization_id)
-        if apply and not tiered_schedules_enabled(team):
-            raise Anomaly("team's org is not on the tiered-schedules flag")
 
         dag_list = list(DAG.objects.filter(team_id=team_id))
         if not dag_list:

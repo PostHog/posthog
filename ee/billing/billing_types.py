@@ -18,6 +18,7 @@ UsageType = Literal[
     "free_historical_rows_synced_in_period",
     "survey_responses_count_in_period",
     "mobile_recording_count_in_period",
+    "mobile_billable_recording_count_in_period",
     "billable_feature_flag_requests_count_in_period",
     "enhanced_persons_event_count_in_period",
     "ai_event_count_in_period",
@@ -34,7 +35,6 @@ UsageType = Literal[
     "workflow_billable_invocations_in_period",
     "logs_mb_in_period",
     "logs_retention_30d_mb_in_period",
-    "logs_retention_mb_days_in_period",
     "replay_vision_credits_used_in_period",
     "data_pipelines",
     "group_analytics",
@@ -51,7 +51,8 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Identified events", "value": "enhanced_persons_event_count_in_period"},
     {"label": "Group analytics", "value": "group_analytics"},
     {"label": "Recordings", "value": "recording_count_in_period"},
-    {"label": "Mobile recordings", "value": "mobile_recording_count_in_period"},
+    {"label": "Mobile recordings", "value": "mobile_billable_recording_count_in_period"},
+    {"label": "Mobile recordings captured", "value": "mobile_recording_count_in_period"},
     {"label": "Feature flag requests", "value": "billable_feature_flag_requests_count_in_period"},
     {"label": "Exceptions", "value": "exceptions_captured_in_period"},
     {"label": "Survey responses", "value": "survey_responses_count_in_period"},
@@ -79,7 +80,6 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
     {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
-    {"label": "Logs retention (MB-days)", "value": "logs_retention_mb_days_in_period"},
 )
 
 USAGE_TYPE_VALUES: tuple[UsageType, ...] = cast(tuple[UsageType, ...], get_args(UsageType))

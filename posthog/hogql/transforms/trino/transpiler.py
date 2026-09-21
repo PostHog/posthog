@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from posthog.schema import HogQLQueryModifiers
@@ -23,7 +24,7 @@ from posthog.week_start_day import WeekStartDay
 class TrinoTranspilerInput:
     node: ast.AST
     values: tuple[tuple[str, Any], ...]
-    table_locators: tuple[tuple[str, TrinoTableLocator], ...]
+    table_locators: Mapping[str, TrinoTableLocator]
     persons_on_events_mode: PersonsOnEventsMode | None
     convert_to_project_timezone: bool | None
     limit_top_select: bool
@@ -59,7 +60,7 @@ def transpile_prepared_hogql_to_trino(transpiler_input: TrinoTranspilerInput) ->
             convertToProjectTimezone=transpiler_input.convert_to_project_timezone,
         ),
         restricted_properties=set(),
-        trino_table_locators=dict(transpiler_input.table_locators),
+        trino_table_locators=transpiler_input.table_locators,
         values=dict(transpiler_input.values),
         timezone=transpiler_input.timezone,
         week_start_day=transpiler_input.week_start_day,

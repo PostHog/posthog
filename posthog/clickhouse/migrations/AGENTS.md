@@ -4,42 +4,23 @@ PostHog ClickHouse setup
 
 ## Environments
 
-There are 3 environments:
+There are 3 environments: Development, US Production, and EU Production. All three run the same
+roles and the same schema, and differ only in size, so a migration targets a role in `NodeRole` and
+never a count.
 
-- Development
-- US Production
-- EU Production
+## Clusters
 
-## US Production
+Every environment runs one main cluster plus the same satellites and ingestion nodes.
 
-The main clusters are:
+- Main cluster (`posthog`) — sharded, several shards, multiple replicas per shard. Holds the
+  sharded tables and is the default target for a migration.
+- Satellites — `ai_events`, `aux`, `batch_exports`, `endpoints`, `logs`, `sessions`, `ops`. Each is
+  a single shard with multiple replicas, and owns the tables for one product area.
+- Ingestion nodes — `ingestion-events`, `ingestion-medium`, `ingestion-small`. Stateless, one shard
+  per node, no replicas. See Ingestion nodes below.
 
-- 30 worker nodes (10x3)
-  - 10 shards
-  - 3 replicas
-- ai_events 1x2
-- aux 1x2
-- batch_exports 1x2
-- endpoints 1x2
-- logs 1x2
-- sessions 1x2
-- ops 1x2
-
-## Development
-
-Development mirrors the US Production layout — the main sharded cluster plus the same
-satellite clusters — at reduced node counts. Schema parity between Development and US
-Production is expected; migrations target both the same way.
-
-## EU Production
-
-The main cluster is:
-
-- 24 worker nodes - all tables are defined on worker nodes
-  - 8 shards
-  - 3 replicas
-
-Additionally, on k8s we have stateless nodes:
+Shard and replica counts differ per environment and change over time, so nothing in a migration may
+depend on them. Read `system.clusters` when you need the current shape.
 
 ## Ingestion nodes
 
@@ -310,6 +291,65 @@ run_sql_with_exceptions(
     KAFKA_TABLE_SQL(),
     node_roles=[NodeRole.INGESTION_SMALL]
 )
+```
+
+### Required settings
+
+`kafka_engine()` returns the ENGINE clause only, so each table appends its own `SETTINGS`.
+Start from this baseline and record a reason next to anything you change:
+
+```sql
+SETTINGS kafka_skip_broken_messages = 100,
+         kafka_num_consumers = {kafka_num_consumers(1)},
+         kafka_thread_per_consumer = 1,
+         kafka_poll_timeout_ms = 10000,
+         kafka_max_block_size = 100000
+```
+
+- `kafka_skip_broken_messages` defaults to 0, where one malformed message raises on every retry of
+  the block and the consumer never advances past it. Set it on every table. Skipped rows are
+  counted in `KafkaRowsRejected` and discarded.
+- `kafka_poll_timeout_ms` defaults to under a second. WarpStream does not support
+  `fetch.min.bytes`, so a short timeout buys many small fetches instead of a few large ones.
+- `kafka_thread_per_consumer` serializes flushes when off, and changes nothing unless
+  `kafka_num_consumers` is above 1.
+- Leave `kafka_flush_interval_ms` unset; it defaults to 7500. Leave `kafka_max_wait_ms` alone, it is
+  a user-profile setting.
+
+### Sizing
+
+`kafka_max_block_size` is the row count of one insert into the target table, defaulting to about a
+million rows, so every value we set is a reduction. Larger blocks make larger parts and fewer
+merges, but each one holds memory until it flushes and its rows are invisible until then. Start at
+100000, go lower for wide rows or a view that fans one message into several targets, and stay above
+about 1000 to avoid trading tiny parts for merge pressure.
+
+`kafka_num_consumers` is per node. Nodes of a role share the topic's partitions and a consumer with
+no partition still holds a thread, so the total across the role must not exceed the partition count
+— a role on many nodes reaches that ceiling at 1. Each consumer also takes a slot in
+`background_message_broker_schedule_pool_size`, a server-level pool of 16 shared by every Kafka
+table on the node. Resolve the count through `kafka_num_consumers()` in
+`posthog/clickhouse/kafka_engine.py`, which returns 1 outside deployed cloud.
+
+### Changing a Kafka table or its materialized view
+
+Columns and settings are fixed at creation, so drop and recreate the table together with its MV, as
+migration 0307 does. Neither is replicated, so no `SYNC`. `ALTER TABLE <mv> MODIFY QUERY` covers a
+change to an MV's SELECT alone (0298, 0199, 0208). This does not apply to `kafka_events_json_ws` or
+`events_json_ws_mv`, which are never dropped or recreated — see the no-go zone caution above.
+
+With no MV attached nothing drives consumption and no offsets advance, so the cost is lag, not
+loss, provided the recreated table keeps the same `kafka_group_name`. Rows already written keep the
+old shape, so a change to how a column is derived needs a backfill or a sentinel marking pre-change
+rows, the way 0307 coalesces to `''` and 0.
+
+### The repo is not the source of truth for these settings
+
+`posthog/clickhouse/kafka_engine.py` says so in its first line, and the same table can carry
+different settings per deployment. Read the live values before changing one:
+
+```sql
+SELECT name, engine_full FROM clusterAllReplicas('all', system.tables) WHERE engine = 'Kafka'
 ```
 
 ## Materialized views

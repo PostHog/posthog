@@ -33,6 +33,8 @@ else:
 
 from products.access_control.backend.models.access_control import AccessControl
 
+from .enums import ResolvedAccessSourceSubjectValue, ResolvedAccessSourceValue
+
 
 class AccessSource(Enum):
     """Enum for how a user got access to a resource"""
@@ -60,6 +62,7 @@ ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
+    "data_catalog",
     "dashboard",
     "early_access_feature",
     "endpoint",
@@ -109,6 +112,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_prompt": "llm_analytics",
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
+    "customer_task": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
@@ -261,19 +265,10 @@ class ResolvedAccess:
     """
 
     access_level: AccessControlLevel
-    source: Literal[
-        "object",
-        "parent_object",
-        "resource",
-        "parent_resource",
-        "system_default",
-        "org_admin",
-        "creator",
-        "org_membership",
-    ]
+    source: ResolvedAccessSourceValue
     # The source rule's subject: an everyone-row ("default"), a role row, or a member row.
     # None when no row decided.
-    source_subject: Optional[Literal["member", "role", "default"]]
+    source_subject: Optional[ResolvedAccessSourceSubjectValue]
     # The resource the source rule belongs to — a table resolved through its source reports the
     # source's resource, and the system default reports the resource whose rules would apply
     # (the RESOURCE_INHERITANCE_MAP umbrella), not necessarily the object's own.
@@ -287,9 +282,9 @@ class ResolvedAccess:
     subject_name: Optional[str] = None
 
 
-def model_to_resource(model: Model) -> Optional[APIScopeObject]:
+def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
     """
-    Given a model, return the resource type it represents
+    Given a model instance or class, return the resource type it represents
     """
     if hasattr(model, "_meta"):
         name = model._meta.model_name
@@ -337,10 +332,19 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
+    if name == "customertask":
+        return "customer_task"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
+    if name == "llmskill":
+        return "llm_skill"
     if name in ("visionalertconfiguration", "visionalertevent"):
         return "vision_alert"
+    # These scopes are served by several viewsets, each with its own model
+    if name in ("parserrecipe", "reviewqueue", "reviewqueueitem", "scoredefinition", "tracereview"):
+        return "llm_analytics"
+    if name in ("dataqualitycheck", "dataqualitysuiterun"):
+        return "warehouse_objects"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
@@ -411,14 +415,28 @@ class UserAccessControl:
         # object in a list response. The events carry no object id, so these repeats are
         # identical events. Report each distinct divergence once per request.
         self._reported_resolved_access_divergences: set[tuple] = set()
+        # Project-wide object-id resolutions, keyed by (resource, team, level). Each one scans the
+        # resource and preloads its access controls, and one request asks for the same set several
+        # times over. Narrowed lookups are never stored here, only whole-resource ones.
+        self._allowed_object_ids: dict[tuple[str, int, str], frozenset] = {}
 
         if not organization_id and team:
             organization_id = str(team.organization_id)
 
         self._organization_id = organization_id
 
+    def allowed_object_ids(
+        self, resource: str, team_id: int, required_level: str, resolve: Callable[[], frozenset]
+    ) -> frozenset:
+        """Memoize one whole-resource object-id resolution for the life of this request."""
+        key = (resource, team_id, required_level)
+        if key not in self._allowed_object_ids:
+            self._allowed_object_ids[key] = resolve()
+        return self._allowed_object_ids[key]
+
     def _clear_cache(self):
         self._cache = {}
+        self._allowed_object_ids = {}
         # Pop from __dict__ rather than hasattr/delattr
         # hasattr on an un-computed cached_property would re-populate the value we're clearing
         self.__dict__.pop("_cached_access_controls", None)
@@ -488,6 +506,7 @@ class UserAccessControl:
         return list(
             cast(Any, self._user)
             .role_memberships.filter(role__organization_id=self._organization_id)
+            .valid_for_authorization()
             .values_list("role_id", flat=True)
         )
 
@@ -536,6 +555,11 @@ class UserAccessControl:
 
         return self._organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
 
+    @cached_property
+    def _is_most_specific_access_control_enabled(self) -> bool:
+        """True when this organization resolves access most-specific-first (RFC 557)."""
+        return bool(self._organization and self._organization.uses_most_specific_access_resolution)
+
     @property
     def is_organization_admin(self) -> bool:
         """Org owners/admins bypass object- and resource-level access control."""
@@ -546,7 +570,10 @@ class UserAccessControl:
         """Whether the principal created the object, which grants them the highest access to it.
         Creator is a property of the principal, so a subclass that resolves for someone other than
         the requesting user must override this."""
-        return getattr(obj, "created_by", None) == self._user
+        # Compare ids so callers do not need created_by hydrated on the object. Synthetic and
+        # anonymous principals have id None, and the guard keeps them from matching.
+        creator_id = getattr(obj, "created_by_id", None)
+        return creator_id is not None and creator_id == self._user.id
 
     # ------------------------------------------------------------
     # Access control helpers
@@ -757,6 +784,18 @@ class UserAccessControl:
         if not resource or not org_membership:
             return None
 
+        if self._is_most_specific_access_control_enabled:
+            resolved = self.resolve_most_specific_object_access(obj)
+            if resolved is None:
+                return None
+            if specific_only:
+                # Only a member or role row on the object itself is a specific rule.
+                decided_by_object_row = resolved.source == "object" and resolved.source_subject != "default"
+                return resolved.access_level if decided_by_object_row else None
+            if explicit and resolved.source == "system_default":
+                return None
+            return resolved.access_level
+
         # Creators always have highest access
         if self._is_creator(obj):
             return highest_access_level(resource)
@@ -917,6 +956,9 @@ class UserAccessControl:
         We find all relevant access controls and return the highest value, with the source rule
         attached so callers can attribute it.
         """
+
+        if self._is_most_specific_access_control_enabled:
+            return self.resolve_most_specific_resource_access(resource)
 
         # Check if this resource inherits access from a parent resource
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
@@ -1175,6 +1217,16 @@ class UserAccessControl:
         allowed_resource_ids: set[str] = set()
 
         for resource_id, rows in rows_by_object_id.items():
+            if self._is_most_specific_access_control_enabled:
+                # The object has rows, so the resolver decides at the object rung and never
+                # falls back to the resource.
+                access = self._most_specific_object_access_from_rows(resource, rows)
+                if access.access_level == NO_ACCESS_LEVEL:
+                    blocked_resource_ids.add(resource_id)
+                else:
+                    allowed_resource_ids.add(resource_id)
+                continue
+
             row = self._object_rows_decision(resource, rows)
             if row.access_level == NO_ACCESS_LEVEL:
                 blocked_resource_ids.add(resource_id)
@@ -1261,6 +1313,9 @@ class UserAccessControl:
         """
         if self._team is None:
             return True
+        if self._is_most_specific_access_control_enabled:
+            access = self.resolve_most_specific_object_access(self._team)
+            return bool(access and access.access_level != NO_ACCESS_LEVEL)
         level = self.access_level_for_object(self._team, "project")
         return bool(level and level != NO_ACCESS_LEVEL)
 
@@ -1494,10 +1549,13 @@ class UserAccessControl:
         explicit: bool = False,
         fallback_parent_id: Optional[str] = None,
     ) -> Optional[ResolvedAccess]:
-        """Row-based object access resolution, most specific rule first: explicit (role/member) object
-        rows, then the fallback parent's object rows, then resource-level rows, then the parent's
-        resource-level rows, then default object rows, then the resource default. Shared by
-        `get_user_access_level` and `bulk_object_access_levels`, which read only `.access_level`.
+        """Row-based object access resolution. Explicit (role/member) object rows decide first. After
+        that, an object-level default of "none" is final and cannot be widened by a broader
+        resource-level grant, matching the list filter (`_blocked_and_allowed_object_ids`). Then
+        the fallback parent's object rows, then resource-level rows, then the parent's
+        resource-level rows, then the remaining object default rows, then the resource default.
+        Shared by `get_user_access_level` and `bulk_object_access_levels`, which read only
+        `.access_level`.
         """
         parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
 
@@ -1513,6 +1571,21 @@ class UserAccessControl:
                 source_resource=resource,
                 source_resource_id=row.resource_id,
             )
+
+        # A private object (an object-level default of "none") must not be widened by a broader
+        # resource-level grant. Decide on the object's own rows before the resource rung, so the
+        # retrieve path agrees with the list filter (`_blocked_and_allowed_object_ids`), which
+        # already treats the object default as a hard block.
+        if object_access_controls:
+            object_row = self._object_rows_decision(resource, object_access_controls)
+            if object_row.access_level == NO_ACCESS_LEVEL:
+                return ResolvedAccess(
+                    access_level=cast(AccessControlLevel, NO_ACCESS_LEVEL),
+                    source="object",
+                    source_subject=self._row_subject(object_row),
+                    source_resource=resource,
+                    source_resource_id=object_row.resource_id,
+                )
 
         if parent:
             parent_rows = self._get_access_controls(
@@ -1566,6 +1639,12 @@ class UserAccessControl:
         resource = model_to_resource(obj)
         if not resource:
             return None
+
+        if self._is_most_specific_access_control_enabled:
+            resolved_access = self.resolve_most_specific_object_access(obj)
+            if resolved_access is None or (explicit and resolved_access.source == "system_default"):
+                return None
+            return resolved_access.access_level
 
         resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj), explicit=explicit)
         if resolved:
@@ -1623,13 +1702,21 @@ class UserAccessControl:
                 for ac in self._get_access_controls(self._access_controls_filters_for_queryset(resource)):
                     rows_by_object_id[ac.resource_id].append(ac)
 
-            access = self._object_access_level_from_rows(resource, rows_by_object_id.get(object_id, []))
+            object_rows = rows_by_object_id.get(object_id, [])
+            if self._is_most_specific_access_control_enabled:
+                access = self._most_specific_object_access_from_rows(resource, object_rows)
+            else:
+                access = self._object_access_level_from_rows(resource, object_rows)
             results[object_id] = access.access_level if access else None
 
         return results
 
     # ------------------------------------------------------------
-    # Most-specific-wins resolution (RFC 557). Not enforced.
+    # Most-specific-wins resolution (RFC 557).
+    #
+    # Enforced for organizations with `uses_most_specific_access_resolution` on. The enforced
+    # entry points (`get_user_access_level`, `access_level_for_resource`, the queryset filter,
+    # `bulk_object_access_levels`, `has_project_access`) branch to this section for them.
     #
     # The methods in this section come in three tiers:
     # - Entry points (`resolve_most_specific_*_access`): apply the guards for the user, fetch
@@ -1646,12 +1733,12 @@ class UserAccessControl:
     #   `external_data_source`), access resolves as: rules on the object -> its parent ->
     #   the resource -> the parent's resource.
     # The first rule found in this order decides, even when it gives a lower level.
-    # The enforced methods resolve differently: they take the highest level across the
+    # The legacy methods resolve differently: they take the highest level across the
     # member and role overrides, and rules on the resource win over the object's own default.
     #
-    # DO NOT CALL THESE METHODS FOR ENFORCEMENT YET.
-    # Call `get_user_access_level`, `check_access_level_for_object`, or
-    # `access_level_for_resource` instead.
+    # Do not call these methods directly for enforcement. Call `get_user_access_level`,
+    # `check_access_level_for_object`, or `access_level_for_resource`, which apply the
+    # organization's resolution mode.
     # ------------------------------------------------------------
 
     def resolve_most_specific_object_access(self, obj: Model) -> Optional[ResolvedAccess]:

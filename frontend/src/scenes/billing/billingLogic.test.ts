@@ -242,11 +242,10 @@ describe('billingLogic', () => {
 
     it.each<BillingAccessCase>([
         {
-            name: 'member with both member-access flags',
+            name: 'member with the read grant',
             membershipLevel: OrganizationMembershipLevel.Member,
             flags: {
                 [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true,
-                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
             },
             expected: {
                 canAccessBilling: false,
@@ -256,25 +255,10 @@ describe('billingLogic', () => {
             },
         },
         {
-            name: 'member without the dashboards flag',
-            membershipLevel: OrganizationMembershipLevel.Member,
-            flags: {
-                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true,
-                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: false,
-            },
-            expected: {
-                canAccessBilling: false,
-                canViewUsageAndSpend: false,
-                canOnlyViewUsageAndSpend: false,
-                billingEntryUrl: null,
-            },
-        },
-        {
             name: 'admin when owner-only billing is off',
             membershipLevel: OrganizationMembershipLevel.Admin,
             flags: {
                 [FEATURE_FLAGS.OWNER_ONLY_BILLING]: false,
-                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
             },
             expected: {
                 canAccessBilling: true,
@@ -288,7 +272,6 @@ describe('billingLogic', () => {
             membershipLevel: OrganizationMembershipLevel.Admin,
             flags: {
                 [FEATURE_FLAGS.OWNER_ONLY_BILLING]: true,
-                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
             },
             expected: {
                 canAccessBilling: false,
@@ -302,7 +285,6 @@ describe('billingLogic', () => {
             membershipLevel: OrganizationMembershipLevel.Owner,
             flags: {
                 [FEATURE_FLAGS.OWNER_ONLY_BILLING]: true,
-                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
             },
             expected: {
                 canAccessBilling: true,

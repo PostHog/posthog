@@ -52,10 +52,7 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
-from products.posthog_ai.backend.context_wrapper import (
-    ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES,
-    ContextService,
-)
+from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
 from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
@@ -81,6 +78,10 @@ RESEARCH_RATE_LIMIT_MESSAGE = (
     "conversation for continued access."
 )
 
+# Roughly 10k tokens. Every path that accepts a user message shares this, so the limit can't drift
+# between them. The frontend mirrors it in `MAX_MESSAGE_LENGTH` (frontend/src/scenes/max/max-constants.tsx).
+MAX_MESSAGE_CONTENT_LENGTH = 40000
+
 STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_stream_iteration_latency_seconds",
     "Time between iterations in the async stream loop",
@@ -105,7 +106,7 @@ class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
         allow_null=True,  # Null content means we're resuming streaming or continuing previous generation
-        max_length=40000,  # Roughly 10k tokens
+        max_length=MAX_MESSAGE_CONTENT_LENGTH,
     )
     conversation = serializers.UUIDField(
         required=True
@@ -157,7 +158,7 @@ class MessageSerializer(MessageMinimalSerializer):
 
 
 class QueueMessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=MAX_MESSAGE_CONTENT_LENGTH)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     ui_context = serializers.JSONField(required=False)
     billing_context = serializers.JSONField(required=False)
@@ -194,7 +195,7 @@ class QueueMessageSerializer(serializers.Serializer):
 
 
 class QueueMessageUpdateSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=MAX_MESSAGE_CONTENT_LENGTH)
 
 
 class SandboxAttachedContextItemSerializer(serializers.Serializer):
@@ -235,7 +236,7 @@ class SandboxOpenSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        max_length=40000,
+        max_length=MAX_MESSAGE_CONTENT_LENGTH,
         help_text="The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.",
     )
     trace_id = serializers.UUIDField(
@@ -326,8 +327,11 @@ class ConversationViewSet(
         if self.action != "retrieve":
             queryset = queryset.filter(user=self.request.user)
         else:
+            # A LangGraph conversation stays readable by link even once the mirror has linked a task
+            # to it: the task is a copy, not the source, and must not narrow who can read the chat.
             queryset = queryset.filter(
                 Q(task_id__isnull=True)
+                | Q(agent_runtime=Conversation.AgentRuntime.LANGGRAPH)
                 | (
                     Q(task__team_id=self.team_id, task__deleted=False)
                     & tasks_facade.visible_tasks_q(self.request.user.id, relation="task")
@@ -342,7 +346,8 @@ class ConversationViewSet(
             # Hide internal conversations from customers, but show them to support agents during impersonation
             if not is_impersonated_session(self.request):
                 queryset = queryset.filter(is_internal=False)
-            queryset = queryset.order_by("-updated_at")
+            # `id` breaks ties, because equal `updated_at` values give no stable page order
+            queryset = queryset.order_by("-updated_at", "-id")
         if self.action == "list":
             queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset
@@ -729,21 +734,15 @@ class ConversationViewSet(
         if conversation.task_id is not None:
             _validate_sandbox_task(conversation.task_id, self.team.id, request.user.id)
 
-        has_content = bool(serializer.validated_data.get("content"))
-        convert_to_acp, resumed_context = self._compute_sandbox_conversion(request, conversation, has_content)
-
-        # Sandbox-only endpoint. A converting LangGraph thread is still LANGGRAPH here (the flip happens
-        # inside the routing service), so allow it through; reject any other non-sandbox conversation.
-        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX and not convert_to_acp:
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
             raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
 
+        has_content = bool(serializer.validated_data.get("content"))
         if has_content and conversation.title is None:
             conversation.title = serializer.validated_data["content"][:80]
             conversation.save(update_fields=["title"])
 
-        return self._route_sandbox_message(
-            request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp, created=created
-        )
+        return self._route_sandbox_message(request, conversation, created=created)
 
     def _get_or_create_sandbox_conversation(
         self, request: Request, *, bind_task: uuid.UUID | None = None
@@ -786,35 +785,6 @@ class ConversationViewSet(
             raise exceptions.NotFound("Conversation does not exist")
         return conversation, False
 
-    def _compute_sandbox_conversion(
-        self, request: Request, conversation: Conversation, has_content: bool
-    ) -> tuple[bool, str | None]:
-        """Detect + prepare a legacy LangGraph→sandbox conversion on the first new message.
-
-        A reopened LangGraph thread converts to sandbox on its first message: read the current
-        conversation window into a one-time resumed-context block (while still LangGraph), then the
-        routing service flips the runtime + links the Task atomically. Warm (`content`-less) never
-        converts. A failed read never blocks — the user continues, the legacy thread stays rendered.
-        """
-        convert_to_acp = bool(
-            has_content
-            and conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
-            and conversation.task_id is None
-            and conversation.status == Conversation.Status.IDLE
-            and has_sandbox_mode_feature_flag(self.team, cast(User, request.user))
-        )
-        if not convert_to_acp:
-            return False, None
-        try:
-            resumed_context = asgi_async_to_sync(ContextService().abuild_resumed_legacy_context)(
-                conversation, self.team, cast(User, request.user)
-            )
-        except Exception as e:
-            # A failed read must not block the conversion — continue with no resumed context.
-            capture_exception(e)
-            resumed_context = None
-        return True, resumed_context
-
     def _auto_route_repository(self, request: Request, conversation: Conversation, user: User) -> str | None:
         """Auto-select the repository a sandbox conversation's first message is about.
 
@@ -837,15 +807,11 @@ class ConversationViewSet(
         request: Request,
         conversation: Conversation,
         *,
-        resumed_context: str | None = None,
-        convert_to_acp: bool = False,
         created: bool = False,
     ) -> Response:
         user = cast(User, request.user)
         repository = self._auto_route_repository(request, conversation, user)
-        result = SandboxSession(conversation, user).open(
-            request.data, resumed_context=resumed_context, convert_to_acp=convert_to_acp, repository=repository
-        )
+        result = SandboxSession(conversation, user).open(request.data, repository=repository)
         if result is None:
             # Warm intent that provisioned nothing (pool full / released) — no run to open. Drop the
             # row if we created it this request so a content-less warm can't leave orphaned conversations.
@@ -862,7 +828,6 @@ class ConversationViewSet(
                     "conversation_id": str(conversation.id),
                     "execution_type": "sandbox",
                     "agent_runtime": "sandbox",
-                    "converted_to_acp": convert_to_acp,
                     "just_created_run": result.just_created_run,
                     "has_attached_context": result.attached_context_count > 0,
                     "attached_context_count": result.attached_context_count,
@@ -911,6 +876,9 @@ class ConversationViewSet(
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         instance: Conversation = self.get_object()
         Conversation.objects.filter(pk=instance.pk).update(deleted=True, deleted_at=timezone.now())
+        if instance.task_id is not None:
+            # The task is the chat's other representation; a deleted chat must not stay readable there.
+            tasks_facade.soft_delete_task(instance.task_id, self.team_id, cast(User, request.user).id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["POST"], url_path="append_message")

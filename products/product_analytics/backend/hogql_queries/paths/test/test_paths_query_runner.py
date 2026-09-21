@@ -1,6 +1,6 @@
 import dataclasses
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -151,7 +151,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        with freeze_time("2012-01-15T03:21:34.000Z"):
+        with time_machine.travel("2012-01-15T03:21:34.000Z", tick=False):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
@@ -178,7 +178,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[3].target, "3_/about")
         self.assertEqual(response[3].value, 1)
 
-        with freeze_time("2012-01-15T03:21:34.000Z"):
+        with time_machine.travel("2012-01-15T03:21:34.000Z", tick=False):
             date_from = now() - relativedelta(days=7)
             result = PathsQueryRunner(
                 query={
@@ -989,6 +989,80 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(with_trailing_slashes.results, baseline.results)
 
+    @parameterized.expand(
+        [
+            ("plain_target", "/products", "/products"),
+            ("target_with_query_string", "/products", "/products/?color=blue"),
+            ("hash_routed_target", "/#/products", "/#/products?color=blue"),
+        ]
+    )
+    def test_paths_strip_query_string(self, _name: str, base_url: str, start_point: str) -> None:
+        # Query strings must be cut before the trailing slash strip, so that
+        # `/products/?color=red` merges with `/products` and not only with `/products/`.
+        # The start point gets the same treatment, because the selector offers raw URLs.
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
+
+        for distinct_id, start_url in (
+            ("person_1", f"{base_url}/?color=red"),
+            ("person_2", f"{base_url}?sort=price"),
+        ):
+            for url in (start_url, "/checkout"):
+                _create_event(
+                    properties={"$current_url": url},
+                    distinct_id=distinct_id,
+                    event="$pageview",
+                    team=self.team,
+                )
+
+        separate = PathsQueryRunner(
+            query={"kind": "PathsQuery", "pathsFilter": {"startPoint": start_point}},
+            team=self.team,
+        ).run()
+        assert isinstance(separate, CachedPathsQueryResponse)
+        self.assertEqual(separate.results, [])
+
+        merged = PathsQueryRunner(
+            query={"kind": "PathsQuery", "pathsFilter": {"startPoint": start_point, "stripQueryString": True}},
+            team=self.team,
+        ).run()
+        assert isinstance(merged, CachedPathsQueryResponse)
+        self.assertEqual(len(merged.results), 1)
+        self.assertTrue(
+            merged.results[0].dict().items() >= {"source": f"1_{base_url}", "target": "2_/checkout", "value": 2}.items()
+        )
+
+    def test_paths_strip_query_string_excludes_events(self) -> None:
+        # Exclusions come from the same picker as the start point, so they need the same cut.
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
+
+        for distinct_id in ("person_1", "person_2"):
+            for url in ("/products?color=red", "/spam?ref=ad", "/checkout"):
+                _create_event(
+                    properties={"$current_url": url},
+                    distinct_id=distinct_id,
+                    event="$pageview",
+                    team=self.team,
+                )
+
+        response = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "includeEventTypes": ["$pageview"],
+                    "stripQueryString": True,
+                    "excludeEvents": ["/spam?ref=ad"],
+                },
+            },
+            team=self.team,
+        ).run()
+        assert isinstance(response, CachedPathsQueryResponse)
+        self.assertEqual(len(response.results), 1)
+        self.assertTrue(
+            response.results[0].dict().items() >= {"source": "1_/products", "target": "2_/checkout", "value": 2}.items()
+        )
+
     def test_paths_in_window(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
 
@@ -1048,7 +1122,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0].target, "2_/about")
         self.assertEqual(response[0].value, 2)
 
-    @freeze_time("2012-01-15T03:21:34.000Z")
+    @time_machine.travel("2012-01-15T03:21:34.000Z", tick=False)
     def test_path_replacements_none_does_not_apply_team_cleaning(self):
         """pathReplacements=None (omitted) should not apply team cleaning — the frontend sets True explicitly."""
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -1083,7 +1157,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         combined = " ".join(sources_and_targets)
         assert "123" in combined or "456" in combined
 
-    @freeze_time("2012-01-15T03:21:34.000Z")
+    @time_machine.travel("2012-01-15T03:21:34.000Z", tick=False)
     def test_path_replacements_false_skips_team_cleaning(self):
         """pathReplacements=False should not apply team path cleaning filters."""
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -1119,7 +1193,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         combined = " ".join(sources_and_targets)
         assert "123" in combined or "456" in combined
 
-    @freeze_time("2012-01-15T03:21:34.000Z")
+    @time_machine.travel("2012-01-15T03:21:34.000Z", tick=False)
     def test_path_replacements_apply_capture_group_backreference_alias(self):
         """A team cleaning alias can reuse regex capture groups via re2 `\\1` syntax. The paths runner
         builds its own replaceRegexpAll chain, so this guards backreference substitution on that path

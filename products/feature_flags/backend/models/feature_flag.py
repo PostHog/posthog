@@ -10,9 +10,8 @@ from django.db.models.fields.json import KeyTransform
 from django.http import HttpRequest
 from django.utils import timezone
 
-from django_deprecate_fields import deprecate_field
-
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
@@ -27,6 +26,7 @@ from products.feature_flags.backend.variant_rollout import format_variant_rollou
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
 
+    from posthog.models.activity_logging.activity_log import Trigger
     from posthog.models.team import Team
 
     from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
@@ -141,6 +141,11 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     if TYPE_CHECKING:
         flag_evaluation_contexts: RelatedManager[FeatureFlagEvaluationContext]
 
+    # Never persisted. A caller that rewrites the flag as a side effect of another action
+    # (for example the experiment exposure freeze) sets this before the gated write; the
+    # activity-log receiver reads it so the entry does not render as a manual edit.
+    _activity_trigger: "Trigger | None" = None
+
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
     name = models.TextField(
@@ -151,8 +156,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # DEPRECATED: rollout percentage now lives in filters["groups"][N]["rollout_percentage"]
     rollout_percentage = deprecate_field(models.IntegerField(null=True, blank=True))
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(null=True, auto_now=True)
     deleted = models.BooleanField(default=False)
@@ -174,7 +179,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     )
 
     ensure_experience_continuity = models.BooleanField(default=False, null=True, blank=True)
-    usage_dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    usage_dashboard = models.ForeignKey(
+        "dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "dashboards.Dashboard",
         through="FeatureFlagDashboards",
@@ -516,8 +523,8 @@ class FeatureFlagHashKeyOverride(models.Model):
     # DO_NOTHING: Person/Team deletion handled manually via FeatureFlagHashKeyOverride.objects.filter(...).delete()
     # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
     # db_constraint=False: No database FK constraint - FeatureFlagHashKeyOverride may live in separate database
-    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING, db_constraint=False)
+    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING, db_constraint=False, related_name="+")
     hash_key = models.CharField(max_length=400)
 
     class Meta:
@@ -535,9 +542,9 @@ class FeatureFlagHashKeyOverride(models.Model):
 # DEPRECATED: This model is no longer used, but it's not deleted to avoid downtime
 class FeatureFlagOverride(models.Model):
     feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
     override_value = models.JSONField()
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         constraints = [
@@ -626,7 +633,7 @@ def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
 
 class FeatureFlagDashboards(models.Model):
     feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE)
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
 

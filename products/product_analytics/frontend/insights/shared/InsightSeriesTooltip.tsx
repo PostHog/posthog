@@ -7,6 +7,7 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { parseDateInTimezone } from 'lib/utils/datetime'
 import { percentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
     FormattedDateOptions,
@@ -21,6 +22,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, IntervalType } from '~/types'
+
+import { getSeriesIdentification, type SeriesIdentification } from './seriesIdentification'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,8 +57,8 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     /** Override the auto-derived date header — stickiness passes an interval-count integer
      *  rather than a date, so the default calendar formatter would produce the wrong label. */
     altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
-    /** Override the value formatter — pie chart passes slice share alongside the raw count. */
-    renderCount?: (value: number) => string
+    /** Override the value formatter: pie slice share, or the funnel counts behind a rate from the entry's meta. */
+    renderCount?: (value: number, entry: InsightSeriesTooltipEntry<Meta>) => string
     /** Override the row label — lifecycle uses the status name rather than the event name. */
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
     /** Sort rows by value descending. Pass false to preserve visual top-to-bottom order. */
@@ -95,22 +98,19 @@ function formatRowValue(
 /** Spells out the weekday on daily buckets, matching the classic insight tooltip. */
 function formatHeaderDate(date: string | undefined, options: FormattedDateOptions): string {
     const formattedDate = getFormattedDate(date, options)
-    if (options.interval !== 'day' || typeof date !== 'string') {
+    if (typeof date !== 'string') {
         return formattedDate
     }
-    const parsed = parseDateInTimezone(date, options.timezone ?? 'UTC')
-    return parsed.isValid() ? `${parsed.format('dddd')}, ${formattedDate}` : formattedDate
+    const timezone = options.timezone ?? 'UTC'
+    const parsed = parseDateInTimezone(date, timezone)
+    const tzSuffix = ` (${shortTimeZone(timezone, parsed.isValid() ? parsed.toDate() : undefined) ?? 'UTC'})`
+    if (options.interval !== 'day') {
+        return `${formattedDate}${tzSuffix}`
+    }
+    return parsed.isValid() ? `${parsed.format('dddd')}, ${formattedDate}${tzSuffix}` : `${formattedDate}${tzSuffix}`
 }
 
 // ── SeriesLabel ────────────────────────────────────────────────────────────
-
-/** How rows must identify the series they belong to:
- *  `none` — single series (or no way to tell them apart), no identifier needed;
- *  `name` — series names differ, the name alone identifies a row;
- *  `letter-and-name` — several series share a display name (e.g. the same event added
- *  twice with different math/filters), so the name is prefixed with the series letter
- *  (A, B, …) shown in the insight editor. */
-export type SeriesIdentification = 'none' | 'name' | 'letter-and-name'
 
 /** `SeriesDatum` plus the series name for rows whose meta has no `action` (formula series). */
 type TooltipSeriesDatum = SeriesDatum & { series_name?: string }
@@ -263,24 +263,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         return m
     }, [context.seriesData, context.dataIndex])
 
-    const seriesIdentification = useMemo((): SeriesIdentification => {
-        // One entry per series entity — breakdown/compare rows of one series share its `order`.
-        // Formula series have no `action`, but their `order` still identifies the formula they
-        // came from, with `series_name` carrying the formula label.
-        const nameByEntity = new Map<number | string, string>()
-        for (const d of datumByKey.values()) {
-            if (d.action) {
-                const entityKey = d.action.order ?? `${d.action.type}:${d.action.id}`
-                nameByEntity.set(entityKey, getDisplayNameFromEntityFilter(d.action) ?? '')
-            } else if (d.series_name != null) {
-                nameByEntity.set(d.order, d.series_name)
-            }
-        }
-        if (nameByEntity.size <= 1) {
-            return 'none'
-        }
-        return new Set(nameByEntity.values()).size < nameByEntity.size ? 'letter-and-name' : 'name'
-    }, [datumByKey])
+    const seriesIdentification = useMemo(() => getSeriesIdentification(datumByKey.values()), [datumByKey])
 
     const compareDates = useMemo((): Partial<Record<CompareLabelType, string>> => {
         const dates: Partial<Record<CompareLabelType, string>> = {}
@@ -340,7 +323,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
                 value,
                 (v) =>
                     formatRowValue(v, {
-                        override: renderCount,
+                        override: renderCount ? (rowValue) => renderCount(rowValue, entry) : undefined,
                         showPercentView,
                         isPercentStackView,
                         trendsFilter,

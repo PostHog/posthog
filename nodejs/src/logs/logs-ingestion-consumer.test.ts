@@ -17,6 +17,7 @@ import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -28,7 +29,7 @@ import { getDefaultTracesIngestionConsumerConfig } from './config'
 import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
 import { logsPatternBodyKindCounter } from './log-pattern-stage'
-import { LogRecord, decodeLogRecords, encodeLogRecords } from './log-record-avro'
+import { LogRecord, decodeLogRecords, encodeLogRecords, logsJsonAttributeSniffCounter } from './log-record-avro'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumer,
@@ -70,7 +71,11 @@ jest.mock('~/common/utils/posthog', () => {
 
 let offsetIncrementer = 0
 
-const createKafkaMessage = async (logData: any, headers: Record<string, string> = {}): Promise<Message> => {
+const createKafkaMessage = async (
+    logData: any,
+    headers: Record<string, string> = {},
+    attributes: Record<string, string> | null = null
+): Promise<Message> => {
     // Create a LogRecord from the log data
     const record: LogRecord = {
         uuid: `test-uuid-${offsetIncrementer}`,
@@ -86,7 +91,7 @@ const createKafkaMessage = async (logData: any, headers: Record<string, string> 
         resource_attributes: null,
         instrumentation_scope: null,
         event_name: null,
-        attributes: null,
+        attributes,
     }
 
     // Encode as AVRO
@@ -232,6 +237,7 @@ describe('LogsIngestionConsumer', () => {
                     ),
                 }),
                 usageBatch: new UsageRecordBatch(null, { unit: 'bytes', isTeamEnabled: () => false }),
+                dependencyRetry: { retryCount: 2, initialRetryDelayMs: 1 },
                 ...depsPartial,
             },
             overrides
@@ -569,29 +575,6 @@ describe('LogsIngestionConsumer', () => {
     })
 
     describe('error handling', () => {
-        it('should handle producer errors gracefully', async () => {
-            const logData = createLogMessage()
-            const messages = await createKafkaMessages([logData], {
-                token: team.api_token,
-            })
-
-            // Mock producer's batched-write path to throw — this is what
-            // SingleIngestionOutput.queueMessages drives under the hood.
-            const originalQueueMessages = mockProducer.queueMessages
-            const queueSpy = jest.fn().mockRejectedValue(new Error('Producer error'))
-            mockProducer.queueMessages = queueSpy
-
-            try {
-                // Producer errors are caught and logged, not thrown
-                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
-
-                // Verify the producer was called and would have failed
-                expect(queueSpy).toHaveBeenCalled()
-            } finally {
-                mockProducer.queueMessages = originalQueueMessages
-            }
-        })
-
         it('should send failed messages to DLQ', async () => {
             const logData = createLogMessage()
             const messages = await createKafkaMessages([logData], {
@@ -643,6 +626,64 @@ describe('LogsIngestionConsumer', () => {
             }
         })
 
+        it('should retry a dependency blip in place and produce the message', async () => {
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            let logsProduceAttempts = 0
+            mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
+                const t = Array.isArray(topicMessages) ? topicMessages[0]?.topic : topicMessages.topic
+                if (t === KAFKA_LOGS_CLICKHOUSE && logsProduceAttempts++ === 0) {
+                    throw new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                }
+                return passthrough(topicMessages)
+            })
+
+            try {
+                // A blip that clears inside the backoff must not fail the batch: a replay would
+                // produce every other message of the batch a second time.
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+                const produced = getProducedKafkaMessages()
+                expect(produced.filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(1)
+                expect(produced.filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)).toHaveLength(0)
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+        })
+
+        it('should fail the batch instead of DLQing when a dependency is unavailable', async () => {
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
+                const t = Array.isArray(topicMessages) ? topicMessages[0]?.topic : topicMessages.topic
+                if (t === KAFKA_LOGS_CLICKHOUSE) {
+                    throw new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                }
+                return passthrough(topicMessages)
+            })
+
+            try {
+                // The message is good data that succeeds on redelivery. Quarantining it would
+                // move it out of the source topic for an outage that was not its fault.
+                await expect(waitForBackgroundTasks(consumer.processKafkaBatch(messages))).rejects.toThrow(
+                    'broker down'
+                )
+                expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)).toHaveLength(0)
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+        })
+
         it('should send a message with an unparseable size header to DLQ instead of ingesting it', async () => {
             const logData = createLogMessage()
             const messages = await createKafkaMessages([logData], {
@@ -662,20 +703,27 @@ describe('LogsIngestionConsumer', () => {
             expect(dlq[0]?.headers?.team_id).toEqual(team.id.toString())
         })
 
-        it('should fail the batch when the message cannot be written to the DLQ', async () => {
+        it.each([
+            ['the message fails to parse', { bytes_uncompressed: 'not-a-number' }],
+            ['the message fails to process', {}],
+        ])('should fail the batch when %s and cannot be written to the DLQ', async (_, headers) => {
             const logData = createLogMessage()
             const messages = await createKafkaMessages([logData], {
                 token: team.api_token,
-                bytes_uncompressed: 'not-a-number',
+                ...headers,
             })
 
+            // Every produce fails: the logs topic write fails the message, and the DLQ write that
+            // follows fails too.
             const originalQueueMessages = mockProducer.queueMessages
             mockProducer.queueMessages = jest.fn().mockRejectedValue(new Error('DLQ unavailable'))
 
             try {
                 // Resolving here would commit the source offset with no copy anywhere, so the
                 // only record of the payload would be gone.
-                await expect(consumer.processKafkaBatch(messages)).rejects.toThrow('DLQ unavailable')
+                await expect(waitForBackgroundTasks(consumer.processKafkaBatch(messages))).rejects.toThrow(
+                    'DLQ unavailable'
+                )
             } finally {
                 mockProducer.queueMessages = originalQueueMessages
             }
@@ -1467,13 +1515,13 @@ describe('LogsIngestionConsumer', () => {
         })
 
         it.each([
-            { retentionDays: 14, tierMetric: 'bytes_ingested_retention_14d' },
-            { retentionDays: 30, tierMetric: 'bytes_ingested_retention_30d' },
-            { retentionDays: 90, tierMetric: 'bytes_ingested_retention_90d' },
-            { retentionDays: 45, tierMetric: null },
+            { retentionDays: 14, tierMetric: 'bytes_ingested_retention_14d', byteDays: undefined },
+            { retentionDays: 30, tierMetric: 'bytes_ingested_retention_30d', byteDays: 500 * 30 },
+            { retentionDays: 90, tierMetric: 'bytes_ingested_retention_90d', byteDays: 500 * 90 },
+            { retentionDays: 45, tierMetric: null, byteDays: 500 * 45 },
         ])(
-            'should emit retention_byte_days as bytes_ingested * $retentionDays alongside the per-tier metric',
-            async ({ retentionDays, tierMetric }) => {
+            'should emit retention_byte_days as $byteDays for $retentionDays days alongside the per-tier metric',
+            async ({ retentionDays, tierMetric, byteDays }) => {
                 const usageStats = new Map([
                     [
                         team.id,
@@ -1496,7 +1544,7 @@ describe('LogsIngestionConsumer', () => {
                 const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
                 const parsed = messages.map((m) => parseMetricValue(m.value))
 
-                expect(parsed.find((m) => m?.metric_name === 'retention_byte_days')?.count).toBe(500 * retentionDays)
+                expect(parsed.find((m) => m?.metric_name === 'retention_byte_days')?.count).toBe(byteDays)
 
                 const tierMetrics = parsed.filter((m) => m?.metric_name?.startsWith('bytes_ingested_retention_'))
                 if (tierMetric) {
@@ -1531,13 +1579,13 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 non-zero base metrics (no dropped) + per-tier retention + retention_byte_days.
-            expect(messages).toHaveLength(6)
+            // 4 non-zero base metrics (no dropped) + per-tier retention; no retention_byte_days for the default tier.
+            expect(messages).toHaveLength(5)
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).not.toContain('bytes_dropped')
             expect(metricNames).not.toContain('records_dropped')
             expect(metricNames).toContain('bytes_ingested_retention_14d')
-            expect(metricNames).toContain('retention_byte_days')
+            expect(metricNames).not.toContain('retention_byte_days')
         })
 
         it('should handle empty usageStats', async () => {
@@ -1973,6 +2021,101 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
+    describe('JSON attribute sniffing', () => {
+        it.each([
+            ['disabled', '', 'payload', false],
+            ['different team', 'other_team', 'payload', false],
+            ['allowlisted team', 'this_team', 'payload', true],
+            ['wildcard', '*', 'payload', true],
+            ['missing setting', '*', undefined, false],
+            ['empty setting', '*', '', false],
+        ] as const)('%s preserves output and only counts eligible teams', async (_, allowlist, key, enabled) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS:
+                    allowlist === 'this_team'
+                        ? ` ${team.id}, ${team2.id} `
+                        : allowlist === 'other_team'
+                          ? String(team2.id)
+                          : allowlist,
+            })
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                ...team,
+                logs_settings: { json_parse_logs_attribute_key: key },
+            })
+            logsJsonAttributeSniffCounter.reset()
+            const message = await createKafkaMessage(
+                createLogMessage(),
+                { token: team.api_token },
+                { payload: JSON.stringify('{"nested":true}') }
+            )
+            if (!enabled) {
+                message.value = Buffer.from('passthrough does not require Avro decoding')
+            }
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            const logsOutput = getProducedKafkaMessages().filter((output) => output.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect(logsOutput).toHaveLength(1)
+            expect(logsOutput[0].value).toEqual(message.value)
+            expect((await logsJsonAttributeSniffCounter.get()).values).toEqual(
+                enabled
+                    ? [
+                          expect.objectContaining({
+                              labels: { team_id: String(team.id), outcome: 'looks_like_json' },
+                              value: 1,
+                          }),
+                      ]
+                    : []
+            )
+        })
+    })
+
+    describe('JSON attribute extraction', () => {
+        it.each([
+            ['disabled', '', 'payload', false],
+            ['different team', 'other_team', 'payload', false],
+            ['allowlisted team', 'this_team', 'payload', true],
+            ['wildcard', '*', 'payload', true],
+            ['missing setting', '*', undefined, false],
+            ['empty setting', '*', '', false],
+        ] as const)('%s only re-encodes eligible logs', async (_, allowlist, key, enabled) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS:
+                    allowlist === 'this_team'
+                        ? ` ${team.id}, ${team2.id} `
+                        : allowlist === 'other_team'
+                          ? String(team2.id)
+                          : allowlist,
+            })
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                ...team,
+                logs_settings: { json_parse_logs_attribute_key: key },
+            })
+            const message = await createKafkaMessage(
+                createLogMessage(),
+                { token: team.api_token },
+                { payload: JSON.stringify('{"count":7}') }
+            )
+            if (!enabled) {
+                message.value = Buffer.from('disabled extraction must not decode')
+            }
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+            const output = getProducedKafkaMessages().filter((entry) => entry.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect(output).toHaveLength(1)
+            if (enabled) {
+                const [, , records] = await decodeLogRecords(output[0].value as Buffer)
+                expect(records[0].attributes).toMatchObject({
+                    payload: JSON.stringify('{"count":7}'),
+                    'payload.count': '7',
+                })
+            } else {
+                expect(output[0].value).toEqual(message.value)
+            }
+        })
+    })
+
     describe('metric rules (generate metrics from logs)', () => {
         let mockEmitter: { emit: jest.Mock }
         let mockMetricRulesCache: Pick<MetricRulesCache, 'getCompiledRules'>
@@ -2010,6 +2153,12 @@ describe('LogsIngestionConsumer', () => {
         }
 
         it('emits one OTLP payload per team with counts grouped by the rule dimensions', async () => {
+            await createConsumerWithMetricRules({ LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '*' })
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                ...team,
+                logs_settings: { json_parse_logs_attribute_key: 'payload' },
+            })
+            logsJsonAttributeSniffCounter.reset()
             const messages = await createKafkaMessages(
                 [
                     createLogMessage({ level: 'info' }),
@@ -2029,6 +2178,12 @@ describe('LogsIngestionConsumer', () => {
                 emittedDataPoints().map((dp: any) => [dp.attributes[0].value.stringValue, dp.asDouble])
             )
             expect(bySeverity).toEqual({ info: 2, error: 1 })
+            expect((await logsJsonAttributeSniffCounter.get()).values).toEqual([
+                expect.objectContaining({
+                    labels: { team_id: String(team.id), outcome: 'missing_key' },
+                    value: 3,
+                }),
+            ])
         })
 
         it('produces logs normally when the rules cache fetch throws (fail-open)', async () => {
@@ -2159,6 +2314,29 @@ describe('LogsIngestionConsumer', () => {
             const tracesConsumer = createTracesIngestionConsumer({ LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' })
 
             expect(tracesConsumer['isPatternMaskingEnabledForTeam'](team.id)).toEqual(false)
+        })
+
+        it('never sniffs or decodes traces for a configured JSON attribute on a wildcard allowlist', async () => {
+            await consumer.stop()
+            consumer = createTracesIngestionConsumer({
+                LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '*',
+                LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS: '*',
+            })
+            await consumer.start()
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                ...team,
+                logs_settings: { json_parse_logs_attribute_key: 'payload' },
+            })
+            logsJsonAttributeSniffCounter.reset()
+            const message = await createKafkaMessage(createLogMessage(), { token: team.api_token })
+            message.value = Buffer.from('trace payload must not be decoded as logs')
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            const tracesOutput = getProducedKafkaMessages().filter((output) => output.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect(tracesOutput).toHaveLength(1)
+            expect(tracesOutput[0].value).toEqual(message.value)
+            expect((await logsJsonAttributeSniffCounter.get()).values).toEqual([])
         })
 
         it('meters usage as traces, not logs', async () => {

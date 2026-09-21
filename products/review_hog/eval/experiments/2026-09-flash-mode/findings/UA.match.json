@@ -1,0 +1,47 @@
+{
+    "UA1": {
+        "cluster": 6,
+        "confidence": "high",
+        "reason": "Claims the Pipeline draft-gate bypass is keyed on self_driving alone and proposes `self_driving and pr.author_is_bot`, which is exactly cluster 6's 'draft/bot gate relaxations keyed only on self_driving, not coupled to pr.author_is_bot' at the review_pr.py:590 draft gate; rejected cluster 5 because the machine-author prompt text is only cited as a consequence, not the defect."
+    },
+    "UA2": {
+        "cluster": 18,
+        "confidence": "high",
+        "reason": "Asserts has_reviewable_repo_config (behind get_stamphog_connected in review_hog/backend/api/settings.py) omits the provider=\"github\" filter that process_inbox_pr_review requires, which is cluster 18's claim verbatim at the same settings.py / facade/api.py:120 anchors."
+    },
+    "UA3": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Asserts find_task_run picks the newest run without a team filter and find_signal_implementation_run only rechecks run.team_id afterwards (api.py:504-505), the same root cause as cluster 39's 'queries TaskRun unscoped, tenant boundary enforced post-hoc'; the cross-team-shadowing-returns-None framing is a consequence, not a different claim; rejected cluster 73 because that is about the branch fallback binding a wrong run, not team scoping."
+    },
+    "UA4": {
+        "cluster": 4,
+        "confidence": "high",
+        "reason": "Asserts the engine (review_pr.py:475-477 / _maybe_compute_familiarity) still computes and renders author familiarity for self-driving T1 reviews with no self_driving gate, which is cluster 4's 'engine does not gate familiarity computation/rendering on self_driving'; rejected cluster 74 because that concerns the ownership block, not familiarity."
+    },
+    "UA5": {
+        "cluster": 9,
+        "confidence": "high",
+        "reason": "Claims every TaskRun output save re-dispatches process_inbox_pr_review and the head dedupe only runs after the task's GitHub get_pr, so refires pay repeated broker messages and GitHub reads, which is cluster 9's 'live get_pr on every receiver refire before any dedupe'; anchored at the receiver dispatch site rather than the task but on the same path; rejected cluster 42 (check-then-act race) and 36 (webhook-vs-receiver head dedupe) since neither is about the fetch-before-dedupe cost."
+    },
+    "UA6": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Claims a broker-unavailable `.delay()` failure in _start_stamphog_review is only logged after the TaskRun commit, leaving no durable record and no webhook fallback for the initial review, which is cluster 58's 'fire-and-forget dispatch, broker enqueue failure silently drops the review'; rejected cluster 54 because that claims the opposite (an unguarded .delay raising into the caller), not silent loss."
+    },
+    "UA7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Claims process_inbox_pr_review copies caller-supplied pr_url/signal_report_id/task_run_id into inbox_review with no lookup tying the fetched PR to a non-internal Signals implementation run, so the gate-bypassing provenance is unverified, which is cluster 2's 'receiver leg stamps inbox_review with no positive PR-to-run linkage or bot-author verification, unlike the webhook leg'; rejected cluster 68 (webhook-leg resolver trusting team_id/signal_report_id) and 17 (acting_user_id ownership) as different identifiers on different legs."
+    },
+    "UA8": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Asserts ReviewRun lacks a composite index on (pull_request_id, head_sha, status, created_at) for the select_for_update dedupe query at tasks.py:1206-1213; no cluster makes an indexing claim about ReviewRun (cluster 23 is TaskRun.branch, cluster 43 is StamphogRepoConfig repository__iexact), so this is a new claim."
+    },
+    "UA9": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Claims max_retries=3 on process_inbox_pr_review plus no webhook redelivery for the initial review means a transient outage permanently loses it unless another TaskRun save happens, which cluster 58 names explicitly ('...or exhaustion of the task's three retries silently drops the review'); rejected cluster 41 because that is about FAILED runs being retried too often, the opposite direction."
+    }
+}

@@ -178,7 +178,7 @@ export class ContextMillResourceCache extends SharedBlobCache {
      * still fresh, plain `loadOrRefresh` would short-circuit.
      */
     async invalidate(): Promise<void> {
-        await Promise.all([this.redis.del(this.cacheKey), this.redis.del(this.freshKey)])
+        await this.redis.del(this.currentKey)
     }
 
     /**

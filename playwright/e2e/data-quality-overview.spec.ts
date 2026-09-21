@@ -11,7 +11,7 @@ const CHECK_NAME = 'orders_has_rows'
 const SUBJECT_NAME = 'orders_e2e'
 
 test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }) => {
-    const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
+    const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
     const auth = {
         headers: {
             Authorization: `Bearer ${workspace.personal_api_key}`,
@@ -52,9 +52,16 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     await expect(page.getByText(CHECK_NAME)).toBeVisible()
 
     await page.getByLabel(`Actions for check ${CHECK_NAME}`).click()
+    const metadataResponse = page.waitForResponse(
+        (response) =>
+            response.url().includes('/query/HogQLMetadata/') && response.request().method() === 'POST' && response.ok()
+    )
     await page.getByRole('menuitem', { name: 'Edit' }).click()
+    await metadataResponse
     await page.getByLabel('Description').fill('Every order keeps a positive id')
-    await page.getByTestId('data-quality-check-save').click()
+    const saveButton = page.getByTestId('data-quality-check-save')
+    await expect(saveButton).toBeEnabled()
+    await saveButton.click()
 
     await expect(page.getByText('Check saved')).toBeVisible()
     const edited = await page.request.get(

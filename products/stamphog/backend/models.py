@@ -112,10 +112,11 @@ class PullRequest(ProductTeamModel):
     # Digest bucket resolved by the audience cascade (see logic/audiences.py) — stamped only
     # when the merged PR is digest-eligible (stamphog approved a run); the digest filters on it.
     audience_key = models.CharField(max_length=255, blank=True)
-    # What the change does, in one sentence, copied from the run that approved the merged head.
-    # Written in the sandbox with the diff in hand, which the daily digest no longer has. Blank
-    # when the engine predates the field; the digest falls back to the PR title.
-    summary_line = models.CharField(max_length=200, blank=True, default="")
+    # What the change does, copied from the run that approved the merged head. One sentence, plus
+    # one clause per owning team when more than one team owns files in the merge. Written in the
+    # sandbox with the diff in hand, which the daily digest no longer has. Blank when the engine
+    # predates the field; the digest falls back to the PR title.
+    summary_line = models.TextField(blank=True, default="")
     digest_run = models.ForeignKey("DigestRun", on_delete=models.SET_NULL, null=True, related_name="pull_requests")
     # Historical: the sticky comment a verdict used to be written into. Verdicts are reviews now, so
     # nothing writes this any more — it holds the last comment id from before that change. Kept
@@ -214,10 +215,12 @@ class ReviewRun(ProductTeamModel):
     )
     gate_result = models.JSONField(null=True)
     output = models.JSONField(default=dict)
-    # One sentence on what the change does, from the reviewer's structured verdict. Its own field
-    # rather than a slice of `output`, which mixes reviewer stdout with PR patches and policy
-    # contents. Copied onto the PullRequest when the approved head is the one that merges.
-    change_summary = models.CharField(max_length=200, blank=True, default="")
+    # What the change does, from the reviewer's structured verdict: one sentence, plus one clause
+    # per owning team when more than one team owns files in the merge. Its own field rather than a
+    # slice of `output`, which mixes reviewer stdout with PR patches and policy contents. Copied
+    # onto the PullRequest when the approved head is the one that merges. The width lives in the
+    # reviewer schema (logic/reviewer.CHANGE_SUMMARY_MAX_CHARS), not in the column.
+    change_summary = models.TextField(blank=True, default="")
     error = models.TextField(blank=True)
     # What we posted back to the SCM once the verdict was decided — recorded so a
     # re-review can find and update its own artifacts, and for audit. Populated by

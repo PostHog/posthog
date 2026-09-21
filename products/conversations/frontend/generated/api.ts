@@ -9,11 +9,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AIReplyPlaybookApi,
     AiFeedbackRequestApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
-    BulkUpdateTagsRequestApi,
-    BulkUpdateTagsResponseApi,
+    BulkUpdateTagsUUIDRequestApi,
+    BulkUpdateTagsUUIDResponseApi,
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConversationsTicketsListParams,
@@ -51,6 +52,23 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getConversationsAiReplyPlaybookRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/ai_reply_playbook/`
+}
+
+/**
+ * Inherited support-reply playbook for this project, plus the team's custom addendum if any.
+ */
+export const conversationsAiReplyPlaybookRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AIReplyPlaybookApi> => {
+    return apiMutator<AIReplyPlaybookApi>(getConversationsAiReplyPlaybookRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getConversationsTicketsListUrl = (projectId: string, params?: ConversationsTicketsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -363,14 +381,14 @@ export const getConversationsTicketsBulkUpdateTagsCreateUrl = (projectId: string
  */
 export const conversationsTicketsBulkUpdateTagsCreate = async (
     projectId: string,
-    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    bulkUpdateTagsUUIDRequestApi: BulkUpdateTagsUUIDRequestApi,
     options?: RequestInit
-): Promise<BulkUpdateTagsResponseApi> => {
-    return apiMutator<BulkUpdateTagsResponseApi>(getConversationsTicketsBulkUpdateTagsCreateUrl(projectId), {
+): Promise<BulkUpdateTagsUUIDResponseApi> => {
+    return apiMutator<BulkUpdateTagsUUIDResponseApi>(getConversationsTicketsBulkUpdateTagsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(bulkUpdateTagsRequestApi),
+        body: JSON.stringify(bulkUpdateTagsUUIDRequestApi),
     })
 }
 
@@ -380,6 +398,10 @@ export const getConversationsTicketsComposeCreateUrl = (projectId: string) => {
 
 /**
  * Create a new outbound ticket and send the first message to the customer.
+ *
+ * Idempotent within a short window: an identical compose retried while the first is still
+ * in flight returns 409, and one retried after it committed returns the same ticket with a
+ * 200. Only a genuinely new request creates a ticket and emails the customer.
  */
 export const conversationsTicketsComposeCreate = async (
     projectId: string,

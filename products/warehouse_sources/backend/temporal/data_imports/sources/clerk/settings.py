@@ -114,7 +114,15 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         # give. Skip zero rows instead of failing the schema every run.
         gated_feature="OAuth applications",
     ),
-    "machines": ClerkEndpointConfig(name="machines", path="/machines", is_wrapped_response=True),
+    "machines": ClerkEndpointConfig(
+        name="machines",
+        path="/machines",
+        is_wrapped_response=True,
+        # Clerk answers 404 resource_not_found for the machines list on instances without machine
+        # (M2M) authentication — the same feature-off signal the domains and OAuth applications
+        # endpoints give. Skip zero rows instead of failing the schema every run.
+        gated_feature="Machine (M2M) authentication",
+    ),
     # /api_keys and /m2m_tokens cap `limit` at 100 rather than 500.
     "api_keys": ClerkEndpointConfig(name="api_keys", path="/api_keys", is_wrapped_response=True),
     "m2m_tokens": ClerkEndpointConfig(
@@ -123,11 +131,21 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         is_wrapped_response=True,
         data_key="m2m_tokens",
         fan_out=ClerkFanOut(parent="machines", parent_field="id", query_param="subject"),
+        # Fans out over /machines, so the same feature-off 404 surfaces here through the parent
+        # fetch before any token request is sent.
+        gated_feature="Machine (M2M) authentication",
     ),
     "redirect_urls": ClerkEndpointConfig(name="redirect_urls", path="/redirect_urls"),
     "jwt_templates": ClerkEndpointConfig(name="jwt_templates", path="/jwt_templates"),
     "email_templates": ClerkEndpointConfig(name="email_templates", path="/templates/email"),
-    "sms_templates": ClerkEndpointConfig(name="sms_templates", path="/templates/sms"),
+    "sms_templates": ClerkEndpointConfig(
+        name="sms_templates",
+        path="/templates/sms",
+        # Clerk answers 404 resource_not_found for the SMS template list on instances that don't
+        # have SMS switched on — the same feature-off signal the domains and OAuth applications
+        # endpoints give. Skip zero rows instead of failing the schema every run.
+        gated_feature="SMS",
+    ),
     "commerce_plans": ClerkEndpointConfig(
         name="commerce_plans",
         # Clerk renamed this from /commerce/plans to /billing/plans; the old path now answers 400.

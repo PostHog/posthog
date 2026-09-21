@@ -1,5 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import { ArrowCounterClockwise, Lightning } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, Gear, Lightning } from "@phosphor-icons/react";
 import {
   getCapabilityLadder,
   getReasoningEffortOptions,
@@ -108,6 +108,13 @@ interface ReasoningLevelSelectorProps {
    */
   resetToDefaultDisabled?: boolean;
   /**
+   * Takes the user to where the default itself is configured. Passed as a
+   * callback rather than a route so the picker stays free of the app's
+   * settings navigation. Omit and the "Change default" row is absent. Matches
+   * the web composer's row.
+   */
+  onOpenDefaultSettings?: () => void;
+  /**
    * Position and size the popup against this element instead of the trigger.
    *
    * The popup takes both its placement and its width from its anchor, and the trigger
@@ -160,6 +167,7 @@ export function ReasoningLevelSelector({
   isDefaultSelection,
   onResetToDefault,
   resetToDefaultDisabled,
+  onOpenDefaultSettings,
   anchor,
 }: ReasoningLevelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
@@ -228,7 +236,7 @@ export function ReasoningLevelSelector({
           <DropdownMenuTrigger
             render={
               <Button type="button" variant="default" size="sm">
-                <Spinner size={12} />
+                <Spinner size="sm" aria-hidden="true" />
                 Loading...
               </Button>
             }
@@ -241,7 +249,7 @@ export function ReasoningLevelSelector({
             className="min-w-[230px]"
           >
             <DropdownMenuItem disabled>
-              <Spinner size={12} />
+              <Spinner size="sm" />
               Loading models...
             </DropdownMenuItem>
             {showHarnessSubmenu && adapter && (
@@ -456,6 +464,15 @@ export function ReasoningLevelSelector({
         <ArrowCounterClockwise size={12} weight="bold" />
         Reset to default
       </DropdownMenuItem>
+      {/* Sits under the reset row because that's where the question arises:
+          reverting to a default you disagree with is the moment you want to
+          change it. */}
+      {onOpenDefaultSettings && (
+        <DropdownMenuItem onClick={() => selectAndClose(onOpenDefaultSettings)}>
+          <Gear size={12} weight="bold" />
+          Change default
+        </DropdownMenuItem>
+      )}
     </>
   );
 

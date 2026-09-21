@@ -7,7 +7,7 @@ use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     iter,
     num::NonZeroUsize,
@@ -19,6 +19,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::{
+    api::client::ClientError,
     invocation_context::context,
     utils::{files::content_hash, raise_for_err},
 };
@@ -27,6 +28,10 @@ pub(crate) const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 const FINISH_UPLOAD_ERROR_MESSAGE: &str =
     "Failed to finalize symbol upload; maps were not attached";
 pub const DEFAULT_UPLOAD_CONCURRENCY: NonZeroUsize = NonZeroUsize::new(10).unwrap();
+/// Chunks per `bulk_check_upload` request. A check carries only ids and hashes, so it can cover
+/// far more chunks per round trip than a start batch, whose size is bounded by how many
+/// presigned URLs the client can consume before they expire.
+const CHECK_BATCH_SIZE: usize = 1000;
 
 #[derive(Error, Debug)]
 pub enum UploadError {
@@ -51,8 +56,9 @@ pub struct SymbolSetUpload {
     pub content_hash: Option<String>,
 }
 
-/// Coalesce uploads that share a chunk_id, keeping the first occurrence. Bulk start rejects a
-/// batch with a repeated id, before it filters out the chunks the server already has.
+/// Coalesce uploads that share a chunk_id, keeping the first occurrence. The check and start
+/// requests reject a batch with a repeated id, before they filter out the chunks the server
+/// already has.
 pub fn dedup_uploads_by_chunk_id(uploads: Vec<SymbolSetUpload>) -> Vec<SymbolSetUpload> {
     let mut seen = std::collections::HashSet::new();
     let mut deduped = Vec::with_capacity(uploads.len());
@@ -125,7 +131,7 @@ pub struct PresignedUrl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct BulkUploadStartRequest {
+struct BulkUploadRequest {
     symbol_sets: Vec<CreateSymbolSetRequest>,
     /// When true, allow overwriting symbol sets whose content has changed.
     #[serde(default)]
@@ -138,6 +144,17 @@ struct BulkUploadStartRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadStartResponse {
     id_map: HashMap<String, StartUploadResponseData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BulkUploadCheckResponse {
+    chunk_ids_to_upload: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HashedUpload<'a> {
+    upload: &'a SymbolSetUpload,
+    content_hash: &'a str,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,26 +317,37 @@ fn upload_inner(
         })
         .collect();
 
-    for (i, batch) in upload_requests.chunks(batch_size).enumerate() {
-        info!("Starting upload of batch {i}, {} symbol sets", batch.len());
-        // Hash each payload once, across the pool — the same hash is sent in the
-        // start request and used to confirm the upload when finishing.
-        let content_hashes: Vec<String> = thread_pool.install(|| {
-            batch
-                .par_iter()
-                .map(|u| {
-                    u.content_hash
-                        .clone()
-                        .unwrap_or_else(|| content_hash([&u.data]))
-                })
-                .collect()
-        });
-        let start_response = start_upload(batch, &content_hashes, force, skip_on_conflict)?;
+    // Hash each payload once, across the pool. The same hash is sent in the check and
+    // start requests and used to confirm the upload when finishing.
+    let content_hashes: Vec<String> = thread_pool.install(|| {
+        upload_requests
+            .par_iter()
+            .map(|u| {
+                u.content_hash
+                    .clone()
+                    .unwrap_or_else(|| content_hash([&u.data]))
+            })
+            .collect()
+    });
+    let hashed: Vec<HashedUpload> = upload_requests
+        .iter()
+        .zip(content_hashes.iter())
+        .map(|(upload, content_hash)| HashedUpload {
+            upload,
+            content_hash,
+        })
+        .collect();
 
-        let id_map: HashMap<_, _> = batch
+    let to_upload = check_uploads(&hashed, force, skip_on_conflict);
+    summary.skipped_already_present += hashed.len() - to_upload.len();
+
+    for (i, batch) in to_upload.chunks(batch_size).enumerate() {
+        info!("Starting upload of batch {i}, {} symbol sets", batch.len());
+        let start_response = start_upload(batch, force, skip_on_conflict)?;
+
+        let id_map: HashMap<&str, HashedUpload> = batch
             .iter()
-            .zip(content_hashes.iter())
-            .map(|(u, hash)| (u.chunk_id.as_str(), (u, hash)))
+            .map(|hashed| (hashed.upload.chunk_id.as_str(), *hashed))
             .collect();
 
         summary.skipped_already_present += batch.len() - start_response.id_map.len();
@@ -335,7 +363,7 @@ fn upload_inner(
                 .into_par_iter()
                 .map(|(chunk_id, data)| {
                     debug!("uploading chunk {}", chunk_id);
-                    let (upload, content_hash) = id_map.get(chunk_id.as_str()).ok_or(anyhow!(
+                    let hashed = id_map.get(chunk_id.as_str()).ok_or(anyhow!(
                         "Got a chunk ID back from posthog that we didn't expect!"
                     ))?;
 
@@ -343,14 +371,17 @@ fn upload_inner(
                         transport,
                         &data.presigned_url,
                         data.fallback_presigned_url.as_ref(),
-                        &upload.data,
+                        &hashed.upload.data,
                     )?;
-                    Ok((data.symbol_set_id, (*content_hash).clone()))
+                    Ok((data.symbol_set_id, hashed.content_hash.to_string()))
                 })
                 .collect()
         });
 
         let content_hashes = res?;
+        if content_hashes.is_empty() {
+            continue;
+        }
         let uploaded = content_hashes.len();
 
         finish_upload(content_hashes)?;
@@ -360,27 +391,127 @@ fn upload_inner(
     Ok(())
 }
 
-fn start_upload(
-    symbol_sets: &[&SymbolSetUpload],
-    content_hashes: &[String],
+/// Ask the server which chunks it still needs, so the chunks it already holds never occupy a
+/// start batch.
+fn check_uploads<'a>(
+    uploads: &[HashedUpload<'a>],
     force: bool,
     skip_on_conflict: bool,
-) -> Result<BulkUploadStartResponse, UploadError> {
-    let client = &context().client;
+) -> Vec<HashedUpload<'a>> {
+    needed_uploads(uploads, |batch| {
+        check_upload(batch, force, skip_on_conflict)
+    })
+}
 
-    let request = BulkUploadStartRequest {
-        symbol_sets: symbol_sets
+/// Keep the chunks that `check` reports as needed. A check that gives no usable answer costs
+/// only the round trips it would have saved, so the batches answered before it keep their
+/// result, and every chunk from the unanswered batch on is kept without a check.
+fn needed_uploads<'a>(
+    uploads: &[HashedUpload<'a>],
+    check: impl Fn(&[HashedUpload<'a>]) -> Option<Vec<String>>,
+) -> Vec<HashedUpload<'a>> {
+    if uploads.is_empty() {
+        return Vec::new();
+    }
+    let mut to_upload = Vec::new();
+    for (i, batch) in uploads.chunks(CHECK_BATCH_SIZE).enumerate() {
+        let Some(needed) = check(batch) else {
+            to_upload.extend(uploads[i * CHECK_BATCH_SIZE..].iter().copied());
+            break;
+        };
+        let needed: HashSet<String> = needed.into_iter().collect();
+        to_upload.extend(
+            batch
+                .iter()
+                .filter(|hashed| needed.contains(&hashed.upload.chunk_id))
+                .copied(),
+        );
+    }
+    info!(
+        "Server needs {} of {} chunk(s) ({} already present)",
+        to_upload.len(),
+        uploads.len(),
+        uploads.len() - to_upload.len()
+    );
+    to_upload
+}
+
+fn bulk_upload_request(
+    batch: &[HashedUpload],
+    force: bool,
+    skip_on_conflict: bool,
+) -> BulkUploadRequest {
+    BulkUploadRequest {
+        symbol_sets: batch
             .iter()
-            .zip(content_hashes.iter())
-            .map(|(s, hash)| CreateSymbolSetRequest {
-                chunk_id: s.chunk_id.clone(),
-                release_id: s.release_id.clone(),
-                content_hash: hash.clone(),
+            .map(|hashed| CreateSymbolSetRequest {
+                chunk_id: hashed.upload.chunk_id.clone(),
+                release_id: hashed.upload.release_id.clone(),
+                content_hash: hashed.content_hash.to_string(),
             })
             .collect(),
         force,
         skip_on_conflict,
-    };
+    }
+}
+
+/// How the server answered one check request. A 4xx is deterministic, so it ends the retry
+/// loop without counting as a transport failure.
+enum CheckOutcome {
+    Answered(BulkUploadCheckResponse),
+    Rejected(ClientError),
+}
+
+fn check_upload(
+    batch: &[HashedUpload],
+    force: bool,
+    skip_on_conflict: bool,
+) -> Option<Vec<String>> {
+    let client = &context().client;
+    let request = bulk_upload_request(batch, force, skip_on_conflict);
+    check_upload_with(retry_policy(500, 2, 3), || {
+        let url = client.project_url("error_tracking/symbol_sets/bulk_check_upload")?;
+        let response = client.send_post(url, |req| req.json(&request))?;
+        Ok(response.json()?)
+    })
+}
+
+/// Drives one check request through `send` under the retry policy `delays`. The check only saves
+/// round trips over sending every chunk to `bulk_start_upload`, so every failure degrades to
+/// that: a server that predates the endpoint rejects it as an unknown action, and a conflict
+/// the check reports is raised again by the start request.
+fn check_upload_with<I, F>(delays: I, mut send: F) -> Option<Vec<String>>
+where
+    I: Iterator<Item = Duration>,
+    F: FnMut() -> Result<BulkUploadCheckResponse, ClientError>,
+{
+    let res = retry(delays, |_| match send() {
+        Ok(response) => Ok(CheckOutcome::Answered(response)),
+        Err(e @ ClientError::ApiError(400..=499, _, _)) => Ok(CheckOutcome::Rejected(e)),
+        Err(e) => Err(e),
+    });
+
+    match res {
+        Ok(CheckOutcome::Answered(response)) => Some(response.chunk_ids_to_upload),
+        Ok(CheckOutcome::Rejected(ClientError::ApiError(status @ 403..=405, _, body))) => {
+            info!("The server does not support upload checks. Sending every chunk.");
+            debug!("Upload check rejected with status {status}: {body}");
+            None
+        }
+        Ok(CheckOutcome::Rejected(e)) | Err(e) => {
+            warn!("Upload check failed: {e}. Sending every chunk.");
+            None
+        }
+    }
+}
+
+fn start_upload(
+    batch: &[HashedUpload],
+    force: bool,
+    skip_on_conflict: bool,
+) -> Result<BulkUploadStartResponse, UploadError> {
+    let client = &context().client;
+    let request = bulk_upload_request(batch, force, skip_on_conflict);
 
     let res = retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
@@ -663,6 +794,7 @@ where
 mod tests {
     use super::*;
     use std::{
+        cell::Cell,
         fmt::Debug,
         sync::{Arc, Mutex, MutexGuard},
     };
@@ -785,6 +917,101 @@ mod tests {
         assert!(router.should_set_latch(true));
         router.record_transport_error(true);
         assert!(!router.should_set_latch(true));
+    }
+
+    #[test]
+    fn needed_uploads_keeps_the_results_of_the_checks_that_answered() {
+        let uploads: Vec<SymbolSetUpload> = (0..CHECK_BATCH_SIZE * 2 + 1)
+            .map(|i| SymbolSetUpload {
+                chunk_id: format!("chunk-{i}"),
+                release_id: None,
+                data: Vec::new(),
+                content_hash: None,
+            })
+            .collect();
+        let hashed: Vec<HashedUpload> = uploads
+            .iter()
+            .map(|upload| HashedUpload {
+                upload,
+                content_hash: "hash",
+            })
+            .collect();
+
+        let checks = Cell::new(0);
+        let to_upload = needed_uploads(&hashed, |batch| {
+            let checked = checks.get();
+            checks.set(checked + 1);
+            // The server needs one chunk of the first batch, then stops answering.
+            (checked == 0).then(|| vec![batch[0].upload.chunk_id.clone()])
+        });
+
+        let chunk_ids: Vec<&str> = to_upload
+            .iter()
+            .map(|hashed| hashed.upload.chunk_id.as_str())
+            .collect();
+
+        assert_eq!(checks.get(), 2);
+        assert_eq!(chunk_ids.len(), CHECK_BATCH_SIZE + 2);
+        assert_eq!(chunk_ids[0], "chunk-0");
+        assert_eq!(chunk_ids[1], format!("chunk-{CHECK_BATCH_SIZE}"));
+        assert_eq!(
+            chunk_ids[chunk_ids.len() - 1],
+            format!("chunk-{}", CHECK_BATCH_SIZE * 2)
+        );
+    }
+
+    #[test]
+    fn upload_check_retries_server_failures_and_stops_on_rejections() {
+        // `check_upload_with` retries, so it reaches the callsites `RETRY_TRACING_LOCK` protects.
+        let _retry_tracing_lock = lock_retry_tracing();
+
+        fn reply(status: u16) -> Result<BulkUploadCheckResponse, ClientError> {
+            if status == 200 {
+                return Ok(BulkUploadCheckResponse {
+                    chunk_ids_to_upload: vec!["chunk".to_string()],
+                });
+            }
+            Err(ClientError::ApiError(
+                status,
+                Box::new(reqwest::Url::parse("https://example.com/check").unwrap()),
+                "{}".to_string(),
+            ))
+        }
+
+        // (name, status per attempt, expects the answer, expected attempts)
+        let cases: Vec<(&str, Vec<u16>, bool, usize)> = vec![
+            (
+                "answers after two server failures",
+                vec![503, 503, 200],
+                true,
+                3,
+            ),
+            (
+                "gives up after three server failures",
+                vec![503, 503, 503],
+                false,
+                3,
+            ),
+            ("does not retry an unknown action", vec![403, 200], false, 1),
+            ("does not retry a conflict", vec![400, 200], false, 1),
+        ];
+
+        for (name, statuses, expects_answer, expected_attempts) in cases {
+            let mut statuses = statuses.into_iter();
+            let mut attempts = 0;
+            let result = check_upload_with(iter::repeat_n(Duration::ZERO, 3), || {
+                attempts += 1;
+                reply(
+                    statuses
+                        .next()
+                        .expect("more attempts than scripted replies"),
+                )
+            });
+
+            let expected = expects_answer.then(|| vec!["chunk".to_string()]);
+            assert_eq!(result, expected, "{name}");
+            assert_eq!(attempts, expected_attempts, "{name}");
+        }
     }
 
     #[test]

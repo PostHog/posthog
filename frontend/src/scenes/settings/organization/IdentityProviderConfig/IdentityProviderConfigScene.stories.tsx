@@ -53,6 +53,7 @@ const USER_WITH_IDENTITY_PROVIDER_FEATURES = {
         ...MOCK_DEFAULT_ORGANIZATION,
         available_product_features: [
             AvailableFeature.SAML,
+            AvailableFeature.OIDC,
             AvailableFeature.SCIM,
             AvailableFeature.XAA_AUTHENTICATION,
         ].map((feature) => ({ key: feature, name: feature })),
@@ -74,6 +75,19 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 '/api/users/@me': USER_WITH_IDENTITY_PROVIDER_FEATURES,
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [
+                        IDENTITY_PROVIDER_CONFIG,
+                        {
+                            ...IDENTITY_PROVIDER_CONFIG,
+                            id: '0198aaaa-0000-4000-8000-000000000002',
+                            name: 'Example backup identity provider',
+                        },
+                    ],
+                },
                 '/api/organizations/:id/identity_provider_configs/:configId': IDENTITY_PROVIDER_CONFIG,
                 '/api/organizations/:id/domains': {
                     count: 2,
@@ -123,6 +137,39 @@ const needsUpgradeDecorator = mswDecorator({
 })
 
 export const SAML: Story = { args: { configScope: ConfigScopeEnumApi.Saml } }
+export const OIDC: Story = {
+    args: { configScope: ConfigScopeEnumApi.Oidc },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/:id/identity_provider_configs/:configId': {
+                    ...IDENTITY_PROVIDER_CONFIG,
+                    config_scope: ConfigScopeEnumApi.Oidc,
+                    oidc_issuer_url: 'https://idp.example.com',
+                    oidc_client_id: 'example-client',
+                    has_oidc: true,
+                    has_oidc_client_secret: true,
+                },
+            },
+        }),
+    ],
+}
+export const OIDCNeedsUpgrade: Story = {
+    args: { configScope: ConfigScopeEnumApi.Oidc },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me': USER_WITHOUT_IDENTITY_PROVIDER_FEATURES,
+                '/api/organizations/:id/identity_provider_configs/:configId': {
+                    ...IDENTITY_PROVIDER_CONFIG,
+                    config_scope: ConfigScopeEnumApi.Oidc,
+                    has_oidc: true,
+                    has_oidc_client_secret: true,
+                },
+            },
+        }),
+    ],
+}
 export const SAMLNeedsUpgrade: Story = {
     args: { configScope: ConfigScopeEnumApi.Saml },
     decorators: [needsUpgradeDecorator],

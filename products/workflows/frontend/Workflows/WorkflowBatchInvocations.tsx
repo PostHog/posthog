@@ -20,6 +20,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { HogInvocations } from 'scenes/hog-functions/invocations/HogInvocations'
 
+import { BatchRunLog } from './BatchRunLog'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
 import {
@@ -108,6 +109,11 @@ function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: s
     )
 }
 
+/**
+ * The table below lists one row per person the run reached. Anything the run itself recorded,
+ * such as an audience cut short at the batch limit, belongs to the run and to no person, so it
+ * has no row there. The run log above the table carries those entries.
+ */
 function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: string }): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
@@ -123,6 +129,7 @@ function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlow
                     filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}
                 />
             </div>
+            <BatchRunLog jobId={job.id} createdAt={job.created_at} />
             <div className="flex flex-col gap-2">
                 <HogInvocations
                     id={hogFlowId}

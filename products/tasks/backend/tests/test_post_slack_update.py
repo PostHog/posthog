@@ -132,6 +132,25 @@ class TestPostSlackUpdate(TestCase):
         mock_update_reaction.assert_called_once_with("x")
         mock_post_error.assert_called_once()
 
+    @patch.object(SlackThreadHandler, "post_error")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_spend_limit_failure_tells_the_thread_to_wait(
+        self, mock_task_run_class, _mock_update_reaction, mock_post_error
+    ):
+        error = (
+            "API Error: 429 Rate limit exceeded: This agent run reached its spend limit. Try again in about 24 hours."
+        )
+        mock_run = self._make_mock_run(mock_task_run_class.Status.FAILED, error_message=error)
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        assert mock_post_error.call_args.args[0] == error
+        assert mock_post_error.call_args.kwargs["recovery_hint"] == (
+            "Wait for this run's spend limit to reset before replying in the thread."
+        )
+
     @patch.object(SlackThreadHandler, "post_cancelled")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch("products.tasks.backend.models.TaskRun")

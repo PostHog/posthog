@@ -6,8 +6,10 @@ and content blocks. Supports multiple provider formats (OpenAI, Anthropic, etc.)
 with truncation and interactive markers for frontend display.
 """
 
+import re
 import json
 import base64
+from collections.abc import Iterable
 from typing import Any, TypedDict
 
 from .constants import (
@@ -37,11 +39,13 @@ class FormatterOptions(TypedDict, total=False):
     """Options for formatting text representations."""
 
     truncated: bool  # Use truncation for long content (default: True)
+    preserve_generation_output: bool  # Keep answers intact while truncating input history for judges
     truncate_buffer: int  # Chars to show at start/end (default: 1000)
     include_markers: bool  # Use interactive markers vs plain text (default: True)
     collapsed: bool  # Show full hierarchy vs summary (default: False)
     include_line_numbers: bool  # Prefix each line with line number (default: False)
     max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
+    max_render_length: int  # Abort oversized renders before sampling or assembling the full transcript
 
 
 class ToolCall(TypedDict, total=False):
@@ -157,6 +161,59 @@ def reduce_by_uniform_sampling(
     return result, True
 
 
+# UTF-16 surrogate code points. A well-formed pair survives the round trip in
+# `sanitize_surrogates` and becomes the character it encodes; a lone one becomes U+FFFD.
+SURROGATE_REGEX = re.compile("[\ud800-\udfff]")
+
+
+def sanitize_surrogates(text: str) -> str:
+    """Make `text` encodable as UTF-8.
+
+    Trace content arrives as it was captured, and the truncation and sampling above cut on
+    character counts, so either source can leave an unpaired surrogate -- half of an emoji -- in
+    the result. UTF-8 cannot represent one, so `str.encode("utf-8")` raises and the whole text
+    representation is lost: the Redis write in the batch summarization path and the request body of
+    the summarization LLM call both fail that way. Repair at the formatter exits, so every consumer
+    of a text representation gets the same encodable string.
+
+    Unlike `safe_clickhouse_string`, this does not escape the surrogate into literal `\\ud83c`
+    text. Escaping is right where the bytes must round-trip, but a text representation is read as
+    prose by a model, so a replacement character is the better loss.
+    """
+    if not SURROGATE_REGEX.search(text):
+        return text
+    return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+
+
+class RenderBudgetExceeded(Exception):
+    """The complete representation cannot fit; the caller must retry with truncation."""
+
+
+class FormatterLines(list[str]):
+    def __init__(self, options: FormatterOptions | None = None) -> None:
+        super().__init__()
+        self._max_length = options.get("max_render_length") if options else None
+        self._length = 0
+
+    def check_length(self, length: int) -> None:
+        if self._max_length is not None and length > self._max_length:
+            raise RenderBudgetExceeded
+
+    def append(self, line: str) -> None:
+        if self._max_length is not None:
+            line = sanitize_surrogates(line)
+            self._length += len(line) + bool(self)
+            self.check_length(self._length)
+        super().append(line)
+
+    def extend(self, lines: Iterable[str]) -> None:
+        if self._max_length is None:
+            super().extend(lines)
+            return
+        for line in lines:
+            self.append(line)
+
+
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:
     """
     Truncate content with middle ellipsis for long text.
@@ -265,6 +322,16 @@ def extract_tool_calls_from_content(content: Any) -> list[ToolCall]:
     return tool_calls
 
 
+def _string_type(msg: dict[str, Any]) -> str | None:
+    """The value under `type` when it is a string, else None.
+
+    Customer payloads record any JSON value there, and the membership tests below hash what they
+    are given. An unhashable value such as a dict raises `TypeError` against a frozenset.
+    """
+    msg_type = msg.get("type")
+    return msg_type if isinstance(msg_type, str) else None
+
+
 def safe_extract_text(content: Any) -> str:
     """
     Safely extract text from various content formats.
@@ -289,7 +356,7 @@ def safe_extract_text(content: Any) -> str:
             text_parts: list[str] = []
             for i, item in enumerate(content):
                 if isinstance(item, dict):
-                    item_type = item.get("type")
+                    item_type = _string_type(item)
                     # Try both "text" and "content" keys (tool_result uses "content")
                     text_value = item.get("text") or item.get("content")
 
@@ -331,7 +398,7 @@ def _is_special_block(block: Any) -> bool:
     if not isinstance(block, dict):
         return False
 
-    block_type = block.get("type")
+    block_type = _string_type(block)
     if block_type in SPECIAL_BLOCK_TYPES:
         return True
 
@@ -366,7 +433,7 @@ def _format_special_block(block: dict) -> str | None:
         if not tool_input and "partial_json" in block:
             try:
                 tool_input = json.loads(block["partial_json"])
-            except (json.JSONDecodeError, ValueError):
+            except (TypeError, ValueError):
                 pass
 
         return format_single_tool_call(tool_name, tool_input)
@@ -447,7 +514,11 @@ def _is_responses_item(msg: dict[str, Any]) -> bool:
     to be keyed by `type` and carries nothing but tool calls.
     """
     item_type = msg.get("type")
-    return bool(item_type) and item_type not in PLAIN_TEXT_BLOCK_TYPES and CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg)
+    if not item_type or not CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg):
+        return False
+    # Only a string can name a plain-text block, so any other type is a malformed item whose
+    # recorded payload is still worth rendering.
+    return not isinstance(item_type, str) or item_type not in PLAIN_TEXT_BLOCK_TYPES
 
 
 def _format_call_signature(msg: dict[str, Any]) -> str:
@@ -505,7 +576,7 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
     `content` alone drops every tool call, tool result, and reasoning summary in the conversation
     while still printing its header.
     """
-    item_type = msg.get("type")
+    item_type = _string_type(msg)
 
     if item_type in RESPONSES_TOOL_CALL_TYPES:
         lines, _ = truncate_content(_format_call_signature(msg), options)
@@ -559,6 +630,28 @@ def _extract_responses_output_items(value: Any) -> list[Any] | None:
     return output if isinstance(output, list) else None
 
 
+def _format_message_body(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    """Format what sits under a message header: its Responses item or content, then its tool calls."""
+    lines: list[str] = []
+
+    responses_lines = _format_responses_item(msg, options)
+    content = msg.get("content", "")
+    if responses_lines is not None:
+        lines.extend(responses_lines)
+    elif content:
+        text_content = extract_text_content(content)
+        if text_content:
+            content_lines, _ = truncate_content(text_content, options)
+            lines.extend(content_lines)
+
+    tool_calls = msg.get("tool_calls", [])
+    if tool_calls:
+        lines.append("")
+        lines.extend(format_tool_calls(tool_calls))
+
+    return lines
+
+
 def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
     """
     Format an array of message objects without header.
@@ -573,7 +666,7 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
     Returns:
         List of formatted lines (no header, starts directly with messages)
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
 
     for i, msg in enumerate(messages):
         if not isinstance(msg, dict):
@@ -581,25 +674,20 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
 
         # SDKs record non-string roles, which crash `.upper()`.
         role = str(msg.get("role") or msg.get("type") or "unknown")
-        content = msg.get("content", "")
-        tool_calls = msg.get("tool_calls", [])
 
         lines.append("")
         lines.append(f"[{i + 1}] {role.upper()}")
         lines.append("")
 
-        responses_lines = _format_responses_item(msg, options)
-        if responses_lines is not None:
-            lines.extend(responses_lines)
-        elif content:
-            text_content = extract_text_content(content)
-            if text_content:
-                content_lines, _ = truncate_content(text_content, options)
-                lines.extend(content_lines)
-
-        if tool_calls:
-            lines.append("")
-            lines.extend(format_tool_calls(tool_calls))
+        try:
+            body_lines = _format_message_body(msg, options)
+        except RenderBudgetExceeded:
+            raise
+        except Exception:
+            # Customer payloads can break any shape assumption in the body formatters, so one
+            # malformed message degrades to its own repr and the rest of the trace still renders.
+            body_lines, _ = truncate_content(safe_extract_text(msg), options)
+        lines.extend(body_lines)
 
         # Add separator between messages (but not after the last one)
         if i < len(messages) - 1:

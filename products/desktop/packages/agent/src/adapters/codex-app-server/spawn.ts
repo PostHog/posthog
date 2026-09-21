@@ -2,8 +2,11 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { applyContextWikiEnv } from "../../context-wiki";
-import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
+import {
+  applyContextWikiEnv,
+  type ContextWikiEnv,
+} from "@posthog/harness/extensions/context-wiki";
+import type { ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
 
 /**
@@ -17,6 +20,12 @@ export interface CodexOptions {
   apiKey?: string;
   model?: string;
   reasoningEffort?: string;
+  /**
+   * OpenAI service tier requested for every turn on the thread ("default" |
+   * "priority" | "flex"). Sent as `thread/start`'s `serviceTier`; codex drops
+   * it when the model catalogue doesn't advertise that tier for the model.
+   */
+  serviceTier?: string;
   /**
    * Static HTTP headers forwarded on every request to the PostHog gateway
    * (the codex equivalent of Claude's `ANTHROPIC_CUSTOM_HEADERS`). Carries the

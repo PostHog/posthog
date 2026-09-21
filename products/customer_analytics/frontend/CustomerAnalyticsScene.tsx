@@ -11,9 +11,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,6 +26,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
+import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
 
 import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
 import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
@@ -36,6 +36,7 @@ import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJou
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
 import { DeleteJourneyButton } from './components/CustomerJourneys/DeleteJourneyButton'
 import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
+import { CustomerTasksInbox } from './components/CustomerTasks/CustomerTasksInbox'
 import { FeatureRequestsTabContent } from './components/FeatureRequests/FeatureRequestsTabContent'
 import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
@@ -78,6 +79,11 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         AccessControlResourceType.CustomerAnalytics,
         AccessControlLevel.Editor
     )
+    const canViewAllCustomerTasks = userHasAccess(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Viewer
+    )
+    const canCreateCustomerTasks = userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Editor)
 
     useOnMountEffect(() => {
         reportCustomerAnalyticsViewed()
@@ -94,6 +100,10 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     }
 
     if (activeTab === 'feature_requests' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]) {
+        return <NotFound object="page" />
+    }
+
+    if (activeTab === 'tasks' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]) {
         return <NotFound object="page" />
     }
 
@@ -114,6 +124,26 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             </>
         )
 
+    const tabLink = (url: string, tab: string): string => {
+        const params = { ...searchParams }
+        if (tab !== activeTab && (tab === 'tasks' || activeTab === 'tasks')) {
+            for (const key of [
+                'search',
+                'status',
+                'assignee',
+                'archive',
+                'due',
+                'account',
+                'sort',
+                'page',
+                'task_id',
+                'source',
+            ]) {
+                delete params[key]
+            }
+        }
+        return combineUrl(url, params).url
+    }
     const tabs: LemonTab<string>[] = []
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
@@ -121,25 +151,25 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'feed',
             label: 'Feed',
             content: <FeedTabContent />,
-            link: combineUrl(urls.customerAnalyticsFeed(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsFeed(), 'feed'),
         })
         tabs.push({
             key: 'accounts',
             label: 'Accounts',
             content: <AccountsTabContent />,
-            link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsAccounts(), 'accounts'),
         })
         tabs.push({
             key: 'notes',
             label: 'Notes',
             content: <AccountNotesTabContent />,
-            link: combineUrl(urls.customerAnalyticsNotes(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsNotes(), 'notes'),
         })
         tabs.push({
             key: 'announcements',
             label: 'Announcements',
             content: <AnnouncementsTabContent />,
-            link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsAnnouncements(), 'announcements'),
         })
     }
 
@@ -148,7 +178,16 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'feature_requests',
             label: 'Feature requests',
             content: <FeatureRequestsTabContent />,
-            link: combineUrl(urls.customerAnalyticsFeatureRequests(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsFeatureRequests(), 'feature_requests'),
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]) {
+        tabs.push({
+            key: 'tasks',
+            label: 'Tasks',
+            content: <CustomerTasksInbox canCreate={canCreateCustomerTasks} canViewAll={canViewAllCustomerTasks} />,
+            link: tabLink(urls.customerAnalyticsTasks(), 'tasks'),
         })
     }
 
@@ -156,7 +195,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         key: 'dashboard',
         label: 'Dashboard',
         content: dashboardContent,
-        link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
+        link: tabLink(urls.customerAnalyticsDashboard(), 'dashboard'),
     })
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]) {
@@ -164,7 +203,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'journeys',
             label: 'Customer journeys',
             content: <CustomerJourneys />,
-            link: combineUrl(urls.customerAnalyticsJourneys(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsJourneys(), 'journeys'),
         })
     }
 
@@ -187,8 +226,12 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                 ) : (
                     <>
                         <SceneTitleSection
-                            name={sceneConfigurations[Scene.CustomerAnalytics].name}
-                            description={sceneConfigurations[Scene.CustomerAnalytics].description}
+                            name={activeTab === 'tasks' ? 'Tasks' : sceneConfigurations[Scene.CustomerAnalytics].name}
+                            description={
+                                activeTab === 'tasks'
+                                    ? 'Work assigned to you across customer accounts.'
+                                    : sceneConfigurations[Scene.CustomerAnalytics].description
+                            }
                             resourceType={{
                                 type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                             }}

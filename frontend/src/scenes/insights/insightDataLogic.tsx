@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -28,6 +29,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { cohortsModel, getReferencedCohortIds, isIndividualInsightPath } from '~/models/cohortsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -162,6 +164,7 @@ export interface insightDataLogicValues {
     query: Node | null
     queryChanged: boolean
     queryFromUrl: boolean
+    savingDisplayOptions: boolean
     savingSqlVisualization: SqlVisualizationUpdate['type'] | null
     showDebugPanel: boolean
     showQueryEditor: boolean
@@ -299,6 +302,7 @@ export interface insightDataLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
@@ -348,6 +352,7 @@ export interface insightDataLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
@@ -411,8 +416,14 @@ export interface insightDataLogicActions {
         } | null
         payload?: any
     }
+    loadReferencedCohorts: () => {
+        value: true
+    }
     persistDisplayOptions: (query: Node) => {
         query: Node<Record<string, any>>
+    }
+    persistDisplayOptionsSettled: () => {
+        value: true
     }
     persistSqlVisualization: (update: SqlVisualizationUpdate) => {
         update: SqlVisualizationUpdate
@@ -535,18 +546,27 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
 
     actions({
+        loadReferencedCohorts: true,
         setQuery: (query: Node | null, fromUrl: boolean = false) => ({ query, fromUrl }),
         syncQueryFromProps: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
         toggleDebugPanel: true,
         cancelChanges: true,
         persistDisplayOptions: (query: Node) => ({ query }),
+        persistDisplayOptionsSettled: true,
         persistSqlVisualization: (update: SqlVisualizationUpdate) => ({ update }),
         persistSqlVisualizationFailed: (update: SqlVisualizationUpdate) => ({ update }),
         persistSqlVisualizationSettled: true,
     }),
 
     reducers({
+        savingDisplayOptions: [
+            false,
+            {
+                persistDisplayOptions: () => true,
+                persistDisplayOptionsSettled: () => false,
+            },
+        ],
         savingSqlVisualization: [
             null as SqlVisualizationUpdate['type'] | null,
             {
@@ -778,6 +798,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, cache, values, props }) => ({
+        loadReferencedCohorts: () => {
+            if (isIndividualInsightPath(router.values.location.pathname)) {
+                const ids = getReferencedCohortIds(values.query)
+                if (ids.length) {
+                    cohortsModel.actions.loadCohortsByIds({ ids })
+                }
+            }
+        },
+        syncQueryFromProps: () => actions.loadReferencedCohorts(),
         persistDisplayOptions: async ({ query }, breakpoint) => {
             // Never auto-persist while the user is editing this insight in the insight scene.
             // insightDataLogic is keyed `${shortId}/on-dashboard-${dashboardId}`, so an insight
@@ -786,13 +815,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // (a display toggle or removing a filter) would PATCH the insight before the user
             // clicks Save. Edits there must persist only through an explicit save.
             if (isInsightSceneInstance(props)) {
+                actions.persistDisplayOptionsSettled()
                 return
             }
-            // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
-            // only cancels concurrent saves for this insight without affecting unrelated tiles.
-            await breakpoint(700)
             const insightId = values.insight.id
             if (!insightId) {
+                actions.persistDisplayOptionsSettled()
                 return
             }
             // Only persist when the query actually differs from what's saved. The setQuery →
@@ -800,17 +828,50 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // re-syncs (tile re-renders, results refreshes) that carry an unchanged query;
             // persisting those produces spurious saves and activity-log churn.
             if (objectsEqual(query, values.savedInsight.query)) {
+                actions.persistDisplayOptionsSettled()
                 return
             }
+            const refreshResults = values.savedInsight.query
+                ? !compareQuery(query, values.savedInsight.query, { ignoreVisualizationOnlyChanges: true })
+                : false
+            const saveId = (cache.displayOptionsSaveId ?? 0) + 1
+            cache.displayOptionsSaveId = saveId
             try {
-                const updatedItem = await insightsApi.update(insightId, { query })
-                // Drop the response if a newer save started while this request was in flight.
-                await breakpoint(0)
+                // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
+                // only cancels concurrent saves for this insight without affecting unrelated tiles.
+                await breakpoint(700)
+                // Breakpoints cannot cancel PATCHes that have already started, so serialize them per insight.
+                await cache.displayOptionsSave
+                breakpoint()
+                const save = withTimeout(
+                    (signal) => insightsApi.update(insightId, { query }, { signal }),
+                    15_000,
+                    'Saving display options timed out'
+                )
+                // The next save only needs to know when this request finishes.
+                cache.displayOptionsSave = save.catch(() => undefined)
+                const updatedItem = await save
+                if (saveId !== cache.displayOptionsSaveId) {
+                    return
+                }
                 actions.renameInsightSuccess(updatedItem)
+                if (refreshResults) {
+                    props.refreshAfterDisplayOptionsChange?.(updatedItem)
+                }
+                actions.persistDisplayOptionsSettled()
                 lemonToast.success('Insight updated')
             } catch (e) {
                 // A breakpoint means a newer save superseded this one, and that save owns the state.
-                if (!isBreakpoint(e as Error)) {
+                if (!isBreakpoint(e as Error) && saveId === cache.displayOptionsSaveId) {
+                    if (e instanceof PromiseTimeoutError) {
+                        actions.persistDisplayOptionsSettled()
+                        lemonToast.warning(
+                            "Couldn't confirm whether the insight was updated. Refresh the dashboard to check."
+                        )
+                        return
+                    }
+                    actions.syncQueryFromProps(values.savedInsight.query ?? null)
+                    actions.persistDisplayOptionsSettled()
                     lemonToast.error('Failed to update insight')
                 }
             }
@@ -932,6 +993,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
+            actions.loadReferencedCohorts()
             // A shared link's query (`#q=`) is applied before the saved insight arrives, so re-syncing
             // here would silently discard the date range and interval the sender chose.
             if (values.queryFromUrl) {
@@ -952,6 +1014,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
+            actions.loadReferencedCohorts()
             // When this is the insight scene's own insight, sync the query to the URL
             if (isInsightSceneInstance(props)) {
                 const insightId = insightSceneLogic.findMounted()?.values.insightId
@@ -1056,6 +1119,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         }
     }),
     afterMount(({ actions, props }) => {
+        actions.loadReferencedCohorts()
         // On a dashboard, the first response for a tile can say “we don’t have chart numbers yet”
         // (`result: null`) instead of leaving the field unset. Without a real fetch, the UI can look
         // like a failed load (“Chart data didn’t load”) even though we simply haven’t run the query.

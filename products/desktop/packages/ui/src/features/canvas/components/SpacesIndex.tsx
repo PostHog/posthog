@@ -34,7 +34,11 @@ function SpaceCard({ channel }: { channel: Channel }) {
       <Card className="h-full transition-colors hover:bg-fill-hover">
         <CardContent className="flex flex-col gap-2 p-4">
           <div className="flex min-w-0 items-center gap-1.5">
-            {channelGlyph(channel.name, { size: 14, personal })}
+            {channelGlyph(channel.name, {
+              size: 14,
+              personal,
+              private: channel.channelType === "private",
+            })}
             <Text weight="semibold" className="truncate">
               {channelDisplayLabel(channel.name, channel.channelType)}
             </Text>

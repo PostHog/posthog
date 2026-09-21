@@ -77,6 +77,7 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             properties: z.array(z.any()),
             filter_test_accounts: z.boolean().optional(),
             tag_names: z.array(z.string()).optional(),
+            assignment_status: z.enum(['all', 'assigned', 'unassigned']).optional(),
             assigned_to_user_ids: z.array(z.number()).optional(),
             all_roles_unassigned: z.boolean().optional(),
         }),
@@ -293,6 +294,14 @@ const HogFlowEdgeSchema = z.object({
     index: z.number().optional(),
 })
 
+// Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
+const HogFlowTriggerMaskingSchema = z.object({
+    ttl: z.number().nullable(),
+    hash: z.string(),
+    bytecode: z.array(z.union([z.string(), z.number()])),
+    threshold: z.number().nullable(),
+})
+
 export const HogFlowSchema = z.object({
     id: z.string(),
     team_id: z.number(),
@@ -300,19 +309,15 @@ export const HogFlowSchema = z.object({
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
     trigger: HogFlowTriggerSchema,
-    // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
-    trigger_masking: z
-        .object({
-            ttl: z.number().nullable(),
-            hash: z.string(),
-            bytecode: z.array(z.union([z.string(), z.number()])),
-            threshold: z.number().nullable(),
-        })
-        .optional()
-        .nullable(),
+    trigger_masking: HogFlowTriggerMaskingSchema.optional().nullable(),
     conversion: z
         .object({
-            window_minutes: z.number().nullable(),
+            // Preferred form, matching how delay steps express a duration: `7d`, `12h`, `90d`.
+            window: z.string().nullable().optional(),
+            // Deprecated: a bare integer whose unit lives only in the field name. Optional because a
+            // row migrated onto `window` carries no `window_minutes` key at all, and a required one
+            // would fail the whole flow to parse and stop it running.
+            window_minutes: z.number().nullable().optional(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
             events: z
@@ -334,6 +339,15 @@ export const HogFlowSchema = z.object({
     // User-configured email pacing for deliverability. The email worker holds this flow's sends
     // under the limit by rescheduling over-limit sends, never dropping them.
     email_sending_rate_limit: HogFlowEmailSendingRateLimitSchema.optional().nullable(),
+    // Set when PostHog paused this flow's email automatically because its spam complaint or hard
+    // bounce rate breached a threshold. Non-null means the email service skips every send for this
+    // flow, including test sends. Same value shapes as `updated_at`: pg returns a Date, fixtures
+    // use epoch millis or an ISO string.
+    email_sending_paused_at: z.union([z.number(), z.string(), z.date()]).optional().nullable(),
+    email_sending_paused_reason: z.string().optional().nullable(),
+    // "auto" (deliverability detector) or "staff". Staff pauses are not customer-resumable, so the
+    // skip log tells the customer to contact support instead of pointing at the resume button.
+    email_sending_paused_by: z.string().optional().nullable(),
     actions: z.array(HogFlowActionSchema),
     // Secret function inputs, split out of `actions` and stored Fernet-encrypted at rest, keyed by
     // action id then input key. Decrypted by the manager and merged back into `action.config.inputs`

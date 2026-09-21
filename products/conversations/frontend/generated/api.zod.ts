@@ -238,22 +238,35 @@ export const ConversationsTicketsBulkUpdateStatusCreateBody = /* @__PURE__ */ zo
  */
 export const conversationsTicketsBulkUpdateTagsCreateBodyIdsMax = 500
 
-export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number())
-        .max(conversationsTicketsBulkUpdateTagsCreateBodyIdsMax)
-        .describe('List of object IDs to update tags on.'),
-    action: zod
-        .enum(['add', 'remove', 'set'])
-        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
-        .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
-        ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
-})
+export const conversationsTicketsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const conversationsTicketsBulkUpdateTagsCreateBodyTagsMax = 100
+
+export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
+    .object({
+        ids: zod
+            .array(zod.uuid())
+            .max(conversationsTicketsBulkUpdateTagsCreateBodyIdsMax)
+            .describe('List of object UUIDs to update tags on.'),
+        action: zod
+            .enum(['add', 'remove', 'set'])
+            .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+            .describe(
+                "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+            ),
+        tags: zod
+            .array(zod.string().max(conversationsTicketsBulkUpdateTagsCreateBodyTagsItemMax))
+            .max(conversationsTicketsBulkUpdateTagsCreateBodyTagsMax)
+            .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
+    })
+    .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
 
 /**
  * Create a new outbound ticket and send the first message to the customer.
+ *
+ * Idempotent within a short window: an identical compose retried while the first is still
+ * in flight returns 409, and one retried after it committed returns the same ticket with a
+ * 200. Only a genuinely new request creates a ticket and emails the customer.
  */
 export const conversationsTicketsComposeCreateBodyRecipientDistinctIdMax = 400
 
@@ -294,7 +307,10 @@ export const conversationsViewsCreateBodyNameMax = 400
 export const conversationsViewsCreateBodyFiltersOneSearchMax = 200
 
 export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(conversationsViewsCreateBodyNameMax),
+    name: zod
+        .string()
+        .max(conversationsViewsCreateBodyNameMax)
+        .describe('Display name of the view, as it appears in the ticket views list.'),
     filters: zod
         .object({
             status: zod
@@ -336,19 +352,25 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum([
                             'persisted',
+                            'suggested',
+                            'escalated_with_findings',
                             'escalated_with_best',
                             'escalated_no_reply',
                             'skipped_unactionable',
                             'blocked_unsafe',
                             'blocked_unsafe_reply',
+                            'clarified',
+                            'suggested_clarification',
                             'in_progress',
                         ])
                         .describe(
-                            '\* `persisted` - persisted\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `in_progress` - in_progress'
+                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
                         )
                 )
                 .optional()
-                .describe("AI triage outcomes to include. 'in_progress' matches tickets still being triaged."),
+                .describe(
+                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
+                ),
             assignee: zod
                 .array(
                     zod.union([
@@ -361,7 +383,7 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe(
-                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list."
+                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter."
                 ),
             tags: zod.array(zod.string()).optional().describe('Tag names to match, combined according to tagsMatch.'),
             tagsMatch: zod
@@ -430,7 +452,11 @@ export const conversationsViewsPartialUpdateBodyNameMax = 400
 export const conversationsViewsPartialUpdateBodyFiltersOneSearchMax = 200
 
 export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(conversationsViewsPartialUpdateBodyNameMax).optional(),
+    name: zod
+        .string()
+        .max(conversationsViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the view, as it appears in the ticket views list.'),
     filters: zod
         .object({
             status: zod
@@ -472,19 +498,25 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum([
                             'persisted',
+                            'suggested',
+                            'escalated_with_findings',
                             'escalated_with_best',
                             'escalated_no_reply',
                             'skipped_unactionable',
                             'blocked_unsafe',
                             'blocked_unsafe_reply',
+                            'clarified',
+                            'suggested_clarification',
                             'in_progress',
                         ])
                         .describe(
-                            '\* `persisted` - persisted\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `in_progress` - in_progress'
+                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
                         )
                 )
                 .optional()
-                .describe("AI triage outcomes to include. 'in_progress' matches tickets still being triaged."),
+                .describe(
+                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
+                ),
             assignee: zod
                 .array(
                     zod.union([
@@ -497,7 +529,7 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe(
-                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list."
+                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter."
                 ),
             tags: zod.array(zod.string()).optional().describe('Tag names to match, combined according to tagsMatch.'),
             tagsMatch: zod

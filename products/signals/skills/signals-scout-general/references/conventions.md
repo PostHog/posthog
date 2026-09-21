@@ -14,9 +14,9 @@ before you author a report (the harness prompt carries the report-channel contra
 2. **Material update on an existing report** — a report already covers the topic
    (one you authored last run, or a pipeline report), but you have new evidence: a
    different source corroborating, a fresh deploy correlation, contradicting data, a
-   meaningful escalation in scope. → **`edit-report` it** — `append_note` with the
-   fresh evidence, or rewrite `title`/`summary` on a report you authored. Don't mint
-   a near-duplicate.
+   meaningful escalation in scope. → **`edit-report` it** — `append_evidence` with the
+   fresh observation, `append_note` with a reading of it, or rewrite `title`/`summary`
+   on a report you authored. Don't mint a near-duplicate.
 
 3. **Same fact already covered** — an existing report already captures the same
    evidence shape, nothing has changed. → Skip. Optionally rewrite an existing
@@ -102,8 +102,6 @@ escalation:
 - **Dev-environment exception bursts** — high counts on `$exception` events
   whose `service` or `properties.env` is `dev` / `local` / `test`. Filter before
   weighing.
-- **Sandbox-internal Docker / agentsh errors** — Docker `TimeoutExpired`,
-  sandbox sync failures. Internal harness operations, not user-facing.
 - **KEA store-path errors with single-session reach** — frontend logic state
   quirks; not user-impacting unless distinct_user counts climb.
 - **Pre-known upstream provider errors** (Anthropic / OpenAI rate limits, etc.)

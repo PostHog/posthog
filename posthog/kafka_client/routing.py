@@ -44,6 +44,8 @@ from posthog.kafka_client.topics import (
     KAFKA_GROUPS,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
+    KAFKA_LOGS_INGESTION,
+    KAFKA_LOGS_INGESTION_DLQ,
     KAFKA_METRICS_TIME_TO_SEE_DATA,
     KAFKA_NOTIFICATION_EVENTS,
     KAFKA_PERSON,
@@ -109,6 +111,9 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS: KafkaClusterProfile.REPLAY,
     KAFKA_TRACES_INGESTION: KafkaClusterProfile.TRACES,
     KAFKA_TRACES_INGESTION_DLQ: KafkaClusterProfile.TRACES,
+    # --- LOGS (Warpstream logs) ---
+    KAFKA_LOGS_INGESTION: KafkaClusterProfile.LOGS,
+    KAFKA_LOGS_INGESTION_DLQ: KafkaClusterProfile.LOGS,
 }
 
 

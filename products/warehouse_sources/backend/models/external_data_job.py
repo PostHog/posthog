@@ -18,7 +18,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     Status = ExternalDataJobStatus
     PipelineVersion = ExternalDataJobPipelineVersion
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     pipeline = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
     schema = models.ForeignKey("warehouse_sources.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=400)
@@ -93,6 +93,24 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     ).get(pk=job_id)
 
 
+def latest_completed_job_subquery(team_id: int, field: str) -> Subquery:
+    """One field of each source's newest completed job, correlated on the source row.
+
+    Annotate this on a queryset of `ExternalDataSource`. It costs one probe of
+    `idx_extdatajob_latest_run` per source, because the filter matches that index's leading
+    columns and the ordering matches its trailing one.
+
+    Do not replace it with `Max("jobs__created_at", filter=...)`. Django compiles that aggregate
+    to a LEFT OUTER JOIN onto the job table plus a GROUP BY, so Postgres reads and sorts every
+    completed job the team has ever run to produce one timestamp per source.
+    """
+    return Subquery(
+        ExternalDataJob.objects.filter(pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED)
+        .order_by("-created_at")
+        .values(field)[:1]
+    )
+
+
 def latest_completed_job_prefetch(
     team_id: int, lookup: str, to_attr: str, source_ids: Collection[UUID | str] | None = None
 ) -> Prefetch:
@@ -109,15 +127,7 @@ def latest_completed_job_prefetch(
     sources = ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True)
     if source_ids is not None:
         sources = sources.filter(id__in=source_ids)
-    latest_job_ids = sources.values(
-        latest_job_id=Subquery(
-            ExternalDataJob.objects.filter(
-                pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED
-            )
-            .order_by("-created_at")
-            .values("id")[:1]
-        )
-    )
+    latest_job_ids = sources.values(latest_job_id=latest_completed_job_subquery(team_id, "id"))
     return Prefetch(lookup, queryset=ExternalDataJob.objects.filter(id__in=latest_job_ids), to_attr=to_attr)
 
 

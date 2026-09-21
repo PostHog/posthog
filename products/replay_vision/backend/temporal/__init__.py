@@ -16,8 +16,10 @@ from products.replay_vision.backend.temporal.activities import (
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     emit_observation_signal_activity,
+    emit_observation_signals_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
+    fetch_session_network_activity,
     finalize_evaluation_activity,
     find_backfill_candidates_activity,
     find_scanner_candidates_activity,
@@ -41,6 +43,10 @@ from products.replay_vision.backend.temporal.activities import (
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
 )
+from products.replay_vision.backend.temporal.activities.refresh_search_suggestions import (
+    list_stale_search_suggestions_activity,
+    refresh_scanner_search_suggestions_activity,
+)
 from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
 from products.replay_vision.backend.temporal.evaluation_workflow import EvaluatePromptSuggestionWorkflow
@@ -50,6 +56,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 )
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
+from products.replay_vision.backend.temporal.search_suggestions import RefreshSearchSuggestionsWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_alerts import (
     VisionAlertCheckWorkflow,
@@ -67,6 +74,7 @@ WORKFLOWS = [
     MeterScannerReadsWorkflow,
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
+    RefreshSearchSuggestionsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
     SweepScannerWorkflow,
     VisionAlertCheckWorkflow,
@@ -82,6 +90,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     mark_observation_ineligible_activity,
     mark_observation_succeeded_activity,
     fetch_session_events_activity,
+    fetch_session_network_activity,
     ensure_session_asset_activity,
     upload_video_to_gemini_activity,
     call_scanner_provider_activity,
@@ -89,6 +98,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     emit_observation_signal_activity,
+    emit_observation_signals_activity,
     cleanup_gemini_file_activity,
     find_scanner_candidates_activity,
     count_in_flight_applies_activity,
@@ -115,6 +125,8 @@ ACTIVITIES: list[Callable[..., Any]] = [
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     sweep_gemini_files_activity,
+    list_stale_search_suggestions_activity,
+    refresh_scanner_search_suggestions_activity,
 ]
 
 __all__ = [
@@ -126,6 +138,7 @@ __all__ = [
     "MeterScannerReadsWorkflow",
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
+    "RefreshSearchSuggestionsWorkflow",
     "ReplayVisionGeminiCleanupSweepWorkflow",
     "SweepScannerWorkflow",
     "advance_scanner_watermark_activity",
@@ -141,8 +154,10 @@ __all__ = [
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
     "emit_observation_signal_activity",
+    "emit_observation_signals_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
+    "fetch_session_network_activity",
     "find_scanner_candidates_activity",
     "list_enabled_scanners_activity",
     "list_scanner_schedules_activity",

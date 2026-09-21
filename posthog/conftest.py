@@ -1,13 +1,20 @@
 import os
 import time
+import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+
+from _pytest.junitxml import ET, bin_xml_escape, mangle_test_address
+
+if TYPE_CHECKING:
+    from _pytest.terminal import TerminalReporter
 
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
@@ -20,6 +27,7 @@ from django.core.management.commands.flush import Command as FlushCommand
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+from posthog.cloud_utils import is_ci
 from posthog.test import flush_lock_guard
 
 
@@ -385,6 +393,23 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     create_clickhouse_tables()
 
+    # Seed default data that historically lived in RunPython migrations. Squashed
+    # migrations drop those ops, so without this tests relying on the defaults
+    # (Billing Team auth group, Default DataColorTheme, starter DashboardTemplates)
+    # would fail on a fresh test DB. Tolerated: in some shards (e.g. temporal
+    # async tests that only need the persons DB) the default DB schema isn't
+    # fully migrated yet — skip seeding rather than break setup.
+    with django_db_blocker.unblock():
+        from django.core.management import call_command
+
+        try:
+            call_command("ensure_migration_defaults", verbosity=0)
+        except Exception as exc:
+            warnings.warn(
+                f"ensure_migration_defaults skipped during test DB setup: {exc}",
+                stacklevel=2,
+            )
+
     yield
 
     if django_db_keepdb:
@@ -522,10 +547,9 @@ class _JUnitTimingsPlugin:
     module-scoped fixture setup time is excluded from `<testcase time>` and
     instead lives in this pre-first-call gap.
 
-    Also records pytest-rerunfailures retries as a `<testcase>` property: pytest's
-    junitxml appends children only for passed/failed/skipped reports, so a rerun
-    report leaves no trace and a flaky fail-then-pass serializes as a clean
-    `<testcase/>` — invisible to flaky-test telemetry.
+    Also records pytest-rerunfailures retries as a `<testcase>` property.
+    Pytest's JUnit output omits intermediate rerun reports, so a separate
+    JUnit file preserves their failures for Trunk.
     """
 
     _PROPERTY_SETUP = "posthog.setup_seconds"
@@ -536,6 +560,7 @@ class _JUnitTimingsPlugin:
         self._session_start: float | None = None
         self._collection_finish: float | None = None
         self._first_test_call_start: float | None = None
+        self._retry_reports: list[pytest.TestReport] = []
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         self._session_start = time.monotonic()
@@ -557,12 +582,26 @@ class _JUnitTimingsPlugin:
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         reruns = getattr(report, "rerun", 0) or 0  # attempt index, set by pytest-rerunfailures
+        if str(report.outcome) == "rerun":
+            self._retry_reports.append(report)
         # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
         if not reruns or report.when != "teardown" or str(report.outcome) == "rerun":
             return
         # Appended exactly once: intermediate attempts never log a non-rerun teardown,
         # and each report owns its own copy of `user_properties`.
         report.user_properties.append((self._PROPERTY_RERUNS, str(reruns)))
+        if runner_name := os.environ.get("RUNNER_NAME"):
+            report.user_properties.append(("posthog.runner_name", runner_name))
+
+    def pytest_terminal_summary(self, terminalreporter: "TerminalReporter") -> None:
+        if not terminalreporter.hasopt("R"):
+            return
+        # pytest-rerunfailures 16.1's summary lists nodeids but omits the failed attempt's traceback.
+        for report in terminalreporter.stats.get("rerun", []):
+            terminalreporter.write_sep("_", f"RERUN {report.nodeid} ({report.when})")
+            report.toterminal(terminalreporter._tw)
+            # Anchor the final exception within the log-thinning context window.
+            terminalreporter.write_sep("_", f"RERUN END {report.nodeid} ({report.when})")
 
     @staticmethod
     def _find_junit_xml_plugin(config: pytest.Config) -> Any:
@@ -587,6 +626,50 @@ class _JUnitTimingsPlugin:
             xml.add_global_property(self._PROPERTY_SETUP, f"{self._first_test_call_start - self._session_start:.6f}")
         if self._collection_finish is not None:
             xml.add_global_property(self._PROPERTY_COLLECTION, f"{self._collection_finish - self._session_start:.6f}")
+        self._write_retry_junit(xml)
+
+    def _write_retry_junit(self, xml: Any) -> None:
+        source_path = Path(xml.logfile)
+        retry_path = source_path.with_name(f"{source_path.stem}-retry-failures.xml")
+        if not self._retry_reports:
+            retry_path.unlink(missing_ok=True)
+            return
+
+        failures = sum(report.when == "call" for report in self._retry_reports)
+        suite = ET.Element(
+            "testsuite",
+            name=xml.suite_name,
+            tests=str(len(self._retry_reports)),
+            failures=str(failures),
+            errors=str(len(self._retry_reports) - failures),
+            skipped="0",
+            time=f"{sum(report.duration for report in self._retry_reports):.3f}",
+            timestamp=xml.suite_start.as_utc().astimezone().isoformat(),
+        )
+        for report in self._retry_reports:
+            names = mangle_test_address(report.nodeid)
+            classnames = names[:-1]
+            if xml.prefix:
+                classnames.insert(0, xml.prefix)
+            attrs = {
+                "classname": ".".join(classnames),
+                "name": bin_xml_escape(names[-1]),
+                "file": report.location[0],
+                "time": f"{report.duration:.3f}",
+                "attempt_number": str(getattr(report, "rerun", 0) + 1),
+            }
+            if report.location[1] is not None:
+                attrs["line"] = str(report.location[1])
+            testcase = ET.SubElement(suite, "testcase", attrs)
+            reprcrash = getattr(report.longrepr, "reprcrash", None)
+            message = getattr(reprcrash, "message", None) or report.longreprtext or "pytest retry failed"
+            tag = "failure" if report.when == "call" else "error"
+            ET.SubElement(testcase, tag, message=bin_xml_escape(message)).text = bin_xml_escape(report.longreprtext)
+
+        root = ET.Element("testsuites")
+        root.append(suite)
+        retry_path.parent.mkdir(parents=True, exist_ok=True)
+        ET.ElementTree(root).write(retry_path, encoding="utf-8", xml_declaration=True)
 
 
 def pytest_configure(config):
@@ -623,6 +706,41 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         pytest.skip("Skipping test that requires internal secrets on external PRs")
 
 
+def _vendor_credentials_present(marker: pytest.Mark) -> bool:
+    check: Callable[[], bool] | None = marker.kwargs.get("check")
+    return all(name in os.environ for name in marker.args) and (check is None or check())
+
+
+def _describe_vendor_credentials(marker: pytest.Mark) -> str:
+    check: Callable[[], bool] | None = marker.kwargs.get("check")
+    return ", ".join([*marker.args, *([check.__name__] if check is not None else [])])
+
+
+def _gate_vendor_credential_tests(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Deselect vendor credential tests in CI, where they can only skip and a skip with no recorded
+    pass reads as a broken test. Locally they stay collected, because a developer may export the
+    credentials, and skip with a reason naming what is missing.
+    """
+    gated = [
+        (item, marker)
+        for item in items
+        if (marker := item.get_closest_marker("requires_vendor_credentials")) is not None
+    ]
+    if not gated:
+        return
+    if is_ci():
+        deselected = {id(item) for item, _ in gated}
+        config.hook.pytest_deselected(items=[item for item, _ in gated])
+        items[:] = [item for item in items if id(item) not in deselected]
+        return
+    for item, marker in gated:
+        if not _vendor_credentials_present(marker):
+            item.add_marker(
+                pytest.mark.skip(reason=f"vendor credentials not available: {_describe_vendor_credentials(marker)}")
+            )
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if apply_quarantine_markers is not None:
         apply_quarantine_markers(items)
+    _gate_vendor_credential_tests(config, items)

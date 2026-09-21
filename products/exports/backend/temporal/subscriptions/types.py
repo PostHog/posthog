@@ -112,6 +112,8 @@ AI_REPORT_QUERY_FAILURE_TYPE = "AIReportQueryFailure"
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 AI_REPORT_CHARTS_KEY = "ai_report_charts"
+# Immutable plan outcome for this delivery. Historical rows written before this key existed omit it.
+AI_REPORT_QUERY_PLAN_STATUS_KEY = "ai_report_query_plan_status"
 
 
 class SubscriptionTriggerType:

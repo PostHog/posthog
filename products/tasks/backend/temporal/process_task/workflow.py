@@ -318,6 +318,7 @@ class _BabysitDispatch:
 from products.tasks.backend.temporal.constants import (  # noqa: E402
     CI_FOLLOW_UP_DELAY,
     DEFAULT_CI_MESSAGE,
+    IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS,
     INACTIVITY_TIMEOUT,
     MAX_CI_REPETITIONS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
@@ -414,6 +415,18 @@ _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
+AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
+
+# Replays of pre-rollout histories must keep recording an idle exit as completed.
+_PATCH_ID_TURN_OPENS_ON_DISPATCH = "tasks-turn-opens-on-dispatch"
+
+
+def _turn_opens_on_dispatch() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_TURN_OPENS_ON_DISPATCH)
+
+
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
 # the message's dedupe key so a retry can land; background runs keep the fail-fast
 # terminalization poll_for_turn callers rely on. Same cleanup lifecycle as above.
@@ -424,6 +437,9 @@ _PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
+
+# `Task.OriginProduct.WORKFLOW`, mirrored for the same reason.
+_WORKFLOW_ORIGIN_PRODUCT = "workflow"
 
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
@@ -480,6 +496,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._client_activity_received: bool = False
         self._agent_active: Optional[bool] = None
         self._end_of_turn_received: Optional[bool] = None
+        self._turn_ended_received = False
         self._last_agent_heartbeat_at: Optional[datetime] = None
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
@@ -571,6 +588,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 or self._sandbox_gone
                 or self._heartbeat_received
                 or self._client_activity_received
+                or self._turn_ended_received
                 or self._has_dispatchable_followup()
                 or len(self._pending_permission_responses) > 0
             )
@@ -852,6 +870,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             inactivity_timeout = max(base_timeout, ci_follow_up_floor)
         else:
             inactivity_timeout = base_timeout
+        if self._end_of_turn_received is False and not testing_override_active:
+            inactivity_timeout = max(inactivity_timeout, timedelta(seconds=IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS))
 
         workflow.set_current_details(
             self._describe_wait(
@@ -1208,6 +1228,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 self._pending_followups.append(input.initial_message)
                 await self._dispatch_next_followup()
             elif input.resumed_sandbox is None and self._should_forward_pending_user_message():
+                # A non-interactive agent starts its first turn on boot, before any event arrives.
+                if _turn_opens_on_dispatch():
+                    self._end_of_turn_received = False
                 await self._forward_pending_user_message()
 
             # Wait for completion signal or inactivity timeout.
@@ -1461,6 +1484,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             )
                             self._client_activity_received = False
                             continue
+
+                        # Re-arm the wait so the idle window drops back to the short one.
+                        if self._turn_ended_received:
+                            self._turn_ended_received = False
+                            continue
                     case _:
                         raise ValueError(f"Unknown event type: {event}")
 
@@ -1494,6 +1522,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 # A run that outlived the hard cap is a failure, not a completion, and the
                 # state marker carries the reason so error_message stays empty.
                 await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
+            elif timeout_event is not None and self._agent_lost_exit_is_failure():
+                await self._update_task_run_status(
+                    "failed", error_message=AGENT_LOST_ERROR_MESSAGE, timed_out_inactivity=True
+                )
             elif timeout_event is not None:
                 inactivity_status = "failed" if self._onboarding_exit_is_failure() else "completed"
                 await self._update_task_run_status(inactivity_status, timed_out_inactivity=True)
@@ -1725,7 +1757,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             agent_server_output = await self._start_agent_server(sandbox_output, boot_excluded_ms=wizard_ms)
         self._agent_shadow_launched = bool(sandbox_output.agent_shadow_launched or agent_server_output.shadow_launched)
         self._agent_ready_at = workflow.now() if self._agent_boot_interaction_telemetry_enabled else None
-        await self._emit_progress("agent", "completed", "Started agent", "setup")
+        await self._emit_progress("agent", "completed", "Agent ready", "setup")
 
         await self._track_workflow_event(
             "sandbox_started",
@@ -1943,7 +1975,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 detail="Resumed from a previous snapshot",
             )
         else:
-            await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
+            await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup")
 
         # Resuming from a filesystem snapshot carries the previous run's
         # credentials baked into .git/config and any agentsh env file — refresh
@@ -2025,7 +2057,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ):
                     raise _TaskCompletedDuringSandboxCreation
                 used_snapshot = False
-                await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
+                await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup")
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
@@ -2753,10 +2785,32 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return False
         return not self.context.create_pr or self._ci_repetitions > 0
 
+    def _agent_lost_mid_turn(self) -> bool:
+        """True only when an open turn is backed by evidence the agent was still working.
+
+        `agent_state_changed(False)` is the only report that a turn ended, so a run that sent
+        one has finished even if a later signal reopened the turn.
+        """
+        return self._end_of_turn_received is False and self._agent_active is not False
+
+    def _agent_lost_exit_is_failure(self) -> bool:
+        """Whether a lost agent should terminalize the run as FAILED.
+
+        Workflow-origin runs only. A workflow step waits on the run's terminal status, so a turn
+        that never finished has to read as a failure or the step continues on work that never
+        happened. Every other origin ends this way routinely: an attended run answers its user and
+        then idles out with the turn still open, and a background one leaves the stopped run as the
+        snapshot its resume flow picks up. Failing those reports breakage to the person reading the
+        task list when nothing broke.
+        """
+        return self.context.origin_product == _WORKFLOW_ORIGIN_PRODUCT and self._agent_lost_mid_turn()
+
     def _mark_sandbox_gone(self) -> None:
-        # A sandbox that vanished mid-setup is a failed setup for onboarding; see
-        # _onboarding_exit_is_failure for why a run that already opened its PR is exempt.
-        self._completion_status = "failed" if self._onboarding_exit_is_failure() else "completed"
+        # A sandbox that vanished mid-turn took the agent's work with it, which only a workflow step
+        # needs told; see _agent_lost_exit_is_failure. Mid-setup it is a failed setup for
+        # onboarding; see _onboarding_exit_is_failure for the open-PR exemption.
+        agent_lost = self._agent_lost_exit_is_failure()
+        self._completion_status = "failed" if agent_lost or self._onboarding_exit_is_failure() else "completed"
         self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
         self._completion_timeout_marker = SANDBOX_GONE_STATE_KEY
         self._task_completed = True
@@ -3226,14 +3280,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
     @temporalio.workflow.signal
-    async def turn_completed(self) -> None:
+    async def turn_completed(self, trace_id: str | None = None) -> None:
         if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
             return
         relay_id = self._current_slack_relay_workflow_id
         self._current_slack_relay_workflow_id = None
         try:
             handle = workflow.get_external_workflow_handle(relay_id)
-            await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn)
+            await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, trace_id)
         except Exception as e:
             workflow.logger.debug(
                 "slack_status_complete_failed",
@@ -3258,6 +3312,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def agent_state_changed(self, agent_active: bool) -> None:
         self._agent_active = agent_active
         self._end_of_turn_received = not agent_active
+        if not agent_active and _turn_opens_on_dispatch():
+            self._turn_ended_received = True
 
     @temporalio.workflow.signal
     async def agent_command_dispatched(self) -> None:
@@ -3435,7 +3491,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             max_attempts = 1 if self.context.task_runtime == "pi" else SEND_FOLLOWUP_MAX_ATTEMPTS
-            return await workflow.execute_activity(
+            outcome = await workflow.execute_activity(
                 send_followup_to_sandbox,
                 SendFollowupToSandboxInput(
                     run_id=self.context.run_id,
@@ -3455,6 +3511,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     maximum_attempts=max_attempts,
                 ),
             )
+            # A delivered message opens a turn: the first heartbeat may lag or be throttled away.
+            if outcome != STEER_DECLINED_OUTCOME and _turn_opens_on_dispatch():
+                self._end_of_turn_received = False
+                # The ingest plane never reports a turn active, only inactive at its close, so a
+                # stale `False` from the turn that just ended must not carry into this one — it
+                # would permanently hide a lost agent for every later turn of the run.
+                self._agent_active = None
+            return outcome
         except Exception as e:
             error_properties = self._activity_error_properties(e)
             cause_message = error_properties.get("cause_error_message")

@@ -17,6 +17,7 @@ const config: SignalScoutConfigApi = {
     skill_name: 'signals-scout-general',
     description: 'General scout',
     scout_origin: 'canonical',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',
@@ -27,6 +28,7 @@ const config: SignalScoutConfigApi = {
     output_destinations: {},
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
+    write_scopes: [],
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
@@ -37,12 +39,13 @@ const config: SignalScoutConfigApi = {
     source_product: null,
     source_id: null,
     created_at: '2026-07-21T12:00:00Z',
+    updated_at: '2026-07-21T12:00:00Z',
 }
 
 describe('ScoutConfigForm', () => {
     useMocks({
         get: {
-            '/api/environments/:team_id/integrations/': () => [200, { results: [] }],
+            '/api/projects/:team_id/integrations/': () => [200, { results: [] }],
         },
     })
 
@@ -197,7 +200,11 @@ describe('ScoutConfigForm', () => {
 
     // Guards the pin's wire values: a model option must patch the raw model id (not its display
     // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
-    it('pins a model from the dropdown and clears the pin via Default', () => {
+    it.each([
+        ['Claude Sonnet 5', 'claude-sonnet-5'],
+        ['GPT-5.6 Luna', 'gpt-5.6-luna'],
+        ['GPT-6 Astra', 'gpt-6-astra'],
+    ])('pins %s from the dropdown and clears the pin via Default', (label, modelId) => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
             [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true,
@@ -209,10 +216,10 @@ describe('ScoutConfigForm', () => {
         )
 
         fireEvent.click(getByLabelText(modelSelectLabel))
-        fireEvent.click(getByText('GPT-5.6 Luna'))
-        expect(onUpdate).toHaveBeenCalledWith('config-1', { model: 'gpt-5.6-luna' })
+        fireEvent.click(getByText(label))
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { model: modelId })
 
-        rerender(<ScoutConfigForm config={{ ...config, model: 'gpt-5.6-luna' }} onUpdate={onUpdate} />)
+        rerender(<ScoutConfigForm config={{ ...config, model: modelId }} onUpdate={onUpdate} />)
         fireEvent.click(getByLabelText(modelSelectLabel))
         fireEvent.click(getByText('Default'))
         expect(onUpdate).toHaveBeenLastCalledWith('config-1', { model: null })

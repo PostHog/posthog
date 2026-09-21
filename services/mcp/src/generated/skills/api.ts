@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -63,7 +63,9 @@ export const LlmSkillsCreateBody = () => zod
         name: zod
             .string()
             .max(llmSkillsCreateBodyNameMax)
-            .describe('Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.'),
+            .describe(
+                'Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. Cannot be the name of a skill PostHog ships.'
+            ),
         description: zod
             .string()
             .max(llmSkillsCreateBodyDescriptionMax)
@@ -82,7 +84,9 @@ export const LlmSkillsCreateBody = () => zod
         allowed_tools: zod
             .array(zod.string())
             .optional()
-            .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
+            .describe(
+                'Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.'
+            ),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
         owners: zod
             .array(zod.string())
@@ -236,7 +240,9 @@ export const LlmSkillsNamePartialUpdateBody = () => zod.object({
     allowed_tools: zod
         .array(zod.string())
         .optional()
-        .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
+        .describe(
+            'Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.'
+        ),
     metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(
@@ -329,7 +335,7 @@ export const LlmSkillsNameDuplicateCreateBody = () => zod.object({
     new_name: zod
         .string()
         .max(llmSkillsNameDuplicateCreateBodyNewNameMax)
-        .describe('Name for the duplicated skill. Must be unique.'),
+        .describe('Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.'),
 })
 
 export const llmSkillsNameFilesCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
@@ -439,5 +445,27 @@ export const LlmSkillsNameFilesDestroyQueryParams = () => zod.object({
         .optional()
         .describe(
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
+        ),
+})
+
+export const llmSkillsNameRenameCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
+
+export const LlmSkillsNameRenameCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    skill_name: zod.string().regex(llmSkillsNameRenameCreatePathSkillNameRegExp),
+})
+
+export const llmSkillsNameRenameCreateBodyNewNameMax = 64
+
+export const LlmSkillsNameRenameCreateBody = () => zod.object({
+    new_name: zod
+        .string()
+        .max(llmSkillsNameRenameCreateBodyNewNameMax)
+        .describe(
+            "New name for the skill. Must be unique in the project, cannot be the name of a skill PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'."
         ),
 })

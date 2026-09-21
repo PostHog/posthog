@@ -1,3 +1,4 @@
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import type { Adapter, ModelAccess, PostHogAPIConfig } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 
@@ -23,6 +24,10 @@ export interface StoredNotification {
   type: "notification";
   /** When this notification was stored */
   timestamp: string;
+  /** Shared identity with the event's Redis stream copy, when stamped */
+  event_id?: string;
+  /** First covered event id, on entries coalesced from a run of chunks */
+  first_event_id?: string;
   /** JSON-RPC 2.0 notification (no id field = notification, not request) */
   notification: {
     jsonrpc: "2.0";
@@ -35,20 +40,6 @@ export interface StoredNotification {
  * Type alias for stored log entries.
  */
 export type StoredEntry = StoredNotification;
-
-/**
- * Per-session context wiki mount, threaded explicitly (instead of via global
- * `process.env` writes) so concurrent sessions never exchange wiki paths or
- * publish tokens.
- */
-export interface ContextWikiEnv {
-  /** Local checkout of the org's wiki (POSTHOG_CONTEXT_LAYER_PATH). */
-  path: string;
-  /** API path agents land wiki commits through (POSTHOG_CONTEXT_LAYER_COMMITS_PATH). */
-  commitsPath: string;
-  /** Publish token (POSTHOG_PERSONAL_API_KEY); absent for impersonated sessions. */
-  personalApiKey?: string;
-}
 
 export interface ProcessSpawnedCallback {
   onProcessSpawned?: (info: {

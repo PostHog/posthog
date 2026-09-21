@@ -207,6 +207,7 @@ Have: `campaigns`, `campaign_stats`, `adsets`, `adset_stats`, `ads`, `ad_stats`,
 
 - [x] `adcreatives` — shipped as `ad_creatives`.
 - [x] Insight breakdowns: `age`, `gender`, `country`, `region`, `publisher_platform`, `platform_position`, `impression_device`, plus hourly. Shipped as five campaign-level breakdown tables, all off by default. `device_platform` is not in Meta's valid-permutation table, so it was dropped.
+- [x] Creative asset breakdown `link_url_asset`, shipped as `ad_stats_by_link_url`: spend and conversions against the landing page an ad sent people to. Ad level only, since the asset belongs to one ad's creative. Meta returns one row per creative asset, so an ad it reports no landing page asset for is absent and the table's spend total can fall short of `ad_stats`. The other asset breakdowns (`body_asset`, `image_asset`, `title_asset`, `video_asset`, `call_to_action_asset`, `description_asset`) are still open.
 - [ ] Action breakdowns: `actions`, `action_values`, `cost_per_action_type` (skipped: already synced. All three are AdsInsights fields and are in every stats table's field list today. The `action_breakdowns` parameter only adds keys inside those nested arrays, it does not produce rows.)
 - [x] `ad_account` — shipped, including currency, timezone, spend caps and funding.
 - [ ] Lead gen forms and `leads` (skipped: reading them needs `leads_retrieval` plus Page-level access, and our OAuth consent requests `ads_read` only, so every sync would 403.)

@@ -33,7 +33,7 @@ describe('phaiSidePanelComposerSeedLogic', () => {
             get: {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
-                '/api/environments/:team/integrations/': { results: [] },
+                '/api/projects/:team/integrations/': { results: [] },
             },
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -42,7 +42,7 @@ describe('phaiSidePanelComposerSeedLogic', () => {
                 },
                 '/api/projects/:team/tasks/:id/run/': () => {
                     runCount++
-                    return [200, { id: 'new-task' }]
+                    return [200, { id: 'new-task', latest_run: { id: 'run-1' } }]
                 },
             },
         })
@@ -99,6 +99,6 @@ describe('phaiSidePanelComposerSeedLogic', () => {
 
         expect(createCount).toBe(1)
         expect(runCount).toBe(1)
-        expect(trackerLogic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
+        expect(trackerLogic.values.activeCreation).toMatchObject({ taskId: 'new-task', runId: 'run-1' })
     })
 })

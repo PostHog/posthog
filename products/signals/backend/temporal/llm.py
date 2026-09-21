@@ -5,7 +5,7 @@ from typing import Final, Literal, Optional, TypedDict, TypeVar
 from django.conf import settings
 
 import structlog
-from anthropic.types import Message, MessageParam, OutputConfigParam
+from anthropic.types import Message, MessageParam, OutputConfigParam, TextBlockParam
 
 from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -20,6 +20,11 @@ from products.signals.backend.temporal import metrics
 logger = structlog.get_logger(__name__)
 
 MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-5")
+
+# Both safety stages resolve their model from here. The default is a literal rather than
+# MATCHING_MODEL, so a matching-model swap leaves the gate on the model its prompt was measured
+# against, and moving the gate takes a deliberate change to this setting.
+SAFETY_MODEL = os.getenv("SIGNAL_SAFETY_LLM_MODEL") or "claude-sonnet-5"
 
 
 @frozen
@@ -141,9 +146,12 @@ async def call_llm(
     retries: int = MAX_RETRIES,
     stage: Optional[str] = None,
     ai_product: Optional[str] = None,
+    model: Optional[str] = None,
+    cache_system_prompt: bool = False,
 ) -> T:
+    model = model or MATCHING_MODEL
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
-    capabilities = get_model_capabilities(MATCHING_MODEL)
+    capabilities = get_model_capabilities(model)
     thinking = thinking and capabilities.thinking != "none"
     # Prefill is what keeps non-thinking responses free of markdown fences; without it we lean on
     # the fence stripper the thinking path already uses.
@@ -171,13 +179,20 @@ async def call_llm(
     if prefill:
         messages.append({"role": "assistant", "content": "{"})
 
+    # A cached system prompt is billed at about a tenth of the input price on every call after the
+    # first. Only a prompt above the model's cache minimum (1,024 tokens on Sonnet 5) and on a hot
+    # path pays for the cache write, so a call site opts in rather than every stage paying it.
+    system: str | list[TextBlockParam] = system_prompt
+    if cache_system_prompt:
+        system = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+
     create_kwargs: dict = {
-        "model": MATCHING_MODEL,
-        "system": system_prompt,
+        "model": model,
+        "system": system,
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
         "timeout": TIMEOUT,
-        **effort_kwargs(MATCHING_MODEL),
+        **effort_kwargs(model),
     }
     if capabilities.temperature:
         create_kwargs["temperature"] = temperature

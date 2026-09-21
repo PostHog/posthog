@@ -63,6 +63,8 @@ from products.batch_exports.backend.temporal.utils import (
 PostgreSQLField = tuple[str, typing.LiteralString]
 Fields = collections.abc.Iterable[PostgreSQLField]
 
+_TransactionResult = typing.TypeVar("_TransactionResult")
+
 # Compiled regex patterns for PostgreSQL data cleaning
 NULL_UNICODE_PATTERN = re.compile(rb"(?<!\\)\\u0000")
 UNPAIRED_SURROGATE_PATTERN = re.compile(
@@ -217,9 +219,9 @@ class PostgresInsertInputs(BatchExportInsertInputs):
 
 async def run_in_retryable_transaction(
     connection: psycopg.AsyncConnection,
-    fn: collections.abc.Callable[[], collections.abc.Awaitable[typing.Any]],
+    fn: collections.abc.Callable[[], collections.abc.Awaitable[_TransactionResult]],
     max_attempts: int = 3,
-) -> typing.Any:
+) -> _TransactionResult:
     """Run a callable inside a transaction with retry logic for serialization failures.
 
     Inspiration: https://github.com/cockroachdb/example-app-python-psycopg3/blob/main/example.py#L70-L105
@@ -244,6 +246,9 @@ async def run_in_retryable_transaction(
             sleep_seconds = (2**attempt) * 0.1 * (random.random() + 0.5)
             LOGGER.debug("Sleeping %s seconds", sleep_seconds)
             await asyncio.sleep(sleep_seconds)
+
+    # Only reachable when the loop never ran, which means no attempt was allowed.
+    raise ValueError(f"max_attempts must be at least 1, got {max_attempts}")
 
 
 class PostgreSQLClient:

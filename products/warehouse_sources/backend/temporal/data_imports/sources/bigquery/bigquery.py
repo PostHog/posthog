@@ -35,7 +35,10 @@ from google.api_core.exceptions import (
 )
 from google.api_core.retry import Retry, if_exception_type
 from google.auth.exceptions import RefreshError
-from google.auth.transport.requests import AuthorizedSession
+from google.auth.transport.requests import (
+    AuthorizedSession,
+    Request as GoogleAuthRequest,
+)
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
 from google.cloud.bigquery.retry import DEFAULT_JOB_RETRY, _job_should_retry
@@ -45,6 +48,11 @@ from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration.google_cloud import (
+    GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR,
+    InvalidGoogleTokenUriError,
+    require_google_token_uri,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
@@ -60,7 +68,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.grp
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
+    make_tracked_session,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ColumnTypeCategory,
@@ -167,6 +177,21 @@ BIGQUERY_INVALID_KEY_FILE_ERROR = (
     "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or "
     "corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file."
 )
+
+# Matched in `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data.
+BIGQUERY_INVALID_TOKEN_URI_ERROR = GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
+
+
+class BigQueryInvalidTokenUriError(Exception):
+    pass
+
+
+def _require_google_token_uri(token_uri: str) -> str:
+    try:
+        return require_google_token_uri(token_uri)
+    except InvalidGoogleTokenUriError:
+        raise BigQueryInvalidTokenUriError(BIGQUERY_INVALID_TOKEN_URI_ERROR)
+
 
 # Onboarding-time messages. Unlike the sync-path classifier these are only reached during credential
 # validation, where the fix is to correct the input and try again rather than re-enable a sync.
@@ -290,6 +315,23 @@ BIGQUERY_CREATE_READ_SESSION_RETRY = Retry(
 )
 
 
+# `AuthorizedSession` builds its own internal session for refreshing the service-account OAuth
+# access token, and its default adapter only retries connection errors, not HTTP error responses.
+# Google's OAuth token endpoint can fail the refresh POST with a transient 502/503/504 (a Google-side
+# infrastructure blip on accounts.google.com / oauth2.googleapis.com — the same condition already
+# tolerated as a non-fatal cleanup hiccup in `build_pipeline`'s `finally` block), which otherwise
+# escapes every call site as an opaque `RefreshError` and crashes the whole import activity. POST is
+# normally excluded from urllib3's retryable methods since it's often non-idempotent, but a failed
+# token request mints no token, so retrying it here duplicates no side effect.
+BIGQUERY_TOKEN_REFRESH_RETRY = BoundedRetry(
+    total=3,
+    backoff_factor=0.5,
+    status_forcelist=(502, 503, 504),
+    allowed_methods=frozenset(["POST"]),
+    raise_on_status=False,
+)
+
+
 class BigQueryDatasetNotFoundError(Exception):
     """Raised when schema discovery queries a dataset/table that doesn't exist in the queried region.
 
@@ -403,6 +445,7 @@ def bigquery_client(
 ) -> typing.Iterator[bigquery.Client]:
     """Manage a BigQuery client."""
     project_id = _normalize_identifier(project_id)
+    token_uri = _require_google_token_uri(token_uri)
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,
@@ -413,10 +456,15 @@ def bigquery_client(
         },
         scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
+    # See `BIGQUERY_TOKEN_REFRESH_RETRY`: hand `AuthorizedSession` our own retrying session for
+    # credential refresh, instead of the default one whose adapter never retries a 502/503/504.
+    # `capture=False` keeps the OAuth response (it carries the minted bearer token) out of HTTP
+    # sample capture.
+    auth_request_session = make_tracked_session(retry=BIGQUERY_TOKEN_REFRESH_RETRY, capture=False)
     # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
     # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
     # call is logged and metered alongside the other warehouse sources.
-    authed_session = AuthorizedSession(credentials)
+    authed_session = AuthorizedSession(credentials, auth_request=GoogleAuthRequest(auth_request_session))
     tracked_adapter = TrackedHTTPAdapter(max_retries=DEFAULT_RETRY)
     authed_session.mount("https://", tracked_adapter)
     authed_session.mount("http://", tracked_adapter)
@@ -456,6 +504,7 @@ def bigquery_storage_read_client(
 ):
     """Manage a BigQuery Storage client."""
     project_id = _normalize_identifier(project_id)
+    token_uri = _require_google_token_uri(token_uri)
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,
@@ -574,6 +623,19 @@ def delete_all_temp_destination_tables(
             # non-actionable condition that would otherwise fire on every sync for an affected source.
             if logger:
                 logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
+        except BadRequest as e:
+            if "Invalid resource name" in str(e):
+                # A dataset/project ID containing characters BigQuery's resource-name validation
+                # rejects (e.g. a Dataset ID field mistakenly set to "project.dataset") makes
+                # `bq.dataset(...)` build an invalid path for this REST call, distinct from the
+                # "Invalid project ID"/"Invalid dataset ID" wording query jobs raise for the same
+                # misconfiguration (see `BigQuerySource.get_non_retryable_errors`). It's
+                # deterministic and already surfaces non-retryably elsewhere in the sync, so log
+                # quietly here too rather than capturing noise on every run for an affected source.
+                if logger:
+                    logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
+            else:
+                capture_exception(e)
         except Exception as e:
             capture_exception(e)
 
@@ -625,6 +687,10 @@ def validate_bigquery_credentials(
 
     if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
         return False, BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR
+    try:
+        _require_google_token_uri(token_uri)
+    except BigQueryInvalidTokenUriError as e:
+        return False, str(e)
 
     # Trim copy-paste whitespace from the identifiers before they reach BigQuery,
     # which otherwise rejects them with an opaque `Invalid project ID`/`Invalid dataset ID`.
@@ -657,6 +723,7 @@ def validate_bigquery_credentials(
             "Invalid project ID" in message
             or "Invalid dataset ID" in message
             or "ProjectId must be non-empty" in message
+            or "Invalid resource name" in message
         ):
             return False, BIGQUERY_INVALID_IDENTIFIER_ERROR
         if "was not found in location" in message or "Not found: Dataset" in message:
@@ -1160,7 +1227,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: BigQuerySourceConfig) -> Iterator[bigquery.Client]:
+    def connect(self, config: BigQuerySourceConfig, *, team_id: int | None = None) -> Iterator[bigquery.Client]:
         # Without a custom region the client is built with `location=None`, so discovery
         # query jobs default to the US multi-region and miss datasets in other regions.
         # Auto-detect the dataset's location so discovery runs where the data lives.
