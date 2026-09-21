@@ -1,20 +1,9 @@
 /**
  * @jest-environment jsdom
  */
-import { Replayer } from 'posthog-js/rrweb'
+import type { Replayer } from 'posthog-js/rrweb'
 
 import { resetClickIndicatorAfterFlash } from './index'
-
-// posthog-js/* ships ESM that the test transform can't load directly; these values are
-// only used by sibling plugins, not by the helper under test.
-jest.mock('posthog-js/rrweb', () => ({
-    Replayer: jest.fn(),
-    canvasMutation: jest.fn(),
-}))
-jest.mock('posthog-js/rrweb-types', () => ({
-    EventType: {},
-    IncrementalSource: {},
-}))
 
 describe('resetClickIndicatorAfterFlash', () => {
     function mountCursor(): { replayer: Replayer; cursor: HTMLElement } {

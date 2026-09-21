@@ -81,12 +81,9 @@ export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     UNSAFE_replayCanvas: false,
 }
 
-// rrweb marks a click by removing and re-adding the `active` class on its cursor element, with a
-// forced repaint between the two calls so the browser restarts the CSS flash animation. The
-// minifier in the posthog-js publish chain drops that repaint, because it reads a layout property
-// and discards the value. Without it the browser never sees the class absent, the animation never
-// restarts, and only the first click of a session flashes. Clearing the class once the flash ends
-// makes rrweb's next add a real class change, so the animation runs again.
+// rrweb re-adds an `active` class the cursor already carries, and the repaint that would restart
+// the CSS flash is missing from the shipped bundle, so only the first click of a session flashes.
+// Clearing the class after each flash makes rrweb's next add a real change.
 export function resetClickIndicatorAfterFlash(replayer: Replayer): () => void {
     const cursor = replayer.wrapper.querySelector('.replayer-mouse')
     if (!cursor) {

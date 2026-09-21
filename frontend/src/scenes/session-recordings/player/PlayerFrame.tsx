@@ -12,8 +12,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
 const MIN_CLICK_INDICATOR_DURATION_S = 0.15
 
-// An exporter URL carries its playback speed as a query parameter, so the speed here can be 0 or
-// NaN. Both make the animation declaration invalid, which removes the indicator altogether.
+// An exporter URL carries its speed as a query parameter, so 0 and NaN reach here. Either one
+// makes the animation declaration invalid, which removes the indicator altogether.
 const clickIndicatorDuration = (speed: number): string => {
     const scaled = speed > 0 ? BASE_CLICK_INDICATOR_DURATION_S / speed : BASE_CLICK_INDICATOR_DURATION_S
     return `${Math.max(scaled, MIN_CLICK_INDICATOR_DURATION_S)}s`

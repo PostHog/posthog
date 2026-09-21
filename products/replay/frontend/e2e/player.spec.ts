@@ -175,8 +175,6 @@ function playerFrame(page: Page): Locator {
     return page.frameLocator('iframe.PlayerFrame__document').locator('.PlayerFrame__content .replayer-wrapper iframe')
 }
 
-// rrweb's cursor lives in the player frame's own document, so counting its flashes needs a Frame
-// rather than a FrameLocator: the counter has to run as script inside that document.
 function playerFrameDocument(page: Page): Frame {
     return page.frame({ url: /replay_player_frame/ })!
 }
@@ -328,9 +326,6 @@ test.describe('Session replay player', () => {
         await page.goto(`/replay/${SESSION_ID}?t=0`)
         await expect(playerFrame(page)).toBeVisible({ timeout: 30000 })
 
-        // rrweb marks a click by re-adding a class the cursor already carries, so the flash animation
-        // replays only while something clears that class in between. The class ends up identical
-        // either way, which leaves the animation itself as the only observable difference.
         const frameDocument = playerFrameDocument(page)
         await frameDocument.locator('.replayer-mouse').waitFor({ timeout: 30000 })
         await frameDocument.evaluate(() => {
@@ -341,17 +336,15 @@ test.describe('Session replay player', () => {
             })
         })
 
-        // Playback autostarts, so the recording's clicks can pass before the listener attaches.
-        // Seeking back to the start replays them with the counter in place, which keeps the count
-        // off the speed of the worker. Seeking applies the earlier clicks without the class, so
-        // the seek itself adds no flash.
+        // Playback autostarts, so the clicks can pass before the listener attaches. Seeking back
+        // replays them with the counter in place, and adds no flash of its own because rrweb skips
+        // the class on the seek path.
         await scrubTo(page, 0)
         await expect(page.getByTestId('recording-timestamp')).toHaveText(/00:0[01].*00:11/)
         await expect(playPauseButton(page)).toHaveAttribute('data-attr', 'recording-pause')
 
-        // The recording clicks at 2.4s, 3.4s and 3.8s, and the flash lasts 333ms at 1x, so the fix
-        // animates three times. The count is two because the third starts 30ms after the second
-        // ends, which playback jitter can close. Without the fix the cursor animates once.
+        // Three clicks fall outside each other's 333ms flash, but the third clears the second by
+        // only 30ms, which jitter can close. Unfixed code animates once, so two is enough.
         await expect.poll(() => clickFlashCount(page), { timeout: 30000 }).toBeGreaterThanOrEqual(2)
     })
 
