@@ -410,12 +410,11 @@ tools:
             session". Results are not returned inline: the response gives a `scan_id`, which is a scanner id, and you
             read the observations from `vision-scanners-observations-list` with `scanner_id` set to it, polling until
             each session's observation leaves `pending`/`running`. `vision-observations-list` works too when you want
-            one session's observations across every scanner, since it takes a `session_id` rather than a scanner.
-            Asking the same question again returns the same `scan_id` and reuses the answers it already has, so
-            re-asking is cheap and sessions already scanned come back as `already_scanned` rather than being charged
-            twice. Scans cost credits per session at the same rate a scanner does; check `vision-quota-retrieve` first
-            if the batch is large, since sessions past the monthly limit come back as `skipped_quota` instead of
-            failing the call.
+            one session's observations across every scanner, since it takes a `session_id` rather than a scanner. Asking
+            the same question again returns the same `scan_id` and reuses the answers it already has, so re-asking is
+            cheap and sessions already scanned come back as `already_scanned` rather than being charged twice. Scans
+            cost credits per session at the same rate a scanner does; check `vision-quota-retrieve` first if the batch
+            is large, since sessions past the monthly limit come back as `skipped_quota` instead of failing the call.
         ui_app: inline-scan
         requires_ai_consent: true
     vision-scanners-list:
