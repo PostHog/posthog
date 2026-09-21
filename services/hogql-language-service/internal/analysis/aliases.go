@@ -10,8 +10,10 @@ import (
 )
 
 type selectAlias struct {
-	field catalog.Entry
-	end   int
+	field             catalog.Entry
+	propertyNamespace string
+	end               int
+	ambiguousAt       int
 }
 
 func (s *queryScope) selectAliases() map[string]selectAlias {
@@ -30,12 +32,17 @@ func (s *queryScope) selectAliases() map[string]selectAlias {
 		if !s.budget.lookup(len(name) + 1) {
 			break
 		}
-		if _, exists := s.aliases[name]; exists {
+		if existing, exists := s.aliases[name]; exists {
+			if existing.ambiguousAt == 0 {
+				existing.ambiguousAt = int(item.End())
+				s.aliases[name] = existing
+			}
 			continue
 		}
 		// HogQL resolves each expression before registering its alias (Resolver.visit_alias).
 		field := catalog.Entry{Name: name, Type: projectedType(s, item.Expr)}
-		s.aliases[name] = selectAlias{field: field, end: int(item.End())}
+		namespace, _ := projectedPropertyNamespace(s, item.Expr, int(item.Expr.Pos()))
+		s.aliases[name] = selectAlias{field: field, propertyNamespace: namespace, end: int(item.End())}
 	}
 	return s.aliases
 }
@@ -67,12 +74,20 @@ func (b Bindings) aliasCutoff() int {
 }
 
 func (b Bindings) SelectAlias(name string) (catalog.Entry, bool) {
+	alias, ok := b.selectAlias(name)
+	return alias.field, ok
+}
+
+func (b Bindings) selectAlias(name string) (selectAlias, bool) {
 	cutoff := b.aliasCutoff()
 	if cutoff < 0 || !b.scope.budget.lookup(len(name)+1) {
-		return catalog.Entry{}, false
+		return selectAlias{}, false
 	}
 	alias, ok := b.scope.selectAliases()[name]
-	return alias.field, ok && alias.end <= cutoff
+	if ok && alias.ambiguousAt != 0 && alias.ambiguousAt <= cutoff {
+		alias.propertyNamespace = ""
+	}
+	return alias, ok && alias.end <= cutoff
 }
 
 func (b Bindings) SelectAliases(prefix string) iter.Seq[catalog.Entry] {

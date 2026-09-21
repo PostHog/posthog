@@ -70,7 +70,7 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
     return {
         databaseTableListLogic: kea([
             path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
-            actions({ loadDatabase: true }),
+            actions({ ensureAllTableFields: true, loadDatabase: true }),
             reducers({
                 views: [[{ id: 'view-7', name: 'orders_view', fields: { order_id: { type: 'string' } } }]],
                 dataWarehouseTables: [
@@ -84,7 +84,7 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
                 ],
                 databaseLoading: [false],
                 databaseLoadError: [null],
-                loadCount: [0, { loadDatabase: (state: number) => state + 1 }],
+                loadCount: [0, { ensureAllTableFields: (state: number) => state + 1 }],
             }),
         ]),
     }

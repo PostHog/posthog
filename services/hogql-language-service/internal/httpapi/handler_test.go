@@ -95,6 +95,61 @@ func TestAutocompleteRequiresKnownTeamAndUser(t *testing.T) {
 	}
 }
 
+func TestCatalogAliasesStayWithinPublishedTeamAndUser(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.handler()
+	body := `{"revision":"aliases","catalog":{"tables":{"postgres.demo.orders":{"type":"data_warehouse","fields":{"id":{"type":"integer"}}}},"tableAliases":{"demo_postgres_orders":"postgres.demo.orders"},"properties":{}}}`
+	request := httptest.NewRequest(http.MethodPut, scopePath(1, 10)+"/catalog", strings.NewReader(body))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("catalog upload returned %d: %s", response.Code, response.Body.String())
+	}
+	putCatalogForTest(t, handler, 1, 20, "without-aliases", "postgres.demo.orders")
+
+	for _, test := range []struct {
+		userID int64
+		valid  bool
+	}{
+		{userID: 10, valid: true},
+		{userID: 20, valid: false},
+	} {
+		request = httptest.NewRequest(http.MethodPost, scopePath(1, test.userID)+"/validate", strings.NewReader(`{"query":"SELECT id FROM demo_postgres_orders"}`))
+		response = httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("validate returned %d: %s", response.Code, response.Body.String())
+		}
+		var result validationResponse
+		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Valid != test.valid {
+			t.Fatalf("user %d result = %#v", test.userID, result)
+		}
+	}
+}
+
+func TestCatalogRejectsInvalidAliasMaps(t *testing.T) {
+	handler := newTestServer(t).handler()
+	for name, aliases := range map[string]string{
+		"dangling":  `{"legacy_orders":"missing"}`,
+		"chain":     `{"legacy_orders":"older_orders","older_orders":"orders"}`,
+		"cycle":     `{"legacy_orders":"older_orders","older_orders":"legacy_orders"}`,
+		"collision": `{"orders":"events"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := `{"revision":"invalid","catalog":{"tables":{"orders":{"fields":{}},"events":{"fields":{}}},"tableAliases":` + aliases + `,"properties":{}}}`
+			request := httptest.NewRequest(http.MethodPut, scopePath(1, 10)+"/catalog", strings.NewReader(body))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), catalog.ErrInvalidAliases.Error()) {
+				t.Fatalf("response = %d: %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestValidateEncodesDiagnosticPositions(t *testing.T) {
 	s := newTestServer(t)
 	handler := s.handler()

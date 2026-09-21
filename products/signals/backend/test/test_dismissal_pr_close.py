@@ -531,3 +531,66 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.close_pull_request.assert_not_called()
         self.assignment.refresh_from_db()
         assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
+
+
+_REPLACEMENT_PR_URL = "https://github.com/PostHog/posthog/pull/456"
+
+
+class TestSupersededPrClose(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Test report", summary="Test summary"
+        )
+        for pr_url in (_PR_URL, _REPLACEMENT_PR_URL):
+            task = Task.objects.create(
+                team=self.team, title="Implementation", origin_product=Task.OriginProduct.SIGNAL_REPORT
+            )
+            SignalReportTask.objects.create(
+                team=self.team, report=self.report, task=task, relationship="implementation"
+            )
+            TaskRun.objects.create(team=self.team, task=task, output={"pr_url": pr_url})
+
+    def _github(self) -> MagicMock:
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        github.comment_on_pull_request.return_value = {"success": True}
+        github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
+        return github
+
+    def test_closes_the_named_pr_and_points_at_its_replacement(self):
+        github = self._github()
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            closed = close_implementation_pr_for_report(
+                self.team.id,
+                str(self.report.id),
+                reason="superseded",
+                pr_url=_PR_URL,
+                replacement_pr_url=_REPLACEMENT_PR_URL,
+            )
+
+        assert closed is True
+        github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
+        comment_body = github.comment_on_pull_request.call_args.args[2]
+        assert _REPLACEMENT_PR_URL in comment_body
+        assert "superseded" not in comment_body
+        # Closing the replacement is the one undo the comment must never offer: the replacement is
+        # the report's newest implementation task, so closing it unmerged archives a report that is
+        # still being worked.
+        assert "completed the replacement" in comment_body
+
+    def test_superseded_comment_stands_alone_without_a_replacement_url(self):
+        github = self._github()
+        with (
+            patch(
+                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+        ):
+            close_implementation_pr_for_report(self.team.id, str(self.report.id), reason="superseded", pr_url=_PR_URL)
+
+        comment_body = github.comment_on_pull_request.call_args.args[2]
+        assert "a new PR replaces this one" in comment_body

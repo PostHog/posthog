@@ -387,6 +387,15 @@ export const SlashMenuAndInsertion: Story = {
     },
 }
 
+export const AskAIWithoutConsent: Story = {
+    args: {
+        value: '',
+        initialInsertMenu: { nodeIndex: 0, query: '' },
+        onAskAI: fn(),
+        askAIDisabledReason: 'Approve AI data processing in organization settings to use Ask AI.',
+    },
+}
+
 export const MockedCollaboration: Story = {
     args: {
         value: textNotebook,

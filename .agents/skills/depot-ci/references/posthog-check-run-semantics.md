@@ -54,9 +54,13 @@ Depot names each check `<workflow name> / <job name>`. GitHub Actions names it `
 
 Matrix jobs differ: GitHub Actions posts one check per cell and appends the cell to the name, Depot posts one check for the whole job. Depot also posts internal expansion checks named `<file>:<job key>:_dynamicMatrix` for matrices built from `fromJSON`.
 
+## When a check run appears
+
+Depot creates a job's check run when it resolves the job, not when it creates the run: a job that starts gets its check in the same second as Depot's own `started_at` for the job, and a job that is skipped gets a `skipped` check when its dependencies settle. A job behind a long dependency chain therefore has no check run at all until it starts. Measured 2026-09-17 on three runs of `Backend CI on Depot` (for example run `bbtwxmr3b5`): the first job's check appeared 53 to 65 seconds after the run was created, and the gate job's check appeared 21 minutes later, when the matrix finished. GitHub Actions differs: it posts every job's check as `queued` when the run is created. A poller that treats "no check run yet" as "the run does not exist" is wrong on Depot; poll the first job in the `needs` graph to learn whether Depot picked the event up, and the gate to learn the verdict.
+
 ## Reruns
 
-Retrying a failed Depot job updates the existing check run: same check run id, new timestamps and conclusion. GitHub Actions instead creates a fresh check run per attempt and leaves the old one behind, which is why a superseded GitHub Actions run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine.
+Retrying a failed Depot job creates a new check run with the same name and leaves the failed one behind (measured 2026-09-17 with `depot ci retry --failed` on run `jb7zh5rvnk`: the retried cell got check run `105270302262` while `105262890457` stayed `completed/failure`; only `filter=all` on the check-runs API lists both). GitHub Actions does the same per attempt, which is why a superseded run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine: the API's default `filter=latest` already returns only the newest, and `max_by(.id)` does the same on a full listing. Two details matter when the read decides something: a GitHub Actions rerun queues a fresh check run for every job before any of them runs, so a script that wants the last verdict filters on `status == "completed"` before it takes the newest; and the check-runs API lists every pull request's checks for a head SHA, so a script that acts for one pull request filters on `pull_requests[].number` too (both engines populate it; measured 2026-09-17 on the throwaway and the stack heads).
 
 ## Depot CI CLI recipes
 
@@ -84,7 +88,7 @@ Depot CI checks out the pull request merge ref (`refs/pull/<n>/merge`) and posts
 
 From Depot's [compatibility page](https://depot.dev/docs/ci/compatibility), not measured here:
 
-- Fork pull requests are unsupported. Depot lists support as planned.
+- Fork pull requests get no run; Depot lists support as planned. The backend router keeps them on GitHub Actions, see [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
 - `environment:` is unsupported, and `uses:` cannot reference a workflow in another repository.
 - `secrets.GITHUB_TOKEN` is a GitHub App installation token, not the Actions token. GitHub Packages rejects it. The rate limit it draws on is the app installation's pool, which is shared across repos and is not the per-repo Actions bucket that `monitor-github-rate-limit.yml` watches.
 - Non-Depot `runs-on` labels are treated as `depot-ubuntu-latest`.

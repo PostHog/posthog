@@ -199,7 +199,7 @@ dependencies = [
     "defusedxml~=0.7.1",
     "confluent-kafka~=2.13",
     "blake3>=1.0.8,<2",
-    "pixelhog~=1.3.0",
+    "pixelhog~=1.3.1",
     "google-re2>=1.1.20251105,<2",
     "scrubadub~=2.0.1",
     "braintrust-core>=0.0.59,<1",
@@ -622,10 +622,6 @@ ignore_imports = [
     # respondent-field helpers from logic directly. A facade read would have to hand back the
     # SharingConfiguration, which §5 forbids.
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.logic",
-    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
-    # The webhook view still holds the request handling for the Vapi delivery, so it calls the
-    # event module directly. The line goes when the handling moves off the request path.
-    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.vapi_events",
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.

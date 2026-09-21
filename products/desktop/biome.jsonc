@@ -126,6 +126,18 @@
       }
     },
     {
+      // Object-tag kind registry generated from posthog/object_tags/kinds.py; the
+      // generator's byte-stable output is what `hogli build:object-tags --check`
+      // compares against, so no formatter may touch it.
+      "includes": [
+        "packages/core/src/inbox/objectKinds.generated.ts",
+        "packages/shared/src/objectTagKinds.generated.ts"
+      ],
+      "formatter": {
+        "enabled": false
+      }
+    },
+    {
       // TanStack Router generated route tree — uses `as any` and its own
       // formatting; the file header explicitly says not to lint/format it.
       "includes": ["packages/ui/src/router/routeTree.gen.ts"],

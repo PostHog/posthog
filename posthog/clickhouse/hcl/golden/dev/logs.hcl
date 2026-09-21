@@ -1848,6 +1848,11 @@ SQL
       type        = "minmax"
       granularity = 1
     }
+    index "idx_timestamp_minmax" {
+      expr        = "timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
     projection "projection_series_activity" {
       query = <<SQL
 SELECT

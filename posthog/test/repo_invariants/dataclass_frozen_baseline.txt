@@ -384,8 +384,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/chartmogul/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/chatwoot/chatwoot.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/chatwoot/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/checkmarx/checkmarx.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/checkmarx/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/checkout_com/checkout_com.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/churnkey/churnkey.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/churnkey/settings.py
