@@ -445,6 +445,15 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert [flow["kind"] for flow in response.json()["results"]] == ["broadcast"]
 
+        # The workflows list relies on this rather than dropping rows from the page, so the count has
+        # to come out excluding them too, or paging skips ordinary workflows.
+        excluded = self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_kind=broadcast")
+        assert excluded.status_code == 200, excluded.json()
+        assert {flow["name"] for flow in excluded.json()["results"]} == {"Ordinary"}
+        assert excluded.json()["count"] == 1
+
+        assert self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_kind=nope").status_code == 400
+
     def test_list_filter_by_origin_product(self):
         HogFlow.objects.create(team=self.team, name="Loop", created_by=self.user, origin_product="loops")
         HogFlow.objects.create(team=self.team, name="Hand built", created_by=self.user)

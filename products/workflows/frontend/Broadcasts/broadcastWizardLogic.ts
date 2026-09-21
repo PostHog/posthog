@@ -752,9 +752,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             const projectId = String(values.currentProjectId)
+            let broadcastId = values.broadcastId
+            let activated: HogFlowApi | null = null
             try {
                 // Save the latest edits (creating the draft if the user skipped ahead).
-                let broadcastId = values.broadcastId
                 if (!broadcastId) {
                     const created = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
                     broadcastId = created.id
@@ -774,7 +775,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     dedupe_key: 'email',
                 })
 
-                const activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
+                activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
 
                 if (values.scheduleMode === 'now') {
                     await hogFlowsBatchJobsCreate(projectId, broadcastId, {
@@ -803,6 +804,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.launchBroadcastFinished()
                 router.actions.push(urls.broadcast(broadcastId))
             } catch (error: any) {
+                if (activated && broadcastId) {
+                    // Activation landed but the send did not. An active broadcast with no job and no
+                    // schedule is read-only, so leaving it there would strand it with no way to retry.
+                    try {
+                        await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'draft' })
+                    } catch {
+                        lemonToast.error('The broadcast is still active but has nothing scheduled. Reload the page.')
+                    }
+                }
                 actions.launchBroadcastFinished()
                 lemonToast.error(`Couldn't launch the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
             }

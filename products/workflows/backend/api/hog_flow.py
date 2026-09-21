@@ -3899,6 +3899,12 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
             ),
             OpenApiParameter(
+                "exclude_kind",
+                OpenApiTypes.STR,
+                enum=HogFlow.Kind.values,
+                description="Drop workflows of this kind from the results, e.g. `broadcast` for a list that has its own surface.",
+            ),
+            OpenApiParameter(
                 "trigger",
                 OpenApiTypes.STR,
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
@@ -4050,6 +4056,14 @@ class HogFlowViewSet(
                     queryset = (
                         queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
                     )
+
+            exclude_kind = self.request.GET.get("exclude_kind")
+            if exclude_kind:
+                if exclude_kind not in HogFlow.Kind.values:
+                    raise exceptions.ValidationError(
+                        {"exclude_kind": f"Must be one of: {', '.join(HogFlow.Kind.values)}"}
+                    )
+                queryset = queryset.exclude(kind=exclude_kind)
 
             origin_product = self.request.GET.get("origin_product")
             if origin_product:
