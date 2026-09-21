@@ -43,6 +43,10 @@ from xml.etree import ElementTree
 import defusedxml.ElementTree as DefusedElementTree
 
 BAR_WIDTH = 20
+MAX_REPORT_DATA_BYTES = 2 * 1024 * 1024
+MAX_REPORT_PRODUCTS = 500
+MAX_REPORT_FILES = 10_000
+MAX_REPORT_VIOLATIONS = 100_000
 
 
 def sanitize_path(path: str) -> str:
@@ -433,19 +437,128 @@ def render_markdown(results: list[ProductCoverage], patch_data: dict | None) -> 
     return "\n".join(lines)
 
 
+def write_report_data(path: Path, results: list[ProductCoverage], patch_data: dict | None) -> None:
+    """Write inert data that a trusted-base workflow can validate and render."""
+    data = {
+        "version": 1,
+        "products": [
+            {"product": result.product, "covered": result.covered, "valid": result.valid} for result in results
+        ],
+        "patch": patch_data,
+    }
+    path.write_text(json.dumps(data, separators=(",", ":")))
+
+
+def _bounded_int(value: object, *, minimum: int = 0, maximum: int = 2**53 - 1) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise ValueError("coverage report contains an invalid integer")
+    return value
+
+
+def _bounded_percentage(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("coverage report contains an invalid percentage")
+    percentage = float(value)
+    if not 0 <= percentage <= 100:
+        raise ValueError("coverage report contains an invalid percentage")
+    return percentage
+
+
+def read_report_data(path: Path) -> tuple[list[ProductCoverage], dict | None]:
+    """Validate PR-produced report data before trusted code renders it."""
+    if path.stat().st_size > MAX_REPORT_DATA_BYTES:
+        raise ValueError("coverage report data is too large")
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict) or data.get("version") != 1:
+        raise ValueError("coverage report data has an unsupported version")
+
+    raw_products = data.get("products")
+    if not isinstance(raw_products, list) or len(raw_products) > MAX_REPORT_PRODUCTS:
+        raise ValueError("coverage report contains an invalid product list")
+    results: list[ProductCoverage] = []
+    for raw_product in raw_products:
+        if not isinstance(raw_product, dict) or not isinstance(raw_product.get("product"), str):
+            raise ValueError("coverage report contains an invalid product")
+        product = sanitize_path(raw_product["product"][:200])
+        covered = _bounded_int(raw_product.get("covered"))
+        valid = _bounded_int(raw_product.get("valid"))
+        if covered > valid:
+            raise ValueError("coverage report contains impossible product totals")
+        results.append(ProductCoverage(product=product, covered=covered, valid=valid))
+
+    raw_patch = data.get("patch")
+    if raw_patch is None:
+        return results, None
+    if not isinstance(raw_patch, dict):
+        raise ValueError("coverage report contains an invalid patch")
+
+    total_lines = _bounded_int(raw_patch.get("total_num_lines"))
+    total_violations = _bounded_int(raw_patch.get("total_num_violations"))
+    if total_violations > total_lines:
+        raise ValueError("coverage report contains impossible patch totals")
+    patch: dict = {
+        "total_num_lines": total_lines,
+        "total_num_violations": total_violations,
+        "total_percent_covered": _bounded_percentage(raw_patch.get("total_percent_covered")),
+        "src_stats": {},
+    }
+
+    raw_src_stats = raw_patch.get("src_stats", {})
+    if not isinstance(raw_src_stats, dict) or len(raw_src_stats) > MAX_REPORT_FILES:
+        raise ValueError("coverage report contains invalid file statistics")
+    violation_count = 0
+    for raw_path, raw_stats in raw_src_stats.items():
+        if not isinstance(raw_path, str) or not isinstance(raw_stats, dict):
+            raise ValueError("coverage report contains invalid file statistics")
+        raw_lines = raw_stats.get("violation_lines", [])
+        if not isinstance(raw_lines, list):
+            raise ValueError("coverage report contains invalid uncovered lines")
+        violation_count += len(raw_lines)
+        if violation_count > MAX_REPORT_VIOLATIONS:
+            raise ValueError("coverage report contains too many uncovered lines")
+        path_key = sanitize_path(raw_path[:500])
+        patch["src_stats"][path_key] = {
+            "percent_covered": _bounded_percentage(raw_stats.get("percent_covered", 0)),
+            "violation_lines": [_bounded_int(line, minimum=1) for line in raw_lines],
+        }
+    return results, patch
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--artifacts", required=True, type=Path, help="dir holding downloaded coverage-xml-* artifacts")
+    parser.add_argument("--artifacts", type=Path, help="dir holding downloaded coverage-xml-* artifacts")
     parser.add_argument("--out", type=Path, help="also write the markdown to this path")
     parser.add_argument(
         "--combined-out", type=Path, help="write a repo-relative combined Cobertura XML here (enables patch coverage)"
     )
     parser.add_argument("--compare-branch", default="origin/master", help="diff-cover compare branch")
     parser.add_argument("--patch-json-out", type=Path, help="path for diff-cover's JSON report (machine payload)")
+    parser.add_argument("--report-data-in", type=Path, help="validate and render inert report data")
+    parser.add_argument("--report-data-out", type=Path, help="write inert report data for a trusted publisher")
     parser.add_argument(
         "--core-artifacts", type=Path, help="dir of core (posthog/ee) coverage-core-* artifacts to include"
     )
     args = parser.parse_args()
+
+    if args.report_data_in is not None:
+        if (
+            args.artifacts is not None
+            or args.core_artifacts is not None
+            or args.combined_out is not None
+            or args.report_data_out is not None
+        ):
+            parser.error("--report-data-in cannot be combined with coverage artifact inputs")
+        results, patch_data = read_report_data(args.report_data_in)
+        if args.patch_json_out is not None and patch_data is not None:
+            args.patch_json_out.write_text(json.dumps(patch_data, separators=(",", ":")))
+        markdown = render_markdown(results, patch_data)
+        if args.out:
+            args.out.write_text(markdown)
+        sys.stdout.write(markdown + "\n")
+        return 0
+
+    if args.artifacts is None:
+        parser.error("--artifacts is required unless --report-data-in is used")
 
     covered, valid = aggregate(args.artifacts)
 
@@ -469,6 +582,9 @@ def main() -> int:
             args.patch_json_out.write_text(json.dumps(patch_data))
 
     markdown = render_markdown(results, patch_data)
+
+    if args.report_data_out is not None:
+        write_report_data(args.report_data_out, results, patch_data)
 
     if args.out:
         args.out.write_text(markdown)

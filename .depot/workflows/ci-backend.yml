@@ -20,8 +20,8 @@
 #   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
 #   mirror fails the step at setup with "action manifest not found".
 # - permissions: read-only in every job, so the ambient token never writes. Canonical grants
-#   handle-snapshots and backend-coverage-report write access; each Depot side effect uses a
-#   posthog-tests token instead. Report comment tokens request only pull-requests:write.
+#   handle-snapshots write access through a posthog-tests token. Coverage generation stays
+#   read-only; ci-backend-coverage-report.yml publishes its inert artifact from base context.
 # - backend-coverage-report links to its Depot job and gives Depot CLI artifact instructions.
 #   It sets up Node from .nvmrc, which canonical takes from the GitHub-hosted image.
 # - Stripped side effects: CI report sections other than backend snapshots and coverage (canonical
@@ -3551,21 +3551,18 @@ jobs:
         runs-on: depot-ubuntu-24.04
         continue-on-error: true # report-only, never block a PR
         timeout-minutes: 10
-        # Pinned job-level to the workflow's read-only grants. The ambient token is the Depot
-        # Code Access installation token that every Depot job shares, so it never writes here;
-        # the comment write uses the App token minted below.
+        # Pinned job-level to read-only grants. This PR-controlled job only produces data;
+        # ci-backend-coverage-report.yml validates and publishes it from base context.
         permissions:
             contents: read
             pull-requests: read
-        # In-repo PRs only — fork PRs get a read-only token that can't comment. Runs when either
+        # In-repo PRs only. Runs when either
         # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
         # gets a comment; both skip on drafts, leaving nothing to report.
         # A narrowed run measures only the selected tests, so patch coverage would report
         # gaps that the full suite covers. Report only when the Django matrix ran full.
-        # Security invariant: this job runs PR-head-controlled scripts (coverage_report.py,
-        # post-coverage-section.mjs). Their only token that can write is the report token below,
-        # narrowed to pull-requests: write, the grant canonical gives github.token. Never give
-        # this job a token that can write anything else.
+        # Security invariant: this job runs PR-head-controlled scripts. It receives no write
+        # credential and uploads only structured data for the trusted publisher to re-render.
         if: >-
             !cancelled() &&
             needs.wait-for-handoff.outputs.handed_off == 'true' &&
@@ -3624,36 +3621,17 @@ jobs:
                       --combined-out combined-coverage.xml \
                       --compare-branch origin/master \
                       --patch-json-out patch-coverage.json \
+                      --report-data-out coverage-report-data.json \
                       --out coverage-comment.md
-            - name: Mint CI report comment token
-              id: report-token
-              if: steps.reporter.outputs.available == 'true'
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - name: Upload inert coverage report data
+              if: ${{ always() && steps.reporter.outputs.available == 'true' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-                  permission-pull-requests: write
-            - name: Set up Node.js
-              if: steps.report-token.outputs.token != ''
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  token: ${{ steps.report-token.outputs.token }}
-            - name: Post to CI report comment
-              # Runs only with the minted token. With an empty GITHUB_TOKEN, update-ci-report.mjs
-              # falls back to GH_TOKEN, and no other token may write from a Depot job.
-              if: steps.report-token.outputs.token != ''
-              env:
-                  GITHUB_TOKEN: ${{ steps.report-token.outputs.token }}
-              run: |
-                  # A report writer that predates tests-posthog[bot] authorship does not adopt the
-                  # comment this token creates, so it would add a new report comment on every write.
-                  if [ -f .github/scripts/post-coverage-section.mjs ] && grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs; then
-                      node .github/scripts/post-coverage-section.mjs coverage-comment.md patch-coverage.json
-                  else
-                      echo "Skipping the coverage section: the poster is missing, or update-ci-report.mjs predates tests-posthog[bot] authorship."
-                  fi
+                  name: coverage-report-data
+                  path: coverage-report-data.json
+                  if-no-files-found: ignore
+                  retention-days: 2
+                  overwrite: true
             - name: Upload patch coverage payload
               if: ${{ always() && steps.reporter.outputs.available == 'true' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import json
 import importlib.util
 from pathlib import Path
 
@@ -191,3 +192,83 @@ def test_build_agent_hint_links_to_the_engine_artifact(
     hint = coverage_report.build_agent_hint()
 
     assert expected in hint
+
+
+def test_report_data_round_trip_sanitizes_untrusted_fields(tmp_path: Path) -> None:
+    data_path = tmp_path / "coverage-report-data.json"
+    data_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "products": [{"product": "bad|product", "covered": 4, "valid": 5}],
+                "patch": {
+                    "total_num_lines": 2,
+                    "total_num_violations": 1,
+                    "total_percent_covered": 50,
+                    "src_stats": {
+                        "posthog/bad<!--.py": {"percent_covered": 50, "violation_lines": [7]},
+                    },
+                },
+            }
+        )
+    )
+
+    results, patch = coverage_report.read_report_data(data_path)
+
+    assert results == [coverage_report.ProductCoverage(product="bad_product", covered=4, valid=5)]
+    assert patch is not None
+    assert list(patch["src_stats"]) == ["posthog/bad__-.py"]
+    assert "bad<!--" not in coverage_report.render_markdown(results, patch)
+
+
+def test_generated_report_data_renders_identically(tmp_path: Path) -> None:
+    results = [coverage_report.ProductCoverage(product="alerts", covered=4, valid=5)]
+    patch = {
+        "total_num_lines": 2,
+        "total_num_violations": 1,
+        "total_percent_covered": 50.0,
+        "src_stats": {"products/alerts/backend/api.py": {"percent_covered": 50.0, "violation_lines": [7]}},
+    }
+    data_path = tmp_path / "coverage-report-data.json"
+
+    coverage_report.write_report_data(data_path, results, patch)
+    restored_results, restored_patch = coverage_report.read_report_data(data_path)
+
+    assert coverage_report.render_markdown(restored_results, restored_patch) == coverage_report.render_markdown(
+        results, patch
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_field",
+    [
+        "version",
+        "product_totals",
+        "patch_totals",
+        "percentage",
+    ],
+)
+def test_report_data_rejects_invalid_totals(tmp_path: Path, invalid_field: str) -> None:
+    data = {
+        "version": 1,
+        "products": [{"product": "alerts", "covered": 4, "valid": 5}],
+        "patch": {
+            "total_num_lines": 2,
+            "total_num_violations": 1,
+            "total_percent_covered": 50,
+            "src_stats": {},
+        },
+    }
+    if invalid_field == "version":
+        data["version"] = 2
+    elif invalid_field == "product_totals":
+        data["products"][0]["covered"] = 6
+    elif invalid_field == "patch_totals":
+        data["patch"]["total_num_violations"] = 3
+    else:
+        data["patch"]["total_percent_covered"] = 101
+    data_path = tmp_path / "coverage-report-data.json"
+    data_path.write_text(json.dumps(data))
+
+    with pytest.raises(ValueError):
+        coverage_report.read_report_data(data_path)
