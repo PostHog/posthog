@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 
 import {
     buildBlocks,
+    buildLeaderboard,
     buildShadowBlocks,
     buildTeamDigests,
     buildRunnerReports,
@@ -509,6 +510,50 @@ describe('weekly flaky report', () => {
         const [header, table] = buildShadowBlocks(digests[0])
         assert.equal(header.text.text, '*devex* _(shadow: would post to #team-devex)_')
         assert.equal(table.rows.length, 3)
+    })
+
+    it('ranks teams over the whole candidate pool and counts a cluster once', () => {
+        const flake = (selector, fails) => ({ selector, failed_run_count: fails })
+        const owners = {
+            'a/test_one.py': 'team-devex',
+            'a/test_two.py': 'team-devex',
+            'b/test_cluster.py': 'team-replay',
+            'c/test_orphan.py': 'unowned',
+        }
+        const candidates = [
+            flake('a/test_one.py::test_a', 3),
+            flake('a/test_two.py::test_b', 2),
+            // One shared-fixture file: more members than either devex test, but one entry.
+            ...Array.from({ length: CLUSTER_MIN_TESTS + 1 }, (_, index) =>
+                flake(`b/test_cluster.py::test_${index}`, 1)
+            ),
+            flake('c/test_orphan.py::test_c', 9),
+        ]
+
+        const leaderboard = buildLeaderboard(candidates, (item) => ({
+            owner: owners[item.selector.split('::')[0]],
+        }))
+
+        assert.deepEqual(
+            leaderboard.map(({ owner, tests, fails, rank }) => [owner, tests, fails, rank]),
+            [
+                ['team-devex', 2, 5, 1],
+                ['team-replay', 1, CLUSTER_MIN_TESTS + 1, 2],
+                // Nobody owns these, so they stay visible but out of the team ranking.
+                ['unowned', 1, 9, null],
+            ]
+        )
+        const blocks = buildBlocks(new Date('2026-09-21T00:00:00Z'), [], leaderboard)
+        const board = blocks.filter((block) => block.type === 'table').pop()
+        assert.deepEqual(
+            board.rows.map((tableRow) => tableRow.map((tableCell) => tableCell.text)),
+            [
+                ['#', 'team', 'flaky tests', 'fails'],
+                ['\u{1F947}', 'devex', '2', '5'],
+                ['\u{1F948}', 'replay', '1', '6'],
+                ['-', 'unowned', '1', '9'],
+            ]
+        )
     })
 
     it('matches a Jest selector reported from the package root against Trunk', async () => {

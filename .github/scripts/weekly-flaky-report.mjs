@@ -43,6 +43,7 @@ const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_
 const TRUNK_TABLE = process.env.TRUNK_QUARANTINE_TABLE || 'trunkio.quarantinedtests'
 
 const TOP_N = 10
+const LEADERBOARD_TOP_N = 8
 const CANDIDATE_POOL = 40
 const CLUSTER_MIN_TESTS = 5
 const REPORT_RUNNERS = ['pytest', 'jest']
@@ -419,6 +420,65 @@ function buildTeamDigests(entries) {
     return [...byOwner.values()].sort((a, b) => b.rows.length - a.rows.length)
 }
 
+// Teams ranked by how many of the week's qualifying flakes they own. Counted over the
+// full candidate pool rather than the reported rows, because the report keeps only the
+// loudest TOP_N per runner and a team with many quiet flakes would never show there.
+// A shared-fixture cluster counts once, the same collapse the tables apply, so one
+// broken file cannot put a team at the top on its own.
+function tallyOwnedFlakes(candidates, ownerFor) {
+    const byFile = new Map()
+    for (const item of candidates) {
+        const file = item.selector.split('::')[0]
+        if (!byFile.has(file)) {
+            byFile.set(file, [])
+        }
+        byFile.get(file).push(item)
+    }
+    const byOwner = new Map()
+    for (const [file, group] of byFile) {
+        const { owner } = ownerFor({ selector: file })
+        if (!byOwner.has(owner)) {
+            byOwner.set(owner, { owner, tests: 0, fails: 0 })
+        }
+        const tally = byOwner.get(owner)
+        tally.tests += group.length >= CLUSTER_MIN_TESTS ? 1 : group.length
+        tally.fails += group.reduce((sum, item) => sum + (item.failed_run_count || 0), 0)
+    }
+    return byOwner
+}
+
+// Unowned tests are real work nobody is on the hook for, so they stay on the board but
+// out of the ranking, which is between teams.
+function buildLeaderboard(candidates, ownerFor) {
+    const tallies = [...tallyOwnedFlakes(candidates, ownerFor).values()].sort(
+        (left, right) => right.tests - left.tests || right.fails - left.fails || left.owner.localeCompare(right.owner)
+    )
+    const ranked = tallies
+        .filter(({ owner }) => owner !== 'unowned')
+        .slice(0, LEADERBOARD_TOP_N)
+        .map((tally, index) => ({ ...tally, rank: index + 1 }))
+    const unowned = tallies.find(({ owner }) => owner === 'unowned')
+    return unowned ? [...ranked, { ...unowned, rank: null }] : ranked
+}
+
+const MEDALS = ['\u{1F947}', '\u{1F948}', '\u{1F949}']
+
+function leaderboardTable(entries) {
+    return {
+        type: 'table',
+        column_settings: [{ align: 'left' }, { align: 'left' }, { align: 'right' }, { align: 'right' }],
+        rows: [
+            [cell('#'), cell('team'), cell('flaky tests'), cell('fails')],
+            ...entries.map(({ owner, tests, fails, rank }) => [
+                cell(rank == null ? '-' : MEDALS[rank - 1] || String(rank)),
+                cell(owner.replace(/^team-/, '')),
+                cell(String(tests)),
+                cell(String(fails)),
+            ]),
+        ],
+    }
+}
+
 function flakyTable(rows) {
     return {
         type: 'table',
@@ -461,7 +521,7 @@ function buildShadowBlocks({ owner, channel, rows }) {
     ]
 }
 
-function buildBlocks(now, rows) {
+function buildBlocks(now, rows, leaderboard = []) {
     const dateLabel = now.toISOString().slice(0, 10)
     const blocks = [
         {
@@ -473,6 +533,16 @@ function buildBlocks(now, rows) {
         },
         flakyTable(rows),
     ]
+    if (leaderboard.length > 0) {
+        blocks.push({
+            type: 'section',
+            text: {
+                type: 'mrkdwn',
+                text: '*Shameboard* _(every flaky test we found this week, by owning team, not only the rows above)_',
+            },
+        })
+        blocks.push(leaderboardTable(leaderboard))
+    }
     const editBlock = editWorkflowBlock()
     if (editBlock) {
         blocks.push(editBlock)
@@ -488,13 +558,16 @@ async function main() {
     const now = new Date()
     // Built once so the filter and the owner resolution share one git ls-files.
     const toRepoPaths = repoPathResolver()
-    const runnerReports = await buildRunnerReports(await fetchCandidatePools(REPORT_RUNNERS, toRepoPaths))
+    const candidatePools = await fetchCandidatePools(REPORT_RUNNERS, toRepoPaths)
+    const runnerReports = await buildRunnerReports(candidatePools)
     const reportCandidates = runnerReports.flatMap(({ candidates }) => candidates)
     if (reportCandidates.length === 0) {
         console.info('No qualifying flaky tests this week — nothing to post.')
         return
     }
-    const ownerFor = resolveOwners(reportCandidates, toRepoPaths)
+    const allCandidates = candidatePools.flatMap(({ candidates }) => candidates)
+    // Cluster rows carry a bare file selector that no candidate has, so resolve both sets.
+    const ownerFor = resolveOwners([...allCandidates, ...reportCandidates], toRepoPaths)
     // Rendered once; the channel table and the per-team slices share the same rows.
     const entries = runnerReports.flatMap(({ candidates, extrasFor, statusFor }) => {
         const reportRows = tableRows(candidates, ownerFor, extrasFor, statusFor)
@@ -502,7 +575,8 @@ async function main() {
     })
     const blocks = buildBlocks(
         now,
-        entries.map(({ row }) => row)
+        entries.map(({ row }) => row),
+        buildLeaderboard(allCandidates, ownerFor)
     )
     const teamDigests = buildTeamDigests(entries)
     if (DRY_RUN) {
@@ -541,6 +615,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
     buildBlocks,
+    buildLeaderboard,
     buildShadowBlocks,
     buildTeamDigests,
     buildRunnerReports,
