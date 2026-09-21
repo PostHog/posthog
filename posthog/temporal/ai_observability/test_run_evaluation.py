@@ -611,10 +611,18 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_emit_evaluation_event_activity_skipped_omits_cost_attribution(self, setup_data):
-        """Skipped evaluations never made an API call, so the emitted event must not attribute
-        a model, provider, or token usage. The skip is surfaced via dedicated properties so
-        consumers can still distinguish a skip from a regular result."""
+    @pytest.mark.parametrize(
+        "skip_reason, model, provider, input_tokens, output_tokens, expects_attribution",
+        [
+            # Nothing reached a provider, so attributing a model would invent a call that never ran.
+            pytest.param("trace_errored", None, None, 0, 0, False, id="no_call_made"),
+            # The model ran and billed before its answer turned out to be unreadable.
+            pytest.param("unparsable_response", "gpt-5-mini", "openai", 11, 7, True, id="call_billed"),
+        ],
+    )
+    async def test_emit_evaluation_event_activity_attributes_only_a_skip_that_called_a_model(
+        self, setup_data, skip_reason, model, provider, input_tokens, output_tokens, expects_attribution
+    ):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -629,16 +637,19 @@ class TestRunEvaluationWorkflow:
         result: EvaluationActivityResult = {
             "result_type": "boolean",
             "verdict": False,
-            "reasoning": "Source trace errored before producing output; evaluation skipped.",
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": 0,
+            "reasoning": "Evaluation skipped.",
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
             "is_byok": False,
             "key_id": None,
             "allows_na": False,
             "skipped": True,
-            "skip_reason": "trace_errored",
+            "skip_reason": skip_reason,
         }
+        if model is not None and provider is not None:
+            result["model"] = model
+            result["provider"] = provider
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
             with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
@@ -657,20 +668,26 @@ class TestRunEvaluationWorkflow:
                 props = mock_capture.call_args[1]["properties"]
 
         assert props["$ai_evaluation_skipped"] is True
-        assert props["$ai_evaluation_skip_reason"] == "trace_errored"
+        assert props["$ai_evaluation_skip_reason"] == skip_reason
         assert props["$ai_evaluation_result_type"] == "boolean"
         assert props["$ai_evaluation_result"] is False
-        for cost_key in (
-            "$ai_model",
-            "$ai_provider",
-            "$ai_input_tokens",
-            "$ai_output_tokens",
-            "$ai_evaluation_model",
-            "$ai_evaluation_provider",
-            "$ai_evaluation_key_type",
-            "$ai_evaluation_key_id",
-        ):
-            assert cost_key not in props, f"{cost_key} must be omitted for skipped evaluations"
+        if expects_attribution:
+            assert props["$ai_model"] == model
+            assert props["$ai_provider"] == provider
+            assert props["$ai_input_tokens"] == input_tokens
+            assert props["$ai_output_tokens"] == output_tokens
+        else:
+            for cost_key in (
+                "$ai_model",
+                "$ai_provider",
+                "$ai_input_tokens",
+                "$ai_output_tokens",
+                "$ai_evaluation_model",
+                "$ai_evaluation_provider",
+                "$ai_evaluation_key_type",
+                "$ai_evaluation_key_id",
+            ):
+                assert cost_key not in props, f"{cost_key} must be omitted when no model was called"
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -1690,6 +1707,9 @@ class TestRunEvaluationWorkflow:
         assert result["skip_reason"] == "unparsable_response"
         assert result["verdict"] is expected_verdict
         assert result.get("applicable") is expected_applicable
+        # The exception drops the provider's counts, but the call still happened on a known model.
+        assert result["provider"] == "openai"
+        assert result["input_tokens"] == 0
 
     def test_execute_llm_judge_activity_empty_structured_response_skips_item(self):
         evaluation = {
@@ -1730,6 +1750,8 @@ class TestRunEvaluationWorkflow:
         mock_increment_errors.assert_called_once_with("empty_structured_response", provider="openai")
         assert result["skipped"] is True
         assert result["skip_reason"] == "unparsable_response"
+        assert result["provider"] == "openai"
+        assert (result["input_tokens"], result["output_tokens"]) == (10, 5)
 
     @pytest.mark.parametrize(
         "raised_exception, expected_label",

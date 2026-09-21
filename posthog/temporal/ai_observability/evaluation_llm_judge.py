@@ -34,7 +34,7 @@ from posthog.temporal.ai_observability.model_resolution import model_spec
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
-from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
@@ -237,19 +237,26 @@ def _build_context_window_skip_result(
 
 
 def _build_unparsable_response_skip_result(
-    allows_na: bool, *, is_byok: bool, key_id: str | None
+    allows_na: bool, *, is_byok: bool, key_id: str | None, provider: str, model: str, usage: Usage | None
 ) -> EvaluationActivityResult:
-    """Per-item skip for a judge response that does not match the requested schema."""
+    """Per-item skip for a judge response that does not match the requested schema.
+
+    This skip carries `model` and `provider`, unlike the others, because the model did run and
+    the call was billed. `usage` is None when the failure reached us as an exception, which drops
+    the counts the provider reported.
+    """
     result: EvaluationActivityResult = {
         "result_type": "boolean",
         "verdict": None if allows_na else False,
         "reasoning": "Evaluation model returned an unreadable response; evaluation skipped.",
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "total_tokens": 0,
+        "input_tokens": usage.input_tokens if usage else 0,
+        "output_tokens": usage.output_tokens if usage else 0,
+        "total_tokens": usage.total_tokens if usage else 0,
         "is_byok": is_byok,
         "key_id": key_id,
         "allows_na": allows_na,
+        "model": model,
+        "provider": provider,
         "skipped": True,
         "skip_reason": "unparsable_response",
     }
@@ -468,7 +475,9 @@ def call_llm_judge(
             model=model,
             error=str(e),
         )
-        return _build_unparsable_response_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
+        return _build_unparsable_response_skip_result(
+            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, usage=None
+        )
 
     except ContextWindowExceededError:
         # Skip rather than raise: retrying can't fix an over-window prompt and just spams error tracking.
@@ -509,7 +518,9 @@ def call_llm_judge(
             provider=provider,
             model=model,
         )
-        return _build_unparsable_response_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
+        return _build_unparsable_response_skip_result(
+            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, usage=response.usage
+        )
 
     assert isinstance(parsed_result, BooleanEvalResult | BooleanWithNAEvalResult)
 
