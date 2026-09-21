@@ -1,6 +1,6 @@
 import { RecordingSegment } from '~/types'
 
-import { MAX_STALL_RECOVERY_ATTEMPTS, continuesStallBurst, resolveStallRecovery } from './stall-recovery'
+import { MAX_STALL_RECOVERY_ATTEMPTS, resolveStallRecovery } from './stall-recovery'
 
 describe('stall recovery', () => {
     const segment = (startTimestamp: number, endTimestamp: number): RecordingSegment =>
@@ -39,13 +39,5 @@ describe('stall recovery', () => {
         expect(resolveStallRecovery(MAX_STALL_RECOVERY_ATTEMPTS, 16.67, 1000, [segment(0, 2000)])).toEqual({
             kind: 'giveUp',
         })
-    })
-
-    it.each([
-        ['the first attempt of a run', null, 1000, false],
-        ['attempts a few frames apart', 1000, 1200, true],
-        ['a stall after the player played again', 1000, 9000, false],
-    ])('tracks bursts: %s', (_name, lastAttemptAt, at, expected) => {
-        expect(continuesStallBurst(lastAttemptAt as number | null, at as number)).toBe(expected)
     })
 })

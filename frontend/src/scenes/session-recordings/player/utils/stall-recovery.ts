@@ -6,11 +6,11 @@ import { RecordingSegment } from '~/types'
 // consecutive nudge is therefore larger than the last, and the burst ends after a bounded number
 // of them.
 export const MAX_STALL_RECOVERY_ATTEMPTS = 5
-export const MIN_STALL_SKIP_MS = 250
-export const MAX_STALL_SKIP_MS = 10_000
+const MIN_STALL_SKIP_MS = 250
+const MAX_STALL_SKIP_MS = 10_000
 // Attempts inside one burst land a few frames apart. A longer gap means playback ran again, so the
 // next stall is a new burst and starts from the smallest skip.
-export const STALL_BURST_GAP_MS = 3000
+const STALL_BURST_GAP_MS = 3000
 
 export type StallRecovery =
     | { kind: 'skip'; skipMs: number }
