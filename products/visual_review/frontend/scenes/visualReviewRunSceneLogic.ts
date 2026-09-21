@@ -54,8 +54,8 @@ export interface visualReviewRunSceneLogicValues {
     quarantinedIdentifierSet: Set<string>
     quarantinedIdentifiers: QuarantinedIdentifierEntryApi[]
     quarantinedIdentifiersLoading: boolean
-    repo: RepoApi | null
     recentTolerations: RecentTolerations | null
+    repo: RepoApi | null
     repoFullName: string | null
     repoLoading: boolean
     run: RunApi | null
@@ -216,6 +216,10 @@ export interface visualReviewRunSceneLogicMeta {
             selectedSnapshotId: string | null,
             quarantinedIdentifierSet: Set<string>
         ) => SnapshotApi | null
+        recentTolerations: (
+            toleratedHashes: ToleratedHashEntryApi[],
+            toleratedHashesLoading: boolean
+        ) => RecentTolerations | null
         changedSnapshots: (snapshots: SnapshotApi[]) => SnapshotApi[]
         sortedChangedSnapshots: (changedSnapshots: SnapshotApi[]) => SnapshotApi[]
         hasChanges: (changedSnapshots: SnapshotApi[]) => boolean
@@ -224,10 +228,6 @@ export interface visualReviewRunSceneLogicMeta {
             quarantinedIdentifiers: QuarantinedIdentifierEntryApi[],
             run: RunApi | null
         ) => Set<string>
-        recentTolerations: (
-            toleratedHashes: ToleratedHashEntryApi[],
-            toleratedHashesLoading: boolean
-        ) => RecentTolerations | null
         repoFullName: (repo: RepoApi | null) => string | null
         thumbnailBasePath: (run: RunApi | null, currentProjectId: number | string) => string | null
         isRunInProgress: (run: RunApi | null) => boolean
