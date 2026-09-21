@@ -57,7 +57,6 @@ const DEBOUNCE_MILLIS = 250 // currently using 4fps for all recordings
 
 export interface CanvasPluginErrorContext {
     canvasNodeId?: number
-    mutationId?: number
     eventTimestamp?: number
 }
 
@@ -233,17 +232,11 @@ export const CanvasReplayerPlugin = (
             target: target,
             imageMap,
             canvasEventMap,
-            // rrweb calls this handler with the mutation payload first and the error second.
-            // The payload is not the failure, so it becomes context and only the error is reported.
+            // rrweb calls this handler with the mutation payload first and the error second,
+            // so the payload is not the failure and must not be reported as one.
             errorHandler: (mutationOrError: unknown, maybeError?: unknown) => {
-                const error = maybeError === undefined ? mutationOrError : maybeError
-                const mutationId =
-                    maybeError !== undefined && mutationOrError && typeof mutationOrError === 'object'
-                        ? (mutationOrError as canvasMutationData).id
-                        : undefined
-                onError(error, {
+                onError(maybeError === undefined ? mutationOrError : maybeError, {
                     canvasNodeId: data.id,
-                    mutationId,
                     eventTimestamp: e.timestamp,
                 })
             },

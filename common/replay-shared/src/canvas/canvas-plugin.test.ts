@@ -456,11 +456,7 @@ describe('CanvasReplayerPlugin', () => {
 
             const onError = await runFailingMutation((errorHandler) => errorHandler(failingEvent.data, error))
 
-            expect(onError).toHaveBeenCalledWith(error, {
-                canvasNodeId: 7,
-                mutationId: 7,
-                eventTimestamp: 1234,
-            })
+            expect(onError).toHaveBeenCalledWith(error, { canvasNodeId: 7, eventTimestamp: 1234 })
         })
 
         it('reports a single argument as the error', async () => {
