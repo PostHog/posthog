@@ -2713,6 +2713,33 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["owners"] == []
 
+    def test_list_says_who_turned_a_scout_off(self) -> None:
+        # The roster could only say *when* a scout went off, so a reader had to open the activity
+        # log to learn who did it, and a system pause looked like somebody's decision.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self.client.patch(
+            self._detail_url(str(SignalScoutConfig.objects.get(skill_name="signals-scout-checkout").id)),
+            data={"enabled": False},
+            format="json",
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["status_changed_by"]["email"] == self.user.email
+
+    def test_list_hides_who_turned_a_scout_off_from_a_scout_sandbox_token(self) -> None:
+        # Same rule as `owners`: the actor is member PII, and the sandbox token carries
+        # `signal_scout:read`, so a run must not read it off the fleet's configs.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
+        _authenticate_as_scout(self)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["status_changed_by"] is None
+
     def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
         # A config with no live skill row isn't a canonical scout.
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
