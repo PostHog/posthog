@@ -86,5 +86,6 @@ export async function fetchTaxonomicListPage({
         results,
         searchQuery,
         count,
+        countIsCapped: primary?.count_is_capped === true,
     }
 }

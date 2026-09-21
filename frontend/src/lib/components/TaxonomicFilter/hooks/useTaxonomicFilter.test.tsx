@@ -458,6 +458,7 @@ describe('useTaxonomicFilter', () => {
             items: [fakeItem] as any,
             rowCount: 1,
             totalResultCount: 1,
+            totalResultCountIsCapped: false,
             index: 0,
             setIndex: jest.fn(),
             moveUp: jest.fn(),

@@ -407,6 +407,8 @@ export interface ListStorage {
     results: TaxonomicDefinitionTypes[]
     searchQuery?: string
     count: number
+    /** True when the endpoint stopped counting at its cap, so `count` is a lower bound. */
+    countIsCapped?: boolean
     expandedCount?: number
     queryChanged?: boolean
     first?: boolean

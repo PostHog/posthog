@@ -95,6 +95,8 @@ export interface UseGroupListResult {
     rowCount: number
     /** Number of "real" results (excluding synthetic rows). */
     totalResultCount: number
+    /** True when the remote count stopped at the endpoint's cap, so `totalResultCount` is a lower bound. */
+    totalResultCountIsCapped: boolean
     /** Currently highlighted row. NO_ITEM_SELECTED (-1) if no selection. */
     index: number
     setIndex: (index: number) => void
@@ -526,6 +528,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // shows 100 instead of 310). `rowCount` stays length-based since it drives
     // virtualisation.
     const totalResultCount = keywordShortcuts.length + localItems.count + (hasRemoteDataSource ? remoteItems.count : 0)
+    const totalResultCountIsCapped = hasRemoteDataSource && remoteItems.countIsCapped === true
     const rowCount = items.length + (isExpandable ? 1 : 0)
 
     // ---- Loading / empty state ---------------------------------------------
@@ -594,6 +597,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         items,
         rowCount,
         totalResultCount,
+        totalResultCountIsCapped,
         index,
         setIndex,
         moveUp,
