@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
     MALFORMED_JSON_MAX_ATTEMPTS,
     MAX_AD_ACCOUNT_PAGES,
+    MAX_CURSOR_RESTARTS,
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
@@ -1203,6 +1204,108 @@ class TestMidChunkLimitFallback:
 
         # Initial + failed cursor only — the limit ladder is not exercised for auth errors.
         assert mock_get.return_value.get.call_count == 2
+
+
+class TestInvalidCursorRecovery:
+    URL = "https://graph.facebook.com/v20/act_1/insights"
+    PARAMS: dict[str, Any] = {"fields": "ad_id", "limit": 500, "level": "ad", "access_token": "tok"}
+    # Graph API code 2642 — Meta no longer accepts the cursor the request carried.
+    INVALID_CURSOR_BODY = {"error": {"message": "Invalid cursors values", "type": "OAuthException", "code": 2642}}
+
+    def test_refused_cursor_restarts_the_chunk_from_its_first_day(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            _mock_response(400, self.INVALID_CURSOR_BODY),
+            # The restarted chunk pages cleanly.
+            _mock_response(200, {"data": [{"ad_id": "1"}, {"ad_id": "2"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-01", "until": "2026-04-08"}, None, manager
+                )
+            )
+
+        assert [[row["ad_id"] for row in batch] for batch in batches] == [["1"], ["1", "2"]]
+
+        # The restart re-requests the same window at the same chunk size, not the dead cursor.
+        restart_params = mock_get.return_value.get.call_args_list[2].kwargs["params"]
+        assert json.loads(restart_params["time_range"]) == {"since": "2026-04-01", "until": "2026-04-08"}
+
+        # Saved state drops the cursor, so a Temporal retry cannot replay it either.
+        restart_save: MetaAdsResumeConfig = manager.save_state.call_args_list[1].args[0]
+        assert restart_save.chunk_since == "2026-04-01"
+        assert restart_save.chunk_next_url is None
+
+    def test_chunk_that_keeps_losing_its_cursor_raises_a_clean_message(self) -> None:
+        manager = _build_manager()
+        page_then_refusal = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            _mock_response(400, self.INVALID_CURSOR_BODY),
+        ]
+        # The first page and refusal, then one of each per restart the budget allows.
+        responses = page_then_refusal * (MAX_CURSOR_RESTARTS + 1)
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            gen = _iter_time_range_pagination(
+                self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+            )
+            assert next(gen) == [{"ad_id": "1"}]
+            with pytest.raises(Exception, match=META_INVALID_CURSOR_ERROR_MESSAGE):
+                list(gen)
+
+        # The budget bounds the restarts — the chunk does not loop on the refusal.
+        assert mock_get.return_value.get.call_count == len(responses)
+
+    def test_resumed_cursor_refused_restarts_from_the_saved_chunk_start(self) -> None:
+        state = MetaAdsResumeConfig(
+            end_date="2026-04-16",
+            chunk_since="2026-04-10",
+            chunk_size_days=7,
+            chunk_next_url="https://graph.facebook.com/v20/act_1/insights?after=p1",
+        )
+        manager = _build_manager(can_resume=True, state=state)
+        responses = [
+            # The replayed cursor is the one Meta has already refused.
+            _mock_response(400, self.INVALID_CURSOR_BODY),
+            _mock_response(200, {"data": [{"ad_id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-01", "until": "2026-04-16"}, state, manager
+                )
+            )
+
+        assert [batch[0]["ad_id"] for batch in batches] == ["1"]
+
+        # The sync restarts the saved chunk at its saved size rather than replaying the cursor.
+        restart_params = mock_get.return_value.get.call_args_list[1].kwargs["params"]
+        assert json.loads(restart_params["time_range"]) == {"since": "2026-04-10", "until": "2026-04-16"}
 
 
 class TestTimeRangeMalformedJson:

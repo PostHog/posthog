@@ -451,11 +451,13 @@ META_UNSUPPORTED_GET_REQUEST_MESSAGE = "unsupported get request"
 META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 
 # Meta error code 2642: the `paging.next` cursor used to follow a page was rejected as invalid.
-# Terminal for this job — `_iter_time_range_pagination`/`_iter_simple_pagination` save that same
-# cursor to resumable state before fetching it, so a Temporal retry of this job would resume with
-# the identical cursor and fail the same way every time. A later sync run gets a fresh job id (and
-# so a fresh resumable-state key, see `ResumableSourceManager`), which starts pagination from
-# scratch with a new cursor.
+# `_iter_time_range_pagination`/`_iter_simple_pagination` save that same cursor to resumable state
+# before fetching it, so a Temporal retry of this job would resume with the identical cursor and
+# fail the same way every time. The stats path drops the cursor and restarts the chunk from its
+# saved start instead (see `MAX_CURSOR_RESTARTS`). Terminal for this job once that budget is
+# spent, or on the simple pagination path, which has no chunk to restart. A later sync run gets a
+# fresh job id (and so a fresh resumable-state key, see `ResumableSourceManager`), which starts
+# pagination from scratch with a new cursor.
 META_INVALID_CURSOR_ERROR_CODE = 2642
 
 META_AUTH_ERROR_MESSAGE = (
@@ -467,6 +469,12 @@ META_RATE_LIMIT_ERROR_MESSAGE = (
 )
 
 META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync became invalid. Please run the sync again."
+
+# How many times a refused cursor may restart its chunk before the stats sync gives up. A restart
+# re-pages the chunk from its first day, so the budget bounds that re-read for a chunk that keeps
+# outliving its cursors. Mirrors the `MAX_CURSOR_RESTARTS` budget the Square and Squarespace
+# sources use for the same failure.
+MAX_CURSOR_RESTARTS = 3
 
 # Matched by `MetaAdsSource.get_non_retryable_errors`, so it has to stay in sync
 # with the key there.
@@ -753,6 +761,7 @@ def _iter_time_range_pagination(
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
     current_start = start_date
     pending_next_url: str | None = None
+    restarts_remaining = MAX_CURSOR_RESTARTS
 
     if resume_config is not None and resume_config.end_date is not None and resume_config.chunk_since is not None:
         current_start = dt.datetime.strptime(resume_config.chunk_since, "%Y-%m-%d")
@@ -778,6 +787,12 @@ def _iter_time_range_pagination(
                 chunk_limit=current_limit if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0] else None,
             )
         )
+
+    def _drop_cursor_and_restart(reason: str) -> None:
+        # Drop the saved cursor: it is either dead or encodes a window this chunk no longer
+        # uses, so a resume has to re-enter the chunk from its first day.
+        logger.warning(reason, chunk_since=current_start.strftime("%Y-%m-%d"), chunk_size_days=chunk_size_days)
+        _save(current_start, chunk_size_days, None)
 
     while current_start <= end_date:
         current_end = min(current_start + dt.timedelta(days=chunk_size_days - 1), end_date)
@@ -826,6 +841,17 @@ def _iter_time_range_pagination(
         malformed_json_attempts = 0
         while True:
             if response.status_code != 200:
+                # Meta refuses the cursor: restart the chunk from its first day at the current
+                # size, because re-issuing the cursor can only fail the same way. Re-yielding the
+                # chunk's earlier pages costs a merge the primary key already dedupes. A
+                # cursor-less initial request cannot produce this error, so a refusal there is a
+                # malformed query rather than a dead cursor and must surface.
+                if _is_invalid_cursor_error(response) and last_paging_url is not None and restarts_remaining > 0:
+                    restarts_remaining -= 1
+                    _drop_cursor_and_restart("Meta refused a Meta Ads pagination cursor, restarting the chunk")
+                    restart_chunk = True
+                    break
+
                 # Mid-chunk timeout: retry the same cursor URL with a smaller
                 # ``limit``. Re-issuing earlier pages (i.e. shrinking the
                 # chunk) is not safe here — we've already yielded them.
@@ -845,9 +871,7 @@ def _iter_time_range_pagination(
                     smaller_chunk = _next_smaller_chunk_size(chunk_size_days)
                     if smaller_chunk is not None:
                         chunk_size_days = smaller_chunk
-                        # Drop the saved cursor. It encodes the wider window, so a
-                        # resume has to re-enter this chunk at the new size.
-                        _save(current_start, chunk_size_days, None)
+                        _drop_cursor_and_restart("Meta Ads page limit exhausted, restarting the chunk narrower")
                         restart_chunk = True
                         break
                     _raise_shrink_exhausted_error(response)
