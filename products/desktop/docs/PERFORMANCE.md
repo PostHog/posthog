@@ -19,15 +19,20 @@ Check syntax highlighting and large file scrolling in both conversation previews
 
 ## Cold start
 
-The renderer bundle is about ten megabytes. A module script in the head is
-deferred, but the renderer still compiles and runs every module before it
-paints, so the boot shell in `index.html` reached the screen only after the
-bundle was ready. The window showed nothing for the whole of that wait.
+A module script runs before the renderer paints. The renderer entry held the
+whole app, about ten megabytes, so the boot shell in `index.html` reached the
+screen only when that bundle was ready. The window stayed empty until then.
 
-`vite-plugin-first-paint.ts` moves the bundle out of the parsed document at
-build time. An inline script loads the bundle and its module preloads after two
-animation frames, so the boot shell paints first. A hidden window gets no
-animation frames, so a 500 ms timer loads the bundle as well.
+`src/renderer/main.tsx` is now a boot entry of a few lines. It holds the
+stylesheet import, so the shell paints styled, and imports
+`src/renderer/boot.tsx` after the first frame. Rollup emits the app as its own
+chunk, which drops the entry from about ten megabytes to about fifteen
+kilobytes. Keep `main.tsx` this small: any import you add there paints after,
+not before.
+
+A window that is still hidden gets no animation frames, so a 500 ms timer
+backs the frame up. The window itself stays hidden until `ready-to-show` in
+`src/main/window.ts`, which the early paint now reaches in about 150 ms.
 
 Keep boot work off the first screen. Syntax highlighting grammars load in
 `requestIdleCallback` rather than at module scope, because a cold start does
@@ -35,4 +40,4 @@ not show a diff.
 
 To measure a change, read `first-paint` and `first-contentful-paint` from the
 renderer over CDP: `first-paint` is the boot shell, `first-contentful-paint` is
-the app. `first-paint` must stay near 100 ms, whatever the bundle costs.
+the app. `first-paint` must stay near 150 ms, whatever the app costs.
