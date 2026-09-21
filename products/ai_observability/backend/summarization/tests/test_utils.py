@@ -3,7 +3,35 @@ import pytest
 from django.template import TemplateDoesNotExist
 from django.utils.safestring import SafeString
 
-from products.ai_observability.backend.summarization.utils import load_summarization_template
+from posthog.hogql.property_access_types import RestrictedProperty
+
+from products.ai_observability.backend.summarization.utils import get_summary_cache_key, load_summarization_template
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+
+class TestSummaryCacheKey:
+    def test_scopes_cache_by_effective_restrictions(self) -> None:
+        unrestricted_key = get_summary_cache_key(1, "trace", "trace-1")
+        assert unrestricted_key == "llm_summary:1:trace:trace-1:minimal:default"
+        assert get_summary_cache_key(1, "trace", "trace-1", restricted_properties=[]) == unrestricted_key
+
+        restrictions = [
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.EVENT),
+            RestrictedProperty(name="output", property_type=PropertyDefinition.Type.EVENT),
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.PERSON),
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.GROUP),
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.GROUP, group_type_index=0),
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.GROUP, group_type_index=1),
+        ]
+        scoped_keys = {
+            get_summary_cache_key(1, "trace", "trace-1", restricted_properties=[restriction])
+            for restriction in restrictions
+        }
+        assert len(scoped_keys) == len(restrictions)
+        assert unrestricted_key not in scoped_keys
+        assert get_summary_cache_key(
+            1, "trace", "trace-1", restricted_properties=restrictions
+        ) == get_summary_cache_key(1, "trace", "trace-1", restricted_properties=list(reversed(restrictions)))
 
 
 class TestLoadSummarizationTemplate:

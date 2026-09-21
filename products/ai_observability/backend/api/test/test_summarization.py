@@ -9,14 +9,18 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.summarization.llm.schema import (
     InterestingNote,
     SummarizationResponse,
@@ -445,6 +449,82 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         }
         bulk_create_events([{**row, "properties": metadata}])
         bulk_create_ai_events([{**row, "properties": {**metadata, **content}}])
+
+    @parameterized.expand([("trace",), ("event",)])
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_cache_and_client_payload_follow_current_property_permissions(
+        self, summarize_type: str, mock_summarize: MagicMock
+    ) -> None:
+        self._approve_ai_processing()
+        reader = self._create_user("summary-reader@example.com")
+        self.client.force_login(reader)
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        event_uuid = uuid.uuid4()
+        trace_id = str(uuid.uuid4())
+        timestamp = datetime.now(UTC)
+        metadata = {"$ai_trace_id": trace_id, "$ai_span_name": "generation"}
+        content = {
+            "$ai_input": [{"role": "user", "content": "private-input"}],
+            "$ai_output_choices": [{"role": "assistant", "content": "public-output"}],
+        }
+        self._ingest_ai_event("$ai_generation", event_uuid, timestamp, metadata, content)
+        event = {"id": str(event_uuid), "event": "$ai_generation", "properties": {**metadata, **content}}
+        data = (
+            {"trace": {"id": trace_id, "properties": metadata}, "hierarchy": [{"event": event, "children": []}]}
+            if summarize_type == "trace"
+            else {"event": event}
+        )
+        request_data = {
+            "summarize_type": summarize_type,
+            "data": data,
+            "date_from": (timestamp - timedelta(days=1)).isoformat(),
+            "date_to": (timestamp + timedelta(days=1)).isoformat(),
+        }
+        url = f"/api/projects/{self.team.id}/llm_analytics/summarization/"
+        mock_summarize.return_value = SummarizationResponse(
+            title="private-input", flow_diagram="Start", summary_bullets=[], interesting_notes=[]
+        )
+        unrestricted = self.client.post(url, request_data, format="json")
+        self.assertEqual(unrestricted.status_code, status.HTTP_200_OK, unrestricted.data)
+        self.assertIn("private-input", unrestricted.data["text_repr"])
+
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=reader.organization_memberships.get(organization=self.organization),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        if summarize_type == "trace":
+            titles = self.client.post(url + "batch_check/", {"trace_ids": [trace_id]}, format="json")
+            self.assertEqual(titles.status_code, status.HTTP_200_OK, titles.data)
+            self.assertEqual(titles.data["summaries"], [])
+
+        mock_summarize.return_value = SummarizationResponse(
+            title="public-output", flow_diagram="Start", summary_bullets=[], interesting_notes=[]
+        )
+        restricted = self.client.post(url, request_data, format="json")
+        self.assertEqual(restricted.status_code, status.HTTP_200_OK, restricted.data)
+        self.assertEqual(restricted.data["summary"]["title"], "public-output")
+        self.assertNotIn("private-input", restricted.data["text_repr"])
+        self.assertIn("public-output", restricted.data["text_repr"])
+        self.assertNotIn("private-input", mock_summarize.call_args.kwargs["text_repr"])
+
+        id_request = {"trace_id": trace_id} if summarize_type == "trace" else {"generation_id": str(event_uuid)}
+        cached = self.client.post(url, id_request, format="json")
+        self.assertEqual(cached.status_code, status.HTTP_200_OK, cached.data)
+        self.assertEqual(cached.data, restricted.data)
+        self.assertEqual(mock_summarize.call_count, 2)
+        if summarize_type == "trace":
+            titles = self.client.post(url + "batch_check/", {"trace_ids": [trace_id]}, format="json")
+            self.assertEqual(
+                titles.data["summaries"], [{"trace_id": trace_id, "title": "public-output", "cached": True}]
+            )
 
     @parameterized.expand(
         [

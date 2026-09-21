@@ -49,6 +49,9 @@ from posthog.rate_limit import (
     AIObservabilitySummarizationSustainedThrottle,
 )
 
+from products.access_control.backend.property_access_control import (
+    get_restricted_properties_with_group_type_index_for_team,
+)
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.summarization.budget import bounded_text_repr, text_repr_budget
 from products.ai_observability.backend.summarization.llm import summarize
@@ -254,7 +257,16 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             mode: Summary detail level ('minimal' or 'detailed')
             model: LLM model
         """
-        return get_summary_cache_key(self.team_id, summarize_type, entity_id, mode, model)
+        return get_summary_cache_key(
+            self.team_id,
+            summarize_type,
+            entity_id,
+            mode,
+            model,
+            restricted_properties=get_restricted_properties_with_group_type_index_for_team(
+                user=cast("User", self.request.user), team=self.team
+            ),
+        )
 
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.
@@ -609,6 +621,14 @@ The response includes the structured summary, the text representation, and metad
             else:
                 data = serializer.validated_data["data"]
                 entity_id, entity_data = self._extract_entity_id(summarize_type, data)
+                if get_restricted_properties_with_group_type_index_for_team(
+                    user=cast("User", request.user), team=self.team
+                ):
+                    # Client payloads may predate the caller's current property permissions.
+                    if summarize_type == "trace":
+                        trace_id = entity_id
+                    else:
+                        generation_id = entity_id
 
             cache_key = self._get_cache_key(summarize_type, entity_id, mode, model)
             if not force_refresh:
