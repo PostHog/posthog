@@ -3206,9 +3206,12 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
 
 
 def _get_teams_for_usage_reports() -> Sequence[Team]:
+    # Excluding through the organization join makes Postgres read every organization row.
+    # A subquery hits the partial index on for_internal_metrics instead.
     return list(
         Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .exclude(is_demo=True)
+        .exclude(organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id"))
         .only(
             "id",
             "name",

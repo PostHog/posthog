@@ -8,7 +8,6 @@ from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
-from django.db.models import Q
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
@@ -1207,9 +1206,12 @@ def update_all_orgs_billing_quotas(
     if progress_callback:
         progress_callback("queries_done", f"duration={queries_duration_s}s", f"query_count={len(all_data)}")
 
+    # Excluding through the organization join makes Postgres read every organization row.
+    # A subquery hits the partial index on for_internal_metrics instead.
     teams: Sequence[Team] = list(
         Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .exclude(is_demo=True)
+        .exclude(organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id"))
         .only(
             "id",
             "api_token",
