@@ -986,7 +986,6 @@ class PostHogTokenCookieMiddleware(MiddlewareMixin):
                 # deadline, so count down to the same instant rather than renew a window here.
                 remaining = int(session_created_at + session_age_for_user(request.user) - time.time())
                 if remaining > 0:
-                    # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                     response.set_cookie(
                         key=region_cookie,
                         value="1",
@@ -995,6 +994,10 @@ class PostHogTokenCookieMiddleware(MiddlewareMixin):
                         path=default_cookie_options["path"],
                         domain=default_cookie_options["domain"],
                         secure=default_cookie_options["secure"],
+                        # The oauth.posthog.com worker reads this from the request Cookie header,
+                        # so nothing in the browser needs it. HttpOnly keeps a script on any
+                        # sibling posthog.com origin from reading or overwriting it.
+                        httponly=True,
                         # Strict, used above, is withheld on the cross-site top-level navigation
                         # an OAuth client sends the visitor to oauth.posthog.com by.
                         samesite="Lax",
