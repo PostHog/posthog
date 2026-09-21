@@ -936,9 +936,14 @@ class TestTable(APIBaseTest):
         file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
         test_file = SimpleUploadedFile("test_file.csv", file_content, content_type="text/csv")
 
-        with patch(
-            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns"
-        ) as mock_get_columns:
+        with (
+            patch("products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns,
+            # Quote detection reads the file for real, which a mocked S3 client can't serve.
+            patch(
+                "products.warehouse_sources.backend.models.table.DataWarehouseTable.detect_csv_double_quotes_setting",
+                return_value=True,
+            ),
+        ):
             mock_get_columns.return_value = {
                 "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
                 "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
@@ -964,6 +969,7 @@ class TestTable(APIBaseTest):
         # Verify the table was created
         table = DataWarehouseTable.objects.get(name="test_csv_table")
         assert table is not None
+        assert table.options == {"csv_allow_double_quotes": True}
 
         # Verify S3 client was called to upload the file
         mock_s3.upload_fileobj.assert_called_once_with(
@@ -1009,6 +1015,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert "Table names must start with a letter or underscore" in response.json()["message"]
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
     def test_file_upload_updates_existing_table(self, mock_boto3_client, mock_feature_enabled):
@@ -1075,6 +1082,7 @@ class TestTable(APIBaseTest):
                 if "Key" in obj:
                     s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_file_upload_with_minio(self, mock_feature_enabled):
         """Test file upload using actual MinIO bucket instead of mocking."""
@@ -1140,6 +1148,7 @@ class TestTable(APIBaseTest):
         self._delete_all_from_s3(s3_client, test_bucket_name)
         s3_client.delete_bucket(Bucket=test_bucket_name)
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
     def test_file_upload_sanitizes_filename_for_s3_key(self, mock_boto3_client, mock_feature_enabled):
@@ -1211,6 +1220,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert "Table names must start with a letter" in response.json()["message"]
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
     def test_file_upload_table_name_defaults_to_sanitized_filename_when_valid(

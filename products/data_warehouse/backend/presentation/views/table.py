@@ -30,6 +30,7 @@ from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
+    FORMAT_CSV,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
@@ -925,6 +926,18 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                     f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/managed/team_{team_id}/{safe_filename}"
                 )
                 table.format = file_format
+
+                # Detect on this path too, so a CSV uploaded here is read under the quoting its
+                # columns are detected with. Only an unset option is filled, so an explicit choice
+                # on an existing table survives a re-upload.
+                if table._is_csv_format() and table.csv_allow_double_quotes is None:
+                    allow_double_quotes = table.detect_csv_double_quotes_setting()
+                    if allow_double_quotes is None:
+                        return response.Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": _file_read_error_message(FORMAT_CSV)},
+                        )
+                    table.options = {**table.options, "csv_allow_double_quotes": allow_double_quotes}
 
                 # Try to determine columns from the file
                 table.columns = table.get_columns()

@@ -1135,6 +1135,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         """Return the csv_allow_double_quotes setting that parses this file, or None when neither does.
 
         RFC 4180 is tried first because almost every CSV export quotes fields that contain a comma.
+        Each probe reads a sample rather than the whole file, so a file whose quoting only varies
+        past the sample stays undisambiguated and takes the RFC 4180 answer. That is the same
+        setting ClickHouse applies to an unset option, so the sample bounds how much this method
+        can learn, not how correct its answer is. False comes back only when RFC 4180 fails.
         """
         tag_queries(
             team_id=self.team.pk,
