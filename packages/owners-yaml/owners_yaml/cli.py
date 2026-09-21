@@ -328,6 +328,7 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
             continue
         if parsed.owners:
             owners_by_file[rel].update(parsed.owners)
+        owners_by_file[rel].update(parsed.additions)
 
         if not parsed.rules:
             continue
@@ -342,6 +343,7 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
         rel_paths = [p[len(directory) + 1 :] for p in under_dir] if directory else under_dir
         for rule in parsed.rules:
             owners_by_file[rel].update(rule.owners if isinstance(rule.owners, list) else [])
+            owners_by_file[rel].update(rule.additions)
             matcher = compile_pattern(rule.match)
             if not any(matcher.test(rp) for rp in rel_paths):
                 warnings.append(f"{rel}: rule '{rule.match}' matches zero tracked files (dead glob)")

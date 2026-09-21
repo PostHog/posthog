@@ -75,7 +75,7 @@ For each case in each file in `cases/`:
 1. Make a new empty directory. This directory is the repository root. It is not a git repository.
 2. Write each entry of `files` to its path below the root. Make the parent directories first. Write the content exactly as given.
 3. Resolve each key of `expect` as given, with the `purpose` and the `producer` of the case.
-4. Compare all five keys of the result with the expected resolution. The order of `owners` is significant.
+4. Compare all six keys of the result with the expected resolution. An expected resolution without `additions` expects an empty list. The order of `owners` and of `additions` is significant.
 5. The case passes when every path in `expect` passes.
 
 Give each test a name of the form `<file name>::<case name>`, such as `nearest-file.yaml::owners null marks paths as unowned by design`.

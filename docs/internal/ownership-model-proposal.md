@@ -234,7 +234,7 @@ For a path `P`:
 
 1. Walk from the repo root toward `P`, collecting every `owners.yaml` (or aliased `product.yaml`) on the way. If a file sets `inherit: false`, drop everything collected above it.
 2. Effective config = shallow merge, nearest file winning per field (lists replace, never merge — predictability over cleverness).
-3. Within the nearest file that has `rules:`, apply the last rule whose `match` glob (gitignore-style semantics, documented with the schema) matches `P` relative to that file's directory. Rule fields override the merged config.
+3. Within each file, apply every rule whose `match` glob (gitignore-style semantics, documented with the schema) matches `P` relative to that file's directory, in file order. Each rule replaces only the fields it sets, before the file's fields merge into the result.
 4. Review tagging = resolved `owners`. Primary owner = its first entry.
 5. No ownership file on the walk and no rule match → **unowned**, which fails the coverage check unless the path is under an `owners: null` rule.
 

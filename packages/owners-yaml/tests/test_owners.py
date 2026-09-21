@@ -10,6 +10,7 @@ import pytest
 from click.testing import CliRunner
 from owners_yaml import (
     census,
+    cli as cli_module,
     first_team_owner,
     fmt as fmt_module,
     owner_handle,
@@ -1045,6 +1046,22 @@ def test_cli_lints_a_tree_that_is_not_a_git_worktree(registry_repo: Path) -> Non
     assert result.exit_code == 0, result.output
     # The walk finds the six ownership files plus the two code files, and only loose/code.py is unowned.
     assert "coverage: 2 of 8 tracked file(s) resolve to unowned" in result.output
+
+
+def test_cli_live_lint_validates_names_used_only_in_additions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    validated: set[str] = set()
+    monkeypatch.setattr(cli_module, "_validate_owners_live", lambda owners, github: validated.update(owners) or [])
+    _write(
+        tmp_path,
+        "owners.yaml",
+        "version: 1\nowners: [team-a]\nadditions: team-gate\nrules:\n  - match: '/*'\n    additions: '@gatekeeper'\n",
+    )
+    _write(tmp_path, "x.py", "")
+
+    result = CliRunner().invoke(main, ["lint", "--live", "--org", "acme", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert {"team-gate", "@gatekeeper"} <= validated
 
 
 @pytest.mark.parametrize(
