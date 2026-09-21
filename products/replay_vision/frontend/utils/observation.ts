@@ -127,6 +127,17 @@ export interface ObservationSeekbarMarkEntry {
 export interface ObservationSeekbarMark {
     timestampMs: number
     entries: ObservationSeekbarMarkEntry[]
+    /** A monitor answered yes here, so the moment is drawn stronger. */
+    flagged: boolean
+}
+
+export function isFlaggedObservation(obs: ReplayObservationApi): boolean {
+    return obs.scanner_snapshot?.scanner_type === 'monitor' && readVerdict(obs) === 'yes'
+}
+
+/** Models cite whole seconds, so a sub-second offset is the same moment. */
+export function markBucketMs(timestampMs: number): number {
+    return Math.floor(Math.max(0, timestampMs) / 1000) * 1000
 }
 
 const SNIPPET_MAX_LENGTH = 160
@@ -197,21 +208,36 @@ function observationHeadline(obs: ReplayObservationApi): string | null {
     return null
 }
 
-/** One mark per cited timestamp; entries merged when scanners cite the same moment. */
+export function firstCitationMs(obs: ReplayObservationApi): number | null {
+    const citations = readCitations(obs)
+    return citations.length > 0 ? Math.min(...citations.map((c) => c.timestampMs)) : null
+}
+
+/** One mark per cited second; entries merged when scanners cite the same moment. */
 export function observationSeekbarMarks(observations: ReplayObservationApi[]): ObservationSeekbarMark[] {
     const entriesByTimestamp = new Map<number, Map<string, ObservationSeekbarMarkEntry>>()
+    const flaggedTimestamps = new Set<number>()
     for (const obs of observations) {
         const scannerName = scannerLabel(obs)
         const headline = observationHeadline(obs)
+        const flagged = isFlaggedObservation(obs)
         for (const { timestampMs, snippet } of readCitations(obs)) {
-            const entries = entriesByTimestamp.get(timestampMs) ?? new Map<string, ObservationSeekbarMarkEntry>()
+            const bucket = markBucketMs(timestampMs)
+            const entries = entriesByTimestamp.get(bucket) ?? new Map<string, ObservationSeekbarMarkEntry>()
             entries.set(JSON.stringify([scannerName, headline, snippet]), { scannerName, headline, snippet })
-            entriesByTimestamp.set(timestampMs, entries)
+            entriesByTimestamp.set(bucket, entries)
+            if (flagged) {
+                flaggedTimestamps.add(bucket)
+            }
         }
     }
     return [...entriesByTimestamp.entries()]
         .sort(([a], [b]) => a - b)
-        .map(([timestampMs, entries]) => ({ timestampMs, entries: [...entries.values()] }))
+        .map(([timestampMs, entries]) => ({
+            timestampMs,
+            entries: [...entries.values()],
+            flagged: flaggedTimestamps.has(timestampMs),
+        }))
 }
 
 /** One succeeded observation as clipboard text: a metadata line, then the result body. */

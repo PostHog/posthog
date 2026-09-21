@@ -75,8 +75,8 @@ describe('observation utils', () => {
                     ),
                 ],
                 expected: [
-                    { timestampMs: 30_000, entries: [summarizerEntry] },
-                    { timestampMs: 161_000, entries: [summarizerEntry] },
+                    { timestampMs: 30_000, flagged: false, entries: [summarizerEntry] },
+                    { timestampMs: 161_000, flagged: false, entries: [summarizerEntry] },
                 ],
             },
             {
@@ -92,6 +92,7 @@ describe('observation utils', () => {
                 expected: [
                     {
                         timestampMs: 42_000,
+                        flagged: true,
                         entries: [
                             {
                                 scannerName: 'Error monitor',
@@ -111,6 +112,7 @@ describe('observation utils', () => {
                 expected: [
                     {
                         timestampMs: 42_000,
+                        flagged: false,
                         entries: [
                             { scannerName: 'Monitor A', headline: null, snippet: 'Saw it' },
                             { scannerName: 'Scorer B', headline: 'Score: 3', snippet: 'Also saw it' },
@@ -129,6 +131,7 @@ describe('observation utils', () => {
                 expected: [
                     {
                         timestampMs: 42_000,
+                        flagged: false,
                         entries: [
                             { scannerName: 'Scanner', headline: null, snippet: `${longSentence.slice(0, 159)}…` },
                         ],
@@ -156,6 +159,7 @@ describe('observation utils', () => {
                 expected: [
                     {
                         timestampMs: 42_000,
+                        flagged: false,
                         entries: [{ scannerName: 'Quick summary', headline: null, snippet: 'Rage clicked pay' }],
                     },
                 ],
@@ -174,7 +178,44 @@ describe('observation utils', () => {
                     }),
                 ],
                 expected: [
-                    { timestampMs: 42_000, entries: [{ scannerName: 'Scanner', headline: null, snippet: null }] },
+                    {
+                        timestampMs: 42_000,
+                        flagged: false,
+                        entries: [{ scannerName: 'Scanner', headline: null, snippet: null }],
+                    },
+                ],
+            },
+            {
+                name: 'sub-second citations merge into the whole second, flagged when any monitor there answered yes',
+                observations: [
+                    makeObservation(
+                        'summarizer',
+                        {
+                            summary: 'Paid',
+                            summary_segments: [
+                                { kind: 'text', value: 'Paid' },
+                                { kind: 'chip', timestamp_ms: 42_400 },
+                            ],
+                        },
+                        'succeeded',
+                        'Session summarizer'
+                    ),
+                    makeObservation(
+                        'monitor',
+                        { verdict: 'yes', reasoning: 'Paid (t 42).' },
+                        'succeeded',
+                        'Pay monitor'
+                    ),
+                ],
+                expected: [
+                    {
+                        timestampMs: 42_000,
+                        flagged: true,
+                        entries: [
+                            { scannerName: 'Session summarizer', headline: null, snippet: 'Paid' },
+                            { scannerName: 'Pay monitor', headline: 'Verdict: yes', snippet: 'Paid' },
+                        ],
+                    },
                 ],
             },
         ])('$name', ({ observations, expected }) => {

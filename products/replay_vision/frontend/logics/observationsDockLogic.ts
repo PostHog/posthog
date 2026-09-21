@@ -36,6 +36,7 @@ export interface observationsDockLogicValues {
     dockOpen: boolean
     filteredScanners: ReplayScannerApi[]
     hasObservationsInFlight: boolean
+    hoveredMarkMs: number | null
     observations: ReplayObservationApi[]
     observationsLoading: boolean
     observing: boolean
@@ -91,6 +92,9 @@ export interface observationsDockLogicActions {
     }
     setDockOpen: (open: boolean) => {
         open: boolean
+    }
+    setHoveredMark: (timestampMs: number | null) => {
+        timestampMs: number | null
     }
     setScannerPickerOpen: (open: boolean) => {
         open: boolean
@@ -166,6 +170,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         retryObservationSuccess: (observationId: string) => ({ observationId }),
         retryObservationFailure: (observationId: string) => ({ observationId }),
         setDockOpen: (open: boolean) => ({ open }),
+        setHoveredMark: (timestampMs: number | null) => ({ timestampMs }),
         setScannerPickerOpen: (open: boolean) => ({ open }),
         setScannerSearch: (search: string) => ({ search }),
         summarize: true,
@@ -224,6 +229,13 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             false,
             {
                 setScannerPickerOpen: (_, { open }) => open,
+            },
+        ],
+        // Shared so hovering a mark on one surface highlights it on the other.
+        hoveredMarkMs: [
+            null as number | null,
+            {
+                setHoveredMark: (_, { timestampMs }) => timestampMs,
             },
         ],
         scannerSearch: [
