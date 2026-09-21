@@ -594,6 +594,8 @@ SPECTACULAR_SETTINGS = {
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+            # Matches the shared alerts skeleton's PlatformAlert.State.
+            "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
@@ -628,6 +630,7 @@ SPECTACULAR_SETTINGS = {
             # The definition site is a deliberately Django-free module (facade contracts,
             # signals taxonomy), so it cannot define a models.Choices class.
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
+            "ReportLinkKindEnum": "products.signals.backend.enums.report_link_kind_choices",
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
             "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",

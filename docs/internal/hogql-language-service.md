@@ -32,6 +32,18 @@ Django remains authoritative for authentication, team membership, entitlements, 
 resolution. The Go service does not read PostHog permission tables or accept browser-selected identity without an
 authenticated internal request.
 
+The shared catalog excludes direct-connection table rows because those rows belong only to an explicit `connectionId` database.
+This keeps a direct table's raw dotted name from replacing a synced table that resolves to the same catalog key.
+
+Django adds resolver-confirmed `tableAliases` to the same permission-filtered catalog snapshot.
+For example, a catalog can map `demo_postgres_orders` to `postgres.demo.orders` when both names resolve to the same visible warehouse table.
+Aliases from another project or hidden tables are not published.
+If a candidate is hidden or unresolvable, or a canonical name resolves to different metadata, Django abandons the publication and uses the Python path.
+An alias must resolve to the same table object as exactly one exported canonical name; matching physical IDs alone do not establish equivalence.
+An alias candidate that resolves unambiguously to another visible canonical table follows that effective resolver winner.
+Nonrepresentable resolver collisions require a separate catalog contract before they can use the Go service.
+Built-in `posthog.*` namespaces are outside this rollout.
+
 ## Query analysis
 
 `internal/analysis` owns parsed statements, nested scopes, table and CTE bindings, and projected fields for validation and completion.
@@ -280,8 +292,54 @@ fails startup unless dedicated signing keys are configured.
 
 Local and debug environments may use the service directly. Production integration remains behind a server-side
 feature flag and should progress through shadow comparison before serving editor results.
-The Go consumer accepts alias metadata before Django publishes it.
-Deploy this consumer first, then enable alias publication separately; catalogs without aliases continue to work throughout the rollout.
+The Go consumer accepts alias metadata, and Django always publishes resolver-confirmed warehouse aliases.
+Django refreshes cached catalogs with numeric or `legacy-v1` revisions before it uses their responses.
+Each request attempts at most one publication and one post-publication retry; marker and lease paths add only bounded Go rechecks.
+The retry must return an alias-capable revision, but a concurrent publication for the same team and user can supersede the requested revision.
+If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
+Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
+Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.
+
+Full-query HogQL autocomplete can use the language service when `sourceQuery` is absent or is a `HogQLQuery`; only the current editor SQL and cursor position are sent.
+Metadata requests still require `sourceQuery` to be absent.
+Both operations continue to use Python when `connectionId`, `globals`, `filters`, or `modifiers` is not null.
+
+For authenticated requests that have the service configured and the feature flag enabled, the Prometheus counter `hogql_editor_assist_responses_total` counts the backend that produced the final successful editor response.
+Its bounded attributes are the operation, backend, and routing reason.
+The operation is `autocomplete` or `metadata`, the backend is `language_service` or `python`, and the reason is `served`, `ineligible`, `service_error`, or `invalid_response`.
+The denominator includes enabled requests that are ineligible for the Go service and use Python.
+It excludes disabled requests, requests without a user, and requests that fail before either backend constructs a response.
+The existing Django Prometheus scrape exports the counter for Grafana without another setting.
+It aggregates enabled teams and users because it has no tenant labels.
+Use this query to compare response rates by backend:
+
+```promql
+sum by (operation, backend) (rate(hogql_editor_assist_responses_total[5m]))
+```
+
+Use this query for the Python share of successful enabled responses in each operation:
+
+```promql
+(
+  sum by (operation) (rate(hogql_editor_assist_responses_total{backend="python"}[5m]))
+  or on (operation)
+  0 * sum by (operation) (rate(hogql_editor_assist_responses_total[5m]))
+)
+/
+sum by (operation) (rate(hogql_editor_assist_responses_total[5m]))
+```
+
+An absent series can mean no observations or a missing scrape.
+The share is undefined when an operation has no successful enabled responses in the selected interval.
+
+After a missing or legacy catalog response, Django coordinates publication in Redis by language-service target, catalog contract, team, and user.
+A publisher holds a 10-second token-owned lease while it rechecks Go, builds the permission-filtered catalog, and publishes it.
+Contenders wait for the lease for at most 250 milliseconds, then recheck Go and use the Python path if the catalog is still unavailable.
+Redis socket operations and Go requests have their own bounds; the 250-millisecond contention budget is not a total refresh deadline.
+A five-second success marker lets a request recheck Go before acquiring a newly released lease.
+The marker is advisory: a missing or legacy Go response overrides it, and neither schemas nor authorization results are stored in Redis.
+Redis outages use the existing direct publication path.
+If catalog construction outlives the lease, a second publisher can duplicate the Go catalog build and publication.
 
 The initial rollout keeps ClickHouse execution in Django:
 
