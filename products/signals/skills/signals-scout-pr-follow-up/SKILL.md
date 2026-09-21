@@ -45,7 +45,8 @@ The deploy ladder below says how to establish that; when nothing in the project 
 
 Two cheap reads decide whether this run does work:
 
-- `scout-scratchpad-search` (`text=pr_follow_up`, `limit=100`): the repositories you watch, the deploy signal this project has, the `cursor:` per repository, and the verdicts you already recorded.
+- `scout-scratchpad-search` (`text=pr_follow_up`, `limit=100`): the repositories you watch, the deploy signal this project has, and the `cursor:` and `deferred:` entries per repository.
+  The verdicts do not fit that one read: at the per-run cap the window holds more `pr:` entries than the 100-row search returns, so look each enumerated PR up by its exact key (`text=pr:pr_follow_up:<owner/repo>#<n>`) before you judge it, never by scanning.
 - One merged-PR listing per watched repository (source ladder below), merged in the last 14 days, newest first.
 
 If no repository is reachable by any source, write `not-in-use:pr_follow_up:team{team_id}` ("checked at {timestamp}: no connected repository, no GitHub source, no PRs linked from the inbox") and close out empty.
@@ -57,7 +58,8 @@ A PR you already listed and deferred is not cold, however old its merge is now: 
 
 ### Get oriented
 
-- `scout-scratchpad-search` (`text=pr_follow_up`, `limit=100`): `config:` (a human-curated repository list, which outranks discovery), `pattern:pr_follow_up:deploy-signal` (how this project tells you a commit is live), `cursor:` per repository, `pr:` verdicts, `noise:` exclusions, `reviewer:` routes.
+- `scout-scratchpad-search` (`text=pr_follow_up`, `limit=100`): `config:` (a human-curated repository list, which outranks discovery), `pattern:pr_follow_up:deploy-signal` (how this project tells you a commit is live), `cursor:` and `deferred:` per repository, `noise:` exclusions, `reviewer:` routes.
+- `scout-scratchpad-search` (`text=pr:pr_follow_up:<owner/repo>`, `keys_only=true`, `limit=100`) per repository, then the exact key for each PR you are about to judge: the verdict set outgrows one search, and a verdict the scan missed would be a PR judged twice, its report edited or filed twice.
 - `scout-runs-list` (`skill_name=signals-scout-pr-follow-up`, last 7d): what prior runs covered and deferred.
 - `scout-project-profile-get`: which products the project actually uses, so a claim probe lands on a surface that has data (a perf claim on a project with no APM spans and no web vitals is unverifiable, not failed).
 
@@ -69,8 +71,10 @@ Never hardcode a repository. Read them from the project, in this order, and stop
    Still list the PRs with `gh pr list --repo <owner>/<repo> --state merged --limit 100 --json number,title,author,mergedAt,mergeCommit,url,labels,isDraft,additions,deletions,changedFiles,closingIssuesReferences`, paged as rung 3 describes: a `git log --merges` over the tree misses every squash- and rebase-merged PR, so it is never the listing.
 2. **GitHub warehouse source.** `engineering-analytics-sources` lists each synced `owner/repo`; then `pull-requests` (`date_from=-14d`, pass `source_id` and `repo`) returns merged PRs with their CI rollup, and `pr-lifecycle` one PR's timeline.
    The source's table prefix also names warehouse tables you can read with `execute-sql`: `<prefix>github_pull_requests`, and, when the project syncs the deployments endpoints, `<prefix>github_deployments` + `<prefix>github_deployment_statuses` (the best deploy signal you can get; see below).
+   Only the source's original repository uses those bare names; every other repository of a multi-repository source flattens `owner/repo.endpoint` into the table name (each `/` becomes `_`, each `.` becomes `__`, lower-cased), so `acme/web.app`'s pull requests are `<prefix>github_acme_web__app__pull_requests`.
+   Confirm the table for the repository you mean in `system.information_schema.tables` before querying, because the bare name silently returns the original repository's rows.
    Timestamps in those tables land as strings, so wrap them in `parseDateTimeBestEffort`.
-3. **Connected GitHub integration.** `integrations-github-repos-retrieve` lists the repositories the project's GitHub App can see; for each, `gh pr list --repo <owner>/<repo> --state merged --limit 100 --json number,title,author,mergedAt,mergeCommit,url,labels,isDraft,additions,deletions,changedFiles,closingIssuesReferences` is the listing.
+3. **Connected GitHub integration.** `integrations-list` names the project's integrations; take the `id` of each one whose kind is `github` (the project profile shows only kinds, not ids) and pass it to `integrations-github-repos-retrieve`, which lists the repositories that GitHub App can see; for each, `gh pr list --repo <owner>/<repo> --state merged --limit 100 --json number,title,author,mergedAt,mergeCommit,url,labels,isDraft,additions,deletions,changedFiles,closingIssuesReferences` is the listing.
    The listing is bounded, so page it to the window: when the oldest `mergedAt` on the page is still inside 14 days, continue with `gh api 'repos/<owner>/<repo>/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=<n>'` (keep rows with a `merged_at`) until a page crosses the boundary or comes back empty.
    A run that stops before the boundary has not listed the repository: record where it stopped in `cursor:` and say so in the close-out, never close out as if the window were covered.
    The sandbox token is read-only and rate-limited, so cap the repositories you enumerate per run and record the ones you chose in `config:`.
@@ -80,8 +84,11 @@ Never hardcode a repository. Read them from the project, in this order, and stop
 
 No listing carries what the filters and the claim table need: a `gh pr list` row has no body and only a count of changed files, and a warehouse row may lack the file paths.
 Before filtering, fetch each candidate with `gh pr view <n> --repo <owner>/<repo> --json number,title,body,author,mergedAt,mergeCommit,labels,files,closingIssuesReferences,url` (or read the same fields from the pinned tree and the warehouse row where they exist), and keep the body and the file paths for the claim and side-effect steps.
-Then filter the list before you spend anything on it: drop bots (`dependabot`, `renovate`, `github-actions`, anything `pull-requests` marks `is_bot`), drop PRs that only touch docs, tests, CI, lockfiles, or formatting (from the fetched file paths), drop anything a `noise:pr_follow_up:` entry names, and drop a PR whose `pr:` entry says `recheck` with a date that has not passed yet (it is neither due nor deferred, so it takes no slot).
-Keep dependency bumps only as members of a deploy batch (a new error after a deploy can be theirs), never as a PR with a claim of its own.
+When no source can supply a PR's body and file paths (a warehouse source on a project whose `gh` token is unavailable), the PR is judged **title-only**: classify the claim from the title, skip the docs-only filter, limit the side-effect sweep to the entities the title names, and say `title-only` in the `pr:` entry, because a clean sweep you could not run is not a clean sweep.
+Then split the list before you spend anything on it.
+First record the **deploy batch**: every merged PR in the window with its number, merge time, and author, bots included, because a new error after a deploy can belong to a dependency bump, and the side-effect sweep needs the whole batch to attribute it.
+Then pick the **claim candidates** from that batch: drop bots (`dependabot`, `renovate`, `github-actions`, anything `pull-requests` marks `is_bot`), drop PRs that only touch docs, tests, CI, lockfiles, or formatting (from the fetched file paths), drop anything a `noise:pr_follow_up:` entry names, and drop a PR whose `pr:` entry says `recheck` with a date that has not passed yet (it is neither due nor deferred, so it takes no slot).
+A dependency bump is never a claim candidate; it stays in the batch, and a regression attributed to it is filed against it from there.
 
 **Cap ~8 PRs per run**, and take the carried backlog before anything new: the `deferred:pr_follow_up:<owner/repo>` entry lists every PR a past run listed but did not judge, oldest merge first, and those go first because a newest-first pick under sustained merge activity would keep them below the cap until they leave the window with no verdict.
 Within what remains, most valuable first: a PR whose title or body states a measurable claim (`fix`, `resolves #`, `should reduce`, `speeds up`, `stop`, `no longer`) before a feature PR, a feature PR that adds an event or flag before a refactor, a large production diff before a small one.
@@ -140,17 +147,19 @@ When the deploy that carried the PR also carried other PRs, say so: attribute to
 
 ### Verdict table
 
-| Post-onset observation                                                        | Verdict            | Action                                                                          |
-| ----------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------- |
-| Claim probe agrees, side-effect sweep clean                                   | **Held**           | `pr:` entry; close-out sentence                                                 |
-| Claim number down materially but nonzero, with a declining tail               | Landing            | `pr:` entry marked `recheck` with a later date; look again next run             |
-| Fix target firing at a comparable-to-baseline rate, flat or rising            | **Not held**       | `pr:` entry + author a report                                                   |
-| Promised impact absent on a steady denominator past the soak                  | **Impact missing** | `pr:` entry + author a report (P3 unless the PR's rationale was user-impacting) |
-| New error, rate step, alert, or dead wiring attributable to the PR's files    | **Side effect**    | `pr:` entry + author a report                                                   |
-| Surface has no traffic at all post-onset (quiet ≠ fixed: check a denominator) | Inconclusive       | `pr:` entry marked `recheck`, naming the missing denominator                    |
-| Baseline too small to measure (a handful of occurrences ever)                 | Held (weak)        | `pr:` entry saying the basis is weak                                            |
-| Claim maps to nothing the project captures                                    | Unverifiable       | `noise:` entry                                                                  |
+| Post-onset observation                                                        | Verdict            | Action                                                                    |
+| ----------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------- |
+| Claim probe agrees, side-effect sweep clean                                   | **Held**           | `pr:` entry; close-out sentence                                           |
+| Claim number down materially but nonzero, with a declining tail               | Landing            | `pr:` entry marked `recheck` with a later date; look again next run       |
+| Fix target firing at a comparable-to-baseline rate, flat or rising            | **Not held**       | `pr:` entry marked `recheck` + author a report                            |
+| Promised impact absent on a steady denominator past the soak                  | **Impact missing** | `pr:` entry marked `recheck` + author a report (P3 unless user-impacting) |
+| New error, rate step, alert, or dead wiring attributable to the PR's files    | **Side effect**    | `pr:` entry marked `recheck` + author a report                            |
+| Surface has no traffic at all post-onset (quiet ≠ fixed: check a denominator) | Inconclusive       | `pr:` entry marked `recheck`, naming the missing denominator              |
+| Baseline too small to measure (a handful of occurrences ever)                 | Held (weak)        | `pr:` entry saying the basis is weak                                      |
+| Claim maps to nothing the project captures                                    | Unverifiable       | `noise:` entry                                                            |
 
+A failed verdict is not terminal while its report is open: the `pr:` entry carries `recheck` with a date a few days out, and the recheck reads the report (`inbox-reports-retrieve`) before it re-probes.
+Still open and still failing appends the fresh window to your report; resolved means a fix merged, and that fix PR starts its own follow-up cycle, so the entry becomes terminal; dismissed is the team's call, so the entry becomes terminal with the dismissal reason.
 Compare **rates, not totals**, and split by release surface (platform, app version, region) before calling a mobile or multi-region change failed: a rollout that has reached half the installs reads as a half-fixed error.
 
 ### Save memory as you go
@@ -168,7 +177,7 @@ Encode the category in the key prefix; rewrite a key to update in place:
 - key `noise:pr_follow_up:acme/api#4801` — _"Unverifiable: refactor with no behavior claim and no touched surface with telemetry."_
 - key `reviewer:pr_follow_up:<area>` — a resolved owner (bare lowercase GitHub login on the roster) for a code area, so a report routes to a human faster.
 
-Keep the working set under the 100-row search cap: `scout-scratchpad-forget` `pr:` and `noise:` entries whose PR merged more than ~30 days ago; the `cursor:` already guarantees they never come back.
+Prune so the per-repository scan stays readable: `scout-scratchpad-forget` `pr:` and `noise:` entries whose PR merged more than ~21 days ago and carry no open `recheck`; the `cursor:` already guarantees those PRs never come back.
 
 ### Decide
 
@@ -183,21 +192,24 @@ This is only the PR-follow-up judgment on top:
   Priority: **P2** when the regression is user-impacting at material volume, **P3** otherwise.
   Route `suggested_reviewers` to the PR author first (they are on the roster far more often than a commit-history guess), cross-checked with `scout-members-list`; fall back to `reviewer:` memory and the `gh` ownership evidence the harness prompt describes.
   After authoring, write `report:pr_follow_up:<owner/repo>#<n>`.
-- **Edit** an open report on the same problem whoever authored it, appending the PR linkage as evidence; a rewritten title or summary is only for a report you authored.
+- **Edit** an open report on the same problem whoever authored it, appending the PR (URL, merge and deploy times, the attribution) with `append_evidence`; a rewritten title or summary is only for a report you authored.
+  That appended evidence is a citation a reader follows, not a link the inbox tracks: `scout-edit-report` has no pull-request field, and the linked pull requests on a report belong to `inbox-reports-claim`, where a merged PR resolves the report, which is the opposite of what a causing PR should do, so never link one there.
+  Record the pairing in `report:pr_follow_up:<owner/repo>#<n>` instead, so your own dedupe finds it next run.
   On your own still-open report, a re-check that finds the same PR still failing appends the fresh window with `append_evidence`.
   A new fix PR merging is a fresh follow-up cycle on the new PR, not an edit.
 - **Remember** everything else: held, landing, weak, unverifiable.
-- **Skip** a PR already covered by a terminal `pr:` or `noise:` entry, or one still inside its soak (a soaking PR stays in `deferred:` until it is due).
+- **Skip** a PR already covered by a terminal `pr:` entry (held, held weak, or a failed verdict whose report has since resolved or been dismissed) or a `noise:` entry, or one still inside its soak (a soaking PR stays in `deferred:` until it is due).
 
 Confirmations are deliberately memory-only: a "this PR worked" report per merge would swamp the inbox.
 A team that wants a positive digest can flip that in their own copy of this scout.
 
 ### Seams
 
-- **`signals-scout-inbox-validation`** owns "did the resolved report's problem stop", measured from the report's signals.
-  For a PR linked to a resolved report, read `scout-report-check-list` on that report and cite the verdict rather than re-measuring the report's claim; you still own the PR's other claims and its side-effect sweep, which the report never described.
+- **`signals-scout-inbox-validation`** owns "did the resolved report's problem stop", measured from the report's signals, but only when it has actually answered.
+  For a PR linked to a resolved report, read `scout-report-check-list` on that report: a settled verdict (`passed`, `failed`) is cited and not re-measured; a check still `active` or `pending` leaves the PR non-terminal (`recheck` after the check's next run) rather than judged; no check at all, or a `scout_fleet` roster showing that scout paused, withheld, or absent, means nobody is measuring the claim, so measure it here.
+  You always own the PR's other claims and its side-effect sweep, which the report never described.
 - **The specialists** (error tracking, logs, APM, web vitals, feature flags, experiments) own movement nobody has attributed to a change.
-  You file only what you can pin to a named PR; when a specialist has already filed the anomaly, add the PR linkage with `scout-edit-report` instead of a second report.
+  You file only what you can pin to a named PR; when a specialist has already filed the anomaly, append the PR to that report as evidence (see Decide) instead of filing a second report.
 - **The harness `followup:` queue** is each scout's own re-check list for its own findings; you never read or write those keys.
 
 ### Close out
