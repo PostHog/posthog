@@ -53,17 +53,9 @@ pub trait PersonLookup: Send + Sync {
 
     // Deletes
 
-    /// Delete persons by UUID for a given team. Large batches are split into
-    /// fixed-size chunks and deleted concurrently. Each chunk runs in its own
-    /// transaction, deleting distinct_ids first (FK is NO ACTION) then persons
-    /// (feature flag hash key overrides cascade at the DB level). Idempotent:
-    /// deleting already-removed UUIDs is a no-op.
-    async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64>;
-
-    /// `delete_persons` with the mode chosen by the caller; `delete_persons`
-    /// itself hard-deletes. A tombstone reports the versions it wrote so the
-    /// caller can publish matching ClickHouse tombstones.
-    async fn delete_persons_with_mode(
+    /// `Hard` removes the rows, tombstoned ones included. `Tombstone` keeps
+    /// them and reports the versions written for the ClickHouse tombstones.
+    async fn delete_persons(
         &self,
         team_id: i64,
         uuids: &[Uuid],

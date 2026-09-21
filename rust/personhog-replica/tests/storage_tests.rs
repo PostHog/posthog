@@ -398,9 +398,10 @@ async fn test_delete_persons_clears_cohort_memberships() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[person.uuid])
+        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Hard)
         .await
-        .expect("delete persons");
+        .expect("delete persons")
+        .deleted;
 
     assert_eq!(deleted, 1);
     assert_eq!(
@@ -469,7 +470,7 @@ async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
 
     let deleted = ctx
         .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
         .expect("delete persons")
         .deleted;
@@ -509,7 +510,7 @@ async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
     // Deleting again is a no-op: no second version bump.
     let deleted = ctx
         .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
         .unwrap()
         .deleted;
@@ -521,7 +522,7 @@ async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_with_mode_reports_the_tombstone_versions() {
+async fn test_delete_persons_tombstone_mode_reports_the_versions() {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("versions_a", None).await.unwrap();
     ctx.add_distinct_id_to_person(person.id, "versions_b")
@@ -530,7 +531,7 @@ async fn test_delete_persons_with_mode_reports_the_tombstone_versions() {
 
     let outcome = ctx
         .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
         .unwrap();
 
@@ -567,14 +568,14 @@ async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
 
     let first = ctx
         .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
         .unwrap();
     // A caller that lost the first response must get the same versions back, or
     // its ClickHouse tombstones never get published.
     let retry = ctx
         .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
         .await
         .unwrap();
 
@@ -592,7 +593,7 @@ async fn test_delete_persons_hard_mode_reports_no_versions() {
 
     let outcome = ctx
         .storage
-        .delete_persons_with_mode(ctx.team_id, &[person.uuid], DeletePersonsMode::Hard)
+        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Hard)
         .await
         .unwrap();
 
@@ -604,36 +605,12 @@ async fn test_delete_persons_hard_mode_reports_no_versions() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_hard_deletes_by_default() {
-    let ctx = TestContext::new().await;
-    let person = ctx.insert_person("hard_delete", None).await.unwrap();
-
-    let deleted = ctx
-        .storage
-        .delete_persons(ctx.team_id, &[person.uuid])
-        .await
-        .unwrap();
-    assert_eq!(deleted, 1);
-
-    let remaining: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM posthog_person WHERE team_id = $1 AND id = $2")
-            .bind(ctx.team_id)
-            .bind(person.id)
-            .fetch_one(&ctx.pool)
-            .await
-            .unwrap();
-    assert_eq!(remaining, 0);
-
-    ctx.cleanup().await.ok();
-}
-
-#[tokio::test]
 async fn test_delete_persons_batch_for_team_removes_tombstoned_rows() {
     let ctx = TestContext::new().await;
     let live = ctx.insert_person("batch_live", None).await.unwrap();
     let tombstoned = ctx.insert_person("batch_tombstoned", None).await.unwrap();
     ctx.storage
-        .delete_persons_with_mode(
+        .delete_persons(
             ctx.team_id,
             &[tombstoned.uuid],
             DeletePersonsMode::Tombstone,
@@ -1648,9 +1625,10 @@ async fn test_delete_persons_small_batch() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid])
+        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid], DeletePersonsMode::Hard)
         .await
-        .expect("Failed to delete persons");
+        .expect("Failed to delete persons")
+        .deleted;
 
     assert_eq!(deleted, 2);
 
@@ -1702,9 +1680,10 @@ async fn test_delete_persons_empty_uuids() {
     let ctx = TestContext::new().await;
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[])
+        .delete_persons(ctx.team_id, &[], DeletePersonsMode::Hard)
         .await
-        .expect("Failed to delete persons");
+        .expect("Failed to delete persons")
+        .deleted;
     assert_eq!(deleted, 0);
     ctx.cleanup().await.ok();
 }
@@ -1714,9 +1693,14 @@ async fn test_delete_persons_nonexistent_uuids() {
     let ctx = TestContext::new().await;
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[Uuid::now_v7(), Uuid::now_v7()])
+        .delete_persons(
+            ctx.team_id,
+            &[Uuid::now_v7(), Uuid::now_v7()],
+            DeletePersonsMode::Hard,
+        )
         .await
-        .expect("Failed to delete persons");
+        .expect("Failed to delete persons")
+        .deleted;
     assert_eq!(deleted, 0);
     ctx.cleanup().await.ok();
 }
@@ -1735,9 +1719,10 @@ async fn test_delete_persons_with_multiple_distinct_ids() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid])
+        .delete_persons(ctx.team_id, &[p1.uuid], DeletePersonsMode::Hard)
         .await
-        .expect("Failed to delete persons");
+        .expect("Failed to delete persons")
+        .deleted;
 
     assert_eq!(deleted, 1);
 
@@ -1788,9 +1773,10 @@ async fn test_delete_persons_large_batch_triggers_parallel() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &uuids)
+        .delete_persons(ctx.team_id, &uuids, DeletePersonsMode::Hard)
         .await
-        .expect("Failed to delete persons");
+        .expect("Failed to delete persons")
+        .deleted;
 
     assert_eq!(deleted, 150);
 
@@ -1865,17 +1851,19 @@ async fn test_delete_persons_idempotent() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid])
+        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid], DeletePersonsMode::Hard)
         .await
-        .expect("Failed to delete persons");
+        .expect("Failed to delete persons")
+        .deleted;
     assert_eq!(deleted, 2);
 
     // Second call with the same UUIDs should be a no-op
     let deleted_again = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid])
+        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid], DeletePersonsMode::Hard)
         .await
-        .expect("Failed to delete persons");
+        .expect("Failed to delete persons")
+        .deleted;
     assert_eq!(deleted_again, 0);
 
     ctx.cleanup().await.ok();
@@ -1909,9 +1897,10 @@ async fn test_delete_persons_cross_team_isolation() {
     // Delete from ctx.team_id — should not touch the other team's person
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid, other_uuid])
+        .delete_persons(ctx.team_id, &[p1.uuid, other_uuid], DeletePersonsMode::Hard)
         .await
-        .expect("Failed to delete persons");
+        .expect("Failed to delete persons")
+        .deleted;
     assert_eq!(deleted, 1);
 
     // Other team's person should still exist
@@ -1965,7 +1954,11 @@ async fn test_delete_persons_partial_failure_returns_error() {
     // The call should return an error because the FK blocks deletion
     let result = ctx
         .storage
-        .delete_persons(ctx.team_id, &[blocked.uuid, normal.uuid])
+        .delete_persons(
+            ctx.team_id,
+            &[blocked.uuid, normal.uuid],
+            DeletePersonsMode::Hard,
+        )
         .await;
     assert!(result.is_err(), "Expected error due to blocked FK");
 

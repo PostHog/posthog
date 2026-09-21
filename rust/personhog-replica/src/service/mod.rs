@@ -433,7 +433,7 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let outcome = self
             .storage
-            .delete_persons_with_mode(req.team_id, &uuids, mode)
+            .delete_persons(req.team_id, &uuids, mode)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
 

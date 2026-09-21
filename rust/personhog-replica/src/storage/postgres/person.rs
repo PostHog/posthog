@@ -417,13 +417,7 @@ impl PersonLookup for PostgresStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64> {
-        self.delete_persons_with_mode(team_id, uuids, DeletePersonsMode::Hard)
-            .await
-            .map(|outcome| outcome.deleted)
-    }
-
-    async fn delete_persons_with_mode(
+    async fn delete_persons(
         &self,
         team_id: i64,
         uuids: &[Uuid],
