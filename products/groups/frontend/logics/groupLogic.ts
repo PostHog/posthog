@@ -150,10 +150,10 @@ export interface groupLogicActions {
         payload?: any
     }
     loadGroupSuccess: (
-        groupData: Group | null,
+        groupData: Group,
         payload?: any
     ) => {
-        groupData: Group | null
+        groupData: Group
         payload?: any
     }
     resetGroupEventsQuery: () => {
@@ -181,11 +181,11 @@ export interface groupLogicMeta {
             groupKey: string
         ) => boolean
         groupTypeName: (
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             groupTypeIndex: number
         ) => string
         groupTypeNamePlural: (
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             groupTypeIndex: number
         ) => string
         groupType: (groupTypes: Map<GroupTypeIndex, GroupType>, groupTypeIndex: number) => string | null
@@ -222,7 +222,7 @@ export interface groupLogicMeta {
         ) => boolean
         backNavigation: (searchParams: Record<string, any>) => GroupBackNavigation | null
         backTo: (
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             groupTypeIndex: number,
             backNavigation: GroupBackNavigation | null
         ) => Breadcrumb
@@ -269,7 +269,7 @@ export const groupLogic = kea<groupLogicType>([
         groupData: [
             null as Group | null,
             {
-                loadGroup: async () => {
+                loadGroup: async (): Promise<Group> => {
                     // The generated parameter is named projectId because OpenAPI renders the
                     // path segment as {project_id}, but the groups routes register on team_id, so
                     // this takes a team id. A project id resolves the wrong environment.
