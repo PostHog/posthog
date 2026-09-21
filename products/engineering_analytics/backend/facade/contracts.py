@@ -32,6 +32,10 @@ from pydantic.dataclasses import dataclass
 from posthog.hogql.database.models import FieldOrTable
 
 
+class QueryWorkLimitExceededError(Exception):
+    """The complete result needs more warehouse queries than one request allows."""
+
+
 class GitHubSourceNotConnectedError(Exception):
     """Raised when a team has no GitHub warehouse source — the curated queries
     reference ``github_*`` tables that aren't in the catalog. Surfaces as a clear

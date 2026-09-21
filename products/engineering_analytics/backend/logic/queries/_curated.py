@@ -28,6 +28,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
@@ -152,11 +153,17 @@ class CuratedGitHubSource:
     """
 
     def __init__(
-        self, *, team: Team, tables: GitHubTables, user_access_control: "UserAccessControl | None" = None
+        self,
+        *,
+        team: Team,
+        tables: GitHubTables,
+        user_access_control: "UserAccessControl | None" = None,
+        query_limit: int | None = None,
     ) -> None:
         self._team = team
         self._tables = tables
         self._user_access_control = user_access_control
+        self._queries_remaining = query_limit
         self._trunk_table: str | None = None
         self._trunk_table_resolved = False
         self._trunk_quarantine_source: TrunkQuarantineSource | None = None
@@ -180,6 +187,7 @@ class CuratedGitHubSource:
         source_id: str | None = None,
         repo: str | None = None,
         user_access_control: "UserAccessControl | None" = None,
+        query_limit: int | None = None,
     ) -> "CuratedGitHubSource":
         return cls(
             team=team,
@@ -187,6 +195,7 @@ class CuratedGitHubSource:
                 team=team, source_id=source_id, repo=repo, user_access_control=user_access_control
             ),
             user_access_control=user_access_control,
+            query_limit=query_limit,
         )
 
     def pr_source(self) -> str:
@@ -541,6 +550,10 @@ class CuratedGitHubSource:
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
         """
+        if self._queries_remaining is not None:
+            if self._queries_remaining <= 0:
+                raise QueryWorkLimitExceededError
+            self._queries_remaining -= 1
         uac = self._user_access_control
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(

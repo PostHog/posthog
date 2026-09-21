@@ -13,6 +13,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     ComparisonTeamBasis as Basis,
     DeliveryScopeKind,
     PRTimelineSegmentKind as Kind,
+    QueryWorkLimitExceededError,
     ScopeRepoFigure,
 )
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
@@ -719,6 +720,14 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert timelines.merged_pr_count == 201
         assert red_by_kind[Kind.RED_FIXED_BY_PUSH] == expected
 
+        with self.assertRaises(QueryWorkLimitExceededError):
+            query_pull_request_timelines(
+                curated=CuratedGitHubSource.for_team(self.team, query_limit=1),
+                scope=_ALICE,
+                date_from=datetime.now(tz=UTC) - timedelta(days=7),
+                date_to=None,
+            )
+
     def test_a_ready_event_after_the_close_still_builds_a_timeline(self) -> None:
         closed_at = _ago(2)
         self._create_table(
@@ -1055,6 +1064,19 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
 
 
 class TestDeliveryEndpoints(APIBaseTest):
+    def test_query_budget_exhaustion_does_not_return_partial_totals(self) -> None:
+        with patch(
+            "products.engineering_analytics.backend.presentation.views.delivery.api.get_pull_request_timelines",
+            side_effect=QueryWorkLimitExceededError,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/engineering_analytics/pull_request_timelines/?author=alice"
+            )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "shorter date range" in response.json()["detail"]
+        assert "merged_pr_count" not in response.json()
+
     @parameterized.expand(
         [
             ("delivery_summary", "", "exactly one of author, github_team"),
