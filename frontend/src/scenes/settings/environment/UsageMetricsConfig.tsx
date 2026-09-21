@@ -150,6 +150,7 @@ function UsageMetricsForm(): JSX.Element {
     const { setUsageMetricValue } = useActions(usageMetricsConfigLogic)
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventMetadata,
         TaxonomicFilterGroupType.HogQLExpression,
     ]
