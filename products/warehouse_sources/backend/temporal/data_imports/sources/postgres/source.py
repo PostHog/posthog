@@ -882,6 +882,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "transfer quota. Upgrade your provider's plan or wait for the quota to reset, then "
                 "re-enable the sync."
             ),
+            # The same provider family names some quotas in the refusal and others not at all
+            # ("has exceeded the quota"), so the two keys above miss those wordings and the raw
+            # libpq line — carrying the customer's host and port — is retried and then stored.
+            # Every variant ends in the same provider sentence, so match that instead of each
+            # quota name. Placed last so the two entries above keep their more specific copy.
+            "quota. Upgrade your plan to increase limits": (
+                "Your database provider blocked the connection because your project exceeded a plan "
+                "quota. Upgrade the plan or wait for the quota to reset, then re-enable the sync."
+            ),
             # A database proxy (observed on Prisma Accelerate) refuses the connection because the
             # account hit a plan limit, reporting "Your account has restrictions: planLimitReached".
             # The restriction is account-level state only the customer can lift (upgrade the plan or
