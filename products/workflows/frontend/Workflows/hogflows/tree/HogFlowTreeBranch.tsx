@@ -110,6 +110,9 @@ export function HogFlowTreeBranch({
                                 className="!px-0 max-w-full"
                                 aria-label={`Edit ${branch.label} path from ${node.action.name}`}
                                 aria-pressed={isBranchSelected}
+                                // A focused path returns focus here. Every branch header renders this
+                                // button, but the actions menu below it is conditional.
+                                id={`workflow-tree-path-${getWorkflowTreeOccurrenceKey(node.action.id, [...path, branch.edge])}`}
                                 onClick={() => {
                                     setSelectedNodeId(node.action.id)
                                     setSelectedBranch({
@@ -162,7 +165,6 @@ export function HogFlowTreeBranch({
                                     className="!bg-transparent shrink-0"
                                     icon={<IconEllipsis />}
                                     aria-label={`Actions for ${branch.label}`}
-                                    id={`workflow-tree-path-${getWorkflowTreeOccurrenceKey(node.action.id, [...path, branch.edge])}`}
                                     tooltip="Path actions"
                                     data-attr="workflow-tree-focus-branch"
                                 />
