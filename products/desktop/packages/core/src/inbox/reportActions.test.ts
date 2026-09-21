@@ -251,7 +251,6 @@ describe("canResolveReport", () => {
   it.each([
     [true, "ready"],
     [true, "pending_input"],
-    [true, "failed"],
     [false, "in_progress"],
     [false, "resolved"],
     [false, "suppressed"],

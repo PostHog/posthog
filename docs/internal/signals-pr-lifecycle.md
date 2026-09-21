@@ -37,7 +37,8 @@ The earliest absorbed recurrence signal determines the new report's billing exem
 The command checks the parent and successor under the same parent lock as live grouping.
 
 The state API also accepts resolution from `failed`.
-The web and desktop inboxes offer Resolve for failed reports.
+The web inbox offers Resolve for failed reports.
+The desktop eligibility change must ship separately after this backend transition is deployed.
 A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
 
 ## Scout revisions
