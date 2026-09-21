@@ -48,7 +48,12 @@ class KevPooler(Pooler):
             if row_hidden is None:
                 outputs.append(None)
                 continue
-            decide, opts = readout_positions(row_ids.tolist(), self.box_end_id, self.decide_id)
+            ids = row_ids.tolist()
+            if not ids or ids[-1] != self.decide_id:
+                # vLLM's start-up warm-up pools rows of zero token ids; they carry no question, so they get no answer.
+                outputs.append(row_hidden.new_zeros(1, dtype=torch.float32))
+                continue
+            decide, opts = readout_positions(ids, self.box_end_id, self.decide_id)
             outputs.append(self.readout.probabilities(row_hidden, decide, opts))
         return outputs
 
