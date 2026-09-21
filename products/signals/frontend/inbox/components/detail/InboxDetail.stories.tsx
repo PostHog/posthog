@@ -117,6 +117,21 @@ const detailMocks = mswDecorator({
     },
 })
 
+const readyToImplementMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const artefacts = mockArtefacts(req.params.reportId as string)
+            return [
+                200,
+                {
+                    ...artefacts,
+                    results: artefacts.results.filter((artefact) => artefact.type !== 'task_run'),
+                },
+            ]
+        },
+    },
+})
+
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Detail',
     parameters: {
@@ -136,6 +151,15 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
 }
 
 export const Report: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportReadyToImplement: Story = {
+    decorators: [readyToImplementMocks],
     render: () => (
         <Frame>
             <ReportDetail report={reportTabReports[0]} />

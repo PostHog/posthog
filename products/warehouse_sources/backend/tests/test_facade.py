@@ -70,6 +70,19 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert deleted.id not in {s.id for s in api.list_sources(self.team.pk)}
         assert deleted.id in {s.id for s in api.list_sources(self.team.pk, include_deleted=True)}
 
+    def test_list_source_health_reports_the_newest_completed_run(self) -> None:
+        ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
+        newest = ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
+        ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Running")
+        self.schema.latest_error = "permission denied for table users"
+        self.schema.save()
+
+        results = api.list_source_health(self.team.pk)
+
+        assert [r.source_type for r in results] == ["Postgres"]
+        assert results[0].last_run_at == newest.created_at
+        assert results[0].latest_error == "permission denied for table users"
+
     def test_list_revenue_sources_maps_settings_schemas_and_tables(self) -> None:
         other_source = ExternalDataSource.objects.create(
             team_id=self.team.pk,

@@ -29,7 +29,7 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 
 ### Retention
 
-A daily Celery task, `sweep visual review retention`, deletes data that can no longer be used.
+Two daily Celery tasks delete data that can no longer be used: `sweep visual review runs`, and an hour later `sweep visual review artifacts`.
 The windows and the reasons behind them are constants in `backend/logic/retention.py`.
 
 - Superseded runs on PR branches go after 30 days, on the default branch after 180 days.
@@ -41,6 +41,8 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
   An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
 - A story-to-file map goes when the sweep deletes the last run that names it.
 - Each invocation is capped by rows and by a time budget, so a backlog drains over days.
+  The budget stays below the time a deploy gives a busy worker to finish, so a deploy cannot kill a sweep.
+  Artifacts have their own task and budget, so a backlog of runs cannot use up the time the artifact sweep needs.
 
 ### Weekly debt digest
 
@@ -208,6 +210,17 @@ Add `--tolerate-drift` to report the drift and still exit 0. Use it on the defau
 - **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes and merge-queue branches, where there's no PR to approve.
   The commit status never gates, but the exit code of `vr run complete` still does, and that is where a caller chooses. A merge-queue branch renders the tree about to land, so it lets drift fail the job. Master passes `--tolerate-drift` instead.
 
+### PR comments
+
+Enabled per repo with `enable_pr_comments`.
+A run that needs review posts its own comment, so GitHub notifies the reviewers and the prompt sits at the bottom of the PR with the new changes.
+GitHub sends nothing for an edit, so a run must not rewrite an earlier comment into a new prompt — a reviewer who already approved would never learn that more changes arrived.
+After the new prompt lands, the run clears the previous comment of its own run type: an approval is kept and marked as covering an earlier revision, an unanswered prompt is deleted.
+This order keeps the existing prompt on the PR when the post fails.
+Each run type keeps its own live prompt, because each one has a separate gate and a separate approval.
+An approval updates the prompt of its own run in place, because the reviewer who approved needs no notification.
+A run that never got a prompt, because it found nothing to review or because the post failed, posts a new comment on approval instead.
+
 ## Current state
 
 Working end to end: CI upload → async diff → GitHub Check → web review → approve → baseline commit → clean re-run. Multi-repo per team, snapshot change history across runs, run supersession, GitHub commit status checks on transitions.
@@ -224,14 +237,18 @@ The cap is measured against the committed baseline on every run, so absorbed shi
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
-A quarantined snapshot is not committed to the baseline, with one exception: a quarantined `new` snapshot that a person approved by identifier.
-This is the way to give a story a baseline entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
-The procedure is: open a PR that renders the story, approve the `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool; "Approve all" skips quarantined snapshots), finalize the run so the entry is committed to the PR branch, then merge the PR.
+A quarantined snapshot reaches the baseline only when a person approves it by identifier, because "Approve all" skips quarantined snapshots.
+This is how a quarantined story's entry keeps up with the story.
+The story still renders on every run, so a code change to it makes the entry stale while the quarantine hides the drift, and every run fails on the day the quarantine is lifted or expires.
+It is also how a story gets an entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
+The procedure is: open a PR that renders the story, approve the `changed` or `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool), finalize the run so the entry is committed to the PR branch, then merge the PR.
 
-Keep the quarantine on after the merge.
-An entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
-So every open branch still renders the story with no entry for it, and lifting the quarantine turns those runs `new` and reds their gate.
-Lift it once the open branches that render the story carry the entry, which they do after they merge the default branch.
+Lift the quarantine after the merge.
+A lift records the default branch's head commit, and a run whose commit does not contain that commit still treats the story as quarantined.
+That matters because an entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
+So an older branch keeps the quarantine until it merges the default branch, and the lift cannot red its gate.
+The scope lasts `LIFT_SCOPE_DAYS` from the lift, and after that the lift applies to every branch.
+A quarantine that expires on its own date records no commit, so its end applies to every branch at once.
 
 **Flakiness tab** — scores each snapshot identity on the share of the last 7 days of default-branch runs that rendered it differently from its baseline.
 The share is split in two, because the two cost different things: a `hard` run failed the gate and blocked whoever was merging, and a `soft` run was absorbed by a toleration and blocked nobody.

@@ -134,6 +134,11 @@ class TrunkQuarantineDebtSerializer(DataclassSerializer):
                 "help_text": "The Trunk app's flaky-tests page for this repository; null when the connected "
                 "source has no organization slug.",
             },
+            "truncated": {
+                "help_text": "True when more tests are quarantined than limit. The per-team counts then "
+                "cover only the returned tests, so treat them as lower bounds.",
+            },
+            "limit": {"help_text": "Maximum tests returned, oldest quarantine first."},
         }
 
 

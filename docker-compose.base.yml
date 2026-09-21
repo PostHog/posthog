@@ -613,6 +613,8 @@ services:
             GRPC_ADDRESS: '0.0.0.0:50055'
             PRIMARY_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
             ROUTER_URL: 'http://personhog-router-leader:50054'
+            ETCD_ENDPOINTS: 'http://etcd:2379'
+            ETCD_PREFIX: '/personhog/'
             RUST_LOG: 'info'
             METRICS_PORT: '9108'
 

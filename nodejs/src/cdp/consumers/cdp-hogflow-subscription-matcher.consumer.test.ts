@@ -1,6 +1,8 @@
 import '../../../tests/helpers/mocks/consumer.mock'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { KAFKA_CDP_INTERNAL_EVENTS, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
+import { createKafkaConsumer } from '~/common/kafka/consumer'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import * as posthogUtils from '~/common/utils/posthog'
@@ -238,6 +240,25 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
     afterEach(() => {
         matcher.clearWatcherTimers()
+    })
+
+    describe('consumer wiring', () => {
+        it('reads internal events from the cluster the wakes are produced to, not the events cluster', () => {
+            const createConsumer = jest.mocked(createKafkaConsumer)
+            createConsumer.mockClear()
+            new CdpHogflowSubscriptionMatcherConsumer(
+                {
+                    CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
+                    CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: 'cyclotron:9092',
+                } as any,
+                {} as any
+            )
+            const byTopic = Object.fromEntries(
+                createConsumer.mock.calls.map(([config, rdKafka]) => [config.topic, rdKafka])
+            )
+            expect(byTopic[KAFKA_CDP_INTERNAL_EVENTS]).toMatchObject({ 'metadata.broker.list': 'cyclotron:9092' })
+            expect(byTopic[KAFKA_EVENTS_JSON]?.['metadata.broker.list']).toBeUndefined()
+        })
     })
 
     describe('wakeMatchingWorkflows', () => {

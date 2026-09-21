@@ -586,6 +586,45 @@ export interface ReplayObservationLabelApi {
     feedback?: string
 }
 
+/**
+ * * `thumbnail` - Thumbnail
+ * * `clip` - Clip
+ */
+export type ReplayObservationMediaKindEnumApi =
+    (typeof ReplayObservationMediaKindEnumApi)[keyof typeof ReplayObservationMediaKindEnumApi]
+
+export const ReplayObservationMediaKindEnumApi = {
+    Thumbnail: 'thumbnail',
+    Clip: 'clip',
+} as const
+
+/**
+ * One thumbnail or clip illustrating an observation.
+ */
+export interface ReplayObservationMediaApi {
+    /** Id of this media entry. */
+    readonly id: string
+    /** `thumbnail` for the single frame that illustrates the observation, `clip` for a short video.
+     *
+     * * `thumbnail` - Thumbnail
+     * * `clip` - Clip */
+    readonly kind: ReplayObservationMediaKindEnumApi
+    /** Export asset holding the bytes; fetch it from the export content endpoint. */
+    readonly asset_id: number
+    /**
+     * One sentence saying what the clip shows. Null for thumbnails.
+     * @nullable
+     */
+    readonly description: string | null
+    /** Where this media starts in the analysis video, in milliseconds. */
+    readonly video_start_ms: number
+    /**
+     * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
+     * @nullable
+     */
+    readonly video_end_ms: number | null
+}
+
 export interface ReplayObservationApi {
     readonly id: string
     /** The scanner that produced this observation. */
@@ -651,6 +690,10 @@ export interface ReplayObservationApi {
     readonly label: ReplayObservationLabelApi | null
     /** Whether the calling user has opened this observation. */
     readonly viewed: boolean
+    /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
+    readonly media: readonly ReplayObservationMediaApi[]
+    /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
+    readonly summary_line: string
     /** @nullable */
     started_at?: string | null
     /** @nullable */
@@ -689,6 +732,23 @@ export interface RetryResponseApi {
 export interface ReplayVisionErrorApi {
     /** Human-readable explanation of why the request was refused. */
     detail: string
+}
+
+/**
+ * An inbox report that this observation's emitted signals were grouped into.
+ */
+export interface ObservationSignalReportApi {
+    /** ID of the inbox report, for linking to its inbox page. */
+    id: string
+    /**
+     * Report title, null while the report is still too new to have been summarized.
+     * @nullable
+     */
+    title: string | null
+    /** The report's status in the inbox: potential, candidate, in_progress, pending_input, ready, resolved, failed, or suppressed. */
+    status: string
+    /** When the report was created. */
+    created_at: string
 }
 
 export interface ObservationSearchResultApi {
@@ -1850,10 +1910,15 @@ export interface SignalScoutConfigOptionsApi {
  */
 export interface ScannerScoutCreateApi {
     /**
-     * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
+     * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
      * @maxLength 64
      */
-    name: string
+    name?: string
     /**
      * Short description of the signal or behavior this scout investigates.
      * @maxLength 1024
@@ -2030,6 +2095,8 @@ export interface SignalScoutConfigApi {
      */
     readonly source_id: string | null
     readonly created_at: string
+    /** When this config last changed: an edit through this API, or a status change the system made such as an automatic pause. A scheduled run does not bump it — the coordinator stamps `last_run_at` with a direct write — so this reads as when the scout was last tuned rather than when it last ran. */
+    readonly updated_at: string
 }
 
 /**
@@ -2319,6 +2386,7 @@ export interface SuggestTagsResponseApi {
 /**
  * * `signal_emitted` - Signal Emitted
  * * `unusual_verdict` - Unusual Verdict
+ * * `notable` - Notable
  * * `verdict_yes` - Verdict Yes
  * * `outlier_score` - Outlier Score
  * * `rare_tag` - Rare Tag
@@ -2332,6 +2400,7 @@ export type WatchFeedReasonEnumApi = (typeof WatchFeedReasonEnumApi)[keyof typeo
 export const WatchFeedReasonEnumApi = {
     SignalEmitted: 'signal_emitted',
     UnusualVerdict: 'unusual_verdict',
+    Notable: 'notable',
     VerdictYes: 'verdict_yes',
     OutlierScore: 'outlier_score',
     RareTag: 'rare_tag',
@@ -2345,10 +2414,11 @@ export const WatchFeedReasonEnumApi = {
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
 export interface WatchFeedReasonApi {
-    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
      *
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
+     * * `notable` - Notable
      * * `verdict_yes` - Verdict Yes
      * * `outlier_score` - Outlier Score
      * * `rare_tag` - Rare Tag
@@ -2362,6 +2432,8 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     signals_count?: number | null
+    /** Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped. */
+    problem_types?: string[]
     /**
      * The monitor's answer, for `unusual_verdict`.
      * @nullable
@@ -2372,6 +2444,16 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     verdict_share?: number | null
+    /**
+     * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
+     * @nullable
+     */
+    notability?: number | null
+    /**
+     * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+     * @nullable
+     */
+    notability_reason?: string | null
     /**
      * The observation's score, for `outlier_score`.
      * @nullable
@@ -2408,7 +2490,7 @@ export interface WatchFeedItemApi {
  * Response of GET /vision/scanners/watch_feed/.
  */
 export interface WatchFeedResponseApi {
-    /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then newest. */
+    /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, then prose that reads as friction, then newest. */
     results: WatchFeedItemApi[]
 }
 
@@ -2779,6 +2861,61 @@ export type VisionScannersObservationsRetrieveParams = {
     verdict?: string
 }
 
+export type VisionScannersObservationsSignalReportsListParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone.
+     */
+    date_to?: string
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: boolean
+    /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
+    /**
+     * Sort observations by created_at, started_at, completed_at, status, recording_subject_email, result_score, result_verdict, result_confidence, or scanner_version. Prefix with `-` for descending. Keys that can be null (started_at, completed_at, recording_subject_email, result_*, scanner_version) sort nulls last regardless of direction.
+     */
+    order_by?: string
+    /**
+     * Filter to observations whose person email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
      * Only observations dispatched by this backfill.
@@ -2877,6 +3014,16 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType
+    /**
+     * Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
+     * @minLength 1
+     */
+    tags?: string
 }
 
 export type VisionScannersWatchFeedRetrieveScannerType =

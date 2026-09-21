@@ -1234,7 +1234,7 @@ SWEEP_METRICS_JOB = "clickhouse_deletion_sweep"
 
 
 @frozen
-class SweepGauge:
+class PublishedGauge:
     """One published measurement. Named so the metric name and its help text cannot swap."""
 
     name: str
@@ -1246,44 +1246,44 @@ class SweepGauge:
         object.__setattr__(self, "value", float(self.value))
 
 
-def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[SweepGauge]:
+def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[PublishedGauge]:
     return [
-        SweepGauge(
+        PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_last_success_timestamp_seconds",
             help_text="Unix time when the sweep last finished deleting persons",
             value=completed_at,
         ),
-        SweepGauge(
+        PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_snapshot_deleted_persons",
             help_text="Soft-deleted persons this run snapshotted. Saturates at the max_persons cap",
             value=run.persons_count,
         ),
-        SweepGauge(
+        PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_snapshot_orphaned_distinct_ids",
             help_text="Orphaned distinct id mappings this run snapshotted, under the same cap",
             value=run.orphaned_count,
         ),
-        SweepGauge(
+        PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_revived_persons",
             help_text="Persons that came back between the snapshot and the delete, and were excluded",
             value=run.revived_person_count,
         ),
-        SweepGauge(
+        PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_revived_distinct_ids",
             help_text="Distinct id mappings that came back mid-run, and were excluded",
             value=run.revived_distinct_id_count,
         ),
-        SweepGauge(
+        PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_queued_for_postgres",
             help_text="Persons handed to the Postgres cleanup queue by this run",
             value=run.queued_for_postgres,
         ),
-        SweepGauge(
+        PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_mutation_seconds_max",
             help_text="Slowest single delete mutation of the run, against mutation_wait_deadline",
             value=run.mutation_seconds_max,
         ),
-        SweepGauge(
+        PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_stranded_runs_reaped",
             help_text="Finished runs whose leftover dictionaries this run dropped",
             value=run.stranded_runs_reaped,

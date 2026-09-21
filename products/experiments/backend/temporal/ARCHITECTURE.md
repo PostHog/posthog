@@ -150,7 +150,10 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
 - **In-query execution guard.** The calc activity sets ClickHouse `max_execution_time=270s` (`METRIC_CALC_MAX_EXECUTION_TIME_SECONDS`), deliberately below the 300s activity timeout. A slow query then fails inside the activity with a typed ClickHouse timeout error, so the FAILED result row and the terminal event still get written, instead of Temporal killing the attempt from the outside and losing all of that.
 
-- **5-minute per-attempt budget.** `start_to_close_timeout=timedelta(minutes=5)` on the calc activity is the real per-attempt ceiling. We deliberately don't set a heartbeat timeout: the activity has no progress hooks inside the ClickHouse query, so the heartbeat couldn't fire mid-query anyway.
+- **5-minute per-attempt budget.** `start_to_close_timeout=timedelta(minutes=5)` limits the attempt in Temporal, but cannot stop the synchronous calculation thread.
+  Local activity cancellation waits for that thread with a bounded cleanup deadline.
+  The activity has no heartbeats, so workflow cancellation does not promptly reach it.
+  See [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md) for the locking contract and cleanup limits.
 - **Calc queries run on the online ClickHouse cluster.** The calc activity builds its `ExperimentQueryRunner` with `workload=Workload.ONLINE`, so the queries hit the same replicas that serve interactive product traffic rather than the offline cluster that heavy background jobs use.
 
   This is a deliberate trade-off against the offline default that most background scans take. The offline replicas can trail ingestion, disable hedged requests (higher and more variable latency, higher failure rate), and share one global concurrency limit across every product. A recalc is a user-initiated snapshot the person is waiting on, so it wants the freshest data and the most reliable, lowest-latency path, which is the online cluster. The cost is that recalc scans now compete with live user queries instead of being isolated from them; the worker's activity-slot cap and the per-org ClickHouse app-query limiter are what keep that load bounded.

@@ -1,18 +1,22 @@
-import os from 'node:os'
-
 import { overrideConfigWithEnv } from '~/common/config/config'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topics'
 import { RedisConnectionConfig } from '~/common/utils/db/redis'
 
 export type MlMirrorConfig = {
-    AI_RESEARCH_REPLAY_PRIVACY_TABLE: string
+    AI_RESEARCH_REPLAY_KEY_TABLE: string
     AI_RESEARCH_REPLAY_KMS_KEY_ARN: string
     AI_RESEARCH_REPLAY_AWS_REGION: string
     AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: number
     AI_RESEARCH_REPLAY_KEY_CACHE_MAX: number
     AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: number
+    AI_RESEARCH_REPLAY_ROW_CACHE_MAX: number
+    AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: number
     AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: string
     AI_RESEARCH_REPLAY_S3_PREFIX: string
+    /** Bucket of the v3 dataset, which holds only AISR03 frames. Empty until the cutover by session start timestamp selects it. */
+    AI_RESEARCH_REPLAY_S3_BUCKET: string
+    /** Block prefix inside the v3 bucket. Each dataset version has its own, so a bucket policy grants only the versions it holds. */
+    AI_RESEARCH_REPLAY_S3_V3_PREFIX: string
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
     /** Optional S3 key of the `{ text, url }` allow-list document; empty → in-binary defaults. */
@@ -166,7 +170,6 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
-    SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: number
     // Real peak memory is ~2x this: the flush does a Buffer.concat copy.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
@@ -207,25 +210,23 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
-    /**
-     * Cap on messages scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
-     * threadpool thread (UV_THREADPOOL_SIZE, default 4, shared with the recorder's snappy
-     * compression). <= 0 (the default) resolves to min(available CPUs, threadpool size); an
-     * explicit positive value is used verbatim; 1 restores fully sequential scrubbing.
-     */
-    SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: number
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
     return {
-        AI_RESEARCH_REPLAY_PRIVACY_TABLE: '',
+        AI_RESEARCH_REPLAY_KEY_TABLE: '',
         AI_RESEARCH_REPLAY_KMS_KEY_ARN: '',
         AI_RESEARCH_REPLAY_AWS_REGION: 'us-east-1',
-        AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: 100,
-        AI_RESEARCH_REPLAY_KEY_CACHE_MAX: 10_000,
-        AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: 60_000,
+        AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: 150,
+        AI_RESEARCH_REPLAY_KEY_CACHE_MAX: 100_000,
+        AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: 1_800_000,
+        // Sized apart from the KMS cache above because a row is far larger than a key, and this lifetime carries the deletion lease.
+        AI_RESEARCH_REPLAY_ROW_CACHE_MAX: 100_000,
+        AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: 300_000,
         AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: '',
         AI_RESEARCH_REPLAY_S3_PREFIX: 'rrweb_2',
+        AI_RESEARCH_REPLAY_S3_BUCKET: '',
+        AI_RESEARCH_REPLAY_S3_V3_PREFIX: 'rrweb_3',
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
         SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: '',
         AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: '',
@@ -273,7 +274,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
         // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.
         SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: 'http://127.0.0.1:9010',
-        SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: 30 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: 128 * 1024 * 1024,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,
@@ -283,7 +283,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ,
         SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 50,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
-        SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
 }
 
@@ -298,23 +297,6 @@ export function getMlMirrorConfig(env: Record<string, string | undefined> = proc
         AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT:
             env.AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT ?? env.SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT,
     })
-}
-
-const DEFAULT_UV_THREADPOOL_SIZE = 4
-
-/**
- * `os.availableParallelism()` respects cgroup CPU limits, so in-container this sees the pod's
- * cores, not the node's.
- */
-export function resolveMlAnonymizeMaxConcurrency(
-    configured: number,
-    availableParallelism: number = os.availableParallelism(),
-    uvThreadpoolSize: number = parseInt(process.env.UV_THREADPOOL_SIZE ?? '', 10) || DEFAULT_UV_THREADPOOL_SIZE
-): number {
-    if (configured > 0) {
-        return configured
-    }
-    return Math.max(1, Math.min(availableParallelism, uvThreadpoolSize))
 }
 
 /**

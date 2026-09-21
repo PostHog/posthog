@@ -49,7 +49,7 @@ describe('heatmapsBrowserLogic', () => {
             expect(message).toContain(expected)
         })
 
-        it('attributes a non-2xx to the customer host and quotes what it returned', () => {
+        it('reports a non-2xx and names the cookie a bot protection rule can allow', () => {
             const message = preflightBannerMessage({
                 ...base,
                 framing: 'unknown',
@@ -59,7 +59,9 @@ describe('heatmapsBrowserLogic', () => {
 
             expect(message).toContain('429')
             expect(message).toContain('local_rate_limited')
-            expect(message).toContain('host or CDN')
+            expect(message).toContain('__ph_heatmap_render')
+            expect(message).toContain('screenshot background')
+            expect(message).not.toContain('firewall rules')
             expect(message).not.toContain('embedding')
         })
 
@@ -189,6 +191,36 @@ describe('heatmapsBrowserLogic', () => {
 
         afterEach(() => {
             jest.restoreAllMocks()
+        })
+
+        it.each(['navigated', 'loaded'] as const)('ignores a queued timeout after the iframe %s', async (state) => {
+            const timers = jest.spyOn(global, 'setTimeout')
+            const iframe = document.createElement('iframe')
+            iframe.id = 'heatmap-iframe'
+            document.body.appendChild(iframe)
+            const logic = heatmapsBrowserLogic()
+            const unmount = logic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setDisplayUrl('https://previous.example.com')
+                const timeout = timers.mock.calls.find(([, delay]) => delay === 7500)?.[0]
+                expect(timeout).toEqual(expect.any(Function))
+
+                if (state === 'navigated') {
+                    logic.actions.setDisplayUrl('https://next.example.com')
+                } else {
+                    logic.actions.onIframeLoad()
+                }
+                await expectLogic(logic).toFinishAllListeners()
+                ;(timeout as () => void)()
+
+                expect(logic.values.loadTimeoutBanner).toBeNull()
+                expect(logic.values.loading).toBe(state === 'navigated')
+            } finally {
+                unmount()
+                iframe.remove()
+                timers.mockRestore()
+            }
         })
 
         // A frame blocked by X-Frame-Options still fires onload, and onIframeLoad nulls the load-timeout

@@ -6,6 +6,11 @@
             "description": "Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.",
             "type": "boolean"
         },
+        "display_name": {
+            "description": "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.",
+            "maxLength": 200,
+            "type": "string"
+        },
         "emit": {
             "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
             "type": "boolean"

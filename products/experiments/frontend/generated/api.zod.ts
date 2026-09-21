@@ -1042,7 +1042,7 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(experimentsEndCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved."
         ),
     repository: zod
         .string()
@@ -1207,7 +1207,7 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved."
         ),
     repository: zod
         .string()
@@ -1229,6 +1229,48 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them.'
         ),
+})
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const experimentsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const experimentsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const experimentsBulkUpdateTagsCreateBodyTagsMax = 100
+
+export const ExperimentsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(experimentsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+        ),
+    tags: zod
+        .array(zod.string().max(experimentsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(experimentsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**

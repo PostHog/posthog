@@ -1,12 +1,10 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,8 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v61.0", "v67.0")
-    default_version = "v67.0"
+    supported_versions = ("v61.0", "v67.0", "v68.0")
+    default_version = "v68.0"
     api_docs_url = "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm"
 
     @property
@@ -98,7 +96,7 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SALESFORCE,
+            name=ExternalDataSourceType.SALESFORCE,
             category=DataWarehouseSourceCategory.CRM,
             keywords=["sfdc"],
             caption="Select an existing Salesforce account to link to PostHog or create a new connection",

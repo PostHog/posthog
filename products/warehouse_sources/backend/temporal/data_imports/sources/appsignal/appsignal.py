@@ -1,5 +1,5 @@
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, NoReturn, Optional
 from urllib.parse import quote
@@ -301,6 +301,7 @@ def _get_windowed_rows(
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    initial_start: Optional[int] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk a legacy REST endpoint through ascending time windows.
 
@@ -317,7 +318,9 @@ def _get_windowed_rows(
     url = f"{APPSIGNAL_BASE_URL}{config.path.format(app_id=app_id)}"
     now = int(datetime.now(UTC).timestamp())
 
-    start = EARLIEST_START
+    # `initial_start` only floors a first sync; a watermark always wins, so a long pause never
+    # skips the rows between the watermark and the floor.
+    start = EARLIEST_START if initial_start is None else initial_start
     if should_use_incremental_field:
         watermark = _to_epoch(db_incremental_field_last_value)
         if watermark is not None:
@@ -398,6 +401,23 @@ SPAN_BATCH_TRACES = 100
 # AppSignal's metric types map onto the `Field` enum the timeseries selector asks for. A
 # measurement has no single natural field, so the mean is taken as the representative one.
 METRIC_TYPE_FIELDS = {"gauge": "gauge", "counter": "counter", "measurement": "mean"}
+# Bucket the tracing aggregates are read at. Hourly matches the metrics resolution, so an
+# action's throughput lines up with the metric series recorded beside it.
+AGGREGATE_BUCKET_SECONDS = 3600
+AGGREGATE_INITIAL_LOOKBACK_SECONDS = 7 * 24 * 3600
+# Slow events are a ranked "worst operations" list rather than a series, so they are bucketed by
+# day: a finer grain would multiply the per-digest fan-out below for no extra signal.
+SLOW_EVENT_BUCKET_SECONDS = 24 * 3600
+SLOW_EVENT_INITIAL_LOOKBACK_SECONDS = 30 * 24 * 3600
+# Documented default for the slow-events `limit`, sent explicitly so the bucket size is pinned.
+SLOW_EVENTS_LIMIT = 100
+# Digests whose actions are fetched in one sync. Each costs a request, so a first sync on a busy
+# app is capped and the next sync continues from the last completed bucket.
+MAX_SLOW_EVENT_DIGESTS_PER_SYNC = 1_000
+# How far back a first deploy-stats sync reaches, and how many revisions it stats. Deploy markers
+# go back to the app's first deploy and each revision costs a request.
+DEPLOY_STATS_INITIAL_LOOKBACK_SECONDS = 90 * 24 * 3600
+MAX_DEPLOY_STATS_PER_SYNC = 2_000
 
 
 def _parse_iso(value: Any) -> Optional[datetime]:
@@ -429,6 +449,16 @@ def _iter_windows(start: int, end: int, size: int) -> Iterator[TimeWindow]:
         stop = min(start + size, end)
         yield TimeWindow(since=start, before=stop)
         start = stop
+
+
+def _iter_aligned_windows(start: int, end: int, size: int) -> Iterator[TimeWindow]:
+    """Windows snapped to a fixed epoch grid, for endpoints that aggregate over their range.
+
+    An aggregate row is identified by the bucket it covers, so the grid has to be the same on
+    every sync. Starting at an arbitrary `start` would shift the boundaries and seed a second
+    set of rows for a range already synced.
+    """
+    yield from _iter_windows(start - start % size, end, size)
 
 
 def _resolve_walk_start(
@@ -803,6 +833,27 @@ def _get_metric_timeseries_rows(
         resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
 
 
+def _fetch_actions(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    since: int,
+    before: int,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    actions = (
+        _fetch_v2(
+            session,
+            api_token,
+            "/tracing/actions",
+            logger,
+            body={"site_id": app_id, "from": _to_iso(since), "to": _to_iso(before)},
+        )
+        or []
+    )
+    return [action for action in actions if isinstance(action, dict)]
+
+
 def _iter_action_traces(
     session: requests.Session,
     api_token: str,
@@ -871,21 +922,8 @@ def _window_traces(
     Traces are only reachable one action at a time, so the window's actions are swept first
     and the result is sorted: rows arrive grouped by action, which is not a time order.
     """
-    actions = (
-        _fetch_v2(
-            session,
-            api_token,
-            "/tracing/actions",
-            logger,
-            body={"site_id": app_id, "from": _to_iso(since), "to": _to_iso(before)},
-        )
-        or []
-    )
-
     traces: list[dict[str, Any]] = []
-    for action in actions:
-        if not isinstance(action, dict):
-            continue
+    for action in _fetch_actions(session, api_token, app_id, since, before, logger):
         namespace, action_name = action.get("namespace"), action.get("action")
         if not namespace or not action_name:
             continue
@@ -1001,12 +1039,348 @@ def _get_trace_span_rows(
         resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
 
 
+def _fetch_deploy_stats(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    revision: str,
+    logger: FilteringBoundLogger,
+) -> dict[str, Any]:
+    try:
+        stats = _fetch_v2(
+            session,
+            api_token,
+            "/deploys/stats",
+            logger,
+            body={"site_id": app_id, "revision": revision},
+        )
+    except requests.HTTPError as error:
+        # A revision that served no requests, or whose data has aged out of retention, has no
+        # statistics to report. The marker still belongs in the table.
+        if error.response is None or error.response.status_code not in (404, 422):
+            raise
+        stats = None
+    return {
+        "throughput": (stats or {}).get("throughput"),
+        "mean": (stats or {}).get("mean"),
+        "error_rate": (stats or {}).get("error_rate"),
+    }
+
+
+def _walk_aggregate_windows(
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    bucket_seconds: int,
+    initial_lookback_seconds: int,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    build_rows: Callable[[TimeWindow, str], list[dict[str, Any]]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Drive an aggregating endpoint over the fixed bucket grid, oldest bucket first.
+
+    `build_rows` is handed the bucket's range and the ISO timestamp identifying it. No overlap is
+    applied to the watermark: it is already the newest bucket's timestamp, and flooring it to the
+    grid re-reads exactly that bucket, which was still filling when it synced.
+    """
+    now = int(datetime.now(UTC).timestamp())
+    start = _resolve_walk_start(
+        config,
+        resumable_source_manager,
+        logger,
+        now,
+        initial_lookback_seconds,
+        0,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+    )
+
+    for window in _iter_aligned_windows(start, now, bucket_seconds):
+        rows = build_rows(window, _to_iso(window.since))
+        if rows:
+            yield rows
+        resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
+
+
+def _fetch_slow_events(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    window: TimeWindow,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    events = (
+        _fetch_v2(
+            session,
+            api_token,
+            "/tracing/slow_events",
+            logger,
+            body={
+                "site_id": app_id,
+                "from": _to_iso(window.since),
+                "to": _to_iso(window.before),
+                "limit": SLOW_EVENTS_LIMIT,
+            },
+        )
+        or []
+    )
+    return [event for event in events if isinstance(event, dict) and event.get("digest")]
+
+
+def _get_deploy_stats_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan deploy statistics out over the app's deploy markers.
+
+    `/deploys/stats` answers for one revision at a time and there is no revision listing, so the
+    markers walk enumerates them. One row per marker, so the table joins onto `deploy_markers.id`
+    and its `created_at` stays fixed even when a revision is deployed more than once.
+    """
+    now = int(datetime.now(UTC).timestamp())
+    stats_by_revision: dict[str, dict[str, Any]] = {}
+    windows_done = 0
+
+    for markers in _get_windowed_rows(
+        session,
+        api_token,
+        app_id,
+        APPSIGNAL_ENDPOINTS["deploy_markers"],
+        resumable_source_manager,
+        logger,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+        initial_start=now - DEPLOY_STATS_INITIAL_LOOKBACK_SECONDS,
+    ):
+        # The budget is spent between windows, never inside one. Leaving a window part-done
+        # would lose its checkpoint, and a window holding the whole budget would then be redone
+        # from the start on every sync without the walk ever reaching the windows after it.
+        if windows_done and len(stats_by_revision) >= MAX_DEPLOY_STATS_PER_SYNC:
+            logger.warning(
+                f"AppSignal: reached the {MAX_DEPLOY_STATS_PER_SYNC} revision limit for {config.name}, "
+                f"the next sync continues from the last completed window"
+            )
+            return
+
+        rows: list[dict[str, Any]] = []
+        for marker in markers:
+            marker_id, revision = marker.get("id"), marker.get("revision")
+            if not marker_id or not revision:
+                continue
+
+            stats = stats_by_revision.get(revision)
+            if stats is None:
+                stats = _fetch_deploy_stats(session, api_token, app_id, revision, logger)
+                stats_by_revision[revision] = stats
+
+            rows.append(
+                {
+                    "marker_id": marker_id,
+                    "revision": revision,
+                    "created_at": marker.get("created_at"),
+                    "short_revision": marker.get("short_revision"),
+                    **stats,
+                }
+            )
+
+        if rows:
+            yield rows
+        windows_done += 1
+
+
+def _get_performance_action_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    def build_rows(window: TimeWindow, bucket: str) -> list[dict[str, Any]]:
+        actions = _fetch_actions(session, api_token, app_id, window.since, window.before, logger)
+        return [
+            {**action, "timestamp": bucket} for action in actions if action.get("namespace") and action.get("action")
+        ]
+
+    yield from _walk_aggregate_windows(
+        config,
+        resumable_source_manager,
+        logger,
+        AGGREGATE_BUCKET_SECONDS,
+        AGGREGATE_INITIAL_LOOKBACK_SECONDS,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        build_rows,
+    )
+
+
+def _get_service_edge_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Flatten the site's dependency graph into one row per peer service.
+
+    The response groups edges under `upstream`, `downstream` and `internal`, and the same peer
+    can appear in more than one group, so the group name is kept as `direction` and is part of
+    the primary key.
+    """
+
+    def build_rows(window: TimeWindow, bucket: str) -> list[dict[str, Any]]:
+        body = (
+            _fetch_v2(
+                session,
+                api_token,
+                "/tracing/site_edges",
+                logger,
+                body={"site_id": app_id, "from": _to_iso(window.since), "to": _to_iso(window.before)},
+            )
+            or {}
+        )
+        rows: list[dict[str, Any]] = []
+        for direction in ("upstream", "downstream", "internal"):
+            for edge in body.get(direction) or []:
+                if not isinstance(edge, dict) or not edge.get("service"):
+                    continue
+                rows.append({**edge, "direction": direction, "timestamp": bucket})
+        return rows
+
+    yield from _walk_aggregate_windows(
+        config,
+        resumable_source_manager,
+        logger,
+        AGGREGATE_BUCKET_SECONDS,
+        AGGREGATE_INITIAL_LOOKBACK_SECONDS,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        build_rows,
+    )
+
+
+def _get_slow_event_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    def build_rows(window: TimeWindow, bucket: str) -> list[dict[str, Any]]:
+        return [
+            {**event, "timestamp": bucket} for event in _fetch_slow_events(session, api_token, app_id, window, logger)
+        ]
+
+    yield from _walk_aggregate_windows(
+        config,
+        resumable_source_manager,
+        logger,
+        SLOW_EVENT_BUCKET_SECONDS,
+        SLOW_EVENT_INITIAL_LOOKBACK_SECONDS,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        build_rows,
+    )
+
+
+def _get_slow_event_action_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan the actions of each slow event out per digest, oldest bucket first.
+
+    A digest costs a request, so the sweep stops once it has spent
+    MAX_SLOW_EVENT_DIGESTS_PER_SYNC of them. The budget is checked between buckets, never
+    inside one: a bucket abandoned part-way keeps no checkpoint, so a single bucket holding the
+    whole budget would be redone from the start on every sync and the walk would never advance.
+    Finishing the bucket overshoots by at most the digests it holds.
+    """
+    now = int(datetime.now(UTC).timestamp())
+    start = _resolve_walk_start(
+        config,
+        resumable_source_manager,
+        logger,
+        now,
+        SLOW_EVENT_INITIAL_LOOKBACK_SECONDS,
+        0,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+    )
+
+    digests_fetched = 0
+    buckets_done = 0
+    for window in _iter_aligned_windows(start, now, SLOW_EVENT_BUCKET_SECONDS):
+        if buckets_done and digests_fetched >= MAX_SLOW_EVENT_DIGESTS_PER_SYNC:
+            logger.warning(
+                f"AppSignal: reached the {MAX_SLOW_EVENT_DIGESTS_PER_SYNC} digest limit for {config.name}, "
+                f"the next sync continues from the last completed bucket"
+            )
+            return
+
+        bucket = _to_iso(window.since)
+        rows: list[dict[str, Any]] = []
+
+        for event in _fetch_slow_events(session, api_token, app_id, window, logger):
+            digests_fetched += 1
+            digest = event["digest"]
+            actions = (
+                _fetch_v2(
+                    session,
+                    api_token,
+                    "/tracing/slow_events/actions",
+                    logger,
+                    body={
+                        "site_id": app_id,
+                        "from": _to_iso(window.since),
+                        "to": _to_iso(window.before),
+                        "digest": digest,
+                    },
+                )
+                or []
+            )
+            rows.extend(
+                {**action, "digest": digest, "timestamp": bucket}
+                for action in actions
+                if isinstance(action, dict) and action.get("namespace") and action.get("action_name")
+            )
+
+        if rows:
+            yield rows
+        resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
+        buckets_done += 1
+
+
 _WALKERS = {
     "apps": _get_app_rows,
+    "deploy_stats": _get_deploy_stats_rows,
     "log_lines": _get_log_line_rows,
     "metric_names": _get_metric_name_rows,
     "metric_timeseries": _get_metric_timeseries_rows,
+    "performance_actions": _get_performance_action_rows,
     "performance_traces": _get_performance_trace_rows,
+    "service_edges": _get_service_edge_rows,
+    "slow_events": _get_slow_event_rows,
+    "slow_event_actions": _get_slow_event_action_rows,
     "trace_spans": _get_trace_span_rows,
 }
 

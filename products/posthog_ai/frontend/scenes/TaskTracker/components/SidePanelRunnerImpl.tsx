@@ -6,6 +6,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import { composerOverrideLogic } from '../../../logics/composerOverrideLogic'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { StartupRunChat } from './StartupRunChat'
@@ -36,6 +37,7 @@ export function SidePanelRunnerImpl({ panelId, composer }: SidePanelRunnerImplPr
 
 function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
+    const { composerOverride } = useValues(composerOverrideLogic)
     const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
     const startupFocusedRef = useRef(false)
 
@@ -81,7 +83,7 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
                 <div className="grow min-h-0 flex flex-col">
                     <TaskComposer />
                 </div>
-                <TaskHistoryPreview />
+                {!composerOverride?.hideRecentTasks && <TaskHistoryPreview />}
             </div>
         )
     }

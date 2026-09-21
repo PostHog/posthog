@@ -1,6 +1,6 @@
-"""Summarizer scanner: a single `summary` turn (title + body), embedded whole for free-text search."""
+"""Summarizer scanner: one core turn producing a title + body, embedded whole for free-text search."""
 
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -9,12 +9,11 @@ from products.replay_vision.backend.temporal.scanners.base import (
     BaseScanner,
     BaseScannerOutput,
     EmbeddingDocument,
-    MissionStep,
     Segment,
-    SignalFinding,
     confidence_field,
+    notability_field,
+    notability_reason_field,
 )
-from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
 SummaryLength = Literal["short", "medium", "long"]
 
@@ -26,7 +25,7 @@ _LENGTH_GUIDANCE: dict[SummaryLength, str] = {
 
 
 class SummarizerSummaryResponse(BaseModel, frozen=True):
-    """First turn: the title + body summary. Field order is load-bearing — `confidence` last, after the content."""
+    """The core turn: title + body summary. Field order is load-bearing — `confidence` last, after the content."""
 
     title: str = Field(
         max_length=120,
@@ -36,6 +35,8 @@ class SummarizerSummaryResponse(BaseModel, frozen=True):
         ),
     )
     summary: str = Field(description="Body text whose length follows the scanner's configured length.")
+    notability_reason: str | None = notability_reason_field()
+    notability: float | None = notability_field()
     confidence: float = confidence_field()
 
 
@@ -59,20 +60,14 @@ def summary_embedding_text(output: SummarizerOutput) -> str:
 
 class SummarizerScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.SUMMARIZER] = ScannerType.SUMMARIZER
+    core_step_template: ClassVar[str] = "summarizer_summary_step.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("summary",)
     output_cls: ClassVar[type[BaseScannerOutput]] = SummarizerOutput
     length: SummaryLength = "medium"
 
-    def core_steps(self) -> list[MissionStep]:
-        summary_instruction = render_prompt(
-            "summarizer_summary_step.jinja",
-            user_prompt=self.prompt,
-            length_guidance=_LENGTH_GUIDANCE[self.length],
-        )
-        return [
-            MissionStep(name="summary", instruction=summary_instruction, response_model=SummarizerSummaryResponse),
-        ]
+    @property
+    def llm_response_schema(self) -> type[BaseModel]:
+        return SummarizerSummaryResponse
 
-    def assemble(self, step_outputs: dict[str, BaseModel]) -> tuple[BaseScannerOutput, list[SignalFinding]]:
-        summary = step_outputs["summary"]
-        return SummarizerOutput(**summary.model_dump()), self._extract_signals(step_outputs)
+    def prompt_context(self) -> dict[str, Any]:
+        return {"length_guidance": _LENGTH_GUIDANCE[self.length]}

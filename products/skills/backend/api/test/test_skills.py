@@ -199,6 +199,26 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand(
+        [
+            # Named by its directory under products/signals/skills/.
+            ("skill_directory", "signals-scout-logs"),
+            # Named by the frontmatter of a loose entry point, which its path does not carry.
+            ("loose_entry_point", "adding-warehouse-person-properties"),
+        ]
+    )
+    def test_create_skill_rejects_a_bundled_skill_name(self, _label, skill_name):
+        response = self.client.post(
+            self._url(),
+            data={"name": skill_name, "description": "Shadows a bundled skill.", "body": "# Shadow"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "name"
+        assert "already ships a skill" in response.json()["detail"]
+        assert not LLMSkill.objects.filter(team=self.team, name=skill_name).exists()
+
     def test_create_skill_requires_description(self):
         response = self.client.post(
             self._url(),
@@ -863,6 +883,38 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_listed_skill_is_readable_by_the_name_and_version_the_list_returned(self):
+        self.create_skill(name="signals-scout-drive-session-completion", version=1)
+
+        listed = self.client.get(self._url()).json()["results"][0]
+        response = self.client.get(self._url(f"name/{listed['name']}?version={listed['version']}"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (response.json()["name"], response.json()["version"]) == (listed["name"], listed["version"])
+
+    def test_get_skill_by_near_miss_name_suggests_the_listed_name(self):
+        self.create_skill(name="signals-scout-drive-session-completion")
+
+        response = self.client.get(self._url("name/signals-scout-drive-session?version=1"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        body = response.json()
+        assert body["type"] == "skill_not_found"
+        assert body["suggestions"] == ["signals-scout-drive-session-completion"]
+        assert "signals-scout-drive-session-completion" in body["detail"]
+
+    def test_get_skill_at_absent_version_names_the_versions_the_store_holds(self):
+        self.create_skill(name="versioned-skill", version=1, is_latest=False)
+        self.create_skill(name="versioned-skill", version=2)
+
+        response = self.client.get(self._url("name/versioned-skill?version=7"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        body = response.json()
+        assert body["type"] == "skill_version_not_found"
+        assert body["available_versions"] == [1, 2]
+        assert "has no version 7" in body["detail"]
+
     @parameterized.expand(
         [
             ("no_query_string", "", None),
@@ -1011,6 +1063,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["description"] == "Original desc."
         assert data["license"] == "MIT"
         assert data["compatibility"] == "Python 3.12+"
+
+    @parameterized.expand(
+        [
+            ("drops_the_hash", {"seeded_by": "signals_scout_harness"}),
+            ("forges_the_hash", {"seeded_by": "signals_scout_harness", "canonical_hash": "forged"}),
+            ("forges_the_seed_tag", {"seeded_by": "someone_else", "canonical_hash": "forged", "source": "elsewhere"}),
+        ]
+    )
+    def test_publish_cannot_rewrite_harness_provenance_metadata(self, _label, supplied_metadata):
+        seeded = {"seeded_by": "signals_scout_harness", "canonical_hash": "abc123", "source": "products/signals/skills"}
+        self.create_skill(name="signals-scout-health-checks", metadata=seeded)
+
+        response = self.client.patch(
+            self._url("name/signals-scout-health-checks"),
+            data={"body": "# Repurposed", "metadata": {**supplied_metadata, "note": "mine"}, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["metadata"] == {**seeded, "note": "mine"}
 
     def test_publish_can_update_description(self):
         self.create_skill(name="update-desc", description="Old desc.", body="# Body")
@@ -1538,6 +1610,19 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
         assert not LLMSkill.objects.filter(team=self.team, name=new_name).exists()
+
+    @parameterized.expand([("rename", "rename"), ("duplicate", "duplicate")])
+    def test_taking_a_bundled_skill_name_is_rejected(self, _label, action):
+        self.create_skill(name="source")
+
+        response = self.client.post(
+            self._url(f"name/source/{action}"),
+            data={"new_name": "signals-scout-logs"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-logs").exists()
 
     def test_rename_of_a_missing_skill_is_not_found(self):
         response = self.client.post(
@@ -2168,6 +2253,27 @@ class TestSkillAccessControlRBAC(APIBaseTest):
                 }
             ],
         }
+
+    def test_not_found_suggestions_omit_skills_the_member_cannot_read(self):
+        LLMSkill.objects.create(
+            team=self.team,
+            name="make-fractals-restricted",
+            description="d",
+            body="# x\n",
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(self.skill.id),
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+        )
+
+        response = self.client.get(self._url("name/make-fractal"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["suggestions"] == ["make-fractals"]
 
     @parameterized.expand(
         [

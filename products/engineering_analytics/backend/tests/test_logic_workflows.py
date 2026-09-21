@@ -13,6 +13,7 @@ from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import DeliveryStage
 from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
@@ -61,7 +62,8 @@ class TestWorkflowEndpointMapping(BaseTest):
             if query_type == "engineering_analytics.default_branch":
                 return _resp([(0, 12)])
             assert query_type == "engineering_analytics.current_branch_health"
-            assert "LIMIT" not in sql.upper()
+            # HogQL caps a query with no LIMIT at 100 rows, so the query must name the ceiling.
+            assert f"LIMIT {UNPAGED_SCAN_LIMIT}" in sql
             return _resp(workflow_rows)
 
         with mock.patch(_RUN_QUERY, side_effect=run):
@@ -625,6 +627,11 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert ci.last_failure_at is not None
         assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
 
+        assert len(items) > 1
+        scoped = api.list_workflow_health(team=self.team, date_from="-30d", workflow_name="CI")
+        assert [item.workflow_name for item in scoped] == ["CI"]
+        assert scoped[0].run_count == ci.run_count
+
     def test_workflow_health_prev_window_survives_raw_scan_floor(self) -> None:
         # The prev-window query's raw-string scan floor must come from prev_from, not date_from.
         # A run in [prev_from, date_from) sits below the date_from floor; if that floor leaked into
@@ -1169,6 +1176,47 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # github-hosted runner isn't billable → no cost estimate, and the provider reads as github_hosted.
         e2e = next(j for j in jobs if j.name == "e2e")
         assert e2e.runner_provider == "github_hosted" and e2e.estimated_cost_usd is None
+
+    def test_job_aggregates_rate_and_queue_time_use_verdicts(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(64, "alice", "open", 0, _ago(1), head_sha="sha64")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9700, "CI", "sha64", "completed", "failure", _ago(1), _ago(1), pr_number=64)],
+        )
+        started, completed = _ago_with_duration(1, 120)
+
+        def queued_for(seconds: int) -> str:
+            return _ago_offset_with_duration(1, -seconds, 0)[0]
+
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                {
+                    **_job_row(97000, 9700, "build (1/4)", "success", started=started, completed=completed),
+                    "created_at": queued_for(60),
+                },
+                {
+                    **_job_row(97001, 9700, "build (2/4)", "failure", started=started, completed=completed),
+                    "created_at": queued_for(120),
+                },
+                {
+                    **_job_row(97002, 9700, "build (3/4)", "cancelled", started=started, completed=completed),
+                    "created_at": queued_for(180),
+                },
+                # GitHub stamps a skipped job started_at = created_at: no queue time and no verdict.
+                _job_row(97003, 9700, "build (4/4)", "skipped", started=started, completed=started),
+            ],
+        )
+        [build] = api.list_job_aggregates(team=self.team, workflow_name="CI")
+        assert (build.job_name, build.job_count) == ("build", 4)
+        assert build.failure_rate == 0.5  # one failure over the two jobs with a verdict
+        assert build.queue_p50_seconds == 120  # the skipped job's zero-second queue is not a sample
 
     def test_workflow_run_detail_handles_null_timestamps(self) -> None:
         # A queued/barely-started run lands with empty timestamps; the mapper must yield None, not raise

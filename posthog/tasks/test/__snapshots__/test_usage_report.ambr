@@ -1729,7 +1729,8 @@
   FROM app_metrics2
   WHERE app_source='hog_flow'
     AND metric_name IN ('billable_invocation')
-    AND metric_kind IN ('fetch')
+    AND metric_kind IN ('fetch',
+                        'push')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id

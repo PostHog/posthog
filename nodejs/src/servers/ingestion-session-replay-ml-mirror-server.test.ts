@@ -1,7 +1,10 @@
 import { KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA } from '~/common/config/kafka-topics'
 import { getDefaultSessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
-import { buildMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
+import {
+    IngestionSessionReplayMlMirrorServer,
+    buildMlMirrorServerConfig,
+} from './ingestion-session-replay-ml-mirror-server'
 
 describe('buildMlMirrorServerConfig', () => {
     it.each(['S3_PREFIX', 'PSEUDONYM_SECRET', 'PSEUDONYM_KMS_REGION', 'PSEUDONYM_KEY_FINGERPRINT'] as const)(
@@ -21,6 +24,19 @@ describe('buildMlMirrorServerConfig', () => {
             }
         }
     )
+    it.each([
+        ['', ''],
+        ['key-table', ''],
+        ['', 'kms-key'],
+    ])('rejects missing key manager configuration before starting services (%s, %s)', (table, kmsKey) => {
+        expect(
+            () =>
+                new IngestionSessionReplayMlMirrorServer({
+                    AI_RESEARCH_REPLAY_KEY_TABLE: table,
+                    AI_RESEARCH_REPLAY_KMS_KEY_ARN: kmsKey,
+                })
+        ).toThrow('ML key manager requires a DynamoDB table and a KMS key ARN')
+    })
 
     it('defaults the mirror to its own consumer group, distinct from the primary ingester', () => {
         const config = buildMlMirrorServerConfig({})
@@ -37,11 +53,16 @@ describe('buildMlMirrorServerConfig', () => {
             KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA
         )
         expect(config.SESSION_RECORDING_ML_METADATA_PREFIX).toBe('block-metadata')
+        expect(config.AI_RESEARCH_REPLAY_S3_PREFIX).toBe('rrweb_2')
         expect(config.SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS).toBeLessThan(300_000)
     })
 
     it('lets an explicit override win over the mirror default', () => {
-        const config = buildMlMirrorServerConfig({ INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: 'custom-group' })
+        const config = buildMlMirrorServerConfig({
+            INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: 'custom-group',
+            SESSION_RECORDING_V2_S3_PREFIX: 'rrweb',
+        })
         expect(config.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID).toBe('custom-group')
+        expect(config.AI_RESEARCH_REPLAY_S3_PREFIX).toBe('rrweb_2')
     })
 })

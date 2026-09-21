@@ -8,10 +8,10 @@ class TestImageScrubServer extends IngestionSessionReplayMlImageScrubServer {
 
 describe('image scrub server startup', () => {
     it.each(['', '   '])(
-        'rejects privacy configuration without a DLQ before starting dependencies (%p)',
+        'rejects key manager configuration without a DLQ before starting dependencies (%p)',
         async (topic) => {
             const server = new TestImageScrubServer({
-                AI_RESEARCH_REPLAY_PRIVACY_TABLE: 'privacy-table',
+                AI_RESEARCH_REPLAY_KEY_TABLE: 'key-table',
                 AI_RESEARCH_REPLAY_KMS_KEY_ARN: '',
                 SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: topic,
             })
@@ -19,9 +19,9 @@ describe('image scrub server startup', () => {
         }
     )
 
-    it('allows a disabled DLQ without privacy and continues to the S3 configuration check', async () => {
+    it('allows a disabled DLQ without a key manager and continues to the S3 configuration check', async () => {
         const server = new TestImageScrubServer({
-            AI_RESEARCH_REPLAY_PRIVACY_TABLE: '',
+            AI_RESEARCH_REPLAY_KEY_TABLE: '',
             SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: '',
             SESSION_RECORDING_V2_S3_BUCKET: '',
         })

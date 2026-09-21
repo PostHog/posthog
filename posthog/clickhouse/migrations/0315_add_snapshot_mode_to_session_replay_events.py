@@ -14,11 +14,6 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_WS_MV_SQL,
 )
 
-ADD_SNAPSHOT_MODE = """
-ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
-"""
-
 operations = [
     run_sql_with_exceptions(
         DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
@@ -28,28 +23,13 @@ operations = [
     ),
     run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_WS_MV_SQL, node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_WS_TABLE_SQL, node_roles=[NodeRole.INGESTION_SMALL]),
-    run_sql_with_exceptions(
-        ADD_SNAPSHOT_MODE.format(table_name="sharded_session_replay_events"),
-        node_roles=[NodeRole.DATA],
-        sharded=True,
-        is_alter_on_replicated_table=True,
-    ),
-    run_sql_with_exceptions(
-        ADD_SNAPSHOT_MODE.format(table_name="session_replay_events"),
-        node_roles=[NodeRole.DATA],
-        sharded=False,
-        is_alter_on_replicated_table=False,
-    ),
-    run_sql_with_exceptions(
-        ADD_SNAPSHOT_MODE.format(table_name="writable_session_replay_events"),
-        node_roles=[NodeRole.INGESTION_SMALL],
-        sharded=False,
-        is_alter_on_replicated_table=False,
-    ),
     *(
         [
             run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_WS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
-            run_sql_with_exceptions(SESSION_REPLAY_EVENTS_WS_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+            run_sql_with_exceptions(
+                SESSION_REPLAY_EVENTS_WS_MV_SQL(exclude_columns=["snapshot_mode_v2"]),
+                node_roles=[NodeRole.INGESTION_SMALL],
+            ),
         ]
         if run_mode().is_deployed_cloud
         else [
@@ -57,7 +37,8 @@ operations = [
                 KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
             ),
             run_sql_with_exceptions(
-                SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
+                SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False, exclude_columns=["snapshot_mode_v2"]),
+                node_roles=[NodeRole.INGESTION_SMALL],
             ),
         ]
     ),

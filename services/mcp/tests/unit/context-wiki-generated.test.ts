@@ -4,6 +4,7 @@ import { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
+import { GENERATED_TOOLS as CANVAS_TOOLS } from '@/tools/generated/canvas'
 import { GENERATED_TOOLS } from '@/tools/generated/context_layer'
 import type { Context, State } from '@/tools/types'
 
@@ -33,7 +34,47 @@ function createMockContext(): Context {
     }
 }
 
-describe('context wiki generated tools', () => {
+describe('generated context read tools', () => {
+    it.each(['context-wiki-page-retrieve', 'loop-context-wiki-page-retrieve', 'task-context-wiki-page-retrieve'])(
+        '%s forwards bounded reads and the revision',
+        async (name) => {
+            const context = createMockContext()
+            const request = vi.spyOn(context.api, 'request').mockResolvedValue({})
+            const tool = GENERATED_TOOLS[name]!()
+            const params = tool.schema.parse({ path: 'areas/analytics.md', offset: 12, head_sha: 'a'.repeat(40) })
+
+            await tool.handler(context, params)
+
+            expect(request).toHaveBeenCalledWith({
+                method: 'GET',
+                path: '/api/projects/42/context_layer/agent/pages/',
+                query: { path: 'areas/analytics.md', offset: 12, head_sha: 'a'.repeat(40), limit: 12000 },
+            })
+        }
+    )
+
+    it('defaults canvas reads to a bounded key inventory', async () => {
+        const context = createMockContext()
+        const request = vi
+            .spyOn(context.api, 'request')
+            .mockResolvedValue({ entries: [], complete: true, next_offset: null })
+        const tool = CANVAS_TOOLS['canvas-state-retrieve']!()
+        const params = tool.schema.parse({ id: '00000000-0000-4000-8000-000000000001' })
+
+        await tool.handler(context, params)
+
+        expect(request).toHaveBeenCalledWith(
+            expect.objectContaining({
+                method: 'GET',
+                query: expect.objectContaining({ keys_only: true, limit: 20 }),
+            })
+        )
+        expect(tool.schema.parse({ ...params, key: 'policy', keys_only: false })).toMatchObject({
+            key: 'policy',
+            keys_only: false,
+        })
+    })
+
     it('uses the project-nested route for ordinary task tokens', async () => {
         const context = createMockContext()
         const request = vi.spyOn(context.api, 'request').mockResolvedValue({

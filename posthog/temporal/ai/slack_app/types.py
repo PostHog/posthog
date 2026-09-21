@@ -160,6 +160,32 @@ class SlackAppModelOverride(BaseModel):
     reasoning_effort: str | None = None
 
 
+class SlackAppProjectRouteInput(BaseModel):
+    """Single-argument input for the project-route classifier activity.
+
+    ``integration_id`` is the project routing already resolved, which the classifier
+    reads as the default it may move the run off.
+    """
+
+    integration_id: int
+    slack_team_id: str
+    event_text: str
+    user_id: int
+    slack_user_id: str
+
+
+class SlackAppProjectRoute(BaseModel):
+    """The project a message asked to be answered from.
+
+    ``integration_id`` is always an install the mentioner can reach (the activity offers
+    the classifier a list bounded by their access and drops anything off it), and never
+    the one routing already resolved. The activity returns ``None`` rather than this when
+    the message named no project, which is the overwhelming majority of mentions.
+    """
+
+    integration_id: int
+
+
 @dataclass
 class PostHogCodeSlackMentionCommandWorkflowInputs:
     event: dict[str, Any]

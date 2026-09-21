@@ -418,6 +418,9 @@ export interface accountsColumnConfigLogicActions {
     setColumnDisplayConfig: (config: AccountColumnDisplayState) => {
         config: AccountColumnDisplayState
     }
+    setDefaultSelectColumns: (columns: string[]) => {
+        columns: string[]
+    }
     setEditingColumnIndex: (index: number | null) => {
         index: number | null
     }
@@ -523,6 +526,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
     })),
     actions({
         setSelectColumns: (columns: string[]) => ({ columns }),
+        setDefaultSelectColumns: (columns: string[]) => ({ columns }),
         restoreSelectColumns: (columns: string[]) => ({ columns }),
         selectColumn: (column: string) => ({ column }),
         unselectColumn: (column: string) => ({ column }),
@@ -544,6 +548,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             [...ACCOUNTS_DEFAULT_COLUMNS],
             {
                 setSelectColumns: (_, { columns }) => ensureNameColumn(columns),
+                setDefaultSelectColumns: (_, { columns }) => ensureNameColumn(columns),
                 restoreSelectColumns: (_, { columns }) => ensureNameColumn(columns),
                 selectColumn: (state, { column }) => (state.includes(column) ? state : [...state, column]),
                 unselectColumn: (state, { column }) =>
@@ -566,6 +571,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             {
                 setEditingColumnIndex: (_, { index }) => index,
                 setSelectColumns: () => null,
+                setDefaultSelectColumns: () => null,
                 restoreSelectColumns: () => null,
                 unselectColumn: () => null,
                 moveColumn: () => null,
@@ -816,7 +822,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 objectsEqual(values.selectColumns, previousDefault) &&
                 !objectsEqual(values.defaultSelectColumns, values.selectColumns)
             ) {
-                actions.setSelectColumns(values.defaultSelectColumns)
+                actions.setDefaultSelectColumns(values.defaultSelectColumns)
             }
         },
         resetColumns: () => {

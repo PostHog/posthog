@@ -1,10 +1,12 @@
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
+import { shortIdActivityLink } from 'lib/components/ActivityLog/activityDescriptions/shortIdActivityLink'
 import {
     ActivityChange,
     ActivityLogItem,
     ActivityLogUserName,
     ChangeMapping,
-    Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -156,10 +158,15 @@ function createFixedVerbValueHandler(
     }
 }
 
-const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) => ChangeMapping | null> = {
+const TEAM_PROPERTIES_MAPPING: Record<
+    keyof TeamType | 'heatmaps_screenshot_allowed_hostnames',
+    (change: ActivityChange) => ChangeMapping | null
+> = {
     // API-related tokens
     api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
+    heatmaps_screenshot_secret: createApiTokenHandler('heatmap screenshot value', 'generated', 'rotated'),
+    heatmaps_screenshot_allowed_hostnames: createArrayChangeHandler('approved screenshot hostnames'),
     secret_api_token_backup: (change) => {
         if (change.after === undefined || change.action !== 'deleted') {
             return null
@@ -757,14 +764,24 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     feature_flag_policy_config: () => null,
 }
 
-function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
-    return logItem?.detail?.short_id ? (
-        <Link to={urls.notebook(logItem.detail.short_id)}>{logItem?.detail.name || 'unknown'}</Link>
-    ) : logItem?.detail.name ? (
-        <>{logItem?.detail.name}</>
-    ) : (
-        <i>Untitled</i>
-    )
+function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedChange {
+    const wasSuspended = logItem.activity === 'email_sending_suspended'
+    const reason = logItem.detail?.context?.reason as string | undefined
+    return {
+        summary: activityLogSummary(
+            logItem,
+            wasSuspended ? 'Suspended workflow email sending' : 'Re-enabled workflow email sending',
+            shortIdActivityLink(logItem, urls.notebook),
+            wasSuspended ? reason : undefined
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
+                sending on {shortIdActivityLink(logItem, urls.notebook)}
+                {wasSuspended && reason ? <> (reason: {reason})</> : null}
+            </>
+        ),
+    }
 }
 
 export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -774,56 +791,20 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
     }
 
     if (logItem.activity === 'email_sending_suspended' || logItem.activity === 'email_sending_unsuspended') {
-        const wasSuspended = logItem.activity === 'email_sending_suspended'
-        const reason = logItem.detail?.context?.reason as string | undefined
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
-                    sending on {nameAndLink(logItem)}
-                    {wasSuspended && reason ? <> (reason: {reason})</> : null}
-                </>
-            ),
-        }
+        return describeWorkflowEmailSuspension(logItem)
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
-        let changes: Description[] = []
-        let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !(change.field in TEAM_PROPERTIES_MAPPING)) {
-                continue //  not all fields are describable
-            }
-
-            const actionHandler = TEAM_PROPERTIES_MAPPING[change.field as keyof TeamType]
-            const processedChange = actionHandler(change)
-            if (processedChange === null) {
-                continue // some logs are indescribable
-            }
-
-            const { description, suffix } = processedChange
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        const changes = describeMappedChanges(
+            logItem,
+            TEAM_PROPERTIES_MAPPING,
+            shortIdActivityLink(logItem, urls.notebook),
+            <>on {shortIdActivityLink(logItem, urls.notebook)}</>
+        )
+        if (changes) {
+            return changes
         }
     }
 
-    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
+    return defaultDescriber(logItem, asNotification, shortIdActivityLink(logItem, urls.notebook))
 }

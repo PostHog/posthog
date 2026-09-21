@@ -315,6 +315,47 @@ class TestDiscoverCanonicalSkills:
         with pytest.raises(CanonicalSkillParseError, match="Only a signals-scout-\\* skill may declare 'scout-tags'"):
             discover_canonical_skills(tmp_path)
 
+    @pytest.mark.parametrize(
+        "display_name_yaml,expected",
+        [
+            ("scout-display-name: MCP tool calls", "MCP tool calls"),
+            ("scout-display-name: '  APM  '", "APM"),
+            ("", ""),
+        ],
+    )
+    def test_parses_scout_display_name(self, tmp_path: Path, display_name_yaml: str, expected: str) -> None:
+        # The label is how a canonical scout avoids reading as "Mcp tool calls", so a dropped key
+        # silently hands every surface the sentence-cased slug again.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter=f"---\nname: signals-scout-bar\ndescription: bar skill\n{display_name_yaml}\n---\n",
+            body="# Bar\n",
+        )
+        assert discover_canonical_skills(tmp_path)[0].display_name == expected
+
+    @pytest.mark.parametrize(
+        "dir_name,display_name_yaml,expected_error",
+        [
+            ("signals-scout-bar", "scout-display-name: ''", "must be a non-empty string"),
+            ("signals-scout-bar", "scout-display-name:", "must be a non-empty string"),
+            ("signals-scout-bar", f"scout-display-name: {'a' * 201}", "character limit"),
+            ("authoring-scouts", "scout-display-name: Authoring", "Only a signals-scout-\\* skill may declare"),
+        ],
+    )
+    def test_rejects_malformed_scout_display_name(
+        self, tmp_path: Path, dir_name: str, display_name_yaml: str, expected_error: str
+    ) -> None:
+        name = dir_name if dir_name == "authoring-scouts" else "signals-scout-bar"
+        _write_canonical_skill(
+            tmp_path,
+            dir_name=dir_name,
+            frontmatter=f"---\nname: {name}\ndescription: bar skill\n{display_name_yaml}\n---\n",
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match=expected_error):
+            discover_canonical_skills(tmp_path)
+
     def test_parses_scout_role(self, tmp_path: Path) -> None:
         _write_canonical_skill(
             tmp_path,
@@ -1080,3 +1121,28 @@ class TestSeedCanonicalSkillsAlias(BaseTest):
         assert tagged.tag_list == ["ai-observability"]
         untagged = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-general")
         assert untagged.tag_list == []
+
+    def test_real_fleet_display_names_land_on_the_seeded_config(self) -> None:
+        # The acronyms are the whole point of the frontmatter key: a slug sentence-cased at render
+        # time reads as "Apm" and "Mcp tool calls", which is what this stops.
+        seed_canonical_skills(self.team)
+        register_missing_configs(self.team.id)
+
+        named = SignalScoutConfig.all_teams.filter(team=self.team).values_list("skill_name", "display_name")
+        assert dict(named)["signals-scout-apm"] == "APM"
+        assert dict(named)["signals-scout-mcp-tool-calls"] == "MCP tool calls"
+        assert all(display_name for _, display_name in named)
+
+    def test_reconcile_names_a_row_seeded_before_the_label_existed_but_never_a_rename(self) -> None:
+        # Every canonical config predates the frontmatter key, so the backfill is the only way they
+        # acquire a label — and it runs on every tick, so it must lose to a person's rename forever.
+        seed_canonical_skills(self.team)
+        register_missing_configs(self.team.id)
+        configs = SignalScoutConfig.all_teams.filter(team=self.team)
+        configs.filter(skill_name="signals-scout-apm").update(display_name="")
+        configs.filter(skill_name="signals-scout-mcp-tool-calls").update(display_name="Our MCP watch")
+
+        register_missing_configs(self.team.id)
+
+        assert configs.get(skill_name="signals-scout-apm").display_name == "APM"
+        assert configs.get(skill_name="signals-scout-mcp-tool-calls").display_name == "Our MCP watch"
