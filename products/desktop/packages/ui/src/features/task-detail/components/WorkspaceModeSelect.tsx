@@ -1,6 +1,7 @@
 import {
   ArrowsSplit,
   CaretDown,
+  Check,
   Cloud,
   Cube,
   Laptop,
@@ -82,6 +83,25 @@ const LOCAL_MODES: {
 const CLOUD_ICON = <Cloud size={14} weight="regular" />;
 
 const IMAGE_ICON = <Cube size={14} weight="regular" />;
+
+/**
+ * Rendered on every row so the trailing column keeps its width as the selection
+ * moves. Hidden from assistive tech, which reads the current mode off the trigger.
+ */
+function SelectedCheck({
+  selected,
+}: {
+  selected: boolean;
+}): React.ReactElement {
+  return (
+    <Check
+      aria-hidden="true"
+      size={12}
+      weight="bold"
+      className={cn("shrink-0", !selected && "opacity-0")}
+    />
+  );
+}
 
 export function WorkspaceModeSelect({
   value,
@@ -177,6 +197,9 @@ export function WorkspaceModeSelect({
     [overrideModes, localWorkspaces],
   );
 
+  const selectedTargetKey =
+    value === "cloud" ? cloudTargetKey(cloudTarget) : null;
+
   const selectedTargetName = useMemo(() => {
     if (value !== "cloud" || cloudTarget.kind === "default") return null;
     const key = cloudTargetKey(cloudTarget);
@@ -255,6 +278,9 @@ export function WorkspaceModeSelect({
                         {item.description}
                       </ItemDescription>
                     </ItemContent>
+                    <ItemActions className="mr-1.5 ml-auto self-center">
+                      <SelectedCheck selected={value === item.mode} />
+                    </ItemActions>
                   </ItemMenuItem>
                 }
               />
@@ -275,13 +301,14 @@ export function WorkspaceModeSelect({
                       Runs on PostHog servers. Your local files do not change.
                     </ItemDescription>
                   </ItemContent>
-                  {githubSetupRequired && (
-                    <ItemActions className="mr-1.5 ml-auto self-center">
+                  <ItemActions className="mr-1.5 ml-auto self-center">
+                    {githubSetupRequired && (
                       <span className="whitespace-nowrap text-[11px] text-warning-foreground">
                         Requires GitHub
                       </span>
-                    </ItemActions>
-                  )}
+                    )}
+                    <SelectedCheck selected={value === "cloud"} />
+                  </ItemActions>
                 </ItemMenuItem>
               }
             />
@@ -311,6 +338,7 @@ export function WorkspaceModeSelect({
                     key={option.key}
                     option={option}
                     isFavorite={favoriteKey === option.key}
+                    isSelected={selectedTargetKey === option.key}
                     githubSetupRequired={githubSetupRequired}
                     onSelect={selectTarget}
                     onToggleFavorite={toggleFavorite}
@@ -329,6 +357,7 @@ export function WorkspaceModeSelect({
                         key={option.key}
                         option={option}
                         isFavorite={favoriteKey === option.key}
+                        isSelected={selectedTargetKey === option.key}
                         githubSetupRequired={githubSetupRequired}
                         onSelect={selectTarget}
                         onToggleFavorite={toggleFavorite}
@@ -356,12 +385,14 @@ export function WorkspaceModeSelect({
 function CloudTargetItem({
   option,
   isFavorite,
+  isSelected,
   githubSetupRequired,
   onSelect,
   onToggleFavorite,
 }: {
   option: CloudTargetOption;
   isFavorite: boolean;
+  isSelected: boolean;
   githubSetupRequired: boolean;
   onSelect: (target: CloudTarget) => void;
   onToggleFavorite: (target: CloudTarget) => void;
@@ -415,6 +446,7 @@ function CloudTargetItem({
             >
               <Star size={12} weight={isFavorite ? "fill" : "regular"} />
             </Button>
+            <SelectedCheck selected={isSelected} />
           </ItemActions>
         </ItemMenuItem>
       }
