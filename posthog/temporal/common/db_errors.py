@@ -83,8 +83,7 @@ def _is_transient_db_error_directly(error: BaseException) -> bool:
     return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
 
 
-# Depth cap on the cause walk below. A real wrap is one or two links deep, so the cap only stops a
-# pathologically long or self-referencing chain, never a legitimate one.
+# A real wrap is one or two links deep, so this cap only stops a self-referencing chain.
 _MAX_CAUSE_CHAIN_DEPTH = 10
 
 

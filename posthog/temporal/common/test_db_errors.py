@@ -53,8 +53,7 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
         # An unrelated errno (e.g. a real permissions problem) must not be swept up just because
         # it shares the exception type.
         (OSError(errno.EACCES, "Permission denied"), False),
-        # An activity that catches the emit path's failures and re-raises one typed error keeps the
-        # pooler drop in __cause__ only, so the raised object matches nothing on its own.
+        # An activity that re-raises one typed error keeps the drop in __cause__ only.
         (
             _raised_from(
                 ApplicationError("Failed to emit $ai_evaluation"),
@@ -62,8 +61,7 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
             ),
             True,
         ),
-        # Two links deep: the same wrapper over a Django-wrapped psycopg error that carries its
-        # condition as a SQLSTATE rather than a message.
+        # Two links deep, and the condition is a SQLSTATE rather than a message.
         (
             _raised_from(
                 ApplicationError("Failed to emit $ai_evaluation"),
