@@ -23,7 +23,6 @@ import {
     evaluationsTestHogCreate,
 } from '../generated/api'
 import type { EvaluationBackfillApi, TestHogRequestApi, TestHogResultItemApi } from '../generated/api.schemas'
-import type { EvaluationApiOutputConfig } from '../generated/api.schemas'
 import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmProviderKeysLogic'
@@ -387,7 +386,7 @@ export interface llmEvaluationLogicActions {
         payload?: void
     }
     patchOutputConfig: (patch: EvaluationOutputConfig) => {
-        patch: EvaluationApiOutputConfig
+        patch: EvaluationOutputConfig
     }
     patchTargetConfig: (patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>) => {
         patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>
