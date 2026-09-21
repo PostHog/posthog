@@ -22,6 +22,7 @@ from posthog.helpers.slack_subscription_explore import BOT_SETUP_DOCS_URL
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.utils import absolute_uri
 
+from products.slack_app.backend.feature_flags import is_slack_app_assistant_enabled
 from products.slack_app.backend.inbox_channel import (
     INBOX_CHANNEL_REQUIRED_SCOPES,
     _channel_exists,
@@ -108,6 +109,18 @@ def build_channel_welcome(integration: Integration) -> tuple[str, list[dict[str,
 
     Written for everyone in the channel rather than for whoever did the adding.
     """
+    worth_knowing = [
+        "Tag me again in the thread while I'm working and I'll pick up what you say.",
+        "Want a different model? Say so: `@PostHog use fable for this one`, or "
+        "`@PostHog run this on opus 5 at high effort`.",
+        "Answering from the wrong project? Name the one you want: `@PostHog give me DAU for "
+        "Staging please`. `/posthog project` shows your default.",
+    ]
+    # Unlike the DM welcome, this path posts to whichever install serves the workspace, so the
+    # scopes are unchecked until here. An install without them never receives the `message.im`
+    # event, so the DM would go unanswered with nothing to tell the reader why.
+    if is_slack_app_assistant_enabled(integration):
+        worth_knowing.append("You can DM me instead of tagging me here.")
     blocks: list[dict[str, Any]] = [
         section_block(
             ":wave: Hey, I'm PostHog. Tag me with `@PostHog` and I'll dig into your product data, poke "
@@ -122,17 +135,7 @@ def build_channel_welcome(integration: Integration) -> tuple[str, list[dict[str,
                 "`@PostHog open a PR that adds a unit test for src/utils.py`",
             ),
         ),
-        _bullets(
-            "A few things worth knowing",
-            (
-                "Tag me again in the thread while I'm working and I'll pick up what you say.",
-                "Want a different model? Say so: `@PostHog use fable for this one`, or "
-                "`@PostHog run this on opus 5 at high effort`.",
-                "Answering from the wrong project? Name the one you want: `@PostHog give me DAU for "
-                "Staging please`. `/posthog project` shows your default.",
-                "You can DM me instead of tagging me here.",
-            ),
-        ),
+        _bullets("A few things worth knowing", tuple(worth_knowing)),
         _feedback_block(),
         context_block(
             "I also unfurl PostHog links shared in this channel. `/posthog` lists my commands, and your "

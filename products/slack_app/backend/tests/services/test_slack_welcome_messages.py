@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.signals.backend.facade.api import set_default_slack_notification_channel
+from products.slack_app.backend.feature_flags import ASSISTANT_REQUIRED_SCOPES
 from products.slack_app.backend.services.slack_welcome_messages import (
     INBOX_AI_APPROVAL_ACTION_ID,
     INBOX_AI_APPROVAL_BLOCK_PREFIX,
@@ -34,9 +35,13 @@ BUILDERS = [
 ]
 
 
+# An install that granted everything, so the copy a snapshot files is the whole of it.
+ASSISTANT_SCOPE_CONFIG = {"scope": ",".join(sorted(ASSISTANT_REQUIRED_SCOPES))}
+
+
 def _integration(**config) -> Integration:
     # Unsaved: every builder reads `config` and `integration_id` only.
-    return Integration(kind="slack", integration_id="T_WELCOME", config=config)
+    return Integration(kind="slack", integration_id="T_WELCOME", config={**ASSISTANT_SCOPE_CONFIG, **config})
 
 
 # Keyed by name rather than by builder so each snapshot is filed under a readable id.
@@ -97,6 +102,17 @@ class TestWelcomeMessages(SimpleTestCase):
         # link would show as raw markup on a lock screen.
         assert "<" not in text and "*" not in text and "`" not in text
         assert blocks
+
+    @parameterized.expand([("with_scopes", True), ("without_scopes", False)])
+    def test_channel_welcome_points_at_dms_only_where_they_answer(self, _name, has_assistant_scopes):
+        # Slack never delivers `message.im` to an install without the assistant scopes, so on
+        # those workspaces the advice sends the reader to a bot that stays silent.
+        scope = ",".join(ASSISTANT_REQUIRED_SCOPES) if has_assistant_scopes else "chat:write"
+        _, blocks = build_channel_welcome(
+            Integration(kind="slack", integration_id="T_WELCOME", config={"scope": scope})
+        )
+
+        assert ("DM me" in all_block_text(blocks)) is has_assistant_scopes
 
 
 class TestOnboardingDm:
@@ -209,8 +225,9 @@ class TestOnboardingDm:
 
         text, blocks = build_onboarding_dm(self.integration, SlackIntegration(self.integration), needs_github=True)
 
-        # The connect link carries the team's autoincrement id, which differs every run.
-        rendered = render_blocks(blocks).replace(str(self.team.id), "<team_id>")
+        # The connect link carries the team's autoincrement id, which differs every run. Anchored
+        # on the query parameter, because a bare id substitution also rewrites the port number.
+        rendered = render_blocks(blocks).replace(f"project_id={self.team.id}", "project_id=<team_id>")
         assert snapshot == f"{text}\n\n---\n\n{rendered}"
 
     @patch("posthog.models.integration.slack.WebClient")
