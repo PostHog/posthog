@@ -372,7 +372,9 @@ class AutoProjectMiddleware:
                 # The token names no project the person can open. The address keeps the token,
                 # which tells them nothing about the project behind it.
                 if user.team:
-                    request.project_access_denied = path_parts[1]  # type: ignore
+                    refusal_response = self.refuse_project(request, path_parts[1], user)
+                    if refusal_response is not None:
+                        return refusal_response
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])
@@ -393,15 +395,33 @@ class AutoProjectMiddleware:
                 except Team.DoesNotExist:
                     pass
                 if not switched and path_parts[0] == "project":
-                    # We keep serving the user's own team here, so the app must say so instead of
-                    # rendering that team under another project's address.
-                    request.project_access_denied = path_parts[1]  # type: ignore
+                    refusal_response = self.refuse_project(request, path_parts[1], user)
+                    if refusal_response is not None:
+                        return refusal_response
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)
             if target_queryset is not None:
                 self.switch_team_if_needed_and_allowed(request, target_queryset)
         return self.get_response(request)
+
+    def refuse_project(self, request: HttpRequest, refused_project: str, user: User) -> Optional[HttpResponse]:
+        """Answer an address that names a project we cannot serve, and return a redirect to follow.
+
+        We serve the user's own team for such an address. Rendering the app there leaves the address
+        bar naming one project while every link in the app names another, so one click on the sidebar
+        moves the person into a different project without saying so. Send the browser to the project
+        we do serve instead, and name the refused project in the query string so that the app can
+        explain the refusal.
+
+        Staff keep the page in place, because it renders the impersonation shortcut that support uses
+        to open a customer's link.
+        """
+        if request.method == "GET" and not user.is_staff:
+            query = urlencode({"project_access_denied": refused_project})
+            return redirect(f"/project/{cast(Team, user.team).pk}/?{query}")
+        request.project_access_denied = refused_project  # type: ignore
+        return None
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
         # TODO: Remove this method, as all relevant links now have `project_id_in_url``

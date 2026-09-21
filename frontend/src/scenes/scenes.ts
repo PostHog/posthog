@@ -2,6 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { PROJECT_ACCESS_DENIED_PARAM } from 'lib/utils/kea-router'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { Params, Scene, SceneConfig, SceneExport } from 'scenes/sceneTypes'
@@ -606,7 +607,7 @@ const redirectPipeline = (id: string, fallbackUrl: string): string => {
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 // NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
-export const forwardedRedirectQueryParams: string[] = ['modal']
+export const forwardedRedirectQueryParams: string[] = ['modal', PROJECT_ACCESS_DENIED_PARAM]
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)

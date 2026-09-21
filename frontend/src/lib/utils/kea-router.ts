@@ -90,6 +90,12 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
     return `${prefix}/${path.startsWith('/') ? path.slice(1) : path}`
 }
 
+/**
+ * Names the project the server refused, on the address of the project it serves instead.
+ * `AutoProjectMiddleware` puts it there, and the app renders the access denied page while it is set.
+ */
+export const PROJECT_ACCESS_DENIED_PARAM = 'project_access_denied'
+
 /** The project id or project token a path names, exactly as it appears there. */
 export function getProjectIdentifierInPath(path: string): string | null {
     const match = path.split(/[?#]/)[0].match(/^\/project\/([^/]+)(?:\/|$)/)
