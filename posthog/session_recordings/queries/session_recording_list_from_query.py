@@ -36,6 +36,7 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_aggregated_listing_hogql_property,
     is_session_property,
     test_account_scoped_query,
 )
@@ -177,11 +178,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if expanded_query.filter_test_accounts:
             self._test_account_filters = expand_test_account_filters(team)
 
-        # Route recording-type and $lib event filters from the user's property group to HAVING.
-        # Recording metrics (duration, click_count, etc.) are aggregated columns that only exist
-        # after GROUP BY. These come from the user's filter group, so they follow the match-any/all
-        # operand — unlike predicates already in `having_predicates` (duration control, caller
-        # eligibility baselines), which are always AND'd.
+        # Route recording-type, $lib event, and aggregate-reading hogql filters from the user's
+        # property group to HAVING. Recording metrics (duration, click_count, etc.) are aggregated
+        # columns that only exist after GROUP BY. These come from the user's filter group, so they
+        # follow the match-any/all operand — unlike predicates already in `having_predicates`
+        # (duration control, caller eligibility baselines), which are always AND'd.
         self._operand_having_predicates: list[AnyPropertyFilter] = []
         if expanded_query.properties:
             remaining_properties = []
@@ -194,7 +195,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         operator=getattr(prop, "operator", PropertyOperator.EXACT),
                     )
                     self._operand_having_predicates.append(recording_filter)
-                elif getattr(prop, "type", None) == "recording":
+                elif getattr(prop, "type", None) == "recording" or is_aggregated_listing_hogql_property(prop):
                     self._operand_having_predicates.append(prop)
                 else:
                     remaining_properties.append(prop)

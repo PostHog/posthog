@@ -22,7 +22,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
@@ -104,6 +106,63 @@ def is_session_property(p: AnyPropertyFilter) -> bool:
 def is_recording_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return p_type == "recording"
+
+
+# Columns the recordings listing selects as aggregates over the replay rows of a session. A filter
+# that names one of them resolves to that SELECT alias, and ClickHouse rejects an aggregate in WHERE,
+# so such a filter has to be applied in HAVING.
+AGGREGATED_LISTING_COLUMNS = frozenset(
+    {
+        "start_time",
+        "end_time",
+        "duration",
+        "first_url",
+        "click_count",
+        "keypress_count",
+        "mouse_activity_count",
+        "active_seconds",
+        "inactive_seconds",
+        "console_log_count",
+        "console_warn_count",
+        "console_error_count",
+        "retention_period_days",
+        "expiry_time",
+        "recording_ttl",
+        "ongoing",
+        "activity_score",
+        "surfacing_score",
+    }
+)
+
+
+class _UnqualifiedFieldCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) == 1 and isinstance(node.chain[0], str):
+            self.names.add(node.chain[0])
+
+
+def is_aggregated_listing_hogql_property(p: AnyPropertyFilter) -> bool:
+    """A hogql filter that reads one of the listing's aggregated columns, e.g. `console_error_count > 0`."""
+
+    if getattr(p, "type", None) != "hogql":
+        return False
+    # An expression over event or person properties is answered by a sub-query, not by the listing's
+    # own columns, so it keeps its existing route.
+    if is_event_property(p) or is_person_property(p) or is_session_property(p):
+        return False
+
+    try:
+        expr = parse_expr(getattr(p, "key", "") or "")
+    except Exception:
+        # An unparseable expression fails later with its own message, which is clearer than this one.
+        return False
+
+    collector = _UnqualifiedFieldCollector()
+    collector.visit(expr)
+    return bool(collector.names & AGGREGATED_LISTING_COLUMNS)
 
 
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
