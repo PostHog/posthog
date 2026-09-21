@@ -631,8 +631,8 @@ tools:
             under version control could change. It re-runs autostart too, and omitting it leaves the report's target
             alone. A scout configured with repositories can only name one of them: any other value is refused and the
             report keeps the target it had. A scout configured with no repositories can name any repo the team reaches.
-            If the existing target is outside the editing scout's permitted repositories, the edit must supply a permitted
-            repository or NO_REPO. This restriction also applies to reviewer-only edits and inferred targets.
+            If the existing target is outside the editing scout's permitted repositories, the edit must supply a
+            permitted repository or NO_REPO. This restriction also applies to reviewer-only edits and inferred targets.
             The response carries `repository`, the target the report holds after the edit, read back from the report —
             check it against what you sent, because the call fails when a correction you named did not land. Prefer
             `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits
