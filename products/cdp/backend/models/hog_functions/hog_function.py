@@ -309,9 +309,13 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
                 team_id=self.team_id,
                 bytecode_error=compiled["bytecode_error"],
             )
-        elif self.enabled:
+        elif self._state.adding and self.enabled:
             # A new function has no working bytecode to fall back on, so saving it enabled would
-            # create a function that is on and matches nothing.
+            # create a function that is on and matches nothing. An existing function already in
+            # that state stays enabled: notify_uncompilable_hog_function_filters is what tells its
+            # owner, and refresh_affected_hog_functions starts it delivering again once the cause
+            # is fixed. Both need the function to still be on, and a bulk re-save must not take
+            # that away silently.
             self.enabled = False
             logger.warning(
                 "hog_function_created_disabled_uncompilable_filters",
