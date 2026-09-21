@@ -23,19 +23,18 @@ setTimeout(() => {
 }, 50)
 `
 
-function exec(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-    return new Promise((resolve, reject) => {
-        execFile(command, args, (err, stdout, stderr) => {
+function exec(command: string, args: string[]): Promise<{ code: number; stdout: string }> {
+    return new Promise((resolve) => {
+        execFile(command, args, (err, stdout) => {
             // A non-zero exit reports as err with the code attached; resolve, not reject.
             const code = (err as NodeJS.ErrnoException | null)?.code
-            resolve({ code: typeof code === 'number' ? code : err ? 1 : 0, stdout: String(stdout), stderr: String(stderr) })
+            resolve({ code: typeof code === 'number' ? code : err ? 1 : 0, stdout: String(stdout) })
         })
     })
 }
 
 describe('installUnhandledRejectionGuard', () => {
     let dir: string
-    let guardModule: string
 
     beforeAll(async () => {
         dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rasterizer-guard-'))
@@ -55,12 +54,13 @@ describe('installUnhandledRejectionGuard', () => {
             '--outDir',
             dir,
         ])
-        guardModule = path.join(dir, 'install-unhandled-rejection-guard.js')
         await fs.writeFile(path.join(dir, 'fixture.js'), FIXTURE_SCRIPT)
     })
 
     afterAll(async () => {
-        await fs.rm(dir, { recursive: true, force: true })
+        if (dir) {
+            await fs.rm(dir, { recursive: true, force: true })
+        }
     })
 
     it('keeps the process alive when a promise nothing awaits rejects', async () => {
