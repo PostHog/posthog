@@ -427,6 +427,24 @@ function SubscriptionDeliveryStep({
                     </>
                 )
             ) : null}
+            {subscription.target_type === 'teams' ? (
+                <LemonField
+                    name="target_value"
+                    label="Microsoft Teams webhook URL"
+                    help={
+                        <>
+                            In Teams, open the channel for these reports. Select Workflows, then select Post to a
+                            channel when a webhook request is received. Copy the webhook URL and paste it here.
+                        </>
+                    }
+                >
+                    <LemonInput
+                        placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                        autoComplete="off"
+                        data-attr="subscription-teams-webhook-url"
+                    />
+                </LemonField>
+            ) : null}
         </div>
     )
 }
