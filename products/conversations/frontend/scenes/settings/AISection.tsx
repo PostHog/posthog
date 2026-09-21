@@ -20,6 +20,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { AIContextAccountPropertiesSection } from '../../components/AIContextAccountPropertiesSection/AIContextAccountPropertiesSection'
+import { SupportPlaybookSection } from '../../components/SupportPlaybookSection/SupportPlaybookSection'
 import { aiTriageTicketTypeLabel, TicketChannel } from '../../types'
 import { supportSettingsLogic } from './supportSettingsLogic'
 import { CONVERSATIONS_LOGIC_KEY } from './SupportSettingsScene'
@@ -162,6 +164,9 @@ export function AISection(): JSX.Element {
                     </LemonCard>
                 </SceneSection>
             )}
+
+            {aiSuggestionsEnabled && <SupportPlaybookSection />}
+            {aiSuggestionsEnabled && <AIContextAccountPropertiesSection />}
 
             {aiSuggestionsEnabled && (
                 <SceneSection

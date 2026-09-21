@@ -97,12 +97,6 @@ function stableEqual(left: unknown, right: unknown): boolean {
     )
 }
 
-/** The property names that differ, for a log that must not carry their values. */
-function differingKeys(left: Properties, right: Properties): string[] {
-    const names = new Set([...Object.keys(left ?? {}), ...Object.keys(right ?? {})])
-    return [...names].filter((key) => !stableEqual((left ?? {})[key], (right ?? {})[key])).sort()
-}
-
 /**
  * How long one shadow verb may run before the batch stops waiting on it.
  * Above the personhog merge deadline so a first attempt is never cut
@@ -232,40 +226,23 @@ export class RoutingPersonsStore implements PersonsStore {
             if (left !== right) {
                 // Which side is empty is the whole question: personhog
                 // missing a person fades; losing one never does.
-                this.recordDivergence(verb, left === null ? 'missing_authoritative' : 'missing_shadow', {
-                    authoritative: left?.uuid ?? null,
-                    shadow: right?.uuid ?? null,
-                })
+                this.recordDivergence(verb, left === null ? 'missing_authoritative' : 'missing_shadow')
             }
             return
         }
         if (left.uuid !== right.uuid) {
-            this.recordDivergence(verb, 'uuid', { authoritative: left.uuid, shadow: right.uuid })
+            this.recordDivergence(verb, 'uuid')
         }
         if (left.is_identified !== right.is_identified) {
-            this.recordDivergence(verb, 'is_identified', {
-                authoritative: left.is_identified,
-                shadow: right.is_identified,
-            })
+            this.recordDivergence(verb, 'is_identified')
         }
         if (!propertiesMatch(left.properties, right.properties)) {
-            this.recordDivergence(verb, 'properties', {
-                uuid: left.uuid,
-                // Key names only. Values are customer data and this log is
-                // not the place for it; the names are enough to find the
-                // event that wrote them.
-                differing: differingKeys(left.properties, right.properties),
-            })
+            this.recordDivergence(verb, 'properties')
         }
     }
 
-    private recordDivergence(verb: string, field: string, details: Record<string, unknown>): void {
+    private recordDivergence(verb: string, field: string): void {
         personhogStoreShadowDivergenceCounter.labels({ verb, field }).inc()
-        logger.warn('personhog shadow answered differently from the authoritative backend', {
-            verb,
-            field,
-            ...details,
-        })
     }
 
     /**
@@ -529,34 +506,23 @@ export class RoutingPersonsStore implements PersonsStore {
         if (left.foldAborted || right.foldAborted) {
             const onlyOneAborted = (left.foldAborted === undefined) !== (right.foldAborted === undefined)
             if (onlyOneAborted) {
-                this.recordDivergence('mergePersons', 'fold_disposition', {
-                    authoritative: left.foldAborted ?? 'executed',
-                    shadow: right.foldAborted ?? 'executed',
-                })
+                this.recordDivergence('mergePersons', 'fold_disposition')
             }
             return
         }
         if ((left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null)) {
-            this.recordDivergence('mergePersons', 'survivor', {
-                authoritative: left.survivor?.uuid ?? null,
-                shadow: right.survivor?.uuid ?? null,
-            })
+            this.recordDivergence('mergePersons', 'survivor')
         }
         const shadowOutcomes = new Map(right.results.map((source) => [source.sourceDistinctId, source.outcome]))
         for (const source of left.results) {
             const other = shadowOutcomes.get(source.sourceDistinctId)
             if (other !== source.outcome) {
-                this.recordDivergence('mergePersons', 'outcome', {
-                    authoritative: source.outcome,
-                    shadow: other ?? null,
-                })
+                this.recordDivergence('mergePersons', 'outcome')
             }
             shadowOutcomes.delete(source.sourceDistinctId)
         }
         // A verdict for a source Postgres never reported is a divergence too.
-        for (const [, outcome] of shadowOutcomes) {
-            this.recordDivergence('mergePersons', 'outcome', { authoritative: null, shadow: outcome })
-        }
+        shadowOutcomes.forEach(() => this.recordDivergence('mergePersons', 'outcome'))
     }
 
     personPropertiesSize(personId: string, teamId: number): Promise<number> {

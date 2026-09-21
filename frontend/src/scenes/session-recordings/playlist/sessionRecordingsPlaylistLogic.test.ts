@@ -2017,6 +2017,162 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('failed list loads', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('clears the error banner once a later load succeeds', async () => {
+            // The reducer keyed the clear on an action name that does not exist, so the banner
+            // outlived the failure and covered a list that had since loaded.
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockRejectedValueOnce(Object.assign(new Error('Request failed'), { status: 500 }))
+
+            const erroring = sessionRecordingsPlaylistLogic({ logicKey: 'error-then-success' })
+            erroring.mount()
+            await expectLogic(erroring).toDispatchActions(['loadSessionRecordingsFailure'])
+            expect(erroring.values.sessionRecordingsAPIErrored).toBe(true)
+
+            listSpy.mockResolvedValueOnce({ results: [aRecording], has_next: false } as Awaited<
+                ReturnType<typeof api.recordings.list>
+            >)
+            erroring.actions.loadSessionRecordings(undefined, undefined, true)
+            await expectLogic(erroring).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+            expect(erroring.values.sessionRecordingsAPIErrored).toBe(false)
+            erroring.unmount()
+        })
+
+        it('hands the host page the status and the detail, with whether it was the first page', async () => {
+            // An embedding page shows the reason and offers a retry off this callback, so it needs
+            // the backend's own message. The status is what tells a refusal from a transient error.
+            const onRecordingsLoadFailed = jest.fn()
+            jest.spyOn(api.recordings, 'list').mockRejectedValue(
+                Object.assign(new Error('Request failed'), { status: 400, detail: 'Exposures are still computing.' })
+            )
+
+            const embedded = sessionRecordingsPlaylistLogic({ logicKey: 'failure-reporting', onRecordingsLoadFailed })
+            embedded.mount()
+            await expectLogic(embedded).toDispatchActions(['loadSessionRecordingsFailure'])
+
+            expect(onRecordingsLoadFailed.mock.calls).toEqual([
+                [{ status: 400, detail: 'Exposures are still computing.' }, true],
+            ])
+            embedded.unmount()
+        })
+
+        it('reports neither outcome for a load a newer one supersedes', async () => {
+            // An embedding page counts what each visit ended with. A load the viewer left behind
+            // stops at a breakpoint, so reporting it would turn a bounce into an outcome.
+            const onRecordingsLoadFailed = jest.fn()
+            const onRecordingsLoaded = jest.fn()
+            let resolveList: (value: unknown) => void = () => {}
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementationOnce(() => pendingList as ReturnType<typeof api.recordings.list>)
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            const embedded = sessionRecordingsPlaylistLogic({
+                logicKey: 'superseded-reporting',
+                onRecordingsLoadFailed,
+                onRecordingsLoaded,
+            })
+            embedded.mount()
+            while (listSpy.mock.calls.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            embedded.actions.setFilters({ filter_test_accounts: true })
+            resolveList({ results: [aRecording], has_next: false })
+            await expectLogic(embedded).toFinishAllListeners()
+
+            expect(onRecordingsLoadFailed).not.toHaveBeenCalled()
+            // The load that replaced it is the only one that reported, and it reported its own rows.
+            expect(onRecordingsLoaded.mock.calls).toEqual([[[], true]])
+            embedded.unmount()
+        })
+
+        it('reports nothing for a superseded load that fails, and keeps the list it was replaced by', async () => {
+            // A rejection reaches the loader before the breakpoint that drops a superseded load,
+            // so a request the viewer had already moved on from used to report a failure: the banner
+            // went up over rows that had just loaded, and the host page counted an outcome for a
+            // list nobody was waiting for. The discarded mount query is the one that times out on
+            // a heavy team, so this is the common shape rather than a corner.
+            const onRecordingsLoadFailed = jest.fn()
+            const onRecordingsLoaded = jest.fn()
+            let rejectList: (reason: unknown) => void = () => {}
+            const pendingList = new Promise((_, reject) => {
+                rejectList = reject
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementationOnce(() => pendingList as ReturnType<typeof api.recordings.list>)
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [aRecording], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            const embedded = sessionRecordingsPlaylistLogic({
+                logicKey: 'superseded-failure',
+                onRecordingsLoadFailed,
+                onRecordingsLoaded,
+            })
+            embedded.mount()
+            while (listSpy.mock.calls.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            embedded.actions.setFilters({ filter_test_accounts: true })
+            rejectList(Object.assign(new Error('Request failed'), { status: 504 }))
+            await expectLogic(embedded).toFinishAllListeners()
+
+            expect(onRecordingsLoadFailed).not.toHaveBeenCalled()
+            expect(embedded.values.sessionRecordingsAPIErrored).toBe(false)
+            expect(onRecordingsLoaded.mock.calls).toEqual([[[aRecording], true]])
+            embedded.unmount()
+        })
+
+        it('reports one failure when several loads answer from the one request that failed', async () => {
+            // Identical loads share a single read, so one rejection came back through every load
+            // waiting on it and the host page counted the same failure several times.
+            const onRecordingsLoadFailed = jest.fn()
+            let rejectList: (reason: unknown) => void = () => {}
+            const pendingList = new Promise((_, reject) => {
+                rejectList = reject
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(() => pendingList as ReturnType<typeof api.recordings.list>)
+
+            const embedded = sessionRecordingsPlaylistLogic({ logicKey: 'shared-failure', onRecordingsLoadFailed })
+            embedded.mount()
+            while (listSpy.mock.calls.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            // Same parameters, so this waits out the request already in flight rather than reading
+            // the same rows a second time.
+            embedded.actions.loadSessionRecordings()
+            rejectList(Object.assign(new Error('Request failed'), { status: 500 }))
+            await expectLogic(embedded).toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(onRecordingsLoadFailed.mock.calls).toEqual([[{ status: 500, detail: 'Request failed' }, true]])
+            embedded.unmount()
+        })
+    })
+
     describe('superseding or unmounting an in-flight load', () => {
         afterEach(() => {
             jest.restoreAllMocks()
