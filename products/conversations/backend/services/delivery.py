@@ -7,7 +7,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -351,7 +351,7 @@ def claim_delivery_part(delivery_part_id: str) -> DeliveryClaim | None:
         if row is None:
             DELIVERY_LEASES_TOTAL.labels(result="busy").inc()
             return None
-        if row.created_at < now - DELIVERY_MAX_AGE:
+        if (row.redriven_at or row.created_at) < now - DELIVERY_MAX_AGE:
             _fail_part_without_claim(
                 row,
                 now=now,
@@ -400,16 +400,19 @@ def _roll_up_delivery(
     error: str = "",
     accepted_at: datetime | None = None,
 ) -> None:
-    _delivery_row(team_id=claim.part.team_id, delivery_id=claim.part.delivery_id).update(
-        status=status,
-        terminal_at=now if status in ConversationDelivery.TERMINAL_STATUSES else None,
-        lease_expires_at=None,
-        provider_message_id=provider_message_id,
-        last_error_code=error_code,
-        last_error=error[:DELIVERY_ERROR_MAX_LENGTH],
-        accepted_at=accepted_at,
-        updated_at=now,
-    )
+    fields: dict[str, Any] = {
+        "status": status,
+        "terminal_at": now if status in ConversationDelivery.TERMINAL_STATUSES else None,
+        "lease_expires_at": None,
+        "last_error_code": error_code,
+        "last_error": error[:DELIVERY_ERROR_MAX_LENGTH],
+        "updated_at": now,
+    }
+    if status != ConversationDelivery.Status.FAILED:
+        # One part failing must not erase the provider correlation an earlier part won.
+        fields["provider_message_id"] = provider_message_id
+        fields["accepted_at"] = accepted_at
+    _delivery_row(team_id=claim.part.team_id, delivery_id=claim.part.delivery_id).update(**fields)
 
 
 def accept_delivery_part(claim: DeliveryClaim, *, provider_message_id: str = "") -> bool:
@@ -594,17 +597,18 @@ def record_delivery_queue_metrics(now: datetime) -> DeliveryQueueMetrics:
         ConversationDeliveryPart.Status.PROCESSING: 0,
     }
     backlog: list[tuple[str, str, int]] = []
-    part_keys = list(
-        ConversationDeliveryPart.objects.unscoped()
-        .filter(status__in=(ConversationDeliveryPart.Status.PENDING, ConversationDeliveryPart.Status.PROCESSING))
-        .values_list("part_key", flat=True)
-        .distinct()
-    )
-    if DELIVERY_PART_KEY_BODY not in part_keys:
-        part_keys = [DELIVERY_PART_KEY_BODY, *part_keys]
-    for part_key in part_keys:
-        for status in (ConversationDeliveryPart.Status.PENDING, ConversationDeliveryPart.Status.PROCESSING):
-            count = ConversationDeliveryPart.objects.unscoped().filter(part_key=part_key, status=status).count()
+    open_statuses = (ConversationDeliveryPart.Status.PENDING, ConversationDeliveryPart.Status.PROCESSING)
+    grouped = {
+        (row["part_key"], row["status"]): row["total"]
+        for row in ConversationDeliveryPart.objects.unscoped()
+        .filter(status__in=open_statuses)
+        .values("part_key", "status")
+        .annotate(total=Count("id"))
+    }
+    # Always report the body key so a drained queue still publishes a zero.
+    for part_key in sorted({part_key for part_key, _ in grouped} | {DELIVERY_PART_KEY_BODY}):
+        for status in open_statuses:
+            count = grouped.get((part_key, status), 0)
             backlog.append((status, part_key, count))
             counts[status] += count
     oldest_pending = _pending_delivery_parts(now=now).order_by("due_at").values_list("due_at", flat=True).first()
@@ -662,6 +666,7 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
             lease_expires_at=None,
             due_at=now,
             attempts=0,
+            redriven_at=now,
             updated_at=now,
         )
         _delivery_row(team_id=part.team_id, delivery_id=part.delivery_id).update(
@@ -671,6 +676,7 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
             accepted_at=None,
             delivered_at=None,
             due_at=now,
+            redriven_at=now,
             updated_at=now,
         )
         part.refresh_from_db()

@@ -24,6 +24,7 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.constants import Channel
 from products.conversations.backend.models.delivery import DELIVERY_SNAPSHOT_MAX_BYTES
 from products.conversations.backend.services.delivery import (
+    DELIVERY_MAX_AGE,
     DELIVERY_SNAPSHOT_TTL,
     accept_delivery_part,
     claim_delivery_part,
@@ -326,6 +327,36 @@ class TestSlackDelivery(BaseTest):
         assert result.attempts == 0
         assert result.client_msg_id == client_msg_id
         wake.assert_called_once()
+
+    def test_redrive_of_an_old_failure_survives_the_max_age_guard(self) -> None:
+        self._create_reply()
+        part = self._part()
+        long_ago = timezone.now() - DELIVERY_MAX_AGE - timedelta(hours=1)
+        ConversationDeliveryPart.objects.unscoped().filter(id=part.id).update(
+            status=ConversationDeliveryPart.Status.FAILED,
+            terminal_at=long_ago,
+            last_error_code="token_revoked",
+            attempts=4,
+            created_at=long_ago,
+        )
+        ConversationDelivery.objects.unscoped().filter(id=part.delivery_id).update(
+            status=ConversationDelivery.Status.FAILED,
+            terminal_at=long_ago,
+            created_at=long_ago,
+        )
+
+        with patch(
+            "products.conversations.backend.services.delivery.transaction.on_commit",
+            side_effect=lambda fn: fn(),
+        ):
+            assert redrive_failed_delivery_part(str(part.id), wake=MagicMock()) is not None
+
+        claim = claim_delivery_part(str(part.id))
+
+        assert claim is not None
+        part.refresh_from_db()
+        assert part.status == ConversationDeliveryPart.Status.PROCESSING
+        assert part.last_error_code != "max_age"
 
     def test_oversized_snapshot_fails_the_part_and_keeps_the_comment(self) -> None:
         with patch(

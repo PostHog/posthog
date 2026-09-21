@@ -67,6 +67,7 @@ class Migration(migrations.Migration):
                 ("terminal_at", models.DateTimeField(blank=True, null=True)),
                 ("accepted_at", models.DateTimeField(blank=True, null=True)),
                 ("delivered_at", models.DateTimeField(blank=True, null=True)),
+                ("redriven_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "channel",
                     models.CharField(
@@ -141,6 +142,7 @@ class Migration(migrations.Migration):
                 ("terminal_at", models.DateTimeField(blank=True, null=True)),
                 ("accepted_at", models.DateTimeField(blank=True, null=True)),
                 ("delivered_at", models.DateTimeField(blank=True, null=True)),
+                ("redriven_at", models.DateTimeField(blank=True, null=True)),
                 ("part_key", models.CharField(max_length=128)),
                 (
                     "client_msg_id",

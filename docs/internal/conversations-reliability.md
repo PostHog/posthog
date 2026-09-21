@@ -112,7 +112,7 @@ New work uses `process_slack_delivery_part`.
 Image uploads after an accepted body stay best-effort in this layer.
 A failed image must not retry or fail the accepted body.
 Manual redrive is allowed only for `failed` parts, and only after route and Slack workspace config still match the delivery's canonical team.
-Redrive keeps `client_msg_id`.
+Redrive keeps `client_msg_id` and stamps `redriven_at`, which restarts the max-age window so an operator can still recover a failure older than 24 hours.
 
 ## Outbound email (already in Postgres)
 

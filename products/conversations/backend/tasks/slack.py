@@ -976,6 +976,8 @@ def _process_slack_delivery_part(delivery_part_id: str) -> None:
         logger.exception("slack_delivery_handler_failed", delivery_part_id=delivery_part_id, error=str(exc))
         _retry_delivery_claim(claim, error_code="handler_failed", error=str(exc)[:DELIVERY_ERROR_MAX_LENGTH])
         return
+    if not ts:
+        logger.info("slack_delivery_body_empty", delivery_part_id=delivery_part_id)
     if not accept_delivery_part(claim, provider_message_id=ts):
         return
     _best_effort_post_slack_images(

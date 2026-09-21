@@ -113,6 +113,9 @@ class DeliveryQueueRowMixin(models.Model):
     terminal_at = models.DateTimeField(null=True, blank=True)
     accepted_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
+    # Start of the current processing window. A manual redrive sets it so the
+    # max-age guard measures the redrive, not the original enqueue.
+    redriven_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         abstract = True
