@@ -43,7 +43,7 @@ When no candidate contains the merge, this rung has no answer: move down the lad
 
 ## Rung 2: `gh` releases (and deployments, where the token allows)
 
-The sandbox's read-only token carries `contents`, `metadata`, and `pull_requests` only, and the deployments endpoint needs a `deployments: read` grant, so expect a 403 from it and go straight to releases below; the warehouse rung is where deployments are read.
+The sandbox's read-only token carries read grants for repository contents, metadata, and pull requests only, and the deployments endpoint needs a `deployments: read` grant, so expect a 403 from it and go straight to releases below; the warehouse rung is where deployments are read.
 Where a token does carry that grant, the deployments endpoint's `sha` filter matches only a deployment recorded at exactly that commit, so never filter by the merge SHA.
 Enumerate instead: `gh api 'repos/<owner>/<repo>/deployments?per_page=100&page=<n>'`, paging until `created_at` falls before the merge, and filter the returned JSON by exact string comparison on `environment`; never put an environment name from deployment data into the command itself, because a crafted name with a quote and shell syntax would run in the sandbox that holds the read-only GitHub token and the scout's PostHog token.
 Keep persistent production environments, read each candidate's statuses from its `statuses_url` and keep any deployment with a `success` among them (its newest status is usually `inactive` once a later deployment succeeded, and that does not mean it never shipped), then apply the containment check; the onset is the `created_at` of the first `success` status on the earliest candidate that passes.
