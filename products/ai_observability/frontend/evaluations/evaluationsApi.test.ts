@@ -1,5 +1,6 @@
 import { evaluationsList, llmAnalyticsEvaluationReportsList } from '../generated/api'
 import type { EvaluationApi, EvaluationReportApi } from '../generated/api.schemas'
+import { EvaluationsCreateBody } from '../generated/api.zod'
 import { evaluationFromApi, listAllEvaluationReports, listAllEvaluations } from './evaluationsApi'
 
 jest.mock('../generated/api', () => ({
@@ -65,6 +66,15 @@ const evaluationReportApi = (id: string, evaluation: string): EvaluationReportAp
 })
 
 describe('evaluationsApi', () => {
+    it.each([
+        { min: 0, max: 10, passing_rule: { operator: 'gte', threshold: 7 }, allows_na: true },
+        { true_is_failure: true, allows_na: false },
+        { allows_na: true },
+        {},
+    ])('preserves output settings through the generated schema: %j', (output_config) => {
+        expect(EvaluationsCreateBody.shape.output_config.parse(output_config)).toEqual(output_config)
+    })
+
     it.each(['llm_judge', 'hog'] as const)('keeps numeric %s configurations in the list', (evaluation_type) => {
         const output_config = {
             min: 0,

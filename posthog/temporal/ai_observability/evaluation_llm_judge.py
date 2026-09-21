@@ -46,7 +46,7 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig
+from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig, NumericScoreOutOfBounds
 from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 
 logger = structlog.get_logger(__name__)
@@ -550,9 +550,17 @@ def call_llm_judge(
             numeric_config = NumericOutputConfig.model_validate(output_config)
             try:
                 result_dict["score"] = numeric_config.validate_score(parsed_result.score)
-            except ValueError as error:
-                increment_errors("parse_error", provider=provider)
-                raise ApplicationError(str(error), {"error_type": "parse_error"}, non_retryable=True) from error
+            except NumericScoreOutOfBounds as error:
+                increment_user_errors("score_out_of_bounds", provider=provider)
+                result_dict.update(
+                    build_skipped_evaluation_result(
+                        output_type="numeric",
+                        allows_na=allows_na,
+                        reasoning=f"The judge returned a score outside the configured bounds: {error}. This run was skipped.",
+                        skip_reason="score_out_of_bounds",
+                    )
+                )
+                return result_dict
             if numeric_config.min is not None:
                 result_dict["score_min"] = numeric_config.min
             if numeric_config.max is not None:

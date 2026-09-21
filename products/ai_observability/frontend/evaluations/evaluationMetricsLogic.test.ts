@@ -184,6 +184,7 @@ describe('evaluationMetricsLogic', () => {
             failing_evaluations_count: 0,
         })
         expect(metricsLogic.values.chartQuery !== null).toBe(hasRule)
+        expect(metricsLogic.values.evaluationsWithMetrics[0].stats?.pass_rate).toBeNull()
     })
 
     it('uses one filtered breakdown query and scopes metrics to the selected directory', () => {

@@ -86,6 +86,7 @@ const RUNS_BACKFILL_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:m
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        originalEvaluation,
         evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
@@ -154,7 +155,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const effectiveStrategy: EvaluationSettleStrategy =
         evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
-    const supportsRunOutcomes = evaluationSupportsRunOutcomes(evaluation)
+    const supportsRunOutcomes = evaluationSupportsRunOutcomes(originalEvaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
 
@@ -465,15 +466,14 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 {supportsRunOutcomes && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg text-success">
-                                                            {evaluation.output_type === 'numeric' &&
-                                                            runsSummary.scoreMean == null
+                                                            {runsSummary.successRate == null
                                                                 ? '–'
                                                                 : `${runsSummary.successRate}%`}
                                                         </div>
                                                         <div className="text-muted">Success rate</div>
                                                     </div>
                                                 )}
-                                                {supportsRunOutcomes && evaluation.output_config.allows_na && (
+                                                {supportsRunOutcomes && originalEvaluation?.output_config.allows_na && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg">
                                                             {runsSummary.applicabilityRate}%

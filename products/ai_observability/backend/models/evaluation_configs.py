@@ -69,6 +69,10 @@ class NumericPassingRule(BaseModel):
         return score >= self.threshold if self.operator == "gte" else score <= self.threshold
 
 
+class NumericScoreOutOfBounds(ValueError):
+    pass
+
+
 class NumericOutputConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
@@ -96,9 +100,9 @@ class NumericOutputConfig(BaseModel):
         if not math.isfinite(score):
             raise ValueError("Numeric evaluations must return a finite number")
         if self.min is not None and score < self.min:
-            raise ValueError(f"Score must be at least {self.min}")
+            raise NumericScoreOutOfBounds(f"Score must be at least {self.min}")
         if self.max is not None and score > self.max:
-            raise ValueError(f"Score must be at most {self.max}")
+            raise NumericScoreOutOfBounds(f"Score must be at most {self.max}")
         return score
 
 

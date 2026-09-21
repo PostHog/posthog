@@ -257,11 +257,13 @@ function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): J
         passRate == null || metrics.previous_pass_rate == null ? null : passRate - metrics.previous_pass_rate
     const passRateDiffClass =
         passRateDiff == null || passRateDiff === 0 ? 'text-muted' : passRateDiff > 0 ? 'text-success' : 'text-danger'
+    const passingRule =
+        metrics.output_config && 'passing_rule' in metrics.output_config ? metrics.output_config.passing_rule : null
 
     return (
         <div className="bg-bg-light border rounded p-3 mb-3">
-            {metrics.output_type === 'numeric' && metrics.output_config?.passing_rule && (
-                <p className="text-sm text-muted">{`Passing rule used for this report: score ${metrics.output_config.passing_rule.operator === 'gte' ? '≥' : '≤'} ${metrics.output_config.passing_rule.threshold}`}</p>
+            {metrics.output_type === 'numeric' && passingRule && (
+                <p className="text-sm text-muted">{`Passing rule used for this report: score ${passingRule.operator === 'gte' ? '≥' : '≤'} ${passingRule.threshold}`}</p>
             )}
             <div className="flex items-center gap-6 flex-wrap text-sm">
                 <div>

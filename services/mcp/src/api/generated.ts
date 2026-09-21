@@ -35902,24 +35902,16 @@ export namespace Schemas {
     };
 
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
-     */
-    export type EvaluationOutputConfigPassingRule = {
-      /** Pass at or above (gte), or at or below (lte), the threshold. */
-      operator: 'gte' | 'lte';
-      /** Finite passing threshold within any configured score bounds. */
-      threshold: number;
-    } | null;
-
-    /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': optional min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
-      true_is_failure?: boolean;
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure: boolean;
+    } | {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
          * @nullable
@@ -35941,7 +35933,12 @@ export namespace Schemas {
          * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
          * @nullable
          */
-      passing_rule?: EvaluationOutputConfigPassingRule;
+      passing_rule?: {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
     };
 
     /**
@@ -36158,7 +36155,7 @@ export namespace Schemas {
        * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': optional min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -36465,24 +36462,16 @@ export namespace Schemas {
     }
 
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
-     */
-    export type EvaluationReportMetricsOutputConfigPassingRule = {
-      /** Pass at or above (gte), or at or below (lte), the threshold. */
-      operator: 'gte' | 'lte';
-      /** Finite passing threshold within any configured score bounds. */
-      threshold: number;
-    } | null;
-
-    /**
      * Numeric score configuration and passing rule used for both report periods.
      */
     export type EvaluationReportMetricsOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
-      true_is_failure?: boolean;
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure: boolean;
+    } | {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
          * @nullable
@@ -36504,7 +36493,12 @@ export namespace Schemas {
          * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
          * @nullable
          */
-      passing_rule?: EvaluationReportMetricsOutputConfigPassingRule;
+      passing_rule?: {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
     };
 
     /**
@@ -68165,24 +68159,16 @@ export namespace Schemas {
     };
 
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
-     */
-    export type PatchedEvaluationOutputConfigPassingRule = {
-      /** Pass at or above (gte), or at or below (lte), the threshold. */
-      operator: 'gte' | 'lte';
-      /** Finite passing threshold within any configured score bounds. */
-      threshold: number;
-    } | null;
-
-    /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': optional min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
-      true_is_failure?: boolean;
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure: boolean;
+    } | {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
          * @nullable
@@ -68204,7 +68190,12 @@ export namespace Schemas {
          * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
          * @nullable
          */
-      passing_rule?: PatchedEvaluationOutputConfigPassingRule;
+      passing_rule?: {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
     };
 
     /**
@@ -68276,7 +68267,7 @@ export namespace Schemas {
        * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': optional min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -93982,24 +93973,16 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
-     */
-    export type TestHogRequestOutputConfigPassingRule = {
-      /** Pass at or above (gte), or at or below (lte), the threshold. */
-      operator: 'gte' | 'lte';
-      /** Finite passing threshold within any configured score bounds. */
-      threshold: number;
-    } | null;
-
-    /**
      * Output settings used to validate the preview, including numeric bounds and allows_na.
      */
     export type TestHogRequestOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
-      true_is_failure?: boolean;
+      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure: boolean;
+    } | {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
          * @nullable
@@ -94021,7 +94004,12 @@ export namespace Schemas {
          * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
          * @nullable
          */
-      passing_rule?: TestHogRequestOutputConfigPassingRule;
+      passing_rule?: {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | null;
     };
 
     export type TestHogRequestConditionsItem = { [key: string]: unknown };

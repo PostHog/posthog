@@ -39,8 +39,13 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
 }
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { filteredEvaluationRuns, evaluationRuns, evaluationRunsError, evaluation, evaluationRunsLoading } =
-        useValues(llmEvaluationLogic)
+    const {
+        filteredEvaluationRuns,
+        evaluationRuns,
+        evaluationRunsError,
+        originalEvaluation: evaluation,
+        evaluationRunsLoading,
+    } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
     const showOutcomeFilters = evaluation?.output_type === 'numeric' || evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'

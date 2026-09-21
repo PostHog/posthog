@@ -561,7 +561,7 @@ export const EvaluationsCreateParams = () => zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsCreateBodyOutputConfigStepExclusiveMin = 0
+export const evaluationsCreateBodyOutputConfigTwoStepExclusiveMin = 0
 
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
@@ -634,41 +634,60 @@ export const EvaluationsCreateBody = () => zod
                 "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
-            .object({
-                allows_na: zod
-                    .boolean()
-                    .optional()
-                    .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
-                true_is_failure: zod
-                    .boolean()
-                    .optional()
-                    .describe(
-                        'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
-                    ),
-                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
-                step: zod
-                    .number()
-                    .gt(evaluationsCreateBodyOutputConfigStepExclusiveMin)
-                    .nullish()
-                    .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
+            .union([
+                zod
                     .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
+                        allows_na: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                        true_is_failure: zod
+                            .boolean()
+                            .describe(
+                                'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                            ),
                     })
-                    .nullish()
+                    .describe('For boolean output. Shared allows_na-only settings can also use the common branch.'),
+                zod
+                    .object({
+                        allows_na: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                        min: zod
+                            .number()
+                            .nullish()
+                            .describe('Inclusive minimum numeric score. Omit for no lower bound.'),
+                        max: zod
+                            .number()
+                            .nullish()
+                            .describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                        step: zod
+                            .number()
+                            .gt(evaluationsCreateBodyOutputConfigTwoStepExclusiveMin)
+                            .nullish()
+                            .describe('Optional positive input increment. Does not round evaluation results.'),
+                        passing_rule: zod
+                            .object({
+                                operator: zod
+                                    .enum(['gte', 'lte'])
+                                    .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                                threshold: zod
+                                    .number()
+                                    .describe('Finite passing threshold within any configured score bounds.'),
+                            })
+                            .nullish()
+                            .describe(
+                                'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                            ),
+                    })
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'For numeric output: min\/max\/step, allows_na, passing_rule. For boolean output: allows_na only. For sentiment output: {}.'
                     ),
-            })
+            ])
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': optional min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -807,7 +826,7 @@ export const EvaluationsPartialUpdateParams = () => zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin = 0
+export const evaluationsPartialUpdateBodyOutputConfigTwoStepExclusiveMin = 0
 
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
@@ -882,41 +901,60 @@ export const EvaluationsPartialUpdateBody = () => zod
                 "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
-            .object({
-                allows_na: zod
-                    .boolean()
-                    .optional()
-                    .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
-                true_is_failure: zod
-                    .boolean()
-                    .optional()
-                    .describe(
-                        'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
-                    ),
-                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
-                step: zod
-                    .number()
-                    .gt(evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin)
-                    .nullish()
-                    .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
+            .union([
+                zod
                     .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
+                        allows_na: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                        true_is_failure: zod
+                            .boolean()
+                            .describe(
+                                'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                            ),
                     })
-                    .nullish()
+                    .describe('For boolean output. Shared allows_na-only settings can also use the common branch.'),
+                zod
+                    .object({
+                        allows_na: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                        min: zod
+                            .number()
+                            .nullish()
+                            .describe('Inclusive minimum numeric score. Omit for no lower bound.'),
+                        max: zod
+                            .number()
+                            .nullish()
+                            .describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                        step: zod
+                            .number()
+                            .gt(evaluationsPartialUpdateBodyOutputConfigTwoStepExclusiveMin)
+                            .nullish()
+                            .describe('Optional positive input increment. Does not round evaluation results.'),
+                        passing_rule: zod
+                            .object({
+                                operator: zod
+                                    .enum(['gte', 'lte'])
+                                    .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                                threshold: zod
+                                    .number()
+                                    .describe('Finite passing threshold within any configured score bounds.'),
+                            })
+                            .nullish()
+                            .describe(
+                                'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                            ),
+                    })
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'For numeric output: min\/max\/step, allows_na, passing_rule. For boolean output: allows_na only. For sentiment output: {}.'
                     ),
-            })
+            ])
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': optional min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -1058,7 +1096,7 @@ export const EvaluationsTestHogCreateParams = () => zod.object({
 })
 
 export const evaluationsTestHogCreateBodyOutputTypeDefault = `boolean`
-export const evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin = 0
+export const evaluationsTestHogCreateBodyOutputConfigTwoStepExclusiveMin = 0
 
 export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
@@ -1082,36 +1120,51 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
             'Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric'
         ),
     output_config: zod
-        .object({
-            allows_na: zod
-                .boolean()
-                .optional()
-                .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
-            true_is_failure: zod
-                .boolean()
-                .optional()
-                .describe(
-                    'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
-                ),
-            min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-            max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
-            step: zod
-                .number()
-                .gt(evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin)
-                .nullish()
-                .describe('Optional positive input increment. Does not round evaluation results.'),
-            passing_rule: zod
+        .union([
+            zod
                 .object({
-                    operator: zod
-                        .enum(['gte', 'lte'])
-                        .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                    threshold: zod.number().describe('Finite passing threshold within any configured score bounds.'),
+                    allows_na: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                    true_is_failure: zod
+                        .boolean()
+                        .describe(
+                            'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                        ),
                 })
-                .nullish()
+                .describe('For boolean output. Shared allows_na-only settings can also use the common branch.'),
+            zod
+                .object({
+                    allows_na: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                    min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
+                    max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                    step: zod
+                        .number()
+                        .gt(evaluationsTestHogCreateBodyOutputConfigTwoStepExclusiveMin)
+                        .nullish()
+                        .describe('Optional positive input increment. Does not round evaluation results.'),
+                    passing_rule: zod
+                        .object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        })
+                        .nullish()
+                        .describe(
+                            'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        ),
+                })
                 .describe(
-                    'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                    'For numeric output: min\/max\/step, allows_na, passing_rule. For boolean output: allows_na only. For sentiment output: {}.'
                 ),
-        })
+        ])
         .optional()
         .describe('Output settings used to validate the preview, including numeric bounds and allows_na.'),
     source: zod

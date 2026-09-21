@@ -33,7 +33,8 @@ export interface ModelConfiguration {
     provider_key_name?: string | null
 }
 
-export type EvaluationOutputConfig = EvaluationApiOutputConfig
+export type EvaluationOutputConfig = Partial<Extract<EvaluationApiOutputConfig, { true_is_failure: boolean }>> &
+    Exclude<EvaluationApiOutputConfig, { true_is_failure: boolean }>
 
 /** Settle config for aggregate targets (trace, session). A missing `strategy` resolves per target:
  * 'fixed_window' for a trace, because rows saved before strategies existed mean exactly that, and

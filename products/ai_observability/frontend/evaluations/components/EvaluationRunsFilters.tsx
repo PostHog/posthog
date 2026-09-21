@@ -19,7 +19,7 @@ const BASE_FILTER_OPTIONS: FilterOption[] = [
 const NA_FILTER_OPTION: FilterOption = { value: 'na', label: 'N/A' }
 
 export function EvaluationRunsFilters(): JSX.Element | null {
-    const { evaluation, runsSummary, evaluationRunsFilter } = useValues(llmEvaluationLogic)
+    const { originalEvaluation: evaluation, runsSummary, evaluationRunsFilter } = useValues(llmEvaluationLogic)
     const { setEvaluationRunsFilter } = useActions(llmEvaluationLogic)
 
     if (!runsSummary || runsSummary.total === 0) {

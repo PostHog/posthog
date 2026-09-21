@@ -35,7 +35,7 @@ export function evaluationSupportsRunOutcomes(
 ): boolean {
     return evaluation?.output_type === 'numeric'
         ? !!evaluation.output_config?.passing_rule
-        : evaluation?.target === 'generation' && isBooleanEvaluationOutput(evaluation.output_type)
+        : isBooleanEvaluationOutput(evaluation?.output_type)
 }
 
 export function evaluationTypeUsesModelConfiguration(evaluationType: EvaluationType | null | undefined): boolean {

@@ -135,7 +135,8 @@ class TestTargetConfigFieldSchema(SimpleTestCase):
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
-    def test_numeric_passing_rule_controls_report_creation_and_scheduling(self):
+    @parameterized.expand([(True,), (False,)])
+    def test_numeric_passing_rule_controls_report_creation_and_scheduling(self, enabled: bool) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -144,7 +145,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "evaluation_config": {"source": "return 0;"},
                 "output_type": "numeric",
                 "output_config": {"min": 0, "max": 10},
-                "enabled": True,
+                "enabled": enabled,
             },
         )
         self.assertEqual(response.status_code, 201, response.json())
@@ -155,6 +156,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(response.json()["output_config"]["min"], 0)
         report = EvaluationReport.objects.get(evaluation=evaluation)
+        self.assertEqual(EvaluationReport.objects.deliverable().filter(id=report.id).exists(), enabled)
+        if not enabled:
+            response = self.client.patch(url, {"enabled": True})
+            self.assertEqual(response.status_code, 200, response.json())
         self.assertTrue(EvaluationReport.objects.deliverable().filter(id=report.id).exists())
         response = self.client.patch(url, {"output_config": {"passing_rule": None}})
         self.assertEqual(response.status_code, 200, response.json())

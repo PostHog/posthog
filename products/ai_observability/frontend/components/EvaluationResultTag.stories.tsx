@@ -15,6 +15,18 @@ export const Numeric: Story = {
     render: () => (
         <div className="flex flex-wrap gap-6">
             <div className="space-y-2">
+                <div>Large score</div>
+                <EvaluationResultTag
+                    run={{ status: 'completed', result: null, result_type: 'numeric', score: 123456789 }}
+                />
+            </div>
+            <div className="space-y-2">
+                <div>Fractional score</div>
+                <EvaluationResultTag
+                    run={{ status: 'completed', result: null, result_type: 'numeric', score: 1 / 3 }}
+                />
+            </div>
+            <div className="space-y-2">
                 <div>Score without a passing rule</div>
                 <EvaluationResultTag run={{ status: 'completed', result: null, result_type: 'numeric', score: 0 }} />
             </div>

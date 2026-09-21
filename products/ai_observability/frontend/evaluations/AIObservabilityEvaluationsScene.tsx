@@ -376,7 +376,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                             <div>{`${stats.runs_count} runs`}</div>
                             <div>{`Mean score: ${stats.score_mean == null ? '–' : formatNumericEvaluationScore(stats.score_mean)}`}</div>
                             {evaluation.output_config.passing_rule && (
-                                <div>{`Pass rate: ${stats.applicable_count ? `${stats.pass_rate.toFixed(1)}%` : '–'}`}</div>
+                                <div>{`Pass rate: ${stats.pass_rate == null ? '–' : `${stats.pass_rate.toFixed(1)}%`}`}</div>
                             )}
                         </div>
                     )
@@ -391,11 +391,13 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 }
 
                 const passRateColor =
-                    stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
-                        ? 'text-success'
-                        : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
-                          ? 'text-warning'
-                          : 'text-danger'
+                    stats.pass_rate == null
+                        ? 'text-muted'
+                        : stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
+                          ? 'text-success'
+                          : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
+                            ? 'text-warning'
+                            : 'text-danger'
 
                 return (
                     <div className="flex flex-col items-center">
@@ -403,7 +405,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                             {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
                         </div>
                         <div className={`font-semibold ${passRateColor}`}>
-                            {parseFloat(stats.pass_rate.toFixed(2))}%
+                            {stats.pass_rate == null ? '–' : `${parseFloat(stats.pass_rate.toFixed(2))}%`}
                         </div>
                     </div>
                 )

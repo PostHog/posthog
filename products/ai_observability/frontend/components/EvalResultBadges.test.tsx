@@ -51,7 +51,16 @@ describe('EvalResultBadges', () => {
             'skipped',
             'error',
         ])
-        expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score: 1 / 3 })).label).toBe('0.333333')
+    })
+
+    it.each([
+        [1 / 3, '0.333333'],
+        [123456789, '123456789'],
+        [-123456789, '-123456789'],
+        [0.0000000123456789, '1.23457e-8'],
+        [1234567.1234567, '1234567.123457'],
+    ])('formats score %s without dropping integer digits', (score, label) => {
+        expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score })).label).toBe(label)
     })
 
     describe('getEvalSummaries', () => {

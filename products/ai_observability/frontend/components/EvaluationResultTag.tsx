@@ -2,7 +2,7 @@ import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagProps } from '@posthog/lemon-ui'
 
-import { formatNumericEvaluationScore } from '../evaluations/constants'
+import { formatNumericEvaluationScore, numericScorePasses } from '../evaluations/constants'
 import type { EvaluationOutputConfig, EvaluationRun } from '../evaluations/types'
 import { capitalize } from '../sentimentUtils'
 
@@ -65,12 +65,7 @@ export function getEvaluationResultDisplay(
         if (run.score == null || !Number.isFinite(run.score)) {
             return { type: 'muted', icon: <IconMinus />, label: 'No score', sortValue: -1 }
         }
-        const rule = options.passingRule
-        const passed = rule
-            ? rule.operator === 'gte'
-                ? run.score >= rule.threshold
-                : run.score <= rule.threshold
-            : null
+        const passed = numericScorePasses(run.score, options.passingRule)
         return {
             type: passed === null ? 'none' : passed ? 'success' : 'danger',
             icon: passed === null ? <IconMinus /> : passed ? <IconCheck /> : <IconX />,

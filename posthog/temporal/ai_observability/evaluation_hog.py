@@ -18,7 +18,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_user_errors
 
-from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig
+from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig, NumericScoreOutOfBounds
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
@@ -201,8 +201,10 @@ def execute_hog_eval_bytecode(
     if output_type == "numeric":
         try:
             score = NumericOutputConfig.model_validate(output_config or {}).validate_score(response.result)
-        except ValueError as error:
+        except NumericScoreOutOfBounds as error:
             return {"verdict": None, "reasoning": reasoning, "error": str(error), "user_input_error": True}
+        except ValueError as error:
+            return {"verdict": None, "reasoning": reasoning, "error": str(error)}
         numeric_result: dict[str, Any] = {"score": score, "reasoning": reasoning, "error": None}
         if allows_na:
             numeric_result["applicable"] = True

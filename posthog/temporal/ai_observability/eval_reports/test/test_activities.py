@@ -825,6 +825,7 @@ class TestNumericReportMetrics(ClickhouseTestMixin, BaseTest):
             {"$ai_score": 0},
             {"$ai_score": 7},
             {"$ai_score": 7.5},
+            {"$ai_score": 8},
             {"$ai_evaluation_applicable": False},
             {"$ai_evaluation_skipped": True},
         ]
@@ -840,7 +841,7 @@ class TestNumericReportMetrics(ClickhouseTestMixin, BaseTest):
                     **properties,
                 },
             )
-        for operator, expected in [("gte", {"pass": 2, "fail": 1, "na": 1}), ("lte", {"pass": 2, "fail": 1, "na": 1})]:
+        for operator, expected in [("gte", {"pass": 3, "fail": 1, "na": 1}), ("lte", {"pass": 2, "fail": 2, "na": 1})]:
             config = {"passing_rule": {"operator": operator, "threshold": 7}}
             metrics = _compute_metrics(
                 self.team.id,
@@ -852,7 +853,7 @@ class TestNumericReportMetrics(ClickhouseTestMixin, BaseTest):
                 output_config=config,
             )
             assert metrics is not None
-            self.assertEqual(metrics.total_runs, 4)
+            self.assertEqual(metrics.total_runs, 5)
             self.assertEqual(metrics.result_counts, expected)
             self.assertEqual(metrics.output_config, config)
 

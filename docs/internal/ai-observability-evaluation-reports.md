@@ -22,9 +22,16 @@ The execution budget limits query work; it does not discard older results or gua
 ### Numeric evaluation eligibility
 
 Numeric evaluations need a passing rule to generate reports.
-Adding the first passing rule to an enabled evaluation creates its default report if none exists.
+Adding the first passing rule creates its default report if none exists, including while the evaluation is paused.
+Delivery waits until the evaluation is enabled.
 Renaming, pausing, or deleting an evaluation does not create a report.
 If an evaluation loses report support before report generation starts, generation stops without an error or a delivery.
 
 Reports classify scores using the rule captured at the start of generation.
-Changing the passing rule updates live views of historical scores, while previously generated reports keep their saved metrics.
+Saving a changed passing rule updates live views of historical scores, while previously generated reports keep their saved metrics.
+Unsaved rules apply only to test previews; the runs table and summary use the saved rule.
+Pass rates are unavailable when no runs have been graded.
+
+Scores outside the configured bounds produce a visible skipped run, for both Hog and LLM judge evaluations.
+An invalid Hog return type, such as a boolean for a numeric evaluation, disables the evaluation until its code is fixed.
+The optional numeric `step` guides scoring and does not round or reject results.

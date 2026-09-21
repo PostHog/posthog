@@ -842,6 +842,27 @@ return result`,
                     successRate: 50,
                     applicabilityRate: 80,
                 })
+                logic.actions.loadEvaluationRunsSuccess([
+                    { ...mockRuns[0], result_type: 'numeric', score: 6, result: null },
+                    { ...mockRuns[1], result_type: 'numeric', score: 8, result: null },
+                ])
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
+                logic.actions.patchOutputConfig({ passing_rule: { operator: 'lte', threshold: 7 } })
+                expect(logic.values.filteredEvaluationRuns.map((run) => run.score)).toEqual([8])
+                expect(logic.values.runsSummary?.successRate).toBe(50)
+                logic.actions.patchOutputConfig({ passing_rule: null })
+                expect(logic.values.filteredEvaluationRuns.map((run) => run.score)).toEqual([8])
+                expect(logic.values.runsSummary?.successRate).toBe(50)
+            })
+
+            it.each(['boolean', 'numeric'] as const)('has no success rate for ungraded %s runs', (output_type) => {
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_type,
+                    output_config: { passing_rule: { operator: 'gte', threshold: 7 } },
+                })
+                logic.actions.loadRunsStatsSuccess({ total: 4, applicable: 0, trueCount: 0, scoreCount: 0 })
+                expect(logic.values.runsSummary?.successRate).toBeNull()
             })
 
             beforeEach(() => {
@@ -854,6 +875,7 @@ return result`,
             })
 
             it('calculates summary from server-side aggregate counts', async () => {
+                logic.actions.loadEvaluationSuccess(mockEvaluation)
                 logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, trueCount: 1 })
 
                 await expectLogic(logic).toMatchValues({
@@ -1527,6 +1549,7 @@ return result`,
                         outputType === 'numeric' ? { min: 0, max: 10, allows_na: false } : { allows_na: false },
                     target_config: { window_seconds: 120 },
                 })
+                expect(requestBody).not.toHaveProperty('allows_na')
 
                 if (outputType === 'numeric') {
                     logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })

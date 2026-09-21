@@ -42,7 +42,7 @@ export interface EvaluationStatsRow {
 /** A stats row with the evaluation's own polarity applied. */
 export interface EvaluationStats extends EvaluationStatsRow {
     pass_count: number
-    pass_rate: number
+    pass_rate: number | null
 }
 
 export interface SummaryMetrics {
@@ -319,7 +319,10 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                                 applicable_count,
                                 pass_count,
                                 applicability_rate: stat.runs_count ? (applicable_count / stat.runs_count) * 100 : 0,
-                                pass_rate: applicable_count ? (pass_count / applicable_count) * 100 : 0,
+                                pass_rate:
+                                    applicable_count && evaluation.output_config.passing_rule
+                                        ? (pass_count / applicable_count) * 100
+                                        : null,
                             },
                         }
                     }
@@ -328,7 +331,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                         ? stat.applicable_count - stat.true_count
                         : stat.true_count
                     const pass_rate =
-                        stat.applicable_count > 0 ? Math.round((pass_count / stat.applicable_count) * 1000) / 10 : 0
+                        stat.applicable_count > 0 ? Math.round((pass_count / stat.applicable_count) * 1000) / 10 : null
                     return { ...evaluation, stats: { ...stat, pass_count, pass_rate } }
                 })
             },
@@ -360,6 +363,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                     // Use applicable_count for minimum runs check
                     return (
                         stat.applicable_count >= MIN_RUNS_FOR_FAILING_STATUS &&
+                        stat.pass_rate != null &&
                         stat.pass_rate < PASS_RATE_SUCCESS_THRESHOLD
                     )
                 }).length

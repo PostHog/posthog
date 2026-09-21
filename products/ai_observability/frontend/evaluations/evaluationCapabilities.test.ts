@@ -18,9 +18,9 @@ describe('evaluationCapabilities', () => {
         ['sentiment', 'generation', true, false],
         // Sentiment is generation-only, so the aggregate targets report on boolean alone.
         // This pins the frontend twin of REPORTABLE_OUTPUT_TYPES_BY_TARGET.
-        ['boolean', 'trace', true, false],
+        ['boolean', 'trace', true, true],
         ['sentiment', 'trace', false, false],
-        ['boolean', 'session', true, false],
+        ['boolean', 'session', true, true],
         ['sentiment', 'session', false, false],
         ['numeric', 'generation', false, false],
         ['numeric', 'trace', false, false],

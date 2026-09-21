@@ -11,7 +11,7 @@ import { urls } from '~/scenes/urls'
 
 import { EvaluationResultTag } from '../../components/EvaluationResultTag'
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
-import { evaluationIsDetector } from '../constants'
+import { evaluationIsDetector, numericScorePasses } from '../constants'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { EvaluationTarget } from '../types'
@@ -203,19 +203,11 @@ export function HogTestResultsPanel(): JSX.Element | null {
     const rule = evaluation?.output_config.passing_rule
     const passed =
         hogTestResults?.filter((r) =>
-            numeric
-                ? r.score != null &&
-                  !!rule &&
-                  (rule.operator === 'gte' ? r.score >= rule.threshold : r.score <= rule.threshold)
-                : r.result === !trueIsFailure
+            numeric ? numericScorePasses(r.score, rule) === true : r.result === !trueIsFailure
         ).length ?? 0
     const failed =
         hogTestResults?.filter((r) =>
-            numeric
-                ? r.score != null &&
-                  !!rule &&
-                  (rule.operator === 'gte' ? r.score < rule.threshold : r.score > rule.threshold)
-                : r.result === trueIsFailure
+            numeric ? numericScorePasses(r.score, rule) === false : r.result === trueIsFailure
         ).length ?? 0
     const na = hogTestResults?.filter((r) => (numeric ? r.score == null : r.result === null) && !r.error).length ?? 0
     const errors = hogTestResults?.filter((r) => r.error !== null).length ?? 0

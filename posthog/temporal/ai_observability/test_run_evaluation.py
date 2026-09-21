@@ -2434,6 +2434,7 @@ class TestEvalResultModels:
     def test_numeric_judge_validates_bounds_before_returning(self, score: float | None) -> None:
         evaluation = {
             "id": "numeric-eval",
+            "name": "Quality",
             "team_id": 1,
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Rate quality"},
@@ -2444,6 +2445,7 @@ class TestEvalResultModels:
         with (
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as model_spec,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as increment_errors,
         ):
             model_spec.return_value.resolve.return_value = MagicMock(
                 provider="openai",
@@ -2456,15 +2458,20 @@ class TestEvalResultModels:
                 usage=None,
             )
             inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
-            if score is not None and not 0 <= score <= 1:
-                with pytest.raises(ApplicationError) as error:
-                    _execute_llm_judge_activity(inputs)
-                assert error.value.non_retryable
-                assert error.value.details[0]["error_type"] == "parse_error"
-                return
             result = _execute_llm_judge_activity(inputs)
+            increment_errors.assert_not_called()
         assert result["result_type"] == "numeric"
         assert "verdict" not in result
+        if score is not None and not 0 <= score <= 1:
+            assert result["skipped"] is True
+            assert result["skip_reason"] == "score_out_of_bounds"
+            assert "terminal_user_error" not in result
+            assert "score" not in result
+            properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 7, 1, tzinfo=UTC))
+            assert properties["$ai_evaluation_skipped"] is True
+            assert properties["$ai_evaluation_skip_reason"] == "score_out_of_bounds"
+            assert "$ai_score" not in properties
+            return
         assert result["applicable"] is (score is not None)
         if score is None:
             assert "score" not in result

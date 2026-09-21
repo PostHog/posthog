@@ -30,10 +30,11 @@ import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmPr
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
-import { evaluationIsDetector, numericOutputConfigError } from './constants'
+import { evaluationIsDetector, numericOutputConfigError, numericScorePasses } from './constants'
 import {
     evaluationCanResolveModel,
     evaluationSupportsReports,
+    evaluationSupportsRunOutcomes,
     isBooleanEvaluationOutput,
     isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
@@ -205,8 +206,8 @@ function filterEvaluationRuns(
             if (run.applicable === false || run.score == null) {
                 return false
             }
-            const passed = rule.operator === 'gte' ? run.score >= rule.threshold : run.score <= rule.threshold
-            return filter === 'pass' ? passed : filter === 'fail' ? !passed : false
+            const passed = numericScorePasses(run.score, rule)
+            return filter === 'pass' ? passed === true : filter === 'fail' ? passed === false : false
         })
     }
     const passingResult = !(evaluation && evaluationIsDetector(evaluation))
@@ -238,7 +239,6 @@ function buildHogTestRequest(evaluation: TestableHogEvaluation): TestHogRequestA
         sample_count: 5,
         output_type: evaluation.output_type,
         output_config: outputConfig,
-        allows_na: evaluation.output_config?.allows_na ?? false,
         conditions: evaluation.conditions
             .filter((condition) => condition.properties && condition.properties.length > 0)
             .map((condition) => ({ properties: condition.properties })),
@@ -313,7 +313,7 @@ export interface llmEvaluationLogicValues {
         failed: number
         scoreMean: number | null
         successful: number
-        successRate: number
+        successRate: number | null
         total: number
     } | null
     selectedModel: string
@@ -509,20 +509,20 @@ export interface llmEvaluationLogicMeta {
         ) => LLMProviderKey | null
         runsSummary: (
             runsStats: EvaluationRunsStats | null,
-            evaluation: EvaluationConfig | null
+            originalEvaluation: EvaluationConfig | null
         ) => {
             applicabilityRate: number
             errors: number
             failed: number
             scoreMean: number | null
             successful: number
-            successRate: number
+            successRate: number | null
             total: number
         } | null
         filteredEvaluationRuns: (
             evaluationRuns: EvaluationRun[],
             evaluationRunsFilter: EvaluationRunsFilter,
-            evaluation: EvaluationConfig | null
+            originalEvaluation: EvaluationConfig | null
         ) => EvaluationRun[]
         breadcrumbs: (
             evaluation: EvaluationConfig | null,
@@ -710,7 +710,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return null
                     }
                     const stats = await queryEvaluationRunsStats({
-                        evaluation: values.evaluation,
+                        evaluation: values.originalEvaluation ?? values.evaluation,
                         evaluationId: props.evaluationId,
                         backfillId: values.runsBackfillId ?? undefined,
                         forceRefresh: values.isForceRefresh,
@@ -933,8 +933,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             'all' as EvaluationRunsFilter,
             {
                 setEvaluationRunsFilter: (_, { filter }) => filter,
-                patchOutputConfig: (state, { patch }) =>
-                    patch.passing_rule === null && (state === 'pass' || state === 'fail') ? 'all' : state,
                 loadEvaluationSuccess: (_, { evaluation }) =>
                     evaluation?.evaluation_type === 'sentiment' ? DEFAULT_SENTIMENT_RUNS_FILTER : 'all',
             },
@@ -1237,9 +1235,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 })
             }
         },
-        saveEvaluationSuccess: () => {
-            actions.loadRunsStats()
-        },
         setEvaluationType: () => {
             if (!evaluationSupportsReports(values.evaluation) && values.activeTab === 'reports') {
                 actions.setActiveTab('configuration')
@@ -1332,7 +1327,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         runsSummary: [
-            (s) => [s.runsStats, s.evaluation],
+            (s) => [s.runsStats, s.originalEvaluation],
             (stats: EvaluationRunsStats | null, evaluation: EvaluationConfig | null) => {
                 if (!stats || stats.total === 0) {
                     return null
@@ -1355,14 +1350,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     successful: passed,
                     failed,
                     errors: 0,
-                    successRate: applicable > 0 ? Math.round((passed / applicable) * 100) : 0,
+                    successRate:
+                        evaluationSupportsRunOutcomes(evaluation) && applicable > 0
+                            ? Math.round((passed / applicable) * 100)
+                            : null,
                     applicabilityRate: total > 0 ? Math.round((applicable / total) * 100) : 0,
                 }
             },
         ],
 
         filteredEvaluationRuns: [
-            (s) => [s.evaluationRuns, s.evaluationRunsFilter, s.evaluation],
+            (s) => [s.evaluationRuns, s.evaluationRunsFilter, s.originalEvaluation],
             (
                 runs: EvaluationRun[],
                 filter: EvaluationRunsFilter,
