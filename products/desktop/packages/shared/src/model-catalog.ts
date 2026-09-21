@@ -15,7 +15,10 @@ export {
   REASONING_EFFORTS,
   type ReasoningEffort,
   RUNTIME_ADAPTERS,
+  RUNTIME_OPTIONS,
+  type Runtime,
   type RuntimeAdapter,
+  type RuntimeOption,
 } from "./model-catalog.generated";
 
 /**
