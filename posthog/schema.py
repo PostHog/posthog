@@ -1423,6 +1423,13 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentApiExposureStart(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["ExperimentExposureNode"] = "ExperimentExposureNode"
+
+
 class ExperimentExposureEstimateConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5308,8 +5315,13 @@ class ExperimentApiMetric(BaseModel):
         description="For funnel metrics: array of EventsNode/ActionsNode steps.",
     )
     source: ExperimentApiEventSource | None = Field(default=None, description="For mean metrics: event source.")
-    start_event: ExperimentApiEventSource | None = Field(
-        default=None, description="For retention metrics: start event."
+    start_event: ExperimentApiEventSource | ExperimentApiExposureStart | None = Field(
+        default=None,
+        description=(
+            'For retention metrics: start event. Pass {"kind":'
+            ' "ExperimentExposureNode"} to start retention from the experiment\'s'
+            " exposure event; start_handling and conversion window are ignored then."
+        ),
     )
     start_handling: StartHandling | None = None
     threshold: float | None = Field(

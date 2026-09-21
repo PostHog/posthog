@@ -891,6 +891,7 @@ export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperat
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
@@ -922,6 +923,7 @@ export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneI
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -5583,10 +5585,17 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureNode')
+                                            .default(experimentsCreateBodyMetricsOneItemStartEventTwoKindDefault),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -5617,7 +5626,7 @@ export const ExperimentsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -6619,10 +6628,19 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureNode')
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
+                                            ),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -6844,6 +6862,7 @@ export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneIte
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
@@ -6875,6 +6894,7 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropert
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -11534,10 +11554,19 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemStartEventTwoKindDefault
+                                            ),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -11568,7 +11597,7 @@ export const ExperimentsPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -12574,10 +12603,19 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
+                                            ),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -12876,6 +12914,7 @@ export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneI
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
@@ -12907,6 +12946,7 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePrope
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentExposureNode`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -17464,10 +17504,19 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoKindDefault
+                                            ),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -17498,7 +17547,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -18504,10 +18553,19 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        kind: zod
+                                            .literal('ExperimentExposureNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
+                                            ),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])

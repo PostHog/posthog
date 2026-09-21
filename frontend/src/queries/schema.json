@@ -24628,6 +24628,18 @@
             },
             "type": "object"
         },
+        "ExperimentApiExposureStart": {
+            "additionalProperties": false,
+            "description": "Sentinel start source for retention metrics in API payloads: retention starts from the experiment's own exposure event instead of a custom event.",
+            "properties": {
+                "kind": {
+                    "const": "ExperimentExposureNode",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "ExperimentApiMetric": {
             "additionalProperties": false,
             "description": "Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.",
@@ -24710,8 +24722,15 @@
                     "description": "For mean metrics: event source."
                 },
                 "start_event": {
-                    "$ref": "#/definitions/ExperimentApiEventSource",
-                    "description": "For retention metrics: start event."
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentApiEventSource"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentApiExposureStart"
+                        }
+                    ],
+                    "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; start_handling and conversion window are ignored then."
                 },
                 "start_handling": {
                     "enum": ["first_seen", "last_seen"],
