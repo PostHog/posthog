@@ -17,9 +17,9 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type PushApiConfig = {
     PUSH_API_PORT: number
     PUSH_API_HOST: string
-    /** Django's SECRET_KEY. The rejection log fingerprints a submitted project token with it, so a
-     * different value here makes those fingerprints uncorrelatable with the ones Django wrote for
-     * the same client. */
+    /** Keys the fingerprint in the rejection log. Matching Django's value keeps a client's
+     * fingerprint the same in both services' logs while both serve the endpoint. The key also stops a
+     * secret API key submitted in the wrong field from being confirmable out of the log. */
     SECRET_KEY: string
 }
 
@@ -73,10 +73,10 @@ export class PushApiServer implements NodeServer {
 
     private async startServices(): Promise<void> {
         if (!this.config.SECRET_KEY && isProdEnv()) {
-            // Starting without it would answer requests correctly but write rejection fingerprints
-            // that cannot be matched to the ones Django wrote, which is the field used to trace a
-            // burst of invalid tokens back to a single misconfigured app.
-            throw new Error('SECRET_KEY must be set so rejection fingerprints match the Django endpoint')
+            // Registrations still work; only the rejection log degrades, so this must not stop the
+            // endpoint serving. Unkeyed, the fingerprint of a secret key submitted in the wrong field
+            // becomes confirmable by anyone who can read the log and holds a candidate value.
+            logger.warn('⚠️', 'SECRET_KEY is unset, so rejection fingerprints are unkeyed and do not match Django')
         }
 
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
