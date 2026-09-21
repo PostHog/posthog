@@ -138,7 +138,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             elif col.split("--")[0].strip() == "person_display_name":
                 property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
                 props = person_display_name_property_exprs(property_keys, "person.properties")
-                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id), distinct_id)"
+                expr = (
+                    f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id), distinct_id, person_mode)"
+                )
                 select_input.append(expr)
             else:
                 select_input.append(col)
@@ -604,6 +606,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         "display_name": result[column_index][0],
                         "id": str(result[column_index][1]),
                         "distinct_id": str(result[column_index][2]),
+                        "person_mode": str(result[column_index][3]),
                     }
                     self.paginator.results[index] = row
         return person_indices

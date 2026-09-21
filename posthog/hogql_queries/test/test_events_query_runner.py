@@ -804,6 +804,38 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         display_names = [row[1]["display_name"] for row in response.results]
         assert set(display_names) == {expected_display_name}
 
+    def test_person_display_name_field_carries_person_mode(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_profiled"],
+            properties={"email": "user@email.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_profiled",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_personless",
+            properties={},
+            person_mode="propertyless",
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        person_modes = {row[1]["distinct_id"]: row[1]["person_mode"] for row in response.results}
+        assert person_modes == {"id_profiled": "full", "id_personless": "propertyless"}
+
     def test_person_display_name_field_with_spaces_in_property_name(self):
         _create_person(
             team_id=self.team.pk,

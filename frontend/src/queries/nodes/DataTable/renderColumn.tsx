@@ -357,15 +357,30 @@ export function renderColumn(
 
         return <PersonDisplay {...displayProps} />
     } else if (key === 'person_display_name') {
-        // Hide the popover on people list only
-        const noPopover = isActorsQuery(query.source)
+        // A personless event still carries a deterministic person ID, but no profile exists behind it.
+        const isPlaceholder = value.person_mode === 'propertyless'
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            // `properties: {}` marks this row as an identified profile so PersonDisplay still renders the link;
-            // the server-side `person_display_name` column omits `properties` even though these rows are profiled.
-            person: { id: value.id, distinct_id: value.distinct_id, properties: {} },
+            // `properties` is what marks a row as profiled, and the server-side column always omits it.
+            person: isPlaceholder
+                ? { id: value.id, distinct_id: value.distinct_id }
+                : { id: value.id, distinct_id: value.distinct_id, properties: {} },
             displayName: value.display_name,
-            noPopover,
+            // Hide the popover on people list only
+            noPopover: isActorsQuery(query.source) || isPlaceholder,
+            noLink: isPlaceholder,
+        }
+        if (isPlaceholder) {
+            return (
+                <Tooltip
+                    title="This event was captured without a person profile, so there is nothing to open."
+                    docLink="https://posthog.com/docs/data/persons#capturing-person-profiles"
+                >
+                    <span>
+                        <PersonDisplay {...displayProps} />
+                    </span>
+                </Tooltip>
+            )
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {
