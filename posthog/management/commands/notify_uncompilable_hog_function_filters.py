@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
 
 from posthog.tasks.email import send_hog_function_filters_uncompilable
 
@@ -13,9 +14,10 @@ logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
     help = (
-        "Find enabled hog functions whose filters failed to compile, and tell their project. "
-        "A function in this state matches nothing and delivers nothing, because the filter "
-        "bytecode is null and evaluating it raises on every event."
+        "Find enabled hog functions that have no filter bytecode because their filters failed to "
+        "compile, and tell their project. A function in this state matches nothing and delivers "
+        "nothing, because evaluating a null bytecode raises on every event. A function that kept "
+        "its last working bytecode carries the same error but still delivers, so it is left alone."
     )
 
     def add_arguments(self, parser: ArgumentParser) -> None:
@@ -39,14 +41,18 @@ class Command(BaseCommand):
         apply: bool = options["apply"]
         disable: bool = options["disable"]
 
-        # `bytecode` is set to null alongside every bytecode_error, so the error alone identifies
-        # the state. Matching on the message would miss the compile failures that are not about
-        # cohorts.
+        # The error alone does not identify the dead state, because a save that fails to recompile
+        # keeps the last working bytecode beside the error and that function still delivers. Both
+        # shapes of "no bytecode" are selected: the key is absent on a function that has never
+        # compiled, and JSON null on one whose bytecode was cleared. Matching on the error message
+        # would miss the compile failures that are not about cohorts.
         # Destinations only. Transformations, source webhooks and internal destinations compile
         # bytecode too and can carry the same error, but the email names a destination and links to
         # the destinations page, and an internal destination is ours rather than the customer's.
-        queryset = HogFunction.objects.filter(deleted=False, enabled=True, type=HogFunctionType.DESTINATION).exclude(
-            filters__bytecode_error__isnull=True
+        queryset = (
+            HogFunction.objects.filter(deleted=False, enabled=True, type=HogFunctionType.DESTINATION)
+            .exclude(filters__bytecode_error__isnull=True)
+            .filter(Q(filters__bytecode__isnull=True) | Q(filters__bytecode=None))
         )
         team_id = options["team_id"]
         if team_id is not None:

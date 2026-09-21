@@ -7,6 +7,7 @@ import type {
 } from "@posthog/shared/types";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -20,6 +21,7 @@ export function useRefundReport(report: SignalReport) {
   const client = useAuthenticatedClient();
   const queryClient = useQueryClient();
   const flagEnabled = useFeatureFlag(SIGNALS_PR_REFUNDS_FLAG);
+  const trackAction = useReportActionTracker(report);
 
   const { canRefund, disabledReason } = computeRefundEligibility(
     report,
@@ -29,7 +31,11 @@ export function useRefundReport(report: SignalReport) {
   const mutation = useMutation({
     mutationFn: (input: { reason: SignalReportRefundReason; note?: string }) =>
       client.refundSignalReport(report.id, input),
-    onSuccess: () => {
+    onSuccess: (_updatedReport, input) => {
+      trackAction("refund", {
+        refund_reason: input.reason,
+        ...(input.note ? { refund_note: input.note } : {}),
+      });
       toast.success("PR refunded. The report has been archived.");
       queryClient.invalidateQueries({ queryKey: inboxReportKeys.all });
     },
