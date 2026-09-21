@@ -8,7 +8,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Channel, Task
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 
 class TestTaskCaptureEvent(TestCase):
@@ -68,3 +68,12 @@ class TestTaskCaptureEvent(TestCase):
         properties = capture.call_args.kwargs["properties"]
         self.assertEqual(properties["internal"], internal)
         self.assertEqual(properties["is_platform_origin"], is_platform_origin)
+
+    def test_run_events_classify_fleet_traffic_too(self):
+        task = self._task(origin_product=Task.OriginProduct.SIGNALS_SCOUT)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+
+        properties = run.analytics_properties()
+
+        self.assertFalse(properties["internal"])
+        self.assertTrue(properties["is_platform_origin"])
