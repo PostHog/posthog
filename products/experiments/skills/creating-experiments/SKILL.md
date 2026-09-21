@@ -123,7 +123,7 @@ Key details:
 
 4. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
 
-5. **Launch** when ready — use the `experiment-launch` tool.
+5. **Launch only when the user asks for it** — creation ends at a draft. A launch turns the feature flag on for real users, so never call `experiment-launch` unprompted.
 
 ## Related skills
 
