@@ -616,15 +616,13 @@ SQL
     }
     column "timestamp" {
       type  = "DateTime64(6)"
-      codec = "DoubleDelta, Default"
+      codec = "DoubleDelta"
     }
     column "observed_timestamp" {
-      type  = "DateTime64(6)"
-      codec = "DoubleDelta, Default"
+      type = "DateTime64(6)"
     }
     column "original_expiry_timestamp" {
-      type  = "DateTime64(6)"
-      codec = "DoubleDelta, Default"
+      type = "DateTime64(6)"
     }
     column "created_at" {
       type         = "DateTime64(6)"
@@ -638,19 +636,18 @@ SQL
     }
     column "value" {
       type  = "Float64"
-      codec = "Gorilla(8), Default"
+      codec = "Gorilla(8)"
     }
     column "count" {
       type    = "UInt64"
       default = "1"
-      codec   = "T64, Default"
+      codec   = "T64"
     }
     column "histogram_bounds" {
       type = "Array(Float64)"
     }
     column "histogram_counts" {
-      type  = "Array(UInt64)"
-      codec = "T64, Default"
+      type = "Array(UInt64)"
     }
     column "trace_id" {
       type = "String"
@@ -685,8 +682,7 @@ SQL
       type = "String"
     }
     column "_offset" {
-      type  = "UInt64"
-      codec = "Delta(8), Default"
+      type = "UInt64"
     }
     index "idx_metric_type_set" {
       expr        = "metric_type"

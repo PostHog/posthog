@@ -7197,15 +7197,13 @@ SQL
     }
     column "timestamp" {
       type  = "DateTime64(6)"
-      codec = "DoubleDelta, Default"
+      codec = "DoubleDelta"
     }
     column "observed_timestamp" {
-      type  = "DateTime64(6)"
-      codec = "DoubleDelta, Default"
+      type = "DateTime64(6)"
     }
     column "original_expiry_timestamp" {
-      type  = "DateTime64(6)"
-      codec = "DoubleDelta, Default"
+      type = "DateTime64(6)"
     }
     column "created_at" {
       type         = "DateTime64(6)"
@@ -7219,19 +7217,18 @@ SQL
     }
     column "value" {
       type  = "Float64"
-      codec = "Gorilla(8), Default"
+      codec = "Gorilla(8)"
     }
     column "count" {
       type    = "UInt64"
       default = "1"
-      codec   = "T64, Default"
+      codec   = "T64"
     }
     column "histogram_bounds" {
       type = "Array(Float64)"
     }
     column "histogram_counts" {
-      type  = "Array(UInt64)"
-      codec = "T64, Default"
+      type = "Array(UInt64)"
     }
     column "trace_id" {
       type = "String"
@@ -7266,8 +7263,7 @@ SQL
       type = "String"
     }
     column "_offset" {
-      type  = "UInt64"
-      codec = "Delta(8), Default"
+      type = "UInt64"
     }
     index "idx_metric_type_set" {
       expr        = "metric_type"
@@ -7552,6 +7548,9 @@ SQL
     column "histogram_bounds" {
       type = "SimpleAggregateFunction(anyLast, Array(Float64))"
     }
+    column "_topic" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
     column "timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))"
       codec = "DoubleDelta, Default"
@@ -7580,6 +7579,13 @@ SQL
     }
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray, Array(Int32))"
+    }
+    column "_partition_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(UInt32))"
+    }
+    column "_offset_arr" {
+      type  = "SimpleAggregateFunction(groupArrayArray, Array(UInt64))"
+      codec = "Delta(8), Default"
     }
     index "idx_metric_type_set" {
       expr        = "metric_type"
@@ -22414,6 +22420,7 @@ SELECT
   max(toUInt8(has_labels)) AS has_labels,
   any(instrumentation_scope) AS instrumentation_scope,
   anyLast(histogram_bounds) AS histogram_bounds,
+  any(_topic) AS _topic,
   groupArray(timestamp) AS timestamp_arr,
   groupArray(observed_timestamp) AS observed_timestamp_arr,
   groupArray(value) AS value_arr,
@@ -22421,7 +22428,9 @@ SELECT
   groupArray(histogram_counts) AS histogram_counts_arr,
   groupArray(trace_id) AS trace_id_arr,
   groupArray(span_id) AS span_id_arr,
-  groupArray(trace_flags) AS trace_flags_arr
+  groupArray(trace_flags) AS trace_flags_arr,
+  groupArray(_partition) AS _partition_arr,
+  groupArray(_offset) AS _offset_arr
 FROM posthog.metrics2_input
 GROUP BY
   team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date
@@ -22469,6 +22478,9 @@ SQL
     column "histogram_bounds" {
       type = "Array(Float64)"
     }
+    column "_topic" {
+      type = "String"
+    }
     column "timestamp_arr" {
       type = "Array(DateTime64(6))"
     }
@@ -22492,6 +22504,12 @@ SQL
     }
     column "trace_flags_arr" {
       type = "Array(Int32)"
+    }
+    column "_partition_arr" {
+      type = "Array(UInt32)"
+    }
+    column "_offset_arr" {
+      type = "Array(UInt64)"
     }
   }
 

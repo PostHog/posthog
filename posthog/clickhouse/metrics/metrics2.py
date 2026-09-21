@@ -113,16 +113,16 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
     `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
     `series_fingerprint` UInt64 CODEC(Delta, Default),
     `resource_fingerprint` UInt64 DEFAULT 0,
-    `timestamp` DateTime64(6) CODEC(DoubleDelta, Default),
-    `observed_timestamp` DateTime64(6) CODEC(DoubleDelta, Default),
-    `original_expiry_timestamp` DateTime64(6) CODEC(DoubleDelta, Default),
+    `timestamp` DateTime64(6) CODEC(DoubleDelta),
+    `observed_timestamp` DateTime64(6),
+    `original_expiry_timestamp` DateTime64(6),
     `created_at` DateTime64(6) MATERIALIZED now(),
     `service_name` LowCardinality(String),
     `metric_type` LowCardinality(String),
-    `value` Float64 CODEC(Gorilla, Default),
-    `count` UInt64 DEFAULT 1 CODEC(T64, Default),
+    `value` Float64 CODEC(Gorilla),
+    `count` UInt64 DEFAULT 1 CODEC(T64),
     `histogram_bounds` Array(Float64),
-    `histogram_counts` Array(UInt64) CODEC(T64, Default),
+    `histogram_counts` Array(UInt64),
     `trace_id` String,
     `span_id` String,
     `trace_flags` Int32,
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
     `instrumentation_scope` String,
     `_partition` UInt32,
     `_topic` String,
-    `_offset` UInt64 CODEC(Delta, Default),
+    `_offset` UInt64,
     INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
     INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
     INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -374,25 +374,6 @@ def METRICS2_INPUT_ADD_RETENTION_DAYS_EXPLICIT_SQL() -> str:
         f"ALTER TABLE {_db()}.{METRICS2_INPUT_TABLE_NAME} "
         "ADD COLUMN IF NOT EXISTS retention_days_explicit Int32 DEFAULT 0"
     )
-
-
-# A chain that ends in `Default` keeps the server compression as its second stage. `Delta` on
-# `_offset` and `DoubleDelta` on the timestamps rely on the sort key: within one series-hour the
-# rows are in timestamp order, so both columns are near-sorted in storage order.
-METRICS2_CODECS: tuple[tuple[str, str], ...] = (
-    ("timestamp", "DateTime64(6) CODEC(DoubleDelta, Default)"),
-    ("observed_timestamp", "DateTime64(6) CODEC(DoubleDelta, Default)"),
-    ("original_expiry_timestamp", "DateTime64(6) CODEC(DoubleDelta, Default)"),
-    ("value", "Float64 CODEC(Gorilla, Default)"),
-    ("count", "UInt64 DEFAULT 1 CODEC(T64, Default)"),
-    ("histogram_counts", "Array(UInt64) CODEC(T64, Default)"),
-    ("_offset", "UInt64 CODEC(Delta, Default)"),
-)
-
-
-def METRICS2_MODIFY_CODECS_SQL() -> str:
-    clauses = ",\n    ".join(f"MODIFY COLUMN IF EXISTS `{name}` {definition}" for name, definition in METRICS2_CODECS)
-    return f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME}\n    {clauses}"
 
 
 def METRIC_SERIES2_ADD_LAST_SEEN_INDEX_SQL() -> str:
