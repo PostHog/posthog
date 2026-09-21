@@ -1653,7 +1653,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
                             id: tile.id,
-                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
+                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : tile.layouts,
                         }))
 
                         const currentDashboard = values.dashboard
@@ -2094,7 +2094,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ...state,
                         tiles: state?.tiles?.map((tile) => ({
                             ...tile,
-                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
+                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : tile.layouts,
                         })),
                     } as DashboardType<QueryBasedInsightModel>
                 },

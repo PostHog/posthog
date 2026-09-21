@@ -150,6 +150,15 @@ export const Loading: Story = {
     },
 }
 
+export const Error: Story = {
+    args: {
+        title: 'Experiment results',
+        error: 'Could not load experiment results.',
+        loading: false,
+        result: null,
+    },
+}
+
 export const NotConfigured: Story = {
     args: {
         title: 'Experiment results',
