@@ -24,8 +24,8 @@ from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CAC
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
+    FLAG_PROCESSING_ERROR_COUNTER,
     _build_flag_definitions_hypercache,
-    _extract_cohort_ids_from_filters,
     _get_flags_response_for_local_evaluation,
     _get_flags_response_for_local_evaluation_batch,
     _update_flag_definitions,
@@ -832,52 +832,6 @@ class TestSurveyFlagExclusion(BaseTest):
         assert regular_flag.key in flag_keys
 
 
-class TestExtractCohortIdsFromFilters(BaseTest):
-    @parameterized.expand(
-        [
-            ("empty_filters", {}, set()),
-            ("no_groups", {"multivariate": {}}, set()),
-            ("empty_groups", {"groups": []}, set()),
-            (
-                "person_properties_only",
-                {"groups": [{"properties": [{"type": "person", "key": "email", "value": "test@example.com"}]}]},
-                set(),
-            ),
-            ("single_cohort", {"groups": [{"properties": [{"type": "cohort", "value": 123}]}]}, {123}),
-            (
-                "multiple_cohorts_same_group",
-                {"groups": [{"properties": [{"type": "cohort", "value": 1}, {"type": "cohort", "value": 2}]}]},
-                {1, 2},
-            ),
-            (
-                "cohorts_across_groups",
-                {
-                    "groups": [
-                        {"properties": [{"type": "cohort", "value": 10}]},
-                        {"properties": [{"type": "cohort", "value": 20}]},
-                    ]
-                },
-                {10, 20},
-            ),
-            ("string_value_coerced", {"groups": [{"properties": [{"type": "cohort", "value": "456"}]}]}, {456}),
-            ("invalid_string_skipped", {"groups": [{"properties": [{"type": "cohort", "value": "bad"}]}]}, set()),
-            ("none_value_skipped", {"groups": [{"properties": [{"type": "cohort", "value": None}]}]}, set()),
-            (
-                "duplicates_collapsed",
-                {
-                    "groups": [
-                        {"properties": [{"type": "cohort", "value": 5}]},
-                        {"properties": [{"type": "cohort", "value": 5}]},
-                    ]
-                },
-                {5},
-            ),
-        ]
-    )
-    def test_extract_cohort_ids(self, _name: str, filters: dict, expected: set):
-        assert _extract_cohort_ids_from_filters(filters) == expected
-
-
 class TestLocalEvaluationBatch(BaseTest):
     def _create_team_with_project(self, name: str) -> Team:
         project, team = Project.objects.create_with_team(
@@ -1336,6 +1290,100 @@ class TestLocalEvaluationBatch(BaseTest):
         flag_keys = [f["key"] for f in results[team.id]["flags"]]
         assert "flag-ref-deleted-cohort" in flag_keys
         assert str(cohort_id) not in results[team.id]["cohorts"]
+
+    def _create_cohort(self, team: Team, name: str) -> Cohort:
+        return Cohort.objects.create(
+            team=team,
+            name=name,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "OR", "values": [{"key": "email", "value": "a@example.com", "type": "person"}]}
+                    ],
+                }
+            },
+        )
+
+    def test_batch_reads_explicit_config_version_1_like_absent(self):
+        team = self._create_team_with_project("Explicit version 1")
+        cohort = self._create_cohort(team, "referenced")
+        target = FeatureFlag.objects.create(
+            team=team,
+            key="dependency-target",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        stored_filters = {
+            "version": 1,
+            "groups": [
+                {
+                    "properties": [
+                        {"key": "id", "type": "cohort", "value": cohort.pk},
+                        {"key": str(target.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                    ],
+                    "rollout_percentage": 100,
+                }
+            ],
+        }
+        flag = FeatureFlag.objects.create(team=team, key="explicit-version-1", filters=stored_filters)
+
+        results = _get_flags_response_for_local_evaluation_batch([team])
+
+        flags_by_key = {f["key"]: f for f in results[team.id]["flags"]}
+        assert set(flags_by_key) == {"dependency-target", "explicit-version-1"}
+        assert set(results[team.id]["cohorts"]) == {str(cohort.pk)}
+        flag_property = flags_by_key["explicit-version-1"]["filters"]["groups"][0]["properties"][1]
+        assert flag_property["key"] == "dependency-target"
+        assert flag_property["dependency_chain"] == ["dependency-target"]
+        flag.refresh_from_db()
+        assert flag.filters == stored_filters
+
+    def test_batch_drops_unsupported_config_format_and_keeps_siblings(self):
+        team = self._create_team_with_project("Unsupported format")
+        cohort = self._create_cohort(team, "sibling-cohort")
+        FeatureFlag.objects.create(
+            team=team,
+            key="v1-sibling",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}]},
+        )
+        # A v2 discriminator over v1-looking groups: reading the groups as v1 would leak the
+        # cohort reference and the flag itself into the legacy payload.
+        unsupported_filters = {
+            "version": 2,
+            "groups": [
+                {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}], "rollout_percentage": 100}
+            ],
+        }
+        unsupported = FeatureFlag.objects.create(team=team, key="unsupported-format", filters=unsupported_filters)
+        FeatureFlag.objects.create(
+            team=team,
+            key="depends-on-unsupported",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(unsupported.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        dropped_before = FLAG_PROCESSING_ERROR_COUNTER._value.get()
+
+        results = _get_flags_response_for_local_evaluation_batch([team])
+
+        flags_by_key = {f["key"]: f for f in results[team.id]["flags"]}
+        assert set(flags_by_key) == {"v1-sibling", "depends-on-unsupported"}
+        assert set(results[team.id]["cohorts"]) == {str(cohort.pk)}
+        assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before + 1
+        # The dropped flag never reaches flag_id_to_key, so its dependent publishes the same
+        # shape as a reference to a flag that never existed (see test_missing_dependency).
+        flag_property = flags_by_key["depends-on-unsupported"]["filters"]["groups"][0]["properties"][0]
+        assert flag_property["key"] == str(unsupported.pk)
+        assert flag_property["dependency_chain"] == []
+        unsupported.refresh_from_db()
+        assert unsupported.filters == unsupported_filters
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

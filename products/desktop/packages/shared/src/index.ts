@@ -19,6 +19,14 @@ export type {
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
+export type { TaskRunUpdate } from "./api-http-client";
+export {
+  API_DOWNLOAD_TIMEOUT_MS,
+  API_TRANSFER_TIMEOUT_MS,
+  PostHogHttpClient,
+  PostHogHttpError,
+  transferTimeoutMs,
+} from "./api-http-client";
 export type { ArchivedTask } from "./archive-domain";
 export { withTimeout } from "./async";
 export {
@@ -52,7 +60,11 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
-export { omitNullCallToolResultFields } from "./call-tool-result";
+export {
+  boundPersistedMcpResult,
+  MAX_PERSISTED_MCP_RESULT_BYTES,
+  omitNullCallToolResultFields,
+} from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -78,7 +90,6 @@ export {
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
-  HARNESS_DISPLAY_NAMES,
   isAnthropicModel,
   isAnthropicModelId,
   isBasetenModel,
@@ -86,9 +97,6 @@ export {
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
-  isGlm53FlashModelId,
-  isGlm53ModelId,
-  isGlmModelId,
   isModalModel,
   isModalModelId,
   isOpenAIModel,
@@ -117,6 +125,7 @@ export {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   dismissalReasonLabel,
+  isDismissalReasonSnooze,
   RESOLVE_REASON_OPTIONS,
   type ReportStateReason,
   type ResolveReasonOptionValue,
@@ -184,7 +193,11 @@ export {
   MAX_IMAGE_BASE64_LENGTH,
   parseImageDataUrl,
 } from "./image";
-export { buildDiscussReportPrompt } from "./inbox-prompts";
+export {
+  buildDiscussReportPrompt,
+  buildLocalCodeSnapshotPrompt,
+  CODE_CONTEXT_DISCLOSURE,
+} from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
   SignalRecordKind,
@@ -273,6 +286,7 @@ export {
   type PiToolCallRecord,
   type PiToolName,
 } from "./pi-tool-call";
+export { POSTHOG_PRODUCTS, type PostHogProductId } from "./posthog-products";
 export {
   buildPrOutput,
   mergePrUrls,
@@ -304,7 +318,9 @@ export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult } from "./saga";
 export {
   type AcpMessage,
+  IDLE_RESUME_STOP_REASON,
   IMPORTED_USER_PROMPT_META_KEY,
+  isIdleResumeTurnComplete,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,

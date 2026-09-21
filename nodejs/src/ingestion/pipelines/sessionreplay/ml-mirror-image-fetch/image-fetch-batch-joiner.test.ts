@@ -31,7 +31,8 @@ describe('ImageFetchBatchJoiner', () => {
     afterEach(() => jest.useRealTimers())
 
     it.each([2, 16])('joins batches from %i consumers before processing', async (consumerCount) => {
-        const processBatch = jest.fn(() => Promise.resolve())
+        const pass = deferred()
+        const processBatch = jest.fn(() => pass.promise)
         const joiner = new ImageFetchBatchJoiner(consumerCount, processBatch)
 
         const messages = Array.from({ length: consumerCount }, (_, partition) => message(partition))
@@ -39,9 +40,18 @@ describe('ImageFetchBatchJoiner', () => {
         expect(processBatch).not.toHaveBeenCalled()
         pending.push(joiner.handleBatch([messages[consumerCount - 1]]))
 
-        await Promise.all(pending)
+        const batches = await Promise.all(pending)
         expect(processBatch).toHaveBeenCalledTimes(1)
         expect(processBatch).toHaveBeenCalledWith(messages)
+        expect(batches.every((batch) => batch?.backgroundTask === batches[0]?.backgroundTask)).toBe(true)
+        const completed = jest.fn()
+        const completion = Promise.all(batches.map((batch) => batch?.backgroundTask ?? Promise.resolve())).then(
+            completed
+        )
+        await jest.advanceTimersByTimeAsync(0)
+        expect(completed).not.toHaveBeenCalled()
+        pass.resolve()
+        await completion
     })
 
     it.each([2, 16])(
@@ -55,7 +65,9 @@ describe('ImageFetchBatchJoiner', () => {
             expect(processBatch).not.toHaveBeenCalled()
             await jest.advanceTimersByTimeAsync(1)
 
-            await pending
+            await (
+                await pending
+            )?.backgroundTask
             expect(processBatch).toHaveBeenCalledWith([message(0)])
         }
     )
@@ -67,6 +79,7 @@ describe('ImageFetchBatchJoiner', () => {
 
         const first = joiner.handleBatch([message(0)])
         await jest.advanceTimersByTimeAsync(IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS)
+        const firstCompletion = (await first)?.backgroundTask
         const second = joiner.handleBatch([message(1)])
         const active = register.getSingleMetric('ml_image_fetch_stage_active')!
         expect((await active.get()).values).toEqual(
@@ -75,10 +88,10 @@ describe('ImageFetchBatchJoiner', () => {
                 expect.objectContaining({ labels: { stage: 'consumer_process' }, value: 1 }),
             ])
         )
+        const rejected = Promise.all([expect(firstCompletion).rejects.toBe(error), expect(second).rejects.toBe(error)])
         pass.reject(error)
-
-        await expect(first).rejects.toBe(error)
-        await expect(second).rejects.toBe(error)
+        await rejected
+        await expect(joiner.handleBatch([message(2)])).rejects.toBe(error)
         expect((await active.get()).values).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({ labels: { stage: 'consumer_join' }, value: 0 }),
@@ -103,9 +116,56 @@ describe('ImageFetchBatchJoiner', () => {
         expect(processBatch).toHaveBeenCalledTimes(2)
 
         secondPass.resolve()
-        await second
+        await (
+            await second
+        )?.backgroundTask
         firstPass.resolve()
-        await first
+        await (
+            await first
+        )?.backgroundTask
         expect(processBatch).toHaveBeenLastCalledWith([message(1)])
+    })
+
+    it('keeps a fast consumer out of the same group twice while overlapping processing', async () => {
+        const firstPass = deferred()
+        const secondPass = deferred()
+        const processBatch = jest
+            .fn()
+            .mockImplementationOnce(() => firstPass.promise)
+            .mockImplementationOnce(() => secondPass.promise)
+        const joiner = new ImageFetchBatchJoiner(2, processBatch)
+        const secondFromFastConsumer = jest.fn(() => joiner.handleBatch([message(0)]))
+
+        const firstFast = joiner.handleBatch([message(0)])
+        const secondFast = firstFast.then(secondFromFastConsumer)
+        await jest.advanceTimersByTimeAsync(0)
+        expect(secondFromFastConsumer).not.toHaveBeenCalled()
+
+        const firstSlow = joiner.handleBatch([message(1)])
+        await firstSlow
+        await jest.advanceTimersByTimeAsync(0)
+        expect(secondFromFastConsumer).toHaveBeenCalledTimes(1)
+        expect(processBatch).toHaveBeenCalledTimes(1)
+
+        const secondSlow = joiner.handleBatch([message(1)])
+        const secondBatches = await Promise.all([secondFast, secondSlow])
+        expect(processBatch.mock.calls).toEqual([[[message(0), message(1)]], [[message(0), message(1)]]])
+        const active = register.getSingleMetric('ml_image_fetch_stage_active')!
+        expect((await active.get()).values).toEqual(
+            expect.arrayContaining([expect.objectContaining({ labels: { stage: 'consumer_process' }, value: 4 })])
+        )
+
+        secondPass.resolve()
+        await Promise.all(secondBatches.map((batch) => batch?.backgroundTask ?? Promise.resolve()))
+        expect((await active.get()).values).toEqual(
+            expect.arrayContaining([expect.objectContaining({ labels: { stage: 'consumer_process' }, value: 2 })])
+        )
+        firstPass.resolve()
+        await (
+            await firstFast
+        )?.backgroundTask
+        expect((await active.get()).values).toEqual(
+            expect.arrayContaining([expect.objectContaining({ labels: { stage: 'consumer_process' }, value: 0 })])
+        )
     })
 })

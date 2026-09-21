@@ -135,6 +135,12 @@ import type {
   TeamMcpGatewayConfig,
   TeamMcpGatewayConfigUpdate,
 } from "./mcp-gateway";
+import {
+  type ContextWikiPageProposal,
+  type ContextWikiProposalApplyResult,
+  contextWikiProposalApplyResultSchema,
+  contextWikiProposalsSchema,
+} from "./schemas";
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
@@ -142,6 +148,8 @@ import {
   normalizeTaskRunArtifact,
   normalizeTaskRunResponse,
   type TaskRunArtifactDTO,
+  type TaskSummariesResponse,
+  type TaskSummaryDTO,
 } from "./task-normalization";
 
 interface HogQLGrid {
@@ -150,6 +158,7 @@ interface HogQLGrid {
 }
 
 export type * from "./mcp-gateway";
+export type { ContextWikiPageProposal } from "./schemas";
 export interface ApiClientLogger {
   warn(...args: unknown[]): void;
 }
@@ -349,6 +358,7 @@ export interface TaskSearchResult {
  * says which level supplied them, and is `"none"` when neither is set.
  */
 export interface TaskRunDefaults {
+  runtime: string;
   runtime_adapter: string | null;
   model: string | null;
   reasoning_effort: string | null;
@@ -356,6 +366,7 @@ export interface TaskRunDefaults {
 }
 
 export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
+  runtime: "acp",
   runtime_adapter: null,
   model: null,
   reasoning_effort: null,
@@ -368,12 +379,14 @@ export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
  * the project default to each surface's built-in model.
  */
 export interface TaskRunPreferences {
+  runtime: string | null;
   runtime_adapter: string | null;
   model: string | null;
   reasoning_effort: string | null;
 }
 
 export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
+  runtime: null,
   runtime_adapter: null,
   model: null,
   reasoning_effort: null,
@@ -2243,8 +2256,9 @@ export class PostHogAPIClient {
     });
   }
 
-  async areDesktopBetaTermsAccepted(organizationId: string): Promise<boolean> {
-    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+  async areDesktopBetaTermsAccepted(): Promise<boolean> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/desktop_beta_terms/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     const response = await this.api.fetcher.fetch({
       method: "get",
@@ -2262,8 +2276,9 @@ export class PostHogAPIClient {
     return data.is_desktop_beta_terms_accepted;
   }
 
-  async acceptDesktopBetaTerms(organizationId: string): Promise<void> {
-    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+  async acceptDesktopBetaTerms(): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/desktop_beta_terms/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     const response = await this.api.fetcher.fetch({
       method: "post",
@@ -2357,6 +2372,7 @@ export class PostHogAPIClient {
       // The API stores a cleared preference as `{}`, so read each field rather than
       // assuming the triple is present.
       preferences: {
+        runtime: payload.ai_run_preferences?.runtime ?? null,
         runtime_adapter: payload.ai_run_preferences?.runtime_adapter ?? null,
         model: payload.ai_run_preferences?.model ?? null,
         reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
@@ -3061,7 +3077,7 @@ export class PostHogAPIClient {
 
     const fetchPage = async (
       offset: number,
-    ): Promise<Schemas.PaginatedTaskSummaryDTOList> => {
+    ): Promise<TaskSummariesResponse> => {
       const urlPath = `${basePath}?limit=${PAGE_LIMIT}&offset=${offset}`;
       const response = await this.api.fetcher.fetch({
         method: "post",
@@ -3076,11 +3092,11 @@ export class PostHogAPIClient {
           `Failed to fetch task summaries: ${response.statusText}`,
         );
       }
-      return (await response.json()) as Schemas.PaginatedTaskSummaryDTOList;
+      return (await response.json()) as TaskSummariesResponse;
     };
 
     const first = await fetchPage(0);
-    const all: Schemas.TaskSummaryDTO[] = [...first.results];
+    const all: TaskSummaryDTO[] = [...first.results];
     const capped = Math.min(first.count, PAGE_LIMIT * MAX_PAGES);
     if (first.count > PAGE_LIMIT * MAX_PAGES) {
       log.warn(
@@ -3712,6 +3728,27 @@ export class PostHogAPIClient {
     );
   }
 
+  async getContextWikiProposals(): Promise<ContextWikiPageProposal[] | null> {
+    const response = await this.getContextWikiResource<unknown>(
+      "/api/organizations/@current/context_layer/proposals/",
+    );
+    return response === null
+      ? null
+      : contextWikiProposalsSchema.parse(response);
+  }
+
+  async applyContextWikiProposal(
+    id: string,
+  ): Promise<ContextWikiProposalApplyResult> {
+    const path = `/api/organizations/@current/context_layer/proposals/${encodeURIComponent(id)}/apply/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    return contextWikiProposalApplyResultSchema.parse(await response.json());
+  }
+
   /**
    * Full-content page write guarded by `baseHead` optimistic concurrency.
    * The server holds a per-org writer lock shared with agent commit landings;
@@ -3723,7 +3760,7 @@ export class PostHogAPIClient {
   async putContextWikiPage(input: {
     path: string;
     content: string;
-    baseHead: string;
+    baseHead?: string;
   }): Promise<{ head_sha: string }> {
     const urlPath = `/api/organizations/@current/context_layer/pages/`;
     try {
@@ -3735,7 +3772,7 @@ export class PostHogAPIClient {
           body: JSON.stringify({
             path: input.path,
             content: input.content,
-            base_head: input.baseHead,
+            ...(input.baseHead ? { base_head: input.baseHead } : {}),
           }),
         },
       });

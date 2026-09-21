@@ -411,20 +411,8 @@ database "posthog" {
     }
   }
 
-  patch_materialized_view "kafka_metrics_avro_mv" {
-    to_table = "posthog.writable_metrics1"
-  }
-
   patch_materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
     to_table = "posthog.writable_metrics_kafka_metrics"
-  }
-
-  patch_materialized_view "kafka_metrics_avro_to_metric_samples" {
-    to_table = "posthog.writable_metric_samples1"
-  }
-
-  patch_materialized_view "kafka_metrics_avro_to_metric_series" {
-    to_table = "posthog.writable_metric_series1"
   }
 
   patch_materialized_view "kafka_trace_spans_avro_mv" {

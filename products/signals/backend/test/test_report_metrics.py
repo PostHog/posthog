@@ -91,7 +91,6 @@ class TestReportMetric(SimpleTestCase):
         for source_patch, error in (
             ({"breakdownFilter": {"breakdown": "$browser"}}, "must not use a breakdown"),
             ({"compareFilter": {"compare": True}}, "must not use compare mode"),
-            ({"trendsFilter": {"display": "Metric"}}, "Metric display must disable metricShowChange"),
         ):
             with self.subTest(source_patch=source_patch):
                 content = _affected_users_metric().model_dump(mode="json")
@@ -111,6 +110,28 @@ class TestReportMetric(SimpleTestCase):
                 content["query"]["source"]["compareFilter"] = {"compare": False}
                 content["query"]["source"]["trendsFilter"] = trends_filter
                 assert ReportMetric.model_validate(content).query is not None
+
+    def test_live_query_switches_off_the_metric_display_change_pill(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content["query"]["source"]["trendsFilter"] = {"display": "Metric"}
+
+        metric = ReportMetric.model_validate(content)
+
+        assert metric.query is not None
+        assert metric.query["source"]["trendsFilter"] == {"display": "Metric", "metricShowChange": False}
+
+    def test_live_query_rejects_a_sampling_factor_outside_the_valid_range(self) -> None:
+        for sampling_factor in (0, -0.5, 1.5, "0.5"):
+            with self.subTest(sampling_factor=sampling_factor):
+                content = _affected_users_metric().model_dump(mode="json")
+                content["query"]["source"]["samplingFactor"] = sampling_factor
+
+                with self.assertRaisesRegex(ValidationError, "samplingFactor must be greater than 0"):
+                    ReportMetric.model_validate(content)
+
+        content = _affected_users_metric().model_dump(mode="json")
+        content["query"]["source"]["samplingFactor"] = 0.5
+        assert ReportMetric.model_validate(content).query is not None
 
     def test_rejects_unique_groups_labeled_as_affected_users(self) -> None:
         content = _affected_users_metric().model_dump(mode="json")
@@ -249,7 +270,7 @@ class TestReportMetric(SimpleTestCase):
                 content = _affected_users_metric().model_dump(mode="json")
                 content["query"]["source"]["dateRange"]["date_from"] = date_from
 
-                with self.assertRaisesRegex(ValidationError, "relative time window|must not exceed"):
+                with self.assertRaisesRegex(ValidationError, "relative window|must not exceed"):
                     ReportMetric.model_validate(content)
 
         for date_from in ("-8784h", "-366d", "-52w", "-12m", "-1y"):

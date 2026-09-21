@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
-import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload } from '@/lib/build-tool-result'
-import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
+import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
+import { handleToolError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
@@ -135,17 +135,26 @@ describe('exec tool', () => {
             )
         })
 
-        it('reports every unknown guide as a typed learn error without partial content', async () => {
-            const exec = createExec(undefined, undefined, { learnCatalog })
+        it.each([true, false])(
+            'reports unknown guides with recovery instructions (skills enabled: %s)',
+            async (skillsEnabled) => {
+                const exec = createExec(undefined, undefined, {
+                    learnCatalog: new ExecLearnCatalog(guides, skillsEnabled ? { posthog: undefined } : undefined),
+                })
 
-            await expect(
-                exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
-            ).rejects.toMatchObject({
-                name: 'ExecCommandError',
-                reason: 'unknown_learn_topic',
-                message: 'Unknown learning topics: "unknown", "missing". Available: analytics, visualizations',
-            })
-        })
+                await expect(
+                    exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
+                ).rejects.toMatchObject({
+                    name: 'ExecCommandError',
+                    reason: 'unknown_learn_topic',
+                    message:
+                        'Unknown learning topics: "unknown", "missing". Available: analytics, visualizations.' +
+                        (skillsEnabled
+                            ? ' To load a skill, run `learn -s "<task keywords>"`, then `learn posthog:<skill>` or `learn project:<skill>` using the exact qualified name from the results.'
+                            : ' Run `learn` to list available topics.'),
+                })
+            }
+        )
 
         it('keeps core exec usable and reports each unavailable skill source', async () => {
             const exec = createExec(undefined, undefined, { learnCatalog })
@@ -164,9 +173,11 @@ describe('exec tool', () => {
     })
 
     describe('skills-first gate', () => {
-        const guideCatalog = (): ExecLearnCatalog =>
+        const guideCatalog = (withGuides = true): ExecLearnCatalog =>
             new ExecLearnCatalog(
-                [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }],
+                withGuides
+                    ? [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }]
+                    : [],
                 {
                     posthog: new SkillCatalog([
                         {
@@ -192,19 +203,88 @@ describe('exec tool', () => {
             }
         }
 
-        it('rejects an un-learned call with a typed reason and passes it after a skill load', async () => {
-            const exec = createExec(undefined, undefined, {
+        it.each([
+            'mock-tool',
+            'skill-get',
+            'skill-file-get',
+            'skill-list',
+            'llma-skill-get',
+            'llma-skill-file-get',
+            'llma-skill-list',
+        ])('directs a gated %s call to learn and permits it after a skill load', async (name) => {
+            const exec = createExec([makeMockTool({ name })], undefined, {
                 learnCatalog: guideCatalog(),
                 skillsSession: makeSkillsSession(),
             })
 
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
+            const command = `call ${name} {}`
+            await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
                 name: 'ExecCommandError',
                 reason: 'skills_gate',
-                message: expect.stringContaining('No skills loaded this session'),
+                message: expect.stringContaining('`learn posthog:<skill>` or `learn project:<skill>`'),
+            })
+            const rejected = await exec
+                .handler(mockContext, { command })
+                .catch((error: unknown) => handleToolError(error, 'exec'))
+            expect(rejected).toMatchObject({
+                isError: true,
+                content: [
+                    {
+                        type: 'text',
+                        text: expect.stringContaining('`skill-get` and `skill-list` do not satisfy this gate.'),
+                    },
+                ],
             })
 
             await exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })
+            await expect(exec.handler(mockContext, { command })).resolves.toBeDefined()
+        })
+
+        it.each([
+            { command: 'learn bot-traffic', hint: '`learn posthog:<skill>` or `learn project:<skill>`' },
+            { command: 'learn -s', hint: 'Usage: learn -s "<task keywords>"' },
+            {
+                command: 'learn posthog:bot-traffic SKILL.md -s',
+                hint: 'Usage: learn <source>:<skill> <path> -s "<keywords>"',
+            },
+            {
+                command: 'learn posthog:bot-traffic/SKILL.md',
+                hint: 'Separate the skill name and file path with a space: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+            {
+                command: 'learn posthog:bot-traffic --file SKILL.md',
+                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+            {
+                command: 'learn posthog:bot-traffic SKILL.md --file',
+                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
+                recovery: 'learn posthog:bot-traffic SKILL.md',
+            },
+        ])('returns recovery guidance for $command without opening the gate', async ({ command, hint, recovery }) => {
+            const exec = createExec(undefined, undefined, {
+                learnCatalog: guideCatalog(false),
+                skillsSession: makeSkillsSession(),
+            })
+            const rejected = await exec
+                .handler(mockContext, { command })
+                .catch((error: unknown) => handleToolError(error, 'exec'))
+            expect(rejected).toMatchObject({
+                isError: true,
+                content: [{ type: 'text', text: expect.stringContaining(hint) }],
+            })
+            expect(JSON.stringify(rejected)).not.toContain('Available:')
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
+                reason: 'skills_gate',
+            })
+            await expect(exec.handler(mockContext, { command: 'learn -s "bot traffic"' })).resolves.toContain(
+                'posthog:bot-traffic'
+            )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
+                reason: 'skills_gate',
+            })
+            await exec.handler(mockContext, { command: recovery ?? 'learn posthog:bot-traffic' })
             await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
         })
 
@@ -489,8 +569,7 @@ describe('exec tool', () => {
                 __execBuiltPayload?: true
             }
 
-            // Text content points at structuredContent instead of repeating the result
-            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            expect(result.content[0]!.text).toBe(`${STRUCTURED_CONTENT_ONLY_TEXT}\n\n${UI_APP_RENDER_NOTE}`)
             // With no compact table to protect, the app payload stays in the standard
             // structuredContent field (with analytics) rather than being duplicated under
             // the non-standard `_meta` app-data key.
@@ -542,7 +621,7 @@ describe('exec tool', () => {
                 }
 
                 // Model sees ONLY the compact table, not the raw results JSON.
-                expect(result.content[0]!.text).toBe('Date|count\n2026-05-07|6')
+                expect(result.content[0]!.text).toBe(`Date|count\n2026-05-07|6\n\n${UI_APP_RENDER_NOTE}`)
                 // Top-level structuredContent is dropped so coding agents don't surface it.
                 expect(result.structuredContent).toBeUndefined()
                 // The UI app's data (with analytics) rides on _meta instead.
@@ -571,10 +650,7 @@ describe('exec tool', () => {
                 _meta: { [key: string]: unknown }
             }
 
-            // With no compact table there is nothing smaller to put in the text channel, so
-            // the payload stays in the standard structuredContent field and the text carries
-            // a pointer — neither a second copy in text nor one under the `_meta` key.
-            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            expect(result.content[0]!.text).toBe(`${STRUCTURED_CONTENT_ONLY_TEXT}\n\n${UI_APP_RENDER_NOTE}`)
             expect(result.content[0]!.text).not.toContain('_posthogUrl')
             const structured = result.structuredContent as { results: unknown }
             expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])
@@ -906,6 +982,111 @@ describe('exec tool', () => {
             )
         })
 
+        // A near-miss name is how a scout loses its bound skill: the store denies a
+        // name `skill-list` would show, and the run reads that as the store being
+        // inconsistent rather than as its own typo.
+        it('names the near-miss skill the store offered', async () => {
+            const exec = createExec([
+                makeSkillTool(
+                    'skill-get',
+                    JSON.stringify({
+                        detail: "Skill with name 'signals-scout-drive-session' not found. Did you mean 'signals-scout-drive-session-completion'?",
+                        type: 'skill_not_found',
+                        skill_name: 'signals-scout-drive-session',
+                        suggestions: ['signals-scout-drive-session-completion'],
+                    })
+                ),
+            ])
+
+            const result = (await exec.handler(mockContext, {
+                command: 'call skill-get {"skill_name":"signals-scout-drive-session","version":1}',
+            })) as string
+
+            expect(result).toContain("Did you mean 'signals-scout-drive-session-completion'?")
+            expect(result).toContain('Run `call skill-get {"skill_name": "signals-scout-drive-session-completion"}`')
+        })
+
+        it('names the versions the store holds when the pinned one is absent', async () => {
+            const exec = createExec([
+                makeSkillTool(
+                    'skill-get',
+                    JSON.stringify({
+                        detail: "Skill with name 'real-skill' has no version 7. Available versions: 1, 2.",
+                        type: 'skill_version_not_found',
+                        skill_name: 'real-skill',
+                        available_versions: [1, 2],
+                    })
+                ),
+            ])
+
+            const result = (await exec.handler(mockContext, {
+                command: 'call skill-get {"skill_name":"real-skill","version":7}',
+            })) as string
+
+            expect(result).toContain('Available versions: 1, 2.')
+            expect(result).toContain('Run `call skill-get {"skill_name": "real-skill", "version": 2}`')
+            // The store told the two lookups apart, so the message must not repeat the
+            // legacy caveat that a version miss could mean the skill is gone.
+            expect(result).not.toContain('answers the same way')
+        })
+
+        // Built-in PostHog skills are a catalog the store never held, so a tool
+        // description that says "load the `<name>` skill" sends an agent here and
+        // the store answers 404. The message above points at `skill-list`, which
+        // confirms the wrong conclusion — that the skill does not exist.
+        const BUILT_IN_SKILL = 'scanning-experiments-with-replay-vision'
+
+        it.each([
+            [
+                'points a connection that can run `learn` at the built-in catalog',
+                BUILT_IN_SKILL,
+                '',
+                true,
+                `Run \`learn posthog:${BUILT_IN_SKILL}\` to load it.`,
+            ],
+            [
+                'tells a connection without `learn` that it cannot load the skill',
+                BUILT_IN_SKILL,
+                '',
+                false,
+                'this connection cannot load built-in skills.',
+            ],
+            [
+                'keeps the store message for a name the built-in catalog does not know',
+                'missing-skill',
+                '',
+                false,
+                'No skill named "missing-skill"',
+            ],
+            [
+                'keeps the version message when a built-in name pins a version',
+                BUILT_IN_SKILL,
+                ',"version":7',
+                false,
+                `No version 7 of the skill "${BUILT_IN_SKILL}"`,
+            ],
+        ])('%s', async (_label, skillName, pinnedVersion, learnAvailable, expected) => {
+            const exec = createExec(
+                [makeSkillTool('skill-get', `{"detail":"Skill with name '${skillName}' not found."}`)],
+                undefined,
+                {
+                    builtInSkillHint: {
+                        isBuiltIn: (name) => name === BUILT_IN_SKILL,
+                        learnAvailable,
+                    },
+                }
+            )
+
+            const result = (await exec.handler(mockContext, {
+                command: `call skill-get {"skill_name":"${skillName}"${pinnedVersion}}`,
+            })) as string
+
+            expect(result).toContain(expected)
+            // A pinned version proves the caller already holds a store skill, so
+            // only the bare name lookup may be answered with the built-in catalog.
+            expect(result.includes('built-in PostHog skill')).toBe(skillName === BUILT_IN_SKILL && !pinnedVersion)
+        })
+
         // A file belongs to one version row, and a publish replaces the whole set,
         // so an unpinned recovery command sends an agent working from an older
         // version to a manifest whose paths it cannot fetch.
@@ -1018,6 +1199,35 @@ describe('exec tool', () => {
         })
     })
 
+    describe('governed metric run canonicality', () => {
+        function metricRunExec(envelope: Record<string, unknown>): Tool<any> {
+            return createExec([makeMockTool({ name: 'data-catalog-metric-run', handler: async () => envelope })])
+        }
+
+        it.each([
+            ['proposed', { status: 'proposed', is_drifted: false }],
+            ['drifted approved', { status: 'approved', is_drifted: true }],
+            ['deprecated', { status: 'deprecated', is_drifted: false }],
+        ])('marks a %s metric result noncanonical', async (_label, envelope) => {
+            const exec = metricRunExec({ ...envelope, results: [[42]] })
+            const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
+            expect(result).toContain('NONCANONICAL')
+            expect(result).toContain('Do not present this as the answer')
+        })
+
+        it('leaves an approved, non-drifted result unmarked', async () => {
+            const exec = metricRunExec({ status: 'approved', is_drifted: false, results: [[42]] })
+            const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
+            expect(result).not.toContain('NONCANONICAL')
+        })
+
+        it('leaves other tools alone', async () => {
+            const exec = createExec([makeMockTool({ handler: async () => ({ status: 'proposed' }) })])
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            expect(result).not.toContain('NONCANONICAL')
+        })
+    })
+
     describe('output_format suppression', () => {
         // Mirrors the generated query wrappers / insight-query: `output_format`
         // toggles whether the handler surfaces the server-side formatted table.
@@ -1084,6 +1294,30 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: 'call mock-tool' })
             expect(received[0]!.output_format).toBe('optimized')
             expect(result).toBe('Date|count\n2026-05-07|6')
+        })
+    })
+
+    describe('batched commands', () => {
+        it.each([
+            ['info mock-tool\ninfo other-tool', 2],
+            ['search flags\ncall mock-tool {}\ninfo mock-tool', 3],
+        ])('rejects %j and names each command', async (command, expected) => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command })).rejects.toThrow(
+                `exec runs one command per request, and this request held ${expected}.`
+            )
+        })
+
+        it.each([
+            ['a JSON body split over lines', 'call mock-tool {\n  "query": "SELECT 1"\n}'],
+            ['a JSON body with a key named after a verb', 'call mock-tool {\n  "search": "flags"\n}'],
+        ])('runs a single call with %s', async (_label, command) => {
+            const tool = makeMockTool({
+                schema: z.object({ query: z.string().optional(), search: z.string().optional() }),
+                handler: async () => ({ ok: true }),
+            })
+            const exec = createExec([tool])
+            await expect(exec.handler(mockContext, { command })).resolves.toBeDefined()
         })
     })
 
@@ -1410,9 +1644,23 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        it('accepts an anchored alternation of a whole toolset', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExec([flagTool])
+            const alternation = [
+                ...Array.from({ length: 20 }, (_, index) => `^scout-some-long-tool-name-${index}$`),
+                '^feature-flag-get-all$',
+            ].join('|')
+            expect(alternation.length).toBeGreaterThan(400)
+
+            const result = await exec.handler(mockContext, { command: `search ${alternation}` })
+
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
-            const longPattern = 'a'.repeat(401)
+            const longPattern = 'a'.repeat(801)
             await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
                 /pattern too long/i
             )
@@ -1802,7 +2050,7 @@ describe('exec tool', () => {
             const execTool = createExecTool(
                 v2Tools,
                 context,
-                formatter.buildExecToolDescription(),
+                formatter.buildExecToolDescription({ skillsEnabled: true, knowledgeSearchEnabled: true }),
                 commandReference,
                 undefined
             )

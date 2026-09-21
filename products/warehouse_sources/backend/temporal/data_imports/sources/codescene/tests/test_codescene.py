@@ -14,6 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.settings import CODESCENE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+    SinglePagePaginator,
+)
 
 
 class _FakeDltResource:
@@ -248,44 +252,72 @@ class TestCodesceneSourceFanout:
         # part of the key.
         assert response.primary_keys == ["project_id", "name"]
 
+    @parameterized.expand(
+        [
+            ("files", "Files", "files", "page_size", PageNumberPaginator),
+            ("components", "Components", "components", "page_size", PageNumberPaginator),
+            # The analyses list pages on `page` alone, so no page-size param goes out.
+            ("analyses", "Analyses", "analyses", None, PageNumberPaginator),
+            ("issues", "Issues", "issues", "page_size", PageNumberPaginator),
+            ("technical_debt", "TechnicalDebt", "result", "page_size", PageNumberPaginator),
+            # Author statistics comes back as a bare array with no envelope and no pagination.
+            ("author_statistics", "AuthorStatistics", None, None, SinglePagePaginator),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene.build_dependent_resource"
     )
-    def test_files_fanout_wiring(self, mock_build_dependent_resource: MagicMock) -> None:
+    def test_fanout_wiring(
+        self,
+        _name: str,
+        endpoint: str,
+        data_selector: str | None,
+        page_size_param: str | None,
+        paginator_type: type,
+        mock_build_dependent_resource: MagicMock,
+    ) -> None:
         mock_build_dependent_resource.return_value = iter([])
 
         codescene_source(
             api_token="token",
             base_url=None,
-            endpoint="Files",
+            endpoint=endpoint,
             team_id=1,
             job_id="job-1",
             resumable_source_manager=_make_fake_manager(),
         )
 
         kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == "page_size"
+        assert kwargs["page_size_param"] == page_size_param
         assert kwargs["parent_endpoint_extra"]["data_selector"] == "projects"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "files"
-        assert kwargs["fanout"] is CODESCENE_ENDPOINTS["Files"].fanout
+        assert kwargs["child_endpoint_extra"]["data_selector"] == data_selector
+        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], paginator_type)
+        assert kwargs["fanout"] is CODESCENE_ENDPOINTS[endpoint].fanout
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene.build_dependent_resource"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )
-    def test_components_fanout_wiring(self, mock_build_dependent_resource: MagicMock) -> None:
-        mock_build_dependent_resource.return_value = iter([])
+    def test_technical_debt_asks_for_refactoring_targets(self, mock_rest_api_resources: MagicMock) -> None:
+        # Without the flag the endpoint answers with the friction summary under the same
+        # `result` key, so dropping it would sync the wrong rows without failing.
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("Projects", []),
+            _FakeDltResource("TechnicalDebt", []),
+        ]
 
         codescene_source(
             api_token="token",
             base_url=None,
-            endpoint="Components",
+            endpoint="TechnicalDebt",
             team_id=1,
             job_id="job-1",
             resumable_source_manager=_make_fake_manager(),
         )
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "components"
+        config = mock_rest_api_resources.call_args.args[0]
+        child = next(resource for resource in config["resources"] if resource["name"] == "TechnicalDebt")
+        assert child["endpoint"]["params"]["refactoring_targets"] == "true"
+        assert child["endpoint"]["params"]["project_id"]["type"] == "resolve"
 
 
 class TestCodesceneEndpointCatalog:
@@ -295,7 +327,10 @@ class TestCodesceneEndpointCatalog:
         assert primary_key
 
     def test_fanout_endpoints_key_on_parent_id(self) -> None:
-        for endpoint in ("Files", "Components"):
-            config = CODESCENE_ENDPOINTS[endpoint]
-            assert isinstance(config.primary_key, list)
-            assert "project_id" in config.primary_key
+        # Every fan-out table aggregates rows from all projects, so a key that is only
+        # unique within a project seeds duplicates the merge then multi-matches.
+        for endpoint, config in CODESCENE_ENDPOINTS.items():
+            if config.fanout is None:
+                continue
+            assert isinstance(config.primary_key, list), endpoint
+            assert "project_id" in config.primary_key, endpoint

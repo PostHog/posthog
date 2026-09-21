@@ -1065,7 +1065,11 @@ describe('ingest-handler', () => {
     // Side effects: turn-complete
     // -----------------------------------------------------------------------
 
-    it('sets agent inactive and fires awaiting_input callback on turn-complete event', async () => {
+    it.each([
+        ['omitted', {}, true],
+        ['completed', { stopReason: 'end_turn' }, true],
+        ['idle_resume', { stopReason: 'idle_resume' }, false],
+    ])('sets agent inactive and reports completion for %s turn-complete', async (_name, params, turnCompleted) => {
         const fetchCalls: { url: string; body: unknown }[] = []
         const originalFetch = global.fetch
         global.fetch = vi.fn(async (url, init) => {
@@ -1078,8 +1082,9 @@ describe('ingest-handler', () => {
 
         const turnCompleteEvent = {
             type: 'notification',
-            notification: { method: '_posthog/turn_complete' },
+            notification: { method: '_posthog/turn_complete', params },
         }
+        await redisStream.setAgentActive(true)
         const ndjson = JSON.stringify({ seq: 1, event: turnCompleteEvent }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
@@ -1094,7 +1099,11 @@ describe('ingest-handler', () => {
 
         const callbackCall = fetchCalls.find((c) => c.url.includes('agent-proxy-callback'))
         expect(callbackCall).toBeTruthy()
-        expect(callbackCall?.body).toMatchObject({ kind: 'awaiting_input', agent_active: false })
+        expect(callbackCall?.body).toMatchObject({
+            kind: 'awaiting_input',
+            agent_active: false,
+            turn_completed: turnCompleted,
+        })
 
         global.fetch = originalFetch
     })
@@ -1348,7 +1357,33 @@ describe('ingest-handler', () => {
             global.fetch = originalFetch
         })
 
+        it.each([
+            ['a normal pi turn_completed', { type: 'pi_event', event: { type: 'turn_completed' } }, 'awaiting_input'],
+            [
+                'a pi turn_completed with stopReason "error"',
+                { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } },
+                'turn_failed',
+            ],
+        ])('fires %s as %s', async (_label, event, expectedKind) => {
+            const fired: { kind: string }[] = []
+            const originalFetch = global.fetch
+            global.fetch = vi.fn(async (_, init) => {
+                fired.push(JSON.parse(String((init as RequestInit).body)))
+                return new Response('', { status: 200 })
+            }) as typeof fetch
+
+            const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+
+            expect(await redisStream.getAgentActive()).toBe(false)
+            await new Promise((r) => setTimeout(r, 0))
+            expect(fired.some((f) => f.kind === expectedKind)).toBe(true)
+
+            global.fetch = originalFetch
+        })
+
         const turnComplete = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
+        const piTurnError = { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } }
         const sessionUpdate = { type: 'notification', notification: { method: 'session/update', params: {} } }
         const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
 
@@ -1356,6 +1391,8 @@ describe('ingest-handler', () => {
             ['awaiting_input', turnComplete, 'network failure', networkFailure, 2],
             ['awaiting_input', turnComplete, '503', new Response('', { status: 503 }), 2],
             ['awaiting_input', turnComplete, '400', new Response('', { status: 400 }), 1],
+            ['turn_failed', piTurnError, 'network failure', networkFailure, 2],
+            ['turn_failed', piTurnError, '503', new Response('', { status: 503 }), 2],
             ['heartbeat', sessionUpdate, 'network failure', networkFailure, 1],
             ['heartbeat', sessionUpdate, '503', new Response('', { status: 503 }), 1],
         ])(

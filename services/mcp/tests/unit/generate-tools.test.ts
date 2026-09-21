@@ -1768,6 +1768,32 @@ describe('generateToolCode with informational response wrapping', () => {
     })
 })
 
+describe('generateToolCode with a text projection', () => {
+    it('projects outside the enrichment, so the projected fields can name `_posthogUrl`', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            enrich_url: '{id}',
+            response: { text_include: ['id', 'status', '_posthogUrl'] },
+        }
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            makeResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('withTextProjection(await withPostHogUrl(context, {')
+        expect(result.code).toContain("}, '/things'), ['id', 'status', '_posthogUrl'])")
+        expect(result.toolUtilsValueImports).toEqual(new Set(['withTextProjection']))
+    })
+})
+
 describe('path parameter encoding', () => {
     it('wraps project_id with encodeURIComponent in generated paths', () => {
         const config: ToolConfig = {
@@ -2215,5 +2241,107 @@ describe('optional param with state fallback', () => {
         // demand the id the fallback exists to supply.
         const collapsed = result.code.replace(/\s+/g, ' ')
         expect(collapsed).toContain('.optional()).optional()')
+    })
+})
+
+describe('composeToolSchema param aliases', () => {
+    const resolvedWithIdAndQuery = makeResolved({
+        path: '/api/projects/{project_id}/things/{id}/',
+        operation: {
+            operationId: 'things_retrieve',
+            parameters: [
+                { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                { name: 'thing_id', in: 'query', required: false, schema: { type: 'string' } },
+            ],
+        },
+    })
+
+    it('collects aliases that shadow nothing', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['thingId', 'thing_identifier'] } },
+        }
+
+        const result = composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)
+
+        expect(result.paramAliases).toEqual({ id: ['thingId', 'thing_identifier'] })
+    })
+
+    // normalizeParamAliases deletes alias keys, so an alias that is also a real parameter
+    // would drop that parameter's value with no error at runtime. The generator is the only
+    // place that sees both the alias list and the operation's parameters.
+    it('rejects an alias that is also a declared parameter of the operation', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['thingId', 'thing_id'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "thing_id" for param "id" is also a declared parameter/
+        )
+    })
+
+    it('rejects an alias that collides with a body field, including one added by a later override', () => {
+        const withBody = makeResolved({
+            method: 'POST',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_update',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                ],
+                requestBody: {
+                    content: { 'application/json': { schema: { properties: { name: { type: 'string' } } } } },
+                },
+            },
+        })
+
+        const collidesWithBody: ToolConfig = {
+            operation: 'things_update',
+            enabled: true,
+            param_overrides: { id: { aliases: ['name'] } },
+        }
+        expect(() => composeToolSchema(collidesWithBody, withBody, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "name" for param "id" is also a declared parameter/
+        )
+
+        // The alias override comes first in key order; the field it collides with is only
+        // added by the input_schema override after it, so the check must run after the loop.
+        const collidesWithLaterOverride: ToolConfig = {
+            operation: 'things_update',
+            enabled: true,
+            param_overrides: { id: { aliases: ['steps'] }, steps: { input_schema: 'StepsSchema' } },
+        }
+        expect(() => composeToolSchema(collidesWithLaterOverride, withBody, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "steps" for param "id" is also a declared parameter/
+        )
+    })
+
+    it('rejects one alias claimed by two params', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['ref'] }, thing_id: { aliases: ['ref'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "ref" is declared by both "id" and "thing_id"/
+        )
+    })
+
+    it('rejects an alias equal to its own canonical name', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['id'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "id" for param "id"/
+        )
     })
 })

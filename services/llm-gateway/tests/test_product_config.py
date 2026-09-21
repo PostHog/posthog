@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from llm_gateway.baseten import BASETEN_MODELS
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
-from llm_gateway.flags import GLM_BASETEN_FLAG, GLM_MODAL_FLAG
+from llm_gateway.flags import GLM_MODAL_FLAG
 from llm_gateway.inference_routing import is_inference_routed_model
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.products.config import (
@@ -117,11 +117,11 @@ class TestCheckProductAccess:
                 True,
                 None,
             ),
-            # wizard allows API keys and OAuth with valid app ID
-            ("wizard", "personal_api_key", None, "claude-3-opus", True, None),
-            ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
-            ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, True, None),
-            ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, True, None),
+            # wizard is retired here: every auth method, including its own apps, gets the upgrade path
+            ("wizard", "personal_api_key", None, "claude-3-opus", False, "npx @posthog/wizard@latest"),
+            ("wizard", "oauth_access_token", "invalid-app-id", None, False, "npx @posthog/wizard@latest"),
+            ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, False, "npx @posthog/wizard@latest"),
+            ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, False, "npx @posthog/wizard@latest"),
             # django allows API keys with any model; OAuth rejected (no app IDs configured)
             ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
@@ -400,7 +400,6 @@ class TestCheckProductAccess:
         [
             "llma_labeling",
             "product_analytics",
-            "stamphog",
             "subscriptions",
             "warehouse_custom_source_builder",
             "warehouse_semantic_enrichment",
@@ -743,51 +742,56 @@ class TestServerCredentialConfigInvariant:
 
 
 class TestModelAccessFlag:
+    # The open-weights models run on the claude and pi harnesses and are offered to every
+    # caller. Their rollout flags outlived the rollout, and the gate fails closed, so a
+    # caller the flag service could not answer for lost them.
     @pytest.mark.parametrize(
-        "model,gated",
+        "model",
         [
-            ("moonshotai/kimi-k3", "moonshotai/kimi-k3"),
-            ("MoonshotAI/Kimi-K3", "moonshotai/kimi-k3"),
-            ("  moonshotai/kimi-k3  ", "moonshotai/kimi-k3"),
-            ("deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
-            ("DeepSeek-AI/DeepSeek-V4-Flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
-            ("zai-org/glm-5.3", "zai-org/glm-5.3"),
-            ("ZAI-Org/GLM-5.3", "zai-org/glm-5.3"),
-            ("zai-org/glm-5.3-flash", "zai-org/glm-5.3-flash"),
-            ("ZAI-Org/GLM-5.3-Flash", "zai-org/glm-5.3-flash"),
+            None,
+            "",
+            "gpt-5.2",
+            "claude-opus-5",
+            "@cf/zai-org/glm-5.2",
+            "moonshotai/kimi-k3",
+            "MoonshotAI/Kimi-K3",
+            "  moonshotai/kimi-k3  ",
+            "deepseek-ai/deepseek-v4-flash-0731",
+            "DeepSeek-AI/DeepSeek-V4-Flash-0731",
+            "zai-org/glm-5.3",
+            "ZAI-Org/GLM-5.3",
+            "zai-org/glm-5.3-flash",
+            "ZAI-Org/GLM-5.3-Flash",
         ],
     )
-    def test_gated_model_requires_its_own_flag(self, model: str, gated: str):
-        # each model resolves to its own dedicated access flag, not a shared one
-        assert get_required_model_flag(model) == MODEL_ACCESS_FLAGS[gated]
-
-    def test_every_gated_model_has_its_own_flag(self):
-        flags = list(MODEL_ACCESS_FLAGS.values())
-        assert len(flags) == len(set(flags))
-        assert not set(flags) & {GLM_BASETEN_FLAG, GLM_MODAL_FLAG}
-
-    @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
     def test_ungated_models_need_no_flag(self, model: str | None):
         assert get_required_model_flag(model) is None
 
-    def test_suffixed_gated_model_ids_reach_no_backend(self):
-        # Product allowlists prefix-match while the access-flag gate matches exactly, so a
-        # suffixed id (e.g. zai-org/glm-5.3x) can pass the allowlist without a flag
-        # evaluation. Routing exactness is the backstop that keeps such ids unserved; this
-        # pins that invariant for every gated model. Literal vocabulary so a new gated
-        # model is added here consciously.
-        assert set(MODEL_ACCESS_FLAGS) == {
+    def test_every_gated_model_has_its_own_flag(self):
+        # An entitlement must not be widened for one model by proxy of another, and the GLM
+        # Baseten routing flag is not an entitlement at all.
+        flags = list(MODEL_ACCESS_FLAGS.values())
+        assert len(flags) == len(set(flags))
+        assert GLM_MODAL_FLAG not in flags
+
+    @pytest.mark.parametrize(
+        "model",
+        [
             "moonshotai/kimi-k3",
             "deepseek-ai/deepseek-v4-flash-0731",
             "zai-org/glm-5.3",
             "zai-org/glm-5.3-flash",
-        }
-        for gated_model in MODEL_ACCESS_FLAGS:
-            suffixed = f"{gated_model}x"
-            assert not is_inference_routed_model(suffixed)
-            assert suffixed not in BASETEN_MODELS
-            assert not is_modal_served_model(suffixed)
-            assert suffixed not in CLOUDFLARE_ALLOWED_MODELS
+        ],
+    )
+    def test_suffixed_vendor_model_ids_reach_no_backend(self, model: str):
+        # Product allowlists prefix-match, so a suffixed id (e.g. zai-org/glm-5.3x) passes the
+        # allowlist while naming a model nobody serves. Routing exactness is what keeps such
+        # an id unserved.
+        suffixed = f"{model}x"
+        assert not is_inference_routed_model(suffixed)
+        assert suffixed not in BASETEN_MODELS
+        assert not is_modal_served_model(suffixed)
+        assert suffixed not in CLOUDFLARE_ALLOWED_MODELS
 
 
 class TestSignalsApplicationIsolation:
@@ -809,3 +813,13 @@ class TestSignalsApplicationIsolation:
         # of which it could reach while Signals shared the Desktop app.
         allowed, _ = check_product_access(product, "oauth_access_token", SIGNALS_DEV_APP_ID, None)
         assert allowed is expected_allowed
+
+
+class TestRetiredProduct:
+    @patch("llm_gateway.products.config.get_settings", return_value=MagicMock(debug=True))
+    def test_a_retired_product_is_refused_in_debug_mode_too(self, _settings):
+        # Debug skips the application-id check, which must not reopen a retired product.
+        allowed, error = check_product_access("wizard", "oauth_access_token", WIZARD_US_APP_ID, None)
+        assert allowed is False
+        assert error is not None
+        assert "npx @posthog/wizard@latest" in error

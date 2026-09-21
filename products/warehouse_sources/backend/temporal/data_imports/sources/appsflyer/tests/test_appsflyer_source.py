@@ -56,9 +56,12 @@ class TestAppsFlyerSource:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Every aggregate report takes a server-side from/to date window.
-        assert all(schema.supports_incremental for schema in schemas)
-        assert all(schema.supports_append for schema in schemas)
+        # Every report takes a server-side from/to window on a timestamp that only moves forward,
+        # except post-attribution installs: fraud is found after the install it describes, so that
+        # one has to be pulled in full or late detections are never seen.
+        full_refresh_only = {"post_attribution_installs"}
+        assert {schema.name for schema in schemas if not schema.supports_incremental} == full_refresh_only
+        assert {schema.name for schema in schemas if not schema.supports_append} == full_refresh_only
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials"

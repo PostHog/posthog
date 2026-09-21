@@ -10,13 +10,13 @@ import ViewRecordingButton, {
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 // The key-matching helpers and their convention lists are shared with Logs, because both
 // products resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracingCorrelationConfigLogic'
 import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
 

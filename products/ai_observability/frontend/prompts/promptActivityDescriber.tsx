@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -15,47 +16,71 @@ function changeBefore(logItem: ActivityLogItem, field: string): string | null {
     return change?.before != null ? String(change.before) : null
 }
 
+function describePromptPublished(logItem: ActivityLogItem, promptName: string): HumanizedChange {
+    const version = changeAfter(logItem, 'version')
+    const versionDescription = changeAfter(logItem, 'version_description')
+    // Config contents are never logged; the change entry only records that it changed.
+    const configChanged = logItem.detail?.changes?.some((change) => change.field === 'config')
+    return {
+        summary: activityLogSummary(
+            logItem,
+            `Published v${version ?? '?'}${configChanged ? ' (configuration changed)' : ''}`,
+            promptName,
+            versionDescription ?? undefined
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> published <b>v{version ?? '?'}</b> of prompt{' '}
+                <b>{promptName}</b>
+                {configChanged ? <> (configuration changed)</> : null}
+                {versionDescription ? <>: "{versionDescription}"</> : null}
+            </>
+        ),
+    }
+}
+
+function describePromptCreated(logItem: ActivityLogItem, promptName: string): HumanizedChange {
+    const duplicatedFrom = changeAfter(logItem, 'duplicated_from')
+    return {
+        summary: activityLogSummary(
+            logItem,
+            duplicatedFrom ? `Created a copy of ${duplicatedFrom}` : 'Created the prompt',
+            promptName
+        ),
+        description: duplicatedFrom ? (
+            <>
+                <ActivityLogUserName logItem={logItem} /> created prompt <b>{promptName}</b> as a copy of{' '}
+                <b>{duplicatedFrom}</b>
+            </>
+        ) : (
+            <>
+                <ActivityLogUserName logItem={logItem} /> created prompt <b>{promptName}</b>
+            </>
+        ),
+    }
+}
+
 // Lifecycle events (create/publish/archive/duplicate) for scope LLMPrompt, written by
 // log_llm_prompt_activity in backend activity_logging.py. detail.name is the prompt name.
 export function promptActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     const promptName = logItem?.detail?.name ?? ''
 
     if (logItem.activity === 'created') {
-        const duplicatedFrom = changeAfter(logItem, 'duplicated_from')
-        return {
-            description: duplicatedFrom ? (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> created prompt <b>{promptName}</b> as a copy of{' '}
-                    <b>{duplicatedFrom}</b>
-                </>
-            ) : (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> created prompt <b>{promptName}</b>
-                </>
-            ),
-        }
+        return describePromptCreated(logItem, promptName)
     }
 
     if (logItem.activity === 'published') {
-        const version = changeAfter(logItem, 'version')
-        const versionDescription = changeAfter(logItem, 'version_description')
-        // Config contents are never logged; the change entry only records that it changed.
-        const configChanged = logItem.detail?.changes?.some((change) => change.field === 'config')
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> published <b>v{version ?? '?'}</b> of prompt{' '}
-                    <b>{promptName}</b>
-                    {configChanged ? <> (configuration changed)</> : null}
-                    {versionDescription ? <>: "{versionDescription}"</> : null}
-                </>
-            ),
-        }
+        return describePromptPublished(logItem, promptName)
     }
 
     if (logItem.activity === 'archived') {
         const versionCount = changeBefore(logItem, 'version_count')
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Archived the prompt${versionCount ? ` (${versionCount} versions)` : ''}`,
+                promptName
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> archived prompt <b>{promptName}</b>
@@ -68,6 +93,11 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
     if (logItem.activity === 'duplicated') {
         const duplicatedTo = changeAfter(logItem, 'duplicated_to')
         return {
+            summary: activityLogSummary(
+                logItem,
+                duplicatedTo ? `Duplicated the prompt to ${duplicatedTo}` : 'Duplicated the prompt',
+                promptName
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> duplicated prompt <b>{promptName}</b>

@@ -47,6 +47,16 @@ _HOST_UNREACHABLE_MARKERS = (
     "enetunreach",
 )
 
+# A managed provider (observed on Neon) blocks the connection once the account or project has
+# exceeded a usage quota, reporting a plain libpq ERROR rather than a connection failure. Mirrors
+# the non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors's
+# "exceeded the compute time quota" / "exceeded the data transfer quota" entries), which use more
+# specific wording for those two quota types; this is the more generic sibling. The block only
+# lifts when the customer upgrades the plan or the quota resets, so without this marker it falls
+# through to the generic CONNECTION_FAILED bucket below and retries indefinitely into the same
+# wall. Match the stable quota phrase; it names no volatile host/IP/port detail.
+_QUOTA_EXCEEDED_MARKER = "exceeded the quota"
+
 # sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
 # can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
 # down, or its firewall blocks PostHog's IPs. Deterministic for the configured tunnel, so it's
@@ -111,6 +121,8 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
             return CDCErrorCategory.SSL_REQUIRED
         if any(marker in message for marker in _HOST_UNREACHABLE_MARKERS):
             return CDCErrorCategory.HOST_UNREACHABLE
+        if _QUOTA_EXCEEDED_MARKER in message:
+            return CDCErrorCategory.QUOTA_EXCEEDED
         return CDCErrorCategory.CONNECTION_FAILED
 
     return None
