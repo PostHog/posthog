@@ -8790,6 +8790,51 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_web_sessions_dimensional_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_sessions_dimensional_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      period_bucket DateTime,
+  
+      -- Match the numeric UUIDv7 representation in raw sessions and events.$session_id_uuid.
+      session_id_v7 UInt128,
+  
+      person_id UUID,
+  
+      -- The event bounds let a read agree with the live path, which bounds by event time rather than
+      -- by session start.
+      start_timestamp DateTime64(6, 'UTC'),
+      min_event_timestamp DateTime64(6, 'UTC'),
+      max_event_timestamp DateTime64(6, 'UTC'),
+  
+      channel_type String,
+  
+      utm_source String,
+      utm_medium String,
+      utm_campaign String,
+      utm_term String,
+      utm_content String,
+      referring_domain String,
+      entry_pathname String,
+  
+      -- Pageviews in the session, so a read can report views next to visitors and sessions.
+      pageview_count UInt64,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_sessions_dimensional_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, person_id, start_timestamp, session_id_v7)
+  TTL toDateTime(expires_at)
+  SETTINGS ttl_only_drop_parts = 1, index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_web_stats_dimensional_preaggregated]
   '''
   
@@ -9445,6 +9490,46 @@
       mat_metadata_backend
   )
       
+  '''
+# ---
+# name: test_create_table_query[web_sessions_dimensional_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS web_sessions_dimensional_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      period_bucket DateTime,
+  
+      -- Match the numeric UUIDv7 representation in raw sessions and events.$session_id_uuid.
+      session_id_v7 UInt128,
+  
+      person_id UUID,
+  
+      -- The event bounds let a read agree with the live path, which bounds by event time rather than
+      -- by session start.
+      start_timestamp DateTime64(6, 'UTC'),
+      min_event_timestamp DateTime64(6, 'UTC'),
+      max_event_timestamp DateTime64(6, 'UTC'),
+  
+      channel_type String,
+  
+      utm_source String,
+      utm_medium String,
+      utm_campaign String,
+      utm_term String,
+      utm_content String,
+      referring_domain String,
+      entry_pathname String,
+  
+      -- Pageviews in the session, so a read can report views next to visitors and sessions.
+      pageview_count UInt64,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_web_sessions_dimensional_preaggregated', cityHash64(person_id))
+  
   '''
 # ---
 # name: test_create_table_query[web_stats_dimensional_preaggregated]
@@ -14104,6 +14189,51 @@
   ORDER BY (team_id, job_id, time_window_start)
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_web_sessions_dimensional_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_sessions_dimensional_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      period_bucket DateTime,
+  
+      -- Match the numeric UUIDv7 representation in raw sessions and events.$session_id_uuid.
+      session_id_v7 UInt128,
+  
+      person_id UUID,
+  
+      -- The event bounds let a read agree with the live path, which bounds by event time rather than
+      -- by session start.
+      start_timestamp DateTime64(6, 'UTC'),
+      min_event_timestamp DateTime64(6, 'UTC'),
+      max_event_timestamp DateTime64(6, 'UTC'),
+  
+      channel_type String,
+  
+      utm_source String,
+      utm_medium String,
+      utm_campaign String,
+      utm_term String,
+      utm_content String,
+      referring_domain String,
+      entry_pathname String,
+  
+      -- Pageviews in the session, so a read can report views next to visitors and sessions.
+      pageview_count UInt64,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_sessions_dimensional_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, person_id, start_timestamp, session_id_v7)
+  TTL toDateTime(expires_at)
+  SETTINGS ttl_only_drop_parts = 1, index_granularity = 8192
   
   '''
 # ---
