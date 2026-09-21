@@ -9600,7 +9600,7 @@ export namespace Schemas {
       p999_duration_nano: number;
       p99_duration_nano: number;
       service_name: string;
-      /** These four are estimates, set only when the query asked for `includeImpact`. */
+      /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
       sessions?: number | null;
       spans_with_distinct_id?: number | null;
       spans_with_session_id?: number | null;
@@ -95178,6 +95178,21 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * Property filters for the count. Either a flat list of filters or a nested filter group.
+     */
+    export type _TracingCountBodyFilterGroup = _SpanPropertyFilter[] | {
+      /** How the inner groups combine. */
+      type: 'AND' | 'OR';
+      /** The inner filter groups. */
+      values: ({
+      /** How the filters in this group combine. */
+      type: 'AND' | 'OR';
+      /** The property filters in this group. */
+      values: _SpanPropertyFilter[];
+    })[];
+    };
+
     export interface _TracingCountBody {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -95185,8 +95200,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
-      /** Property filters for the count. */
-      filterGroup?: _SpanPropertyFilter[];
+      /** Property filters for the count. Either a flat list of filters or a nested filter group. */
+      filterGroup?: _TracingCountBodyFilterGroup;
     }
 
     export interface _TracingCountRequest {

@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
@@ -80,6 +84,25 @@ describe('tracingImpactLogic', () => {
 
     it('loads the counts on mount', async () => {
         await expectLogic(logic).toDispatchActions(['loadImpactSuccess']).toMatchValues({ impact: IMPACT })
+    })
+
+    it('waits for the team before requesting the counts', async () => {
+        // Flags and the team both load asynchronously. A request built before the team lands asks
+        // for /api/projects/null/, fails, and leaves the strip empty until the next filter change.
+        logic.unmount()
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+        jest.clearAllMocks()
+        logic = tracingImpactLogic({ id: ID })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockImpact).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => {
+            teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        }).toDispatchActions(['loadImpactSuccess'])
+
+        expect(mockImpact).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), expect.anything(), expect.anything())
     })
 
     it('scopes the request to the viewer filters', async () => {

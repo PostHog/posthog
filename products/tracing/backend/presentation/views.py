@@ -16,7 +16,7 @@ from collections.abc import Callable
 
 from django.db import models
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -135,6 +135,57 @@ class _SpanPropertyFilterSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
     )
+
+
+# The UI sends the nested group its filter editor produces, while MCP sends a flat list that
+# `_normalize_filter_group` wraps into the same shape. A contract naming only the flat list
+# makes every UI caller cast its way past the generated type.
+_SPAN_FILTER_GROUP_SCHEMA = {
+    "oneOf": [
+        {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/_SpanPropertyFilter"},
+            "description": "A flat list of filters, combined with AND.",
+        },
+        {
+            "type": "object",
+            "description": "A nested group of filter groups, as the UI filter editor builds it.",
+            "properties": {
+                "type": {"type": "string", "enum": ["AND", "OR"], "description": "How the inner groups combine."},
+                "values": {
+                    "type": "array",
+                    "description": "The inner filter groups.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["AND", "OR"],
+                                "description": "How the filters in this group combine.",
+                            },
+                            "values": {
+                                "type": "array",
+                                "items": {"$ref": "#/components/schemas/_SpanPropertyFilter"},
+                                "description": "The property filters in this group.",
+                            },
+                        },
+                        "required": ["type", "values"],
+                    },
+                },
+            },
+            "required": ["type", "values"],
+        },
+    ]
+}
+
+
+@extend_schema_field(_SPAN_FILTER_GROUP_SCHEMA)
+class _SpanFilterGroupField(serializers.JSONField):
+    """Documents both filter shapes the span actions accept.
+
+    These body serializers only feed the OpenAPI spec, so the runtime field stays permissive and
+    the decorator carries the contract.
+    """
 
 
 class _TracingQueryBodySerializer(serializers.Serializer):
@@ -648,11 +699,9 @@ class _TracingCountBodySerializer(serializers.Serializer):
         required=False,
         help_text="Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
     )
-    filterGroup = serializers.ListField(
-        child=_SpanPropertyFilterSerializer(),
+    filterGroup = _SpanFilterGroupField(
         required=False,
-        default=[],
-        help_text="Property filters for the count.",
+        help_text="Property filters for the count. Either a flat list of filters or a nested filter group.",
     )
 
 
@@ -839,6 +888,21 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return {"type": "AND", "values": []}
 
     @staticmethod
+    def _query_body(data: object) -> dict:
+        """The `query` object every span action reads its filters from, given a parsed body.
+
+        `request.data` is whatever JSON the client sent, so without this a string or an array
+        reaches the `query_data.get(...)` calls in each action and raises `AttributeError`,
+        which turns a malformed request into a 500.
+        """
+        if not isinstance(data, dict):
+            raise ParseError("Request body must be an object.")
+        query_data = data.get("query") or {}
+        if not isinstance(query_data, dict):
+            raise ParseError("`query` must be an object.")
+        return query_data
+
+    @staticmethod
     def _parse_positive_int(value: object, default: int, *, minimum: int) -> int:
         """Coerce an untrusted JSON value to an int no smaller than `minimum`, falling back to `default`."""
         if not isinstance(value, int | str | float) or isinstance(value, bool):
@@ -902,7 +966,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._query_body(request.data)
 
         after_cursor = query_data.get("after", None)
         date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
@@ -1028,7 +1092,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         rather than an opaque 500.
         """
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {}) or {}
+        query_data = self._query_body(request.data)
 
         date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
         filter_group = (
@@ -1082,7 +1146,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], url_path="symbol-stats", required_scopes=["tracing:read"])
     def symbol_stats(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {}) or {}
+        query_data = self._query_body(request.data)
 
         file_path = query_data.get("filePath")
         if not file_path or not isinstance(file_path, str):
@@ -1155,7 +1219,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._query_body(request.data)
         date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
@@ -1185,7 +1249,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], url_path="duration-histogram", required_scopes=["tracing:read"])
     def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._query_body(request.data)
         date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
@@ -1228,7 +1292,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], url_path="latency-heatmap", required_scopes=["tracing:read"])
     def latency_heatmap(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {}) or {}
+        query_data = self._query_body(request.data)
         date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
@@ -1255,7 +1319,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], url_path="aggregate", required_scopes=["tracing:read"])
     def aggregate(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {}) or {}
+        query_data = self._query_body(request.data)
         date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
@@ -1323,7 +1387,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], url_path="tree", required_scopes=["tracing:read"])
     def tree(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {}) or {}
+        query_data = self._query_body(request.data)
         span_name = query_data.get("spanName")
         if not span_name or not isinstance(span_name, str):
             return Response(
@@ -1376,7 +1440,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], url_path="attribute-breakdown", required_scopes=["tracing:read"])
     def attribute_breakdown(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {}) or {}
+        query_data = self._query_body(request.data)
 
         breakdown_key = query_data.get("breakdownKey")
         if not breakdown_key or not isinstance(breakdown_key, str):

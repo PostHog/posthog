@@ -12,7 +12,7 @@ export function formatIdentityCoverage(covered: number | undefined, total: numbe
     if (fraction < 0.005) {
         return '<1%'
     }
-    if (fraction > 0.995 && fraction < 1) {
+    if (fraction >= 0.995 && fraction < 1) {
         return '>99%'
     }
     return percentage(fraction, 0)

@@ -4817,7 +4817,7 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
-    /** These four are estimates, set only when the query asked for `includeImpact`. */
+    /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
     sessions?: integer
     users?: integer
     spans_with_session_id?: integer

@@ -1,12 +1,17 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { UniversalFiltersGroup } from '~/types'
 
 import { tracingSpansImpactCreate } from 'products/tracing/frontend/generated/api'
-import type { _TracingCountBodyApi, _TracingImpactResponseApi } from 'products/tracing/frontend/generated/api.schemas'
+import type {
+    _TracingCountBodyApi,
+    _TracingCountBodyApiFilterGroup,
+    _TracingImpactResponseApi,
+} from 'products/tracing/frontend/generated/api.schemas'
 
 import { tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, dataScopeKey, type TracingFilters, tracingFiltersLogic } from './tracingFiltersLogic'
@@ -83,17 +88,25 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
             null as _TracingImpactResponseApi | null,
             {
                 loadImpact: async (_, breakpoint) => {
+                    // Team loading can outlast this logic's mount, and a request built without an
+                    // ID asks for /api/projects/null/. The currentTeamId subscription below runs
+                    // the load once the ID lands.
+                    const currentTeamId = values.currentTeamId
+                    if (currentTeamId === null) {
+                        return null
+                    }
                     // Read up front so the recorded scope is the one the response covers, and
                     // claimed so a runQuery arriving mid-flight starts no second scan.
                     const scopeKey = dataScopeKey(values)
                     cache.inFlightScope = scopeKey
                     await breakpoint(300)
-                    // The endpoint takes the nested group, which the flat generated type cannot express.
-                    const query = {
+                    const query: _TracingCountBodyApi = {
                         dateRange: values.utcDateRange,
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.queryFilterGroup,
-                    } as unknown as _TracingCountBodyApi
+                        // The editor's group holds any universal filter, while the endpoint reads
+                        // only the span ones, so the narrowing is asserted rather than checked.
+                        filterGroup: values.queryFilterGroup as _TracingCountBodyApiFilterGroup,
+                    }
                     // Re-adding the key aborts the superseded request. A hidden tab must not.
                     const controller = new AbortController()
                     cache.disposables.add(() => () => controller.abort(), 'impactRequest', {
@@ -102,7 +115,7 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
                     let response: _TracingImpactResponseApi | null = null
                     try {
                         response = await tracingSpansImpactCreate(
-                            String(values.currentTeamId),
+                            String(currentTeamId),
                             { query },
                             { signal: controller.signal }
                         )
@@ -143,8 +156,19 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
             actions.loadImpact(null)
         },
     })),
-    afterMount(({ actions }) => {
-        // The data logic usually fires its initial runQuery before this logic exists.
-        actions.loadImpact(null)
-    }),
+    // Stands in for an afterMount load: the data logic usually fires its initial runQuery before
+    // this logic exists, so the strip starts its own. Keyed on the team ID so a team that arrives
+    // late still gets a load, rather than leaving the strip empty until the next filter change.
+    subscriptions(({ actions, values, cache }) => ({
+        currentTeamId: (currentTeamId: number | null) => {
+            if (currentTeamId === null) {
+                return
+            }
+            const scopeKey = dataScopeKey(values)
+            if (scopeKey === cache.impactScope || scopeKey === cache.inFlightScope) {
+                return
+            }
+            actions.loadImpact(null)
+        },
+    })),
 ])

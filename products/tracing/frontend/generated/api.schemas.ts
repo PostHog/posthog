@@ -331,6 +331,23 @@ export interface _TracingAttributesResponseApi {
     count: number
 }
 
+/**
+ * Property filters for the count. Either a flat list of filters or a nested filter group.
+ */
+export type _TracingCountBodyApiFilterGroup =
+    | _SpanPropertyFilterApi[]
+    | {
+          /** How the inner groups combine. */
+          type: 'AND' | 'OR'
+          /** The inner filter groups. */
+          values: {
+              /** How the filters in this group combine. */
+              type: 'AND' | 'OR'
+              /** The property filters in this group. */
+              values: _SpanPropertyFilterApi[]
+          }[]
+      }
+
 export interface _TracingCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
@@ -338,8 +355,8 @@ export interface _TracingCountBodyApi {
     serviceNames?: string[]
     /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
     statusCodes?: number[]
-    /** Property filters for the count. */
-    filterGroup?: _SpanPropertyFilterApi[]
+    /** Property filters for the count. Either a flat list of filters or a nested filter group. */
+    filterGroup?: _TracingCountBodyApiFilterGroup
 }
 
 export interface _TracingCountRequestApi {

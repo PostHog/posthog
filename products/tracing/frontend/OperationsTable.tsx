@@ -42,7 +42,7 @@ const impactCell =
     (pick: (row: AggregatedSpanRow) => number | undefined, covered: (row: AggregatedSpanRow) => number | undefined) =>
     (row: AggregatedSpanRow): JSX.Element => {
         const value = pick(row)
-        if (!value) {
+        if (value == null) {
             return <span className="text-muted">—</span>
         }
         // An operation whose spans mostly carry no ID has a count covering a fraction of its

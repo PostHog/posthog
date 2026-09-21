@@ -3393,7 +3393,10 @@ class AggregatedSpanRow(BaseModel):
     service_name: str
     sessions: int | None = Field(
         default=None,
-        description=("These four are estimates, set only when the query asked for `includeImpact`."),
+        description=(
+            "Set only when the query asked for `includeImpact`. `sessions` and `users`"
+            " are uniq() estimates; the two span counts are exact."
+        ),
     )
     spans_with_distinct_id: int | None = None
     spans_with_session_id: int | None = None
