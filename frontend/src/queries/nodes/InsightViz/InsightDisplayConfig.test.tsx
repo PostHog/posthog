@@ -37,17 +37,29 @@ const pageviewSeries = [
 
 function makeTrendsQuery(
     display?: ChartDisplayType,
-    trendsFilter: NonNullable<TrendsQuery['trendsFilter']> = {}
+    trendsFilter: NonNullable<TrendsQuery['trendsFilter']> = {},
+    // "Show as % of total" needs a band with more than one contributor, so the series count decides
+    // whether that option is offered at all.
+    extraSeries: TrendsQuery['series'] = []
 ): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
-        series: [...pageviewSeries],
+        series: [...pageviewSeries, ...extraSeries],
         trendsFilter: {
             display,
             ...trendsFilter,
         },
     }
 }
+
+const autocaptureSeries = [
+    {
+        kind: NodeKind.EventsNode,
+        name: '$autocapture',
+        event: '$autocapture',
+        math: BaseMathType.TotalCount,
+    },
+] as const
 
 function makeRetentionQuery(retentionFilter: NonNullable<RetentionQuery['retentionFilter']> = {}): RetentionQuery {
     return { kind: NodeKind.RetentionQuery, retentionFilter }
@@ -183,6 +195,20 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Overlays'],
                     },
+                    displayItems: ['Show values on series', 'Show legendBottom'],
+                    overlayItems: lineOverlays,
+                },
+            ],
+            [
+                'trends bar chart with two series',
+                makeTrendsQuery(ChartDisplayType.ActionsBar, {}, [...autocaptureSeries]),
+                {
+                    tabs: ['General', 'Axes', 'Lines'],
+                    sections: {
+                        General: ['Annotations', 'Unit'],
+                        Axes: ['X-axis', 'Y-axis'],
+                        Lines: ['Overlays'],
+                    },
                     displayItems: ['Show values on series', 'Show as % of total', 'Show legendBottom'],
                     overlayItems: lineOverlays,
                 },
@@ -197,7 +223,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show as % of total', 'Show legendBottom'],
+                    displayItems: ['Show values on series', 'Show legendBottom'],
                 },
             ],
             [
@@ -213,7 +239,6 @@ describe('InsightDisplayConfig', () => {
                     sections: { General: ['Unit'] },
                     displayItems: [
                         'Show values on series',
-                        'Show as % of total',
                         'Show names on slices',
                         'Show total below chart',
                         // In-chart legend toggle + position select ("Bottom" is the prospective default)
@@ -229,7 +254,6 @@ describe('InsightDisplayConfig', () => {
                     sections: { General: ['Unit'] },
                     displayItems: [
                         'Show values on series',
-                        'Show as % of total',
                         'Show names on slices',
                         'Show total in center',
                         'Show legendBottom',
