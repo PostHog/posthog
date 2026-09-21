@@ -125,6 +125,45 @@ Events omit repository names, paths, full shell commands, diff contents, tokens,
 
 ## Deployment configuration
 
+### Distributed tracing
+
+Cloud runs use the shared OpenTelemetry instrumentation described in the [distributed tracing guide](https://posthog.com/docs/distributed-tracing).
+The request's trace context passes through the Temporal client's headers into the workflow and its activities.
+The worker enables Temporal's replay-safe tracing plugin for `WIZARD_TASK_QUEUE` when `OTEL_SERVICE_NAME` is configured.
+The plugin records workflow and activity durations, including separate activity attempts.
+
+Wizard spans add the following detail to the trace waterfall:
+
+| Span prefix          | Operations                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `wizard.run`         | Creation, dispatch, cancellation                                                                                         |
+| `wizard.worker`      | Credential creation, provisioning, CPU sampler startup, usage measurement                                                |
+| `wizard.sandbox`     | Sandbox creation and destruction                                                                                         |
+| `wizard.repository`  | Access checks, credentials, clone, remote cleanup, staging, diff capture, handoff reading, commit, pull request creation |
+| `wizard.package`     | Local source archive, upload, build                                                                                      |
+| `wizard.cli.execute` | The sandbox command that installs and runs the setup agent                                                               |
+| `wizard.artifacts`   | Diff persistence                                                                                                         |
+
+Find a run using the `wizard.run_id` attribute on its creation, dispatch, and activity spans, then open the full trace.
+These spans also carry `team_id`.
+Clone spans include `process.exit.code`; diff persistence spans include `wizard.diff.size_bytes`.
+Custom Wizard spans record error types and error status without recording exception messages, command output, repository contents, or credentials.
+Every Wizard activity replaces failure messages with a fixed message before Temporal records the failure.
+The replacement preserves the error type and retry settings, but drops details and exception chains so automatic Temporal spans cannot export sandbox output.
+Cancellation exceptions keep their cancellation semantics.
+
+The CLI runs in a separate sandbox process and is distributed from another repository.
+Its internal agent steps are represented by the duration of `wizard.cli.execute`; they do not emit child spans from this instrumentation.
+Recovery dispatches that start outside the original request can produce another trace, correlated by `wizard.run_id`.
+
+Configure `OTEL_SERVICE_NAME` and the existing OTLP collector endpoint on both the web service and the Wizard Worker.
+The shared Python exporter sends gRPC to the collector; configure that collector to forward traces to PostHog's HTTP `/i/v1/traces` endpoint with its project token.
+The [Python installation guide](https://posthog.com/docs/distributed-tracing/installation/python) describes the HTTP exporter configuration for direct clients.
+Check web-service sampling when validating a run: a parent trace that is not sampled also suppresses its child spans.
+For a controlled validation environment, use `OTEL_TRACES_SAMPLER=always_on`, create a cloud run, and confirm its activity spans and cleanup appear in one trace.
+
+### Worker deployment
+
 The production rollout depends on the [Wizard Worker chart](https://github.com/PostHog/charts/pull/14662) and [cloud infrastructure](https://github.com/PostHog/posthog-cloud-infra/pull/10081) changes.
 The chart must run a worker that polls `wizard-task-queue` before cloud run creation is enabled.
 `WIZARD_RUN_ARTIFACTS_S3_BUCKET` must identify the provisioned artifact bucket.

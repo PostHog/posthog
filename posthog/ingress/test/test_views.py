@@ -1,13 +1,14 @@
 import hmac
 import json
+import importlib
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any, cast
 from urllib.parse import urlencode
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
-from django.core.cache import cache
+from django.core.cache import caches
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
@@ -18,6 +19,7 @@ from requests import RequestException
 from rest_framework.request import Request as DRFRequest
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 
+from posthog import regions
 from posthog.ingress.contracts import (
     DeliveryDispatch,
     DeliveryOwnership,
@@ -26,13 +28,16 @@ from posthog.ingress.contracts import (
     WebhookConsumer,
     WebhookDelivery,
 )
+from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
-from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_secondary_region
+from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_other_region
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.github.provider import GitHubProvider, build_github_provider
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
-from posthog.ingress.providers import WebhookProvider
+from posthog.ingress.providers import _INCARNATION_MODULES, InvalidPayload, WebhookProvider
 from posthog.ingress.slack.provider import build_slack_provider
+from posthog.ingress.test import LOCMEM_CACHES
+from posthog.ingress.vapi.provider import VapiProvider
 from posthog.ingress.verify.schemes import Verification, VerificationOutcome
 from posthog.ingress.views import build_webhook_view
 from posthog.regions import SECONDARY_REGION_DOMAIN
@@ -58,6 +63,13 @@ class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
     retry_status = 502
+
+
+class _SecondaryRegionGitHubProvider(GitHubProvider):
+    # Stands in for a provider whose App is registered against the secondary region, so deliveries
+    # arrive there and the forward runs the other way.
+    def receiving_region_domain(self) -> str:
+        return regions.SECONDARY_REGION_DOMAIN
 
 
 class _SlowForwardGitHubProvider(GitHubProvider):
@@ -100,6 +112,13 @@ class _ThrottledGitHubProvider(GitHubProvider):
 
 class _ScopedThrottleGitHubProvider(GitHubProvider):
     throttle_class = ScopedRateThrottle
+
+
+class _RefusingDeliveriesGitHubProvider(GitHubProvider):
+    # Stands in for a provider that holds the body to what the signature proved, the way Teams
+    # refuses an activity whose `serviceUrl` the token did not sign.
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
+        raise InvalidPayload("installation id does not match the signed claim")
 
 
 class _FormBodyGitHubProvider(GitHubProvider):
@@ -196,6 +215,34 @@ class TestWebhookView(SimpleTestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.content, b"Invalid signature")
+        self.dispatcher.dispatch.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_header", {}, False),
+            ("empty_header", {"X-Vapi-Signature": ""}, False),
+            ("malformed_header", {"X-Vapi-Signature": "not-a-digest"}, False),
+            ("well_formed_but_wrong_digest", {"X-Vapi-Signature": "0" * 64}, True),
+        ]
+    )
+    @override_settings(VAPI_WEBHOOK_SECRET=SECRET)
+    def test_a_signature_header_that_cannot_pass_is_refused_before_the_body_is_read(
+        self, _name: str, headers: dict[str, str], reads_body: bool
+    ) -> None:
+        request = self.factory.post(
+            "/webhooks/vapi/",
+            data=json.dumps({"message": {"type": "status-update"}}).encode(),
+            content_type="application/json",
+            headers=headers,
+        )
+
+        with patch.object(HttpRequest, "body", new_callable=PropertyMock, return_value=b"{}") as body:
+            response = build_webhook_view(VapiProvider())(request)
+
+        # Same answer either way, so only the body read separates the two paths.
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.content, b"Invalid signature")
+        self.assertEqual(body.called, reads_body)
         self.dispatcher.dispatch.assert_not_called()
 
     def test_an_unparseable_body_is_400_and_logs_the_parser_error(self) -> None:
@@ -321,6 +368,21 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], ["verify_unavailable"])
         self.dispatcher.dispatch.assert_not_called()
 
+    def test_a_body_deliveries_refuses_is_400_and_reaches_no_consumer(self) -> None:
+        body = b'{"action":"opened"}'
+        request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
+
+        with (
+            patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET),
+            patch("posthog.ingress.views.logger") as logger,
+        ):
+            response = build_webhook_view(_RefusingDeliveriesGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.dispatcher.dispatch.assert_not_called()
+        self.dispatcher.ownership_of.assert_not_called()
+        self.assertEqual(logger.warning.call_args.args[0], "ingress_delivery_invalid_payload")
+
     def test_slack_url_verification_echoes_the_challenge_before_dispatch(self) -> None:
         body = json.dumps({"type": "url_verification", "challenge": "abc123"}).encode()
         timestamp = "1789000000"
@@ -395,12 +457,12 @@ def _consumer(
     )
 
 
-@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+@override_settings(CACHES=LOCMEM_CACHES)
 class _DispatchingViewTestCase(SimpleTestCase):
     """A view driving the real dispatcher and registry, rather than a mocked one."""
 
     def setUp(self) -> None:
-        cache.clear()
+        caches[INGRESS_DEDUP_CACHE_ALIAS].clear()
         self.factory = RequestFactory()
         self.handler = Mock()
 
@@ -585,6 +647,36 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
         self.handler.assert_called_once()
         self.assertEqual([call.args[0] for call in logger.warning.call_args_list], ["ingress_delivery_unowned_here"])
 
+    def test_every_provider_on_the_package_receives_in_the_primary_region(self) -> None:
+        # The forward direction is shared machinery, so a provider that quietly overrides it
+        # redirects signed deliveries for an endpoint whose owners never asked for that.
+        overriding: list[str] = []
+        for module_name in _INCARNATION_MODULES:
+            module = importlib.import_module(module_name)
+            for candidate in vars(module).values():
+                if not isinstance(candidate, type) or not issubclass(candidate, WebhookProvider):
+                    continue
+                if candidate.receiving_region_domain is not WebhookProvider.receiving_region_domain:
+                    overriding.append(f"{module_name}.{candidate.__name__}")
+
+        self.assertEqual(overriding, [])
+
+    def test_a_provider_registered_against_the_secondary_region_forwards_the_other_way(self) -> None:
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)],
+            provider=_SecondaryRegionGitHubProvider("posthog"),
+        )
+
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "eu.posthog.com"),
+            patch("posthog.regions.SECONDARY_REGION_DOMAIN", "testserver"),
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, 202)
+        self.assertIn("eu.posthog.com", self.requests.call_args.kwargs["url"])
+        self.handler.assert_called_once()
+
     def test_a_batched_body_of_unowned_deliveries_forwards_the_request_once(self) -> None:
         view = self._view(
             [_consumer(PANDADOC_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)],
@@ -744,7 +836,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
             patch("posthog.ingress.dispatch.forward.requests.request", side_effect=error, return_value=response),
             patch("posthog.ingress.dispatch.forward.observe_forward") as observe,
         ):
-            result = forward_to_secondary_region(self.request, provider="github", app="posthog")
+            result = forward_to_other_region(
+                self.request, target_domain=SECONDARY_REGION_DOMAIN, provider="github", app="posthog"
+            )
 
         self.assertEqual(result, forwarded)
         self.assertEqual(observe.call_args.kwargs["outcome"], outcome)
@@ -752,7 +846,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
     def test_the_replay_carries_the_signed_bytes_unchanged(self) -> None:
         with patch("posthog.ingress.dispatch.forward.requests.request") as request:
             request.return_value = Mock(ok=True, status_code=202)
-            forward_to_secondary_region(self.request, provider="github", app="posthog")
+            forward_to_other_region(
+                self.request, target_domain=SECONDARY_REGION_DOMAIN, provider="github", app="posthog"
+            )
 
         kwargs = request.call_args.kwargs
         self.assertEqual(kwargs["data"], self.body)
@@ -778,7 +874,7 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
 
         with patch("posthog.ingress.dispatch.forward.requests.request") as request:
             request.return_value = Mock(ok=True, status_code=202)
-            forward_to_secondary_region(multipart, provider="mailgun", app="inbound")
+            forward_to_other_region(multipart, target_domain=SECONDARY_REGION_DOMAIN, provider="mailgun", app="inbound")
 
         kwargs = request.call_args.kwargs
         self.assertIn(("token", "delivery-token"), kwargs["data"])
@@ -797,7 +893,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
 
         with patch("posthog.ingress.dispatch.forward.requests.request") as request:
             request.return_value = Mock(ok=True, status_code=202)
-            forward_to_secondary_region(urlencoded, provider="mailgun", app="inbound")
+            forward_to_other_region(
+                urlencoded, target_domain=SECONDARY_REGION_DOMAIN, provider="mailgun", app="inbound"
+            )
 
         kwargs = request.call_args.kwargs
         self.assertEqual(kwargs["data"], body)

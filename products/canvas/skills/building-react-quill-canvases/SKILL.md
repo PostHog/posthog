@@ -44,6 +44,10 @@ control or a styled `<div>` standing in for one:
   text field → `Input`/`Textarea`; checkbox → `Checkbox`; label → `Label`.
 - Table → `Table` (`TableHeader` > `TableRow` > `TableHead`, then `TableBody` > `TableRow` > `TableCell`);
   panel → `Card` (`CardHeader` + `CardTitle` + `CardContent`); pill → `Badge`; titles → `Heading`; body → `Text`.
+- A `Table` inside a `Card` needs `<Card size="sm" flush>` around `<Table size="sm" fullWidth>`.
+  Without `flush` the card's padding insets the table, so its header and rows stop meeting the card's edges.
+  `flush` drops the card's section gap, bottom padding, and the `CardContent` inline padding, while the header keeps its own padding and divider.
+  Matching `size="sm"` on both lines the table's edge columns up with the card's title.
 - The only non-Quill tags allowed are plain layout `<div>`s and `recharts` elements.
 - Quill is built on Base UI: compose compound parts (`Select` + `SelectTrigger`/`SelectContent`/`SelectItem`),
   use controlled `value` + `onValueChange`, and swap a part's element with the `render` prop
@@ -55,10 +59,12 @@ control or a styled `<div>` standing in for one:
 
 ## Styling and theme
 
-- Give the canvas's outermost element `h-screen` (`height: 100vh`) so it fills the iframe viewport.
-  Do not use `h-full` there: a published canvas's artifact shell gives its `html`, `body`, and
-  `#root` elements no explicit height, so a percentage root height collapses to content height.
-  Nested elements may use `h-full` once their parent establishes a height.
+- Give the canvas's outermost element `min-h-screen` (`min-height: 100vh`) so it fills the iframe viewport and grows past it as content demands.
+  Do not use `h-screen` there: a fixed viewport height caps a flex column, so tall children shrink and clip instead of scrolling.
+  Do not use `h-full` there either: a published canvas's artifact shell gives its `html`, `body`, and `#root` elements no explicit height, so a percentage root height collapses to content height.
+- The root needs no `overflow-y-auto`: once it grows past the viewport the iframe's own document scrolls.
+- A `min-height` root is not a definite height, so `h-full` on a direct child still collapses to content height.
+  Give an intermediate wrapper an explicit height (`h-[280px]`) when a child must fill a box.
 - Style with Tailwind utilities and Quill components; reserve inline `style` for genuinely dynamic
   runtime values (fixed sizes use arbitrary-value utilities like `h-[280px]`).
 - Write specific interface copy. Never use lorem ipsum or placeholder labels in a finished canvas.

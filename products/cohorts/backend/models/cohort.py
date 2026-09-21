@@ -35,10 +35,12 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
+from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.leaf_shape import (
     FilterShapeHashes,
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
+    extract_person_composition_hash,
     extract_person_leaf_shape_hash,
 )
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
@@ -378,12 +380,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             new_shape_hash = extract_leaf_shape_hash(self.filters)
             new_behavioral_shape_hash = extract_behavioral_leaf_shape_hash(self.filters)
             new_person_shape_hash = extract_person_leaf_shape_hash(self.filters)
+            new_person_composition_hash = extract_person_composition_hash(self.filters)
             stored_shape_hash = self.__dict__.get("filters_shape_hash")
             stored_behavioral_shape_hash = self.__dict__.get("behavioral_filters_shape_hash")
             stored_person_shape_hash = self.__dict__.get("person_filters_shape_hash")
             previous_behavioral_shape_hash = stored_behavioral_shape_hash
             previous_person_shape_hash = stored_person_shape_hash
             previous_shape_hash = None
+            previous_person_composition_hash = None
 
             if not self._state.adding:
                 persisted_query = Cohort.objects.filter(id=self.pk, team_id=self.team_id)
@@ -406,9 +410,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     # Recomputing those baselines from filters would lose that invalidation signal.
                     try:
                         previous_shape_hash = extract_leaf_shape_hash(persisted["filters"])
+                        previous_person_composition_hash = extract_person_composition_hash(persisted["filters"])
                     except Exception:
                         # A malformed baseline must not disable invalidation for a valid replacement.
                         previous_shape_hash = None
+                        previous_person_composition_hash = None
                     if stored_shape_hash is None:
                         stored_shape_hash = persisted["filters_shape_hash"]
                     if stored_behavioral_shape_hash is None:
@@ -441,16 +447,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             person_shape_changed = not self._state.adding and previous_person_shape_hash != new_person_shape_hash
 
             current_shape = FilterShapeHashes(
-                definition=new_shape_hash, behavioral=new_behavioral_shape_hash, person=new_person_shape_hash
+                definition=new_shape_hash,
+                behavioral=new_behavioral_shape_hash,
+                person=new_person_shape_hash,
+                person_composition=new_person_composition_hash,
             )
             previous_shape = FilterShapeHashes(
                 definition=previous_shape_hash,
                 behavioral=previous_behavioral_shape_hash,
                 person=previous_person_shape_hash,
+                person_composition=previous_person_composition_hash,
             )
-            repair_kind = current_shape.composition_repair_kind(previous_shape, self.filters)
-            behavioral_shape_changed |= repair_kind == "behavioral"
-            person_shape_changed |= repair_kind == "person_property"
+            repair_kinds = current_shape.composition_repair_kinds(previous_shape, self.filters)
+            behavioral_shape_changed |= "behavioral" in repair_kinds
+            person_shape_changed |= "person_property" in repair_kinds
 
             self.filters_shape_hash = new_shape_hash
             self.behavioral_filters_shape_hash = new_behavioral_shape_hash
@@ -573,33 +583,50 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "cohorts": any(leaf.get("type") == "cohort" for leaf in leaves),
         }
 
+    def _required_backfill_stamps(self) -> dict[str, Optional[datetime]]:
+        """The backfill stamp each of this cohort's current filter kinds needs, keyed by that kind.
+
+        The one place the filter-type-to-stamp mapping lives, so `is_flag_compatible`,
+        `realtime_ready_at` and the realtime state resolver cannot drift apart. A third gated leaf
+        kind added to one of them and not the others would let a cohort read as ready from a
+        backfill its filters never needed.
+
+        Empty when no filter type is recognized (empty filters, cohort-reference-only, and so on):
+        the realtime evaluator has no leaf to key membership on, so stale stamps mean nothing.
+        """
+        stamps: dict[str, Optional[datetime]] = {}
+        if self._has_filter_type("person") or self._has_filter_type("person_metadata"):
+            stamps[CohortBackfillKind.PERSON_PROPERTY.value] = self.last_backfill_person_properties_at
+        if self._has_filter_type("behavioral"):
+            stamps[CohortBackfillKind.BEHAVIORAL.value] = self.last_backfill_events_at
+        return stamps
+
     @property
     def is_flag_compatible(self) -> bool:
         """Whether this cohort can be used in feature flag targeting via cohort_membership lookups.
 
-        Gates on both person property and event backfills based on which filter types the cohort uses:
-        - Cohorts with person property or person_metadata filters require last_backfill_person_properties_at
-        - Cohorts with behavioral event filters require last_backfill_events_at
-        - Cohorts with both require both timestamps
-        - Cohorts with neither recognized filter type (empty filters, cohort-reference-only, etc.)
-          are not flag-compatible, even if stale timestamps are set, because the realtime
-          evaluator has no leaf to key membership on.
+        Every backfill its current filters need has to have landed: person property and
+        person_metadata filters need `last_backfill_person_properties_at`, behavioral event filters
+        need `last_backfill_events_at`, and a cohort with both needs both.
         """
         if self.cohort_type != CohortType.REALTIME:
             return False
 
-        has_person_filters = self._has_filter_type("person") or self._has_filter_type("person_metadata")
-        has_behavioral_filters = self._has_filter_type("behavioral")
+        stamps = self._required_backfill_stamps()
+        return bool(stamps) and all(stamp is not None for stamp in stamps.values())
 
-        if not (has_person_filters or has_behavioral_filters):
-            return False
+    @property
+    def realtime_ready_at(self) -> Optional[datetime]:
+        """When this cohort became targetable by feature flags, or None while it isn't.
 
-        if has_person_filters and self.last_backfill_person_properties_at is None:
-            return False
-        if has_behavioral_filters and self.last_backfill_events_at is None:
-            return False
-
-        return True
+        The later of the stamps `is_flag_compatible` gates on, and only those: a cohort can carry a
+        stamp for a leaf kind its filters no longer use, and reporting that one would date the
+        readiness to a backfill the current definition never needed.
+        """
+        if not self.is_flag_compatible:
+            return None
+        # `is_flag_compatible` has already proved every required stamp is set.
+        return max(stamp for stamp in self._required_backfill_stamps().values() if stamp is not None)
 
     @property
     def properties(self) -> PropertyGroup:

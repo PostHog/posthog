@@ -208,6 +208,24 @@ def _child_resource(
             "paginator": _paginator(),
             "data_selector": "Results",
         }
+    elif config.data_selector:
+        # One collection out of a multi-collection body. Stays tolerant of a missing key: a
+        # campaign that targeted no segments is a zero-row page, not a shape change.
+        endpoint = {
+            "path": config.path,
+            "params": params,
+            "paginator": SinglePagePaginator(),
+            "data_selector": config.data_selector,
+        }
+    elif config.returns_array:
+        # Bare-array endpoints: a non-list 200 body means the response shape changed — fail loud
+        # instead of syncing a stray object as a row.
+        endpoint = {
+            "path": config.path,
+            "params": params,
+            "paginator": SinglePagePaginator(),
+            "data_selector_required": True,
+        }
     else:
         # Single-object endpoints (e.g. campaign summary) return one JSON object per parent,
         # which the framework wraps as a single row.

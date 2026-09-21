@@ -3,6 +3,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,7 +16,6 @@ import { buildAdjacencyMaps, traverseLineage } from 'products/data_modeling/fron
 import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { DataWarehouseSavedQuery } from '../../types'
 
 export type ModelsSceneTab = 'overview' | 'models' | 'lineage' | 'data-quality'
 
@@ -35,7 +35,7 @@ export interface AttentionModel {
 }
 
 export interface modelsSceneLogicValues {
-    dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
+    dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
@@ -72,7 +72,7 @@ export interface modelsSceneLogicMeta {
             suspendedNodes: DataModelingNode[],
             edges: DataModelingEdge[],
             nodes: DataModelingNode[],
-            savedQueries: DataWarehouseSavedQuery[]
+            savedQueries: DataWarehouseSavedQuerySummary[]
         ) => AttentionModel[]
         behindSchedule: (
             nodes: DataModelingNode[],

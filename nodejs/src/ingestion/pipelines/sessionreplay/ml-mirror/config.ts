@@ -1,5 +1,3 @@
-import os from 'node:os'
-
 import { overrideConfigWithEnv } from '~/common/config/config'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topics'
 import { RedisConnectionConfig } from '~/common/utils/db/redis'
@@ -209,13 +207,6 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
-    /**
-     * Cap on messages scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
-     * threadpool thread (UV_THREADPOOL_SIZE, default 4, shared with the recorder's snappy
-     * compression). <= 0 (the default) resolves to min(available CPUs, threadpool size); an
-     * explicit positive value is used verbatim; 1 restores fully sequential scrubbing.
-     */
-    SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: number
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
@@ -288,7 +279,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ,
         SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 50,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
-        SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
 }
 
@@ -303,23 +293,6 @@ export function getMlMirrorConfig(env: Record<string, string | undefined> = proc
         AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT:
             env.AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT ?? env.SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT,
     })
-}
-
-const DEFAULT_UV_THREADPOOL_SIZE = 4
-
-/**
- * `os.availableParallelism()` respects cgroup CPU limits, so in-container this sees the pod's
- * cores, not the node's.
- */
-export function resolveMlAnonymizeMaxConcurrency(
-    configured: number,
-    availableParallelism: number = os.availableParallelism(),
-    uvThreadpoolSize: number = parseInt(process.env.UV_THREADPOOL_SIZE ?? '', 10) || DEFAULT_UV_THREADPOOL_SIZE
-): number {
-    if (configured > 0) {
-        return configured
-    }
-    return Math.max(1, Math.min(availableParallelism, uvThreadpoolSize))
 }
 
 /**

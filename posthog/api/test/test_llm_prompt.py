@@ -2192,3 +2192,23 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["reference_name"] == "guardrails"
+
+    def test_resolve_reports_active_incoming_references(self):
+        self._make_prompt("base", label="production")
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "parent", "prompt": "@@@prompt:name=base|label=production@@@"},
+            format="json",
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/base/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["referenced_by"] == [{"name": "parent", "label": "production", "version": None}]
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/parent/",
+            data={"prompt": "no more references", "base_version": 1},
+            format="json",
+        )
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/base/")
+        assert response.json()["referenced_by"] == []

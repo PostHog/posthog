@@ -336,6 +336,22 @@ class TestStripeSource:
         assert ok is False
         assert message == expected_message
 
+    def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
+        # Webhook cleanup runs when a source is deleted, by which point the OAuth integration may
+        # already be gone and `get_oauth_integration` raises "Integration not found". delete_webhook
+        # must report the skip: raising leaves the caller's hog function enabled and captures noise
+        # on an otherwise-successful deletion. The reported error must not echo the integration id,
+        # which reaches the API response.
+        config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="oauth", stripe_integration_id=42))
+
+        with mock.patch.object(
+            self.source, "get_oauth_integration", side_effect=ValueError("Integration not found: 42")
+        ):
+            result = self.source.delete_webhook(config, "https://example.com/webhook", team_id=1)
+
+        assert result.success is False
+        assert "42" not in (result.error or "")
+
     def test_parse_config_reads_flat_oauth_auth_method(self):
         # The source API accepts a flat payload, so an OAuth connection arrives as
         # `auth_method: "oauth"` with the integration id as a sibling. Parsing must pick the
