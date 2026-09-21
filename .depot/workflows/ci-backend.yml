@@ -1601,8 +1601,6 @@ jobs:
                         else
                             pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
                         fi
-            - name: Trigger deterministic failure for self-cancel proof
-              run: exit 1
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure
@@ -2446,6 +2444,8 @@ jobs:
                       exit 1
                   fi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+                  echo "::error::Triggering deterministic OpenAPI failure for self-cancel proof"
+                  exit 1
                   mapfile -t DRIFTED_FILES < <(
                       git ls-files --modified --deleted --others --exclude-standard | LC_ALL=C sort -u
                   )
