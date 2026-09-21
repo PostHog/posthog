@@ -27,6 +27,7 @@ from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInput
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.data_modeling.backend.facade.api import (
+    NodeVisibility,
     endpoint_link,
     get_declared_target,
     suspension_state,
@@ -44,7 +45,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
-from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.node_visibility_mixin import NodeVisibilityMixin
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -156,16 +157,16 @@ class NodeSerializer(serializers.ModelSerializer):
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][0]
-        return len(_get_upstream_nodes(node, hidden_types=self._hidden_types()))
+        return len(_get_upstream_nodes(node, visibility=self._visibility()))
 
     def get_downstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][1]
-        return len(_get_downstream_nodes(node, hidden_types=self._hidden_types()))
+        return len(_get_downstream_nodes(node, visibility=self._visibility()))
 
-    def _hidden_types(self) -> frozenset[str]:
-        return self.context.get("hidden_node_types") or frozenset()
+    def _visibility(self) -> NodeVisibility:
+        return self.context.get("node_visibility") or NodeVisibility.none()
 
     def get_last_run_at(self, node: Node) -> str | None:
         run_at = getattr(node, "_latest_job_run_at", None)
@@ -235,6 +236,8 @@ class NodePagination(PageNumberPagination):
 # materialization, so reading them needs the same warehouse access as reading the views themselves.
 _READ_DENIED = "Reading data models requires data warehouse read access."
 
+_RUN_REACHES_DENIED_MODEL = "This run includes a model you can't read. Ask a project admin for access to it."
+
 
 # TODO: consolidate graph traversal logic. similar implementations exist in:
 # - posthog/temporal/data_modeling/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
@@ -242,10 +245,9 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 # the temporal workflow and lineage API should migrate to Graph
 
 
-def _get_upstream_nodes(
-    node: Node, include_tables: bool = False, hidden_types: frozenset[str] = frozenset()
-) -> set[str]:
+def _get_upstream_nodes(node: Node, include_tables: bool = False, visibility: NodeVisibility | None = None) -> set[str]:
     """Get all upstream (ancestor) node IDs recursively, optionally excluding TABLE nodes."""
+    visibility = visibility or NodeVisibility.none()
     nodes: set[str] = set()
     current = [node.id]
     while current:
@@ -256,15 +258,18 @@ def _get_upstream_nodes(
         )
         if not include_tables:
             qs = qs.exclude(source__type=NodeType.TABLE)
-        if hidden_types:
-            qs = qs.exclude(source__type__in=hidden_types)
+        if visibility.hidden_types:
+            qs = qs.exclude(source__type__in=visibility.hidden_types)
+        if visibility.hidden_ids:
+            qs = qs.exclude(source_id__in=visibility.hidden_ids)
         current = list(qs.values_list("source_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
 
 
-def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()) -> set[str]:
+def _get_downstream_nodes(node: Node, visibility: NodeVisibility | None = None) -> set[str]:
     """Get all downstream (descendant) node IDs recursively, excluding TABLE nodes."""
+    visibility = visibility or NodeVisibility.none()
     nodes: set[str] = set()
     current = [node.id]
     while current:
@@ -273,8 +278,10 @@ def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()
             dag=node.dag,
             source_id__in=current,
         )
-        if hidden_types:
-            qs = qs.exclude(target__type__in=hidden_types)
+        if visibility.hidden_types:
+            qs = qs.exclude(target__type__in=visibility.hidden_types)
+        if visibility.hidden_ids:
+            qs = qs.exclude(target_id__in=visibility.hidden_ids)
         current = list(qs.values_list("target_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
@@ -308,7 +315,7 @@ class LineageResponseSerializer(serializers.Serializer):
     edges = EdgeSerializer(many=True, help_text="Every edge between two of those nodes.")
 
 
-class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class NodeViewSet(NodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer
@@ -318,7 +325,7 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
     ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
-        return {**super().get_serializer_context(), "hidden_node_types": self._hidden_node_types()}
+        return {**super().get_serializer_context(), "node_visibility": self.node_visibility}
 
     def perform_destroy(self, instance: Node) -> None:
         if instance.dag.is_managed:
@@ -347,7 +354,7 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         nodes = page if page is not None else queryset
 
         dag_id = self._get_dag_id_param()
-        graph = Graph(team_id=self.team_id, dag_id=dag_id, hidden_types=self._hidden_node_types())
+        graph = Graph(team_id=self.team_id, dag_id=dag_id, visibility=self.node_visibility)
         node_ids = [str(n.id) for n in nodes]
         counts = graph.batch_counts(node_ids)
 
@@ -368,7 +375,7 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         return dag_id
 
     def safely_get_queryset(self, queryset):
-        qs = _annotate_latest_job(self._exclude_hidden_nodes(queryset.filter(team_id=self.team_id)))
+        qs = _annotate_latest_job(self.node_visibility.exclude_nodes(queryset.filter(team_id=self.team_id)))
         dag_id = self._get_dag_id_param()
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
@@ -399,12 +406,16 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        traversal = self.node_visibility.types_only()
         if direction == "upstream":
-            node_ids = _get_upstream_nodes(node)
+            node_ids = _get_upstream_nodes(node, visibility=traversal)
         else:
-            node_ids = _get_downstream_nodes(node)
+            node_ids = _get_downstream_nodes(node, visibility=traversal)
 
         node_ids.add(str(node.id))
+
+        if node_ids & self.node_visibility.hidden_ids:
+            raise PermissionDenied(_RUN_REACHES_DENIED_MODEL)
 
         # A run materializes every node it touches (the workflow sets is_materialized), and the
         # resulting rows then resolve under each view's own access rules. So this is the same
@@ -481,6 +492,8 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         Accepts node_id, saved_query_id or metric_id, so a caller holding only the backing resource
         (the SQL editor, the metric page) doesn't need to resolve the node itself.
         """
+        from products.data_modeling.backend.facade.models import Graph
+
         # Lineage exposes the same metadata the deleted `warehouse_view`-scoped upstream endpoint
         # gated on.
         self._require_warehouse_access(level="viewer", message="Reading lineage requires data warehouse read access.")
@@ -492,31 +505,28 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
 
         # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
         # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
+        visibility = self.node_visibility
         node = (
-            self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, **lookup))
-            .order_by("created_at")
-            .first()
+            visibility.exclude_nodes(Node.objects.filter(team_id=self.team_id, **lookup)).order_by("created_at").first()
         )
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        hidden_types = self._hidden_node_types()
-        upstream_ids = _get_upstream_nodes(node, include_tables=True, hidden_types=hidden_types)
-        downstream_ids = _get_downstream_nodes(node, hidden_types=hidden_types)
+        upstream_ids = _get_upstream_nodes(node, include_tables=True, visibility=visibility)
+        downstream_ids = _get_downstream_nodes(node, visibility=visibility)
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
 
-        nodes = self._exclude_hidden_nodes(
-            _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
-        )
-        edges = self._exclude_hidden_edges(
+        nodes = visibility.exclude_nodes(_node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id))
+        edges = visibility.exclude_edges(
             Edge.objects.select_related("source", "target", "dag").filter(
                 team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
             )
         )
 
-        return response.Response(
-            LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
-        )
+        graph = Graph(team_id=self.team_id, dag_id=node.dag_id, visibility=visibility)
+        context = {**self.get_serializer_context(), "node_counts": graph.batch_counts(sorted(all_ids))}
+
+        return response.Response(LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=context).data)
 
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
