@@ -996,7 +996,7 @@ function buildBroadcastPayload(values: {
     isScheduled: boolean
 }): Record<string, any> {
     return {
-        kind: 'broadcast',
+        origin_product: 'broadcasts',
         // Omitted for an already-scheduled broadcast: sending 'draft' on an edit would deactivate it
         // and leave the schedule pointing at a flow that can no longer run.
         ...(values.isScheduled ? {} : { status: 'draft' as const }),

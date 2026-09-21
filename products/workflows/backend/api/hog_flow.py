@@ -815,6 +815,7 @@ def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
 # shows send metrics, a recipient list and one email body. A broadcast carrying a delay, a branch or
 # a second email would still run, but that surface can neither show nor control the extra steps, so
 # the shape is enforced on every write path rather than in the wizard alone.
+BROADCAST_ORIGIN_PRODUCT = HogFlow.OriginProduct.BROADCASTS
 BROADCAST_TRIGGER_TYPE = "batch"
 BROADCAST_ALLOWED_ACTION_TYPES = frozenset({"trigger", "function_email", "exit"})
 
@@ -896,23 +897,6 @@ def _validate_broadcast_shape(trigger_config: dict, actions: list[dict]) -> None
         raise serializers.ValidationError(
             {"actions": f"A broadcast needs exactly one email step, but this one has {email_count}."}
         )
-
-
-def _validate_kind_unchanged(instance: Optional[HogFlow], data: dict) -> None:
-    # Kind decides which editor opens and which metrics are collected, and existing runs were recorded
-    # under the old one. Flipping it would strand a broadcast's send history behind the workflow editor,
-    # or drop a multi-step workflow into a surface that cannot render it.
-    if instance is None or "kind" not in data or data["kind"] == instance.kind:
-        return
-    raise serializers.ValidationError(
-        {
-            "kind": (
-                "A workflow's kind is fixed when it is created. A broadcast and an ordinary workflow have "
-                "different editors and different metrics, so one cannot be converted into the other. "
-                "Create a new one instead."
-            )
-        }
-    )
 
 
 def _normalize_slack_channel_filters(filters: dict) -> None:
@@ -2883,7 +2867,6 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "created_at",
             "created_by",
             "updated_at",
-            "kind",
             "trigger",
             "trigger_masking",
             "conversion",
@@ -2971,16 +2954,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         choices=HogFlow.State.choices,
         required=False,
         help_text="draft (no execution), active (live), archived (disabled).",
-    )
-    kind = serializers.ChoiceField(
-        choices=HogFlow.Kind.choices,
-        required=False,
-        allow_null=True,
-        help_text=(
-            "UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or "
-            "scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for "
-            "ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast."
-        ),
     )
     trigger_masking = HogFlowMaskingSerializer(
         required=False,
@@ -3218,7 +3191,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_at",
             "created_by",
             "updated_at",
-            "kind",
             "trigger",
             "trigger_masking",
             "conversion",
@@ -3267,9 +3239,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         instance = cast(Optional[HogFlow], self.instance)
         is_draft = self.context.get("is_draft")
 
-        # Ahead of the action checks: a kind change is rejected on its own terms, whatever the graph holds.
-        _validate_kind_unchanged(instance, data)
-
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
         # recovery is keyed by action id, so a forged duplicate id could otherwise pull another action's
@@ -3306,7 +3275,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         data["trigger"] = trigger_actions[0]["config"]
 
         # Enforced here rather than in the wizard, so the API, MCP and the UI all get the same answer.
-        if data.get("kind", instance.kind if instance else None) == HogFlow.Kind.BROADCAST:
+        if data.get("origin_product", instance.origin_product if instance else None) == BROADCAST_ORIGIN_PRODUCT:
             _validate_broadcast_shape(data["trigger"], actions)
 
         # Some triggers are person-less ("row-scoped"): a synced warehouse row, a materialized view row,
@@ -3874,7 +3843,7 @@ class HogFlowFilterSet(FilterSet):
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status", "kind"]
+        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -4010,10 +3979,10 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
             ),
             OpenApiParameter(
-                "exclude_kind",
+                "exclude_origin_product",
                 OpenApiTypes.STR,
-                enum=HogFlow.Kind.values,
-                description="Drop workflows of this kind from the results, e.g. `broadcast` for a list that has its own surface.",
+                enum=HogFlow.OriginProduct.values,
+                description="Drop workflows owned by this product surface, e.g. `broadcasts` for a list that has its own.",
             ),
             OpenApiParameter(
                 "trigger",
@@ -4173,19 +4142,19 @@ class HogFlowViewSet(
                         queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
                     )
 
-            exclude_kind = self.request.GET.get("exclude_kind")
-            if exclude_kind:
-                if exclude_kind not in HogFlow.Kind.values:
+            exclude_origin_product = self.request.GET.get("exclude_origin_product")
+            if exclude_origin_product:
+                if exclude_origin_product not in HogFlow.OriginProduct.values:
                     raise exceptions.ValidationError(
-                        {"exclude_kind": f"Must be one of: {', '.join(HogFlow.Kind.values)}"}
+                        {"exclude_origin_product": f"Must be one of: {', '.join(HogFlow.OriginProduct.values)}"}
                     )
-                queryset = queryset.exclude(kind=exclude_kind)
+                queryset = queryset.exclude(origin_product=exclude_origin_product)
 
             if self.request.GET.get("broadcast_eligible") == "true":
                 queryset = annotate_broadcast_shape(queryset).filter(
-                    Q(kind=HogFlow.Kind.BROADCAST)
+                    Q(origin_product=BROADCAST_ORIGIN_PRODUCT)
                     | Q(
-                        kind__isnull=True,
+                        origin_product__isnull=True,
                         _has_batch_trigger=True,
                         _email_step_count=1,
                         _has_other_step=False,

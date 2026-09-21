@@ -73,9 +73,9 @@ export function isBroadcastShaped(flow: { trigger?: unknown; actions?: unknown }
     return flowActions.filter((action) => action.type === 'function_email').length === 1
 }
 
-// Read-only here: the wizard would rewrite the graph, and the API refuses to change a flow's kind.
-export function isEligibleWorkflow(broadcast: { kind?: string | null }): boolean {
-    return broadcast.kind !== 'broadcast'
+// Read-only here: the wizard would rewrite the graph, and origin_product cannot change after create.
+export function isEligibleWorkflow(broadcast: { origin_product?: string | null }): boolean {
+    return broadcast.origin_product !== 'broadcasts'
 }
 
 export function getBroadcastStatus(

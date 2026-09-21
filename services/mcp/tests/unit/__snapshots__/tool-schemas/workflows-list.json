@@ -14,25 +14,13 @@
             "description": "Filter to workflows created by the user with this uuid.",
             "type": "string"
         },
-        "exclude_kind": {
-            "description": "Drop workflows of this kind from the results, e.g. `broadcast` for a list that has its own surface.",
-            "enum": ["broadcast"],
+        "exclude_origin_product": {
+            "description": "Drop workflows owned by this product surface, e.g. `broadcasts` for a list that has its own.",
+            "enum": ["broadcasts", "loops"],
             "type": "string"
         },
         "id": {
             "type": "string"
-        },
-        "kind": {
-            "anyOf": [
-                {
-                    "enum": ["broadcast"],
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "* `broadcast` - Broadcast"
         },
         "limit": {
             "description": "Number of results to return per page.",
@@ -44,7 +32,7 @@
         },
         "origin_product": {
             "description": "Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
-            "enum": ["loops"],
+            "enum": ["broadcasts", "loops"],
             "type": "string"
         },
         "search": {

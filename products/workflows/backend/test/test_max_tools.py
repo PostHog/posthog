@@ -58,7 +58,7 @@ class TestCreateBroadcastTool(BaseTest):
         assert "sent" in content  # tells the user nothing was sent
 
         hog_flow = await sync_to_async(HogFlow.objects.get)(id=artifact["broadcast_id"])
-        assert hog_flow.kind == "broadcast"
+        assert hog_flow.origin_product == "broadcasts"
         assert hog_flow.status == "draft"
         assert hog_flow.trigger["type"] == "batch"
         assert hog_flow.trigger["filters"]["properties"][0]["key"] == "plan"

@@ -8,9 +8,9 @@ import { isBroadcastReadOnly } from './broadcastWizardLogic'
 const RECURRING_RRULE = 'FREQ=WEEKLY;BYDAY=MO'
 
 const broadcast = (status: string, schedules: { rrule: string; starts_at: string }[] = []): HogFlowApi =>
-    ({ kind: 'broadcast', status, schedules }) as unknown as HogFlowApi
+    ({ origin_product: 'broadcasts', status, schedules }) as unknown as HogFlowApi
 
-const eligibleWorkflow = (status: string): HogFlowApi => ({ kind: null, status }) as unknown as HogFlowApi
+const eligibleWorkflow = (status: string): HogFlowApi => ({ origin_product: null, status }) as unknown as HogFlowApi
 
 const future = (): string => dayjs().add(3, 'day').toISOString()
 const past = (): string => dayjs().subtract(3, 'day').toISOString()

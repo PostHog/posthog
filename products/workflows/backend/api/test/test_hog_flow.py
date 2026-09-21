@@ -435,7 +435,7 @@ class TestHogFlowAPI(APIBaseTest):
         sync_template_to_db(_email_function_template())
         return {
             "name": "September update",
-            "kind": "broadcast",
+            "origin_product": "broadcasts",
             "actions": [
                 {
                     "id": "trigger_node",
@@ -454,153 +454,6 @@ class TestHogFlowAPI(APIBaseTest):
             ],
         }
 
-    def test_kind_is_writable_and_filterable(self):
-        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._broadcast_payload())
-        assert create_response.status_code == 201, create_response.json()
-        assert create_response.json()["kind"] == "broadcast"
-        HogFlow.objects.create(team=self.team, name="Ordinary", created_by=self.user)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?kind=broadcast")
-        assert response.status_code == 200, response.json()
-        assert [flow["kind"] for flow in response.json()["results"]] == ["broadcast"]
-
-        # The workflows list relies on this rather than dropping rows from the page, so the count has
-        # to come out excluding them too, or paging skips ordinary workflows.
-        excluded = self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_kind=broadcast")
-        assert excluded.status_code == 200, excluded.json()
-        assert {flow["name"] for flow in excluded.json()["results"]} == {"Ordinary"}
-        assert excluded.json()["count"] == 1
-
-        assert self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_kind=nope").status_code == 400
-
-    def test_list_filter_by_broadcast_eligible(self):
-        email_action = {"id": "email_node", "type": "function_email", "config": {}}
-        exit_action = {"id": "exit_node", "type": "exit", "config": {}}
-
-        def trigger_action(trigger_type: str) -> dict:
-            return {"id": "trigger_node", "type": "trigger", "config": {"type": trigger_type}}
-
-        HogFlow.objects.create(team=self.team, name="Broadcast", created_by=self.user, kind="broadcast")
-        HogFlow.objects.create(
-            team=self.team,
-            name="Eligible",
-            created_by=self.user,
-            trigger={"type": "batch"},
-            actions=[trigger_action("batch"), email_action, exit_action],
-        )
-        HogFlow.objects.create(
-            team=self.team,
-            name="Two emails",
-            created_by=self.user,
-            trigger={"type": "batch"},
-            actions=[trigger_action("batch"), email_action, dict(email_action, id="email_2"), exit_action],
-        )
-        HogFlow.objects.create(
-            team=self.team,
-            name="Has a delay",
-            created_by=self.user,
-            trigger={"type": "batch"},
-            actions=[
-                trigger_action("batch"),
-                {"id": "wait", "type": "delay", "config": {"delay_duration": "1d"}},
-                email_action,
-                exit_action,
-            ],
-        )
-        HogFlow.objects.create(
-            team=self.team,
-            name="Event trigger",
-            created_by=self.user,
-            trigger={"type": "event"},
-            actions=[trigger_action("event"), email_action, exit_action],
-        )
-        # The `trigger` column is a legacy copy of the trigger action's config and real rows exist
-        # where the two disagree. The API reads the action, so the filter must read it too.
-        HogFlow.objects.create(
-            team=self.team,
-            name="Stale trigger column",
-            created_by=self.user,
-            trigger={"type": "batch"},
-            actions=[trigger_action("event"), email_action, exit_action],
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_eligible=true")
-        assert response.status_code == 200, response.json()
-        assert {flow["name"] for flow in response.json()["results"]} == {"Broadcast", "Eligible"}
-
-    @parameterized.expand(
-        [
-            (
-                "a_second_step",
-                [{"id": "wait", "name": "Wait", "type": "delay", "config": {"delay_duration": "1d"}}],
-                "batch",
-                "takes no other steps",
-            ),
-            (
-                "a_second_email",
-                [
-                    {
-                        "id": "email_2",
-                        "name": "Second email",
-                        "type": "function_email",
-                        "config": {"template_id": "template-email", "inputs": _valid_email_inputs()},
-                    }
-                ],
-                "batch",
-                "exactly one email step",
-            ),
-            ("an_event_trigger", None, "event", "must be 'batch'"),
-        ]
-    )
-    def test_broadcast_rejects(self, _name, extra_actions, trigger_type, expected_message):
-        # The broadcasts UI shows one email, one audience and that send's metrics. A broadcast holding
-        # anything else runs with no way to see or control the extra steps, so every write path refuses it.
-        payload = self._broadcast_payload(extra_actions=extra_actions, trigger_type=trigger_type)
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload)
-
-        assert response.status_code == 400, response.json()
-        assert expected_message in response.json()["detail"]
-
-    def test_graph_endpoint_cannot_add_a_step_to_a_broadcast(self):
-        # The surgical endpoint MCP drives. Without this the agent could grow a broadcast into a
-        # workflow one op at a time, bypassing the full-save shape check.
-        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._broadcast_payload())
-        assert created.status_code == 201, created.json()
-        flow_id = created.json()["id"]
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
-            {
-                "operations": [
-                    {
-                        "op": "add_action",
-                        "action": {
-                            "id": "wait",
-                            "name": "Wait",
-                            "type": "delay",
-                            "config": {"delay_duration": "1d"},
-                        },
-                    }
-                ]
-            },
-        )
-
-        assert response.status_code == 400, response.json()
-        assert "takes no other steps" in response.json()["detail"]
-
-    @parameterized.expand([("broadcast_to_workflow", "broadcast", None), ("workflow_to_broadcast", None, "broadcast")])
-    def test_kind_cannot_change_after_create(self, _name, initial_kind, new_kind):
-        # A converted flow would strand its runs behind the wrong editor and the wrong metrics.
-        stored = HogFlow.objects.create(team=self.team, name="Flow", created_by=self.user, kind=initial_kind)
-
-        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{stored.id}", {"kind": new_kind})
-
-        assert response.status_code == 400, response.json()
-        assert "kind is fixed when it is created" in response.json()["detail"]
-        stored.refresh_from_db()
-        assert stored.kind == initial_kind
-
     def test_list_filter_by_origin_product(self):
         HogFlow.objects.create(team=self.team, name="Loop", created_by=self.user, origin_product="loops")
         HogFlow.objects.create(team=self.team, name="Hand built", created_by=self.user)
@@ -611,6 +464,15 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
         assert response.status_code == 400
+
+        # The workflows list relies on the exclusion rather than dropping rows from the page, so the
+        # count has to come out excluding them too, or paging skips ordinary workflows.
+        excluded = self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_origin_product=loops")
+        assert excluded.status_code == 200, excluded.json()
+        assert {flow["name"] for flow in excluded.json()["results"]} == {"Hand built"}
+        assert excluded.json()["count"] == 1
+
+        assert self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_origin_product=nope").status_code == 400
 
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(

@@ -79,8 +79,8 @@ const PREAMBLE_BASE =
     'The user has the PostHog broadcast wizard open. The creating-broadcasts skill and the workflows MCP ' +
     'tool catalog are included in this context, so you already have what you need to act. Do not spend ' +
     'turns discovering tools, reading skill files, or offering cohorts and other products as the way to ' +
-    'send email. A broadcast is a workflow (hog flow) of kind ' +
-    `"broadcast" with a single email step whose action id is "${EMAIL_ACTION_ID}". The ` +
+    'send email. A broadcast is a workflow (hog flow) whose origin_product is ' +
+    `"broadcasts", with a single email step whose action id is "${EMAIL_ACTION_ID}". The ` +
     'broadcast_email_editor_state item is the current, possibly unsaved email in the editor - prefer it ' +
     'over a fetched definition when reading. '
 

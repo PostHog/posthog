@@ -4107,7 +4107,7 @@ export const workflowLogic = kea<workflowLogicType>([
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             // A broadcast has its own editor, and the graph editor here would let someone add steps the
             // broadcasts surface can neither show nor control. Send them to the page that owns it.
-            if (props.id && 'kind' in originalWorkflow && originalWorkflow.kind === 'broadcast') {
+            if (props.id && 'origin_product' in originalWorkflow && originalWorkflow.origin_product === 'broadcasts') {
                 router.actions.replace(urls.broadcast(props.id))
                 return
             }

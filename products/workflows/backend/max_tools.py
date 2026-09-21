@@ -309,7 +309,7 @@ class CreateBroadcastTool(MaxTool):
         graph = self._build_actions(properties, email_subject, email_html, email_text, sender)
         data: dict[str, Any] = {
             "name": name,
-            "kind": HogFlow.Kind.BROADCAST,
+            "origin_product": HogFlow.OriginProduct.BROADCASTS,
             "status": HogFlow.State.DRAFT,
             "exit_condition": HogFlow.ExitCondition.ONLY_AT_END,
             "actions": graph.actions,
@@ -423,6 +423,6 @@ class CreateBroadcastTool(MaxTool):
         return message, {
             "broadcast_id": str(hog_flow.id),
             "broadcast_name": hog_flow.name,
-            "kind": "broadcast",
+            "origin_product": "broadcasts",
             "status": hog_flow.status,
         }
