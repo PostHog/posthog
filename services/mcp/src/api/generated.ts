@@ -30386,6 +30386,20 @@ export namespace Schemas {
       VisitingPostHogWeb: 'Visiting PostHog web',
     } as const;
 
+    /**
+     * * `bug` - Bug
+     * * `feature` - Feature
+     * * `general` - General
+     */
+    export type DesktopFeedbackTypeEnum = typeof DesktopFeedbackTypeEnum[keyof typeof DesktopFeedbackTypeEnum];
+
+
+    export const DesktopFeedbackTypeEnum = {
+      Bug: 'bug',
+      Feature: 'feature',
+      General: 'general',
+    } as const;
+
     export interface DesktopFeedbackRequest {
       /**
          * Feedback text entered by the user.
@@ -30402,6 +30416,12 @@ export namespace Schemas {
          * @maxLength 100
          */
       feedback_view: string;
+      /** Feedback type selected by the user: bug, feature, or general.
+       *
+       * * `bug` - Bug
+       * * `feature` - Feature
+       * * `general` - General */
+      feedback_type?: DesktopFeedbackTypeEnum;
       /**
          * Task that was active when the feedback form opened.
          * @maxLength 100
