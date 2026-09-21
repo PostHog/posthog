@@ -48,11 +48,16 @@ export const scene: SceneExport = {
 }
 
 export default function TracingScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const sceneLogic = tracingSceneLogic()
     // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
+
+    if (featureFlags[FEATURE_FLAGS.TRACING_UI_V2]) {
+        return <p>Tracing UI v2</p>
+    }
 
     // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
     // resolve them from context — the same components work inside an embedded viewer
