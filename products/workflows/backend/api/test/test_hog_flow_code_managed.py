@@ -83,10 +83,7 @@ class TestCodeManagedHogFlow(APIBaseTest):
         body = response.json()
         assert response.status_code == status.HTTP_403_FORBIDDEN, body
         assert body["code"] == "immutable"
-        assert "workflows/welcome.ts" in body["detail"]
-        assert "github.com/example/flows" in body["detail"]
-        assert "next push" in body["extra"]["why"]
-        assert "managed_by: gui" in body["extra"]["fix"]
+        assert set(body["extra"]) == {"why", "fix", "source_repository", "source_path"}
         assert body["extra"]["source_repository"] == "github.com/example/flows"
         assert body["extra"]["source_path"] == "workflows/welcome.ts"
 
@@ -109,6 +106,9 @@ class TestCodeManagedHogFlow(APIBaseTest):
     @parameterized.expand(
         [
             ("mcp_transport", {"x-posthog-client": "mcp"}, True),
+            # The MCP server forwards this header from the caller with no allow-list, so an agent can
+            # declare itself the CLI even on an API key. The transport is what the guard has to read.
+            ("cli_consumer_over_mcp", {"x-posthog-client": "mcp", "x-posthog-mcp-consumer": "posthog-cli"}, True),
             # A browser can set both of the headers `cli` is resolved from, so the guard must not take
             # the claim from a session-authenticated request.
             ("cli_user_agent_from_the_browser", {"user-agent": "posthog-cli"}, False),
@@ -132,6 +132,8 @@ class TestCodeManagedHogFlow(APIBaseTest):
             # Operating a workflow is not defining it: the file says what the workflow is, not what is
             # running right now. resume_email_sending is the sharpest of these, because PostHog itself
             # applies the pause and the endpoint is the only way out of it.
+            # Both answer 400 on an empty body: the endpoint's own validation, which it only reaches
+            # once the lock has let the request through.
             ("cancel_invocations", "/invocations/cancel"),
             ("resume_email_sending", "/resume_email_sending"),
         ]
@@ -139,7 +141,7 @@ class TestCodeManagedHogFlow(APIBaseTest):
     def test_operating_a_code_managed_workflow_is_not_refused(self, _name: str, suffix: str) -> None:
         response = self.client.post(self._url(suffix), {})
 
-        assert response.status_code != status.HTTP_403_FORBIDDEN, response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json().get("code") != "immutable", response.json()
 
     def test_a_schedule_write_is_refused_because_the_file_owns_the_trigger(self) -> None:
@@ -148,32 +150,26 @@ class TestCodeManagedHogFlow(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert response.json()["code"] == "immutable"
 
-    def test_an_mcp_request_declaring_the_cli_consumer_is_refused(self) -> None:
-        # The MCP server forwards this header from the caller without an allow-list, so an agent can
-        # declare itself the CLI. The transport is what the guard has to read.
-        client, auth = self._api_key_client()
+    @parameterized.expand(
+        [
+            ("the_source", {"source_repository": "github.com/example/not-mine"}, "source_repository"),
+            ("code_ownership", {"managed_by": "code"}, "managed_by"),
+            # A form body spread into a PATCH must not move the lock, so the editor hears the refusal
+            # rather than having the field silently stripped.
+            ("code_ownership_in_a_form_body", {"managed_by": "code", "name": "Claimed"}, "managed_by"),
+        ]
+    )
+    def test_a_web_request_cannot_claim(self, _name: str, payload: dict, field: str) -> None:
+        gui_workflow = self._create_workflow(managed_by=None)
+        gui_workflow.source_repository = None
+        gui_workflow.save()
 
-        response = client.patch(
-            self._url(),
-            {"name": "Renamed by an agent"},
-            headers={**auth, "x-posthog-client": "mcp", "x-posthog-mcp-consumer": "posthog-cli"},
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        assert response.json()["code"] == "immutable"
-
-    def test_the_source_of_a_workflow_cannot_be_claimed_from_the_web(self) -> None:
-        gui_workflow = HogFlow.objects.create(team=self.team, name="Plain", actions=[TRIGGER_ACTION, EXIT_ACTION])
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}",
-            {"source_repository": "github.com/example/not-mine"},
-        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}", payload)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == "immutable", response.json()
         gui_workflow.refresh_from_db()
-        assert gui_workflow.source_repository is None
+        assert getattr(gui_workflow, field) != payload[field]
 
     def test_created_via_is_stamped_from_the_request_and_not_from_the_payload(self) -> None:
         response = self.client.post(
@@ -243,7 +239,9 @@ class TestCodeManagedHogFlow(APIBaseTest):
         gui_workflow.refresh_from_db()
         assert gui_workflow.name == "Renamed in the UI"
 
-    def test_a_mixed_payload_that_moves_the_lock_is_refused(self) -> None:
+    def test_a_push_reclaims_a_released_workflow_in_one_write(self) -> None:
+        # The refusal, the help text and the docs all promise that the next push claims the workflow
+        # back, and a push sends the ownership and the content together.
         gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)
         client, auth = self._api_key_client()
 
@@ -253,20 +251,7 @@ class TestCodeManagedHogFlow(APIBaseTest):
             headers=auth,
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == "immutable", response.json()
+        assert response.status_code == status.HTTP_200_OK, response.json()
         gui_workflow.refresh_from_db()
-        assert gui_workflow.managed_by == HogFlow.ManagedBy.GUI
-        assert gui_workflow.name == "Welcome"
-
-    def test_a_gui_workflow_cannot_claim_code_ownership_from_the_web(self) -> None:
-        gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}", {"managed_by": "code"}
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == "immutable", response.json()
-        gui_workflow.refresh_from_db()
-        assert gui_workflow.managed_by == HogFlow.ManagedBy.GUI
+        assert gui_workflow.managed_by == HogFlow.ManagedBy.CODE
+        assert gui_workflow.name == "Claimed by a push"

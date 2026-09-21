@@ -366,22 +366,19 @@ Nothing writes the three source columns yet; the CLI that pushes workflows does.
 
 ### What the API allows on a code-managed workflow
 
-`HogFlowViewSet.check_object_permissions` refuses writes, and `bulk_delete` carries the same check because it is `detail=False` and never calls `get_object()`.
-The rule is an allow-list over the action and the whole payload, not over a set of field names: half the write actions carry bodies that name no workflow field at all, so a field-based check would let `publish` and `restore_revision` replace the definition between them.
+`HogFlowViewSet.check_object_permissions` carries the refusal, and `bulk_delete` repeats it because it is `detail=False` and never calls `get_object()`.
+The rule is an allow-list over the action and the whole payload, not over a set of field names.
 
-A request whose `get_event_source` is `api` or `cli`, and which does not authenticate with a session cookie, may write anything.
-That is the client that pushes the file.
+A request that `is_code_managed_writer` accepts may write anything. That is the client that pushes the file.
 Every other caller, including the editor and every MCP surface, may do exactly two things:
 
-- `PATCH` `status` on its own. Enable, disable and archive keep working, so a person can stop a workflow without a deploy.
-- `PATCH` `managed_by` on its own, which hands the workflow back to the UI. A payload that would move the lock while carrying other fields is refused with `code="immutable"`, so a form body spread into a `PATCH` cannot release it by accident. A payload that re-sends the stored value passes: the editor spreads the whole loaded workflow into every save, and a value that does not move releases nothing.
+- `PATCH` `status` on its own, so enable, disable and archive keep working without a deploy.
+- `PATCH` `managed_by` on its own, which hands the workflow back to the UI.
 
-Everything else is refused with a 403 whose body names the recorded file and the way out.
-The refusal carries the status in the HTTP status, the message in `detail`, and `why` and `fix` in `extra`.
-
-Operating a workflow is not defining it, so the operational actions stay open: `rerun`, `run`, `invocations`, `cancel_invocations`, `batch_jobs`, `cancel_batch_job` and `resume_email_sending`.
-The file says what the workflow is, not what is running right now, and a deliverability pause is PostHog's to place and the customer's to lift.
+The operational actions stay open as well: `rerun`, `run`, `invocations`, `cancel_invocations`, `batch_jobs`, `cancel_batch_job` and `resume_email_sending`.
 `schedules` and `schedule_detail` are refused, because a schedule is part of the trigger and the trigger is in the file.
+
+Everything else is refused with a 403 that names the recorded file, with `why` and `fix` in `extra`.
 
 Three costs of that rule, all deliberate:
 
@@ -391,16 +388,10 @@ Three costs of that rule, all deliberate:
 
 ### What the editor does
 
-`workflowLogic` derives `workflowEditDisabledReason` and `canEditWorkflow` from the loaded workflow.
+`workflowLogic` derives `workflowEditDisabledReason` and `canEditWorkflow` from the loaded workflow, and every edit control reads one of them.
 Code ownership shadows the access level, because naming the file is more useful than telling someone their access is too low.
 A missing `user_access_level` is treated as no opinion rather than as no access, so a response without it does not lock the editor.
-
-`canEditWorkflow` guards the canvas mutation listeners (`setWorkflowInfo`, `setWorkflowActionConfig`, `partialSetWorkflowActionConfig`, `setWorkflowAction`, `setWorkflowActionEdges`, `setWorkflowValue`) and the auto-save, rather than the save loader.
-The guard has to sit there because the enable button used to save the whole graph, so a guard on the loader would have blocked the status control as well.
-That control now sends only the status.
-The canvas itself stays interactive, because per-step metrics and logs are only reachable by selecting a node.
-
-`CodeManagedTag` renders the badge on the workflow scene and in the list, and returns nothing for a workflow this app owns.
+`CodeManagedTag` renders the badge on the workflow scene and in the list.
 
 ## Common pitfalls
 
