@@ -1,5 +1,6 @@
 import { ArrowSquareOut, ArrowsClockwise, Camera } from "@phosphor-icons/react";
 import { avatarColor } from "@posthog/core/auth/avatarColor";
+import { getGravatarRefresh } from "@posthog/core/auth/gravatarRefresh";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { Avatar, AvatarFallback, Button, cn } from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -195,12 +196,19 @@ export function AccountSection() {
   const { data: user } = useCurrentUser({ client });
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const candidateUrl = useGravatarUrl(user?.email, GRAVATAR_IMAGE_SIZE);
-  const refresh = useGravatarRefreshStore((state) => state.refresh);
   const probe = useImageProbe(candidateUrl);
 
   const handleRefresh = useCallback(() => {
-    if (user?.email) refresh(user.email);
-  }, [refresh, user?.email]);
+    if (!user?.email) return;
+    const { refreshedAtByEmail, setRefreshedAt } =
+      useGravatarRefreshStore.getState();
+    const refresh = getGravatarRefresh(
+      user.email,
+      refreshedAtByEmail,
+      Date.now(),
+    );
+    if (refresh) setRefreshedAt(refresh.email, refresh.refreshedAt);
+  }, [user?.email]);
 
   const handleOpenGravatar = useCallback(() => {
     window.open(GRAVATAR_MANAGE_URL, "_blank");
