@@ -400,12 +400,12 @@ tools:
         title: Scan sessions against a prompt
         description: >
             Answer a one-off question about session recordings you already have in hand, without creating a scanner
-            first. Pass the `session_ids` and a `prompt`; nothing is saved and nothing runs on a schedule. Prefer this
-            over `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is
-            for a standing watch over future recordings, and creating one to answer a single question leaves a scheduled
-            sweep behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or
-            `summarizer` with the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want
-            structured output. `summarizer` produces PostHog's own AI summary of a recording, the same one the Summarize
+            first. Pass the `session_ids` and a `prompt`; no scheduled scanner is created, though the observations it
+            produces persist and are reused on a repeat call. Prefer this over `vision-scanners-create` whenever you
+            have specific sessions and a question about them — a scanner is for a standing watch over future
+            recordings, and creating one to answer a single question leaves a scheduled sweep behind. `scanner_type`
+            defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or `summarizer` with the matching
+            `scanner_config` (`tags`, `scale`, optional `length`) when you want structured output. `summarizer` produces PostHog's own AI summary of a recording, the same one the Summarize
             button in the replay player runs, so use it for "summarize this recording" and "what happened in this
             session". Results are not returned inline: the response gives a `scan_id`, which is a scanner id, and you
             read the observations from `vision-scanners-observations-list` with `scanner_id` set to it, polling until
