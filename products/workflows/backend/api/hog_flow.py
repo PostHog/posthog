@@ -196,6 +196,7 @@ from products.workflows.backend.utils.durations import (
     is_signed_duration,
 )
 from products.workflows.backend.utils.email_sending_tiers import (
+    MIN_EMAIL_SENDING_TIER,
     EmailSendingTierLimits,
     get_email_sending_tier_limits,
     max_email_sending_tier,
@@ -2229,17 +2230,19 @@ def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
         return cached
 
     resolved = resolve_team_email_sending_tier(team_id)
+    # An emptied tier table reads as top tier -1; clamp so the UI still gets one row of fallback caps.
+    top_tier = max(max_email_sending_tier(), MIN_EMAIL_SENDING_TIER)
     now = timezone.now()
     allowance = EmailSendingAllowance(
         tier=resolved.tier,
-        max_tier=max_email_sending_tier(),
+        max_tier=top_tier,
         emails_per_hour=resolved.limits.per_hour,
         emails_per_day=resolved.limits.per_day,
         max_batch_audience=resolved.limits.max_batch_audience,
         emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
         emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
         enforced=resolved.enforced,
-        tiers=tuple(get_email_sending_tier_limits(tier) for tier in range(max_email_sending_tier() + 1)),
+        tiers=tuple(get_email_sending_tier_limits(tier) for tier in range(top_tier + 1)),
     )
     cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
     return allowance

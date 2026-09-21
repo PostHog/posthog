@@ -489,22 +489,29 @@ function SendingTierInfo({ allowance }: { allowance: EmailSendingAllowanceApi })
             overlay={<SendingTierTable tiers={allowance.tiers} currentTier={allowance.tier} />}
             onMouseEnterInside={() => setVisible(true)}
             onMouseLeaveInside={() => setVisible(false)}
+            onClickOutside={() => setVisible(false)}
             placement="bottom-start"
             showArrow
         >
-            {/* LemonButton does not forward focus events, so the span catches the bubbled ones for keyboard users. */}
-            <span className="flex" onFocus={() => setVisible(true)} onBlur={() => setVisible(false)}>
-                <LemonButton
-                    icon={<IconInfo />}
-                    size="xsmall"
-                    type="tertiary"
-                    aria-label="Show what each sending tier allows"
-                    onMouseEnter={() => setVisible(true)}
-                    onMouseLeave={() => setVisible(false)}
-                    onClick={() => setVisible(!visible)}
-                    data-attr="workflows-sending-tier-info"
-                />
-            </span>
+            {/* The overlay renders in a portal, so blur cannot decide when to close: a keyboard user
+                who tabs toward the docs link would blur the trigger first. Enter or Space pins the
+                popover open until Escape or a click outside. */}
+            <LemonButton
+                icon={<IconInfo />}
+                size="xsmall"
+                type="tertiary"
+                aria-label="Show what each sending tier allows"
+                aria-expanded={visible}
+                onMouseEnter={() => setVisible(true)}
+                onMouseLeave={() => setVisible(false)}
+                onClick={() => setVisible(true)}
+                onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                        setVisible(false)
+                    }
+                }}
+                data-attr="workflows-sending-tier-info"
+            />
         </Popover>
     )
 }
