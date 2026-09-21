@@ -123,6 +123,12 @@ BILLING_GUIDANCE_ERRORS: dict[str, type[APIException]] = {
     BillingDateRangeTooLong.default_code: BillingDateRangeTooLong,
 }
 
+BILLING_VALIDATION_ERROR_MESSAGES = {
+    "required": "This field is required.",
+    "invalid_input": "Invalid value. Check this parameter's format and allowed values.",
+    "invalid_choice": "Select a valid option for this parameter.",
+}
+
 
 BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
 BILLING_ACCESS_DENIED_MESSAGE = (
@@ -1339,10 +1345,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Raise the named exception for an error billing returned on a usage, spend or export request.
 
         handle_billing_service_error raises with the status in its message and the parsed body as
-        the third argument. A guidance code maps to its named exception, whose text the page owns;
-        anything else is a 400 or a 502 with a fixed message. Billing's body goes to the log and
-        nowhere else. An exception of any other shape is not billing's answer and is re-raised as
-        it is.
+        the third argument. Known guidance and validation codes use controlled messages because
+        upstream detail can contain caller input or internal data. Unknown errors remain a generic
+        400 or 502. An exception of any other shape is not billing's answer and is re-raised as it is.
         """
         status_match = re.search(r"status code: (\d+)", str(error.args[0]) if error.args else "")
         if not status_match:
@@ -1361,8 +1366,17 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Billing evaluates the same permission from its own cache, so flag rollout windows
             # can still return a downstream permission denial.
             raise PermissionDenied(HasBillingUsageSpendReadAccess.message) from error
-        if code in BILLING_GUIDANCE_ERRORS:
+        if isinstance(code, str) and code in BILLING_GUIDANCE_ERRORS:
             raise BILLING_GUIDANCE_ERRORS[code]() from error
+        if upstream_status == 400 and isinstance(body, dict) and body.get("type") == "validation_error":
+            field = body.get("attr")
+            if (
+                isinstance(field, str)
+                and field in BillingUsageRequestSerializer().fields
+                and isinstance(code, str)
+                and code in BILLING_VALIDATION_ERROR_MESSAGES
+            ):
+                raise ValidationError({field: [BILLING_VALIDATION_ERROR_MESSAGES[code]]}, code=code) from error
         if 400 <= upstream_status < 500:
             raise BillingQueryRejected() from error
         raise BillingServiceError() from error

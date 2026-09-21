@@ -146,6 +146,12 @@ return distinct API-visible error details. Agents should stop on true authorizat
 failures, but they can often recover from a bad project/team filter if the response says
 the requested scope is unavailable.
 
+The billing usage/spend proxy also returns recognized field-validation failures as
+standard DRF validation errors (`type`, `code`, `attr`, `detail`). It keeps known
+codes and public request fields, replaces upstream messages with controlled text,
+and masks unrecognized failures. The shared MCP client handles these errors without
+a billing-specific tool wrapper.
+
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 
