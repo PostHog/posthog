@@ -373,6 +373,40 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     """
 
 
+def _orphaned_candidate_runs_sql() -> str:
+    """Runs holding a ``failed`` batch that still have claimable batches behind it.
+
+    Split out from its caller so the plan-shape test can EXPLAIN exactly what runs,
+    the same way :func:`_state_claim_candidates_sql` is pinned.
+    """
+    return f"""
+        WITH stuck_runs AS (
+            SELECT
+                b.run_uuid,
+                b.team_id,
+                b.schema_id,
+                MIN(b.created_at) AS oldest_created_at,
+                count(*) AS non_terminal_batches
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND b.latest_state IN ('pending', 'waiting_retry')
+            GROUP BY b.run_uuid, b.team_id, b.schema_id
+        )
+        SELECT r.run_uuid, r.team_id, r.schema_id, r.non_terminal_batches
+        FROM stuck_runs r
+        WHERE EXISTS (
+            SELECT 1
+            FROM {BATCH_TABLE} bf
+            WHERE bf.run_uuid = r.run_uuid
+              AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND bf.latest_state = 'failed'
+            OFFSET 0
+        )
+        ORDER BY r.oldest_created_at ASC
+        LIMIT %(limit)s
+    """
+
+
 def _stranded_candidate_runs_sql() -> str:
     """Candidate selection for the stranded-run sweep: aggregate first, then gate per run.
 
@@ -1334,42 +1368,22 @@ class BatchQueue:
         fallen behind.
 
         Shaped like :func:`_stranded_candidate_runs_sql`: aggregate the bounded
-        non-terminal scan into runs first, then one ``sb_run_gate_idx`` probe
-        per candidate run. Gating the raw batch rows instead turns the failed
-        probe into a hash anti-join whose hash side is every failed batch in the
+        claimable scan into runs first, then one ``sb_run_gate_idx`` probe per
+        candidate run. Gating the raw batch rows instead turns the failed probe
+        into a hash anti-join whose hash side is every failed batch in the
         window, which is exactly the shape that melted down under a failure
-        storm.
+        storm. The ``OFFSET 0`` fence is what holds the probe shape.
+
+        The candidate states are exactly ``sb_claimable_idx``'s, and must stay
+        that way. Widening them to every non-terminal state (adding 'waiting'
+        and 'executing') puts the scan outside that partial index, and the
+        planner answers it with a parallel sequential scan of every partition
+        instead — 12x the cost on the production queue, once every reconcile
+        interval. It also loses nothing: a blocked batch is one no consumer
+        could claim, and 'executing' rows belong to the stale-executing sweep.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(
-                f"""
-                WITH stuck_runs AS (
-                    SELECT
-                        b.run_uuid,
-                        b.team_id,
-                        b.schema_id,
-                        MIN(b.created_at) AS oldest_created_at,
-                        count(*) AS non_terminal_batches
-                    FROM {BATCH_TABLE} b
-                    WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                      AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
-                    GROUP BY b.run_uuid, b.team_id, b.schema_id
-                )
-                SELECT r.run_uuid, r.team_id, r.schema_id, r.non_terminal_batches
-                FROM stuck_runs r
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM {BATCH_TABLE} bf
-                    WHERE bf.run_uuid = r.run_uuid
-                      AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                      AND bf.latest_state = 'failed'
-                    OFFSET 0
-                )
-                ORDER BY r.oldest_created_at ASC
-                LIMIT %(limit)s
-                """,
-                {"limit": limit},
-            )
+            await cur.execute(_orphaned_candidate_runs_sql(), {"limit": limit})
             rows = await cur.fetchall()
 
         return [

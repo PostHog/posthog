@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     PendingBatch,
+    _orphaned_candidate_runs_sql,
     build_status_dual_write_sql,
 )
 
@@ -1059,8 +1060,19 @@ class TestGetRunsWithOrphanedBatches:
         assert await BatchQueue.get_runs_with_orphaned_batches(conn, limit=10) == []
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("leftover_state", ["pending", "waiting_retry", "executing"])
-    async def test_finds_every_non_terminal_leftover_state(self, conn, leftover_state):
+    @pytest.mark.parametrize(
+        "leftover_state,expected",
+        [
+            ("pending", [("run-1", 1)]),
+            ("waiting_retry", [("run-1", 1)]),
+            # Deliberately not claimable, and outside sb_claimable_idx. Widening the
+            # candidate states to reach it costs a seq scan of every partition.
+            ("waiting", []),
+            # A consumer is working this one, or the stale-executing sweep owns it.
+            ("executing", []),
+        ],
+    )
+    async def test_finds_the_leftover_states_a_consumer_could_have_claimed(self, conn, leftover_state, expected):
         failed = await _insert_batch(conn, batch_index=0)
         await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
         leftover = await _insert_batch(conn, batch_index=1)
@@ -1068,7 +1080,31 @@ class TestGetRunsWithOrphanedBatches:
 
         orphaned = await BatchQueue.get_runs_with_orphaned_batches(conn, limit=10)
 
-        assert [(r.run_uuid, r.non_terminal_batches) for r in orphaned] == [("run-1", 1)]
+        assert [(r.run_uuid, r.non_terminal_batches) for r in orphaned] == expected
+
+    @pytest.mark.asyncio
+    async def test_candidate_scan_can_use_the_claimable_index(self, conn):
+        # The candidate states must stay exactly sb_claimable_idx's. Adding 'waiting' or
+        # 'executing' puts the scan outside the partial index and the planner falls back to
+        # a parallel seq scan of every partition — 12x the cost on the production queue,
+        # once per reconcile interval.
+        failed = await _insert_batch(conn, batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await _insert_batch(conn, batch_index=1)
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute(
+                "EXPLAIN (FORMAT TEXT) " + _orphaned_candidate_runs_sql(),
+                {"limit": 100},
+            )
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+
+        assert "sb_claimable_idx" in plan
+        # The failed-run gate stays one probe per candidate run rather than a hash
+        # anti-join over every failed batch in the window.
+        assert "sb_run_gate_idx" in plan
 
     @pytest.mark.asyncio
     async def test_oldest_run_first_so_the_limit_cannot_starve_the_backlog(self, conn):
