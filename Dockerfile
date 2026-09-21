@@ -291,6 +291,7 @@ ENV LANG=C.UTF-8
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
+    "curl" \
     "git" \
     "libpq5" \
     "libxmlsec1=1.2.37-2" \
