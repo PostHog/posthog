@@ -25,7 +25,7 @@ import {
 import { boundPersistedMcpResult } from "@posthog/shared";
 import type { McpServerConfig, McpSettings } from "./config";
 import { McpError } from "./errors";
-import { renderMcpToolCall } from "./render";
+import { renderMcpToolCall, stripTerminalSequences } from "./render";
 import { convertJsonSchemaToTypebox } from "./schema";
 import { hashServerConfig, type McpToolCache } from "./tool-cache";
 
@@ -214,6 +214,14 @@ export function truncateBridgedContent(
       `Narrow the query/arguments (filters, LIMIT, pagination) to see more.]`;
     return { type: "text", text: truncation.content + note };
   });
+}
+
+/** Server-provided titles come from `tools/list`, so they are untrusted text. */
+function resolveToolTitle(tool: McpToolDefinition): string {
+  const raw = tool.title ?? tool.annotations?.title;
+  if (raw === undefined) return tool.name;
+  const cleaned = stripTerminalSequences(raw);
+  return cleaned.length > 0 ? cleaned : tool.name;
 }
 
 export interface McpResultMeta {
@@ -496,7 +504,7 @@ export class ToolBridge {
         serverName,
         mcpName: tool.name,
         ...(tool.title || tool.annotations?.title
-          ? { title: tool.title ?? tool.annotations?.title }
+          ? { title: resolveToolTitle(tool) }
           : {}),
         description,
       });
@@ -534,7 +542,7 @@ export class ToolBridge {
           name: buildToolName(this.settings.toolPrefix, serverName, tool.name),
           mcpName: tool.name,
           ...(tool.title || tool.annotations?.title
-            ? { title: tool.title ?? tool.annotations?.title }
+            ? { title: resolveToolTitle(tool) }
             : {}),
           description: buildDescription(tool),
         })),
@@ -597,13 +605,13 @@ export class ToolBridge {
 
     this.pi.registerTool({
       name: piName,
-      label: tool.title ?? tool.annotations?.title ?? tool.name,
+      label: resolveToolTitle(tool),
       description,
       parameters: convertJsonSchemaToTypebox(tool.inputSchema),
 
       renderCall(args, theme, context) {
         return renderMcpToolCall(
-          `${serverName} - ${tool.title ?? tool.annotations?.title ?? tool.name}`,
+          `${serverName} - ${resolveToolTitle(tool)}`,
           args,
           theme,
           context.expanded,
@@ -630,7 +638,9 @@ export class ToolBridge {
                 structuredContent,
                 _meta,
               },
-              tool.title ?? tool.annotations?.title,
+              (tool.title ?? tool.annotations?.title)
+                ? resolveToolTitle(tool)
+                : undefined,
             ),
           },
         };
