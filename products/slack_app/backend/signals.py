@@ -49,10 +49,7 @@ def _onboard_install(integration_id: int, *, wants_inbox: bool) -> None:
     """
     if wants_inbox and _start_inbox_onboarding_workflow(integration_id):
         return
-    _dispatch_install_welcome(integration_id)
 
-
-def _dispatch_install_welcome(integration_id: int) -> None:
     # Deferred: `tasks` imports `api`, which pulls the whole agent stack onto whatever
     # process imports it, and this receiver is wired from AppConfig.ready().
     from products.slack_app.backend.tasks import send_slack_install_welcome  # noqa: PLC0415

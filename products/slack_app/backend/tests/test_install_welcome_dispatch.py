@@ -1,8 +1,6 @@
 from unittest.mock import patch
 
-from django.test import TestCase
-
-from parameterized import parameterized
+from django.test import SimpleTestCase, TestCase
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
@@ -15,6 +13,7 @@ from products.slack_app.backend.tasks import send_slack_install_welcome
 
 WELCOME_ONLY_SCOPES = set(REQUIRED_SLACK_SCOPES) - set(INBOX_ONBOARDING_REQUIRED_SCOPES)
 INBOX_SCOPES = set(REQUIRED_SLACK_SCOPES) | set(INBOX_ONBOARDING_REQUIRED_SCOPES)
+WELCOME_MODULE = "products.slack_app.backend.services.slack_welcome_messages"
 
 
 class _InstallTestBase(TestCase):
@@ -90,38 +89,41 @@ class TestInstallWelcomeDispatch(_InstallTestBase):
 class TestSendInstallWelcomeTask(_InstallTestBase):
     """What the task does once it reaches a worker."""
 
-    @parameterized.expand([("deleted_row", None), ("wrong_kind", "github")])
     @patch("products.slack_app.backend.tasks.send_install_welcome")
-    def test_nothing_to_greet_is_a_no_op(self, _name, kind, mock_send):
-        integration_id = 987654321
-        if kind is not None:
-            integration_id = Integration.objects.create(team=self.team, kind=kind, integration_id="G1").id
+    def test_a_deleted_integration_is_a_no_op(self, mock_send):
+        send_slack_install_welcome(integration_id=987654321)
 
-        send_slack_install_welcome(integration_id=integration_id)
+        mock_send.assert_not_called()
+
+    @patch("products.slack_app.backend.tasks.send_install_welcome")
+    def test_a_non_slack_integration_is_a_no_op(self, mock_send):
+        github = Integration.objects.create(team=self.team, kind="github", integration_id="G1")
+
+        send_slack_install_welcome(integration_id=github.id)
 
         mock_send.assert_not_called()
 
 
-class TestSendInstallWelcome(_InstallTestBase):
+class TestSendInstallWelcome(SimpleTestCase):
     """The DM itself: who gets it, and what it carries."""
 
     def setUp(self):
-        self.integration = Integration.objects.create(
-            team=self.team,
+        # Unsaved: the DM reads `config` and `integration_id` only.
+        self.integration = Integration(
             kind="slack",
             integration_id="T_WELCOME",
             config={"authed_user": {"id": "U_INSTALLER"}, "app_id": "A_WELCOME"},
-            sensitive_config={"access_token": "xoxb-test"},
         )
 
-    def _send(self, *, enabled: bool = True):
-        module = "products.slack_app.backend.services.slack_welcome_messages"
+    def _send(self, *, enabled: bool = True, side_effect: Exception | None = None):
         with (
-            patch(f"{module}.is_slack_app_assistant_enabled", return_value=enabled),
-            patch(f"{module}.SlackIntegration") as slack_cls,
+            patch(f"{WELCOME_MODULE}.is_slack_app_assistant_enabled", return_value=enabled),
+            patch(f"{WELCOME_MODULE}.SlackIntegration") as slack_cls,
         ):
+            post = slack_cls.return_value.client.chat_postMessage
+            post.side_effect = side_effect
             send_install_welcome(self.integration)
-        return slack_cls.return_value.client.chat_postMessage
+        return post
 
     def test_dms_the_installer(self):
         post = self._send()
@@ -139,10 +141,4 @@ class TestSendInstallWelcome(_InstallTestBase):
         assert self._send().call_count == 0
 
     def test_a_slack_failure_does_not_raise(self):
-        module = "products.slack_app.backend.services.slack_welcome_messages"
-        with (
-            patch(f"{module}.is_slack_app_assistant_enabled", return_value=True),
-            patch(f"{module}.SlackIntegration") as slack_cls,
-        ):
-            slack_cls.return_value.client.chat_postMessage.side_effect = Exception("slack down")
-            send_install_welcome(self.integration)
+        self._send(side_effect=Exception("slack down"))
