@@ -158,6 +158,7 @@ class TestIncrementalMaterialization:
         state = get_incremental_state(asaved_query)
         assert state.last_run_mode == "full_refresh"
         assert state.watermark is not None
+        assert state.has_incremental_history is True
 
         # The runs UI reads the mode off the job to explain what its row count means.
         await database_sync_to_async(ajob.refresh_from_db)()
@@ -506,7 +507,9 @@ class TestIncrementalMaterialization:
                 await _run(activity_environment, ateam, anode, ajob, adag, *batches)
 
         await database_sync_to_async(asaved_query.refresh_from_db)()
-        assert get_incremental_state(asaved_query).watermark is None
+        state = get_incremental_state(asaved_query)
+        assert state.watermark is None
+        assert state.has_incremental_history is True
 
     async def test_lookback_shifts_the_second_runs_window(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

@@ -9436,8 +9436,8 @@ SQL
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -13529,8 +13529,8 @@ SQL
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -13549,6 +13549,11 @@ SQL
     }
     index "event_names_bloom_filter" {
       expr        = "event_names"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "flag_key_values_bloom_filter" {
+      expr        = "flag_key_values"
       type        = "bloom_filter()"
       granularity = 1
     }
@@ -14344,6 +14349,80 @@ SQL
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_overview_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
+
+  table "sharded_web_sessions_dimensional_preaggregated" {
+    order_by     = ["team_id", "job_id", "person_id", "start_timestamp", "session_id_v7"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "session_id_v7" {
+      type = "UInt128"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "start_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "min_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "channel_type" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "pageview_count" {
+      type = "UInt64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_sessions_dimensional_preaggregated"
       replica_name   = "{replica}"
       version_column = "computed_at"
     }
@@ -15927,6 +16006,74 @@ SQL
       zoo_path       = "/clickhouse/tables/noshard/posthog.web_analytics_team_selection"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
+    }
+  }
+
+  table "web_sessions_dimensional_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "session_id_v7" {
+      type = "UInt128"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "start_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "min_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "channel_type" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "pageview_count" {
+      type = "UInt64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_sessions_dimensional_preaggregated"
+      sharding_key    = "cityHash64(person_id)"
     }
   }
 
@@ -18130,8 +18277,8 @@ SQL
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -24758,7 +24905,7 @@ SELECT
   uniqExactMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
-  groupUniqArrayMapMerge(flag_values) AS flag_values,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
   groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,

@@ -4633,13 +4633,16 @@ class SignalReportArtefactViewSet(
                     return Response(
                         {"detail": "Claim is stale or belongs to another actor."}, status=status.HTTP_409_CONFLICT
                     )
-            artefact = SignalReportArtefact.append(
-                team_id=self.team.id,
-                report_id=report_id,
-                content=parsed_content,
-                attribution=attribution,
-                claim_id=str(claim_id) if claim_id else None,
-            )
+            try:
+                artefact = SignalReportArtefact.append(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    content=parsed_content,
+                    attribution=attribution,
+                    claim_id=str(claim_id) if claim_id else None,
+                )
+            except ArtefactContentValidationError as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(parsed_content, SuggestedReviewers):
             # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
             transaction.on_commit(
