@@ -74,6 +74,7 @@ from products.data_warehouse.backend.facade.api import trigger_external_data_wor
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_REPO,
+    FIXED_DISMISSAL_REASONS,
     NON_WRITABLE_ARTEFACT_TYPES,
     ArtefactContentValidationError,
     ChannelAssignment,
@@ -560,7 +561,8 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing "
     "resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three "
     "codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked "
-    "to this one, whichever state carried the code. The dismissal codes (report_unclear, analysis_wrong, "
+    "to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. "
+    "The dismissal codes (report_unclear, analysis_wrong, "
     "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use "
     "'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
     "corrected_repository naming the right one. "
@@ -662,6 +664,13 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        if (
+            attrs.get("state") == SignalReportState.POTENTIAL
+            and attrs.get("dismissal_reason") in FIXED_DISMISSAL_REASONS
+        ):
+            raise serializers.ValidationError(
+                {"dismissal_reason": "A fixed reason requires state 'suppressed' or 'resolved'."}
+            )
         if attrs.get("corrected_repository") and attrs.get("dismissal_reason") != DISMISSAL_REASON_WRONG_REPO:
             raise serializers.ValidationError(
                 {"corrected_repository": "Only allowed when dismissal_reason is 'wrong_repo'."}

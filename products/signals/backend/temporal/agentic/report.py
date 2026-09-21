@@ -262,7 +262,10 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
             return candidate.title, candidate.summary
         # Only an archived candidate costs the dismissal read, and the newest match wins, so the
         # loop stops at the first one rather than reading every link.
-        if await database_sync_to_async(fixed_dismissal_at, thread_sensitive=False)(candidate) is not None:
+        if (
+            str(candidate.id) in recurrence_ids
+            and await database_sync_to_async(fixed_dismissal_at, thread_sensitive=False)(candidate) is not None
+        ):
             return candidate.title, candidate.summary
     return None, None
 

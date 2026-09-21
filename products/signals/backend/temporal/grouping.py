@@ -38,7 +38,7 @@ from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
-from products.signals.backend.recurrence import fixed_dismissal_at, recurrence_report
+from products.signals.backend.recurrence import fixed_dismissal_at, latest_recurrence_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -506,6 +506,16 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
         result = await match_signal_to_report(input)
+        if isinstance(result, ExistingReportMatch) and input.team_id is not None:
+            report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
+            if report is not None and report.status != SignalReport.Status.DELETED:
+                current = await database_sync_to_async(latest_recurrence_report, thread_sensitive=False)(report)
+                if current.id != report.id:
+                    result.report_id = str(current.id)
+                    unsafe = await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(
+                        str(current.id), input.team_id
+                    )
+                    result.report_title = "" if unsafe else current.title
         total_candidates = sum(len(r) for r in input.query_results)
         logger.debug(
             f"Match result: matched={isinstance(result, ExistingReportMatch)}",
@@ -759,11 +769,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # does, so this signal contradicts it and must not be absorbed. The other dismissal
                 # codes state a preference about the report, and a sink is the right answer for
                 # them (see recurrence.py).
-                while True:
-                    successor = recurrence_report(report, lock=True)
-                    if successor is None:
-                        break
-                    report = successor
+                report = latest_recurrence_report(report, lock=True)
                 dismissed_as_fixed_at = (
                     fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
                 )
@@ -1300,7 +1306,13 @@ async def _process_signal_batch(
 
             if isinstance(match_result, ExistingReportMatch):
                 report_ctx = report_contexts.get(match_result.report_id)
-                report_title = report_ctx.title if report_ctx else ""
+                report_title = (
+                    match_result.report_title
+                    if match_result.report_title is not None
+                    else report_ctx.title
+                    if report_ctx
+                    else ""
+                )
 
                 group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
                     fetch_signals_for_report_activity,

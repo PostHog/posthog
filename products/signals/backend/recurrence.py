@@ -41,8 +41,7 @@ def fixed_dismissal_at(report: SignalReport) -> datetime | None:
     return created_at if reason in FIXED_DISMISSAL_REASONS else None
 
 
-def recurrence_report(report: SignalReport, *, lock: bool = False) -> SignalReport | None:
-    """Return the latest explicit recurrence successor, including dismissed successors."""
+def _next_recurrence_report(report: SignalReport, *, lock: bool) -> SignalReport | None:
     linked_ids = []
     for report_id, content in SignalReportArtefact.objects.filter(
         team_id=report.team_id,
@@ -55,11 +54,31 @@ def recurrence_report(report: SignalReport, *, lock: bool = False) -> SignalRepo
             continue
         if link.kind == ReportLinkKind.RECURRENCE_OF and link.report_id == str(report.id):
             linked_ids.append(report_id)
-    candidates = (
-        SignalReport.objects.filter(team_id=report.team_id, id__in=linked_ids)
-        .exclude(status=SignalReport.Status.DELETED)
-        .order_by("-created_at")
-    )
+    candidates = SignalReport.objects.filter(team_id=report.team_id, id__in=linked_ids).order_by("-created_at")
     if lock:
         candidates = candidates.select_for_update()
     return candidates.first()
+
+
+def recurrence_report(report: SignalReport, *, lock: bool = False) -> SignalReport | None:
+    """Return the next live successor, traversing deleted intermediate reports."""
+    visited = {report.id}
+    while successor := _next_recurrence_report(report, lock=lock):
+        if successor.id in visited:
+            return None
+        if successor.status != SignalReport.Status.DELETED:
+            return successor
+        visited.add(successor.id)
+        report = successor
+    return None
+
+
+def latest_recurrence_report(report: SignalReport, *, lock: bool = False) -> SignalReport:
+    """Follow the recurrence chain to its current live report."""
+    visited = {report.id}
+    while successor := recurrence_report(report, lock=lock):
+        if successor.id in visited:
+            break
+        visited.add(successor.id)
+        report = successor
+    return report

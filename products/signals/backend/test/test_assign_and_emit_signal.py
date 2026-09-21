@@ -3,7 +3,7 @@ import random
 from datetime import timedelta
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
@@ -22,7 +22,9 @@ from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
+    MatchSignalToReportInput,
     assign_and_emit_signal_activity,
+    match_signal_to_report_activity,
 )
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
@@ -636,9 +638,61 @@ async def test_suppressed_successor_controls_parent_matches(ateam, reason, resto
         assert ReportLink.model_validate_json(link.content).report_id == str(successor.id)
 
 
-# ---------------------------------------------------------------------------
-# Research buckets: a READY report re-researches only at RESEARCH_SIGNAL_BUCKETS, at most once each
-# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("deleted_intermediate", [False, True])
+@pytest.mark.parametrize("unsafe_successor", [False, True])
+async def test_matching_uses_current_recurrence_before_specificity(ateam, deleted_intermediate, unsafe_successor):
+    parent = await _suppressed_report(ateam, "already_fixed")
+    intermediate = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.RESOLVED,
+    )
+    successor = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.POTENTIAL, title="Current recurrence"
+    )
+    if unsafe_successor:
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=successor,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content='{"choice": false}',
+        )
+    for child, ancestor in [(intermediate, parent), (successor, intermediate)]:
+        await database_sync_to_async(SignalReportArtefact.add_log)(
+            team_id=ateam.id,
+            report_id=str(child.id),
+            content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(ancestor.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+    if deleted_intermediate:
+        intermediate.status = SignalReport.Status.DELETED
+        await database_sync_to_async(intermediate.save)(update_fields=["status"])
+    with patch(
+        "products.signals.backend.temporal.grouping.match_signal_to_report",
+        new=AsyncMock(return_value=_existing_match(str(parent.id))),
+    ):
+        match = await match_signal_to_report_activity(
+            MatchSignalToReportInput(
+                team_id=ateam.id,
+                description="The problem returned",
+                source_product="test",
+                source_type="test",
+                queries=[],
+                query_results=[],
+                report_contexts={},
+            )
+        )
+    assert isinstance(match, ExistingReportMatch)
+    assert match.report_id == str(successor.id)
+    assert match.report_title == ("" if unsafe_successor else "Current recurrence")
+
+    assigned = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(parent.id)), weight=0.1)
+    )
+    assert assigned.report_id == str(successor.id)
+    await database_sync_to_async(intermediate.refresh_from_db)()
+    assert intermediate.signal_count == 0
 
 
 @pytest.mark.parametrize(

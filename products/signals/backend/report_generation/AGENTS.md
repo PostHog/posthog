@@ -58,7 +58,7 @@ It is exercised locally via management commands, and it is also used by the prod
 
 When a signal matches a resolved or fixed-dismissed report, the grouping pipeline can create a new report for the recurrence.
 It writes a directed `recurrence_of` report link from the new report to its parent.
-The caller activity prefers this link and supports legacy `related_to` links as a fallback.
+The caller activity prefers this link and supports legacy `related_to` links for resolved parents only.
 The parent must be resolved or dismissed as fixed. The activity excludes parents whose latest safety judgment rejects their content.
 It reads that judgment from the writer database to avoid replica lag.
 The activity passes `resolved_report_title` and `resolved_report_summary` to a `## Previously closed report` prompt block.

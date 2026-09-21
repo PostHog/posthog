@@ -2086,6 +2086,18 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
     def _state_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
 
+    @parameterized.expand([("already_fixed",), ("fixed_outside_posthog",), ("pr_merged",)])
+    def test_fixed_reason_cannot_snooze_a_report(self, reason):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "dismissal_reason": reason}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
     def _create_report(self, report_status=SignalReport.Status.READY) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
@@ -2467,12 +2479,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("snooze", {"snooze_for": 1}),
-            ("dismissal", {"snooze_for": 1, "dismissal_reason": "already_fixed", "dismissal_note": "Fixed"}),
-            ("feedback", {"dismissal_reason": "already_fixed"}),
+            ("snooze", {"snooze_for": 1}, status.HTTP_409_CONFLICT),
+            (
+                "dismissal",
+                {"snooze_for": 1, "dismissal_reason": "already_fixed", "dismissal_note": "Fixed"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("feedback", {"dismissal_reason": "already_fixed"}, status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_pause_does_not_restore_an_archived_report(self, _name, pause_input):
+    def test_pause_does_not_restore_an_archived_report(self, _name, pause_input, expected_status):
         report = self._create_report()
         response = self.client.post(
             self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
@@ -2485,7 +2501,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.status_code == expected_status
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
         assert report.status_before_suppression == SignalReport.Status.READY

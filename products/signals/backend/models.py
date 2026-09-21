@@ -360,7 +360,7 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
-    # When the report first became user-visible (entered READY or PENDING_INPUT, the statuses the
+    # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
     # field or never surfaced.
@@ -561,10 +561,10 @@ class SignalReport(UUIDModel):
             case _:
                 raise InvalidStatusTransition(self.status, new_status)
 
-        # First arrival into a user-visible status (the inbox lists READY and PENDING_INPUT).
+        # First arrival into a user-visible status (the inbox lists READY, PENDING_INPUT, and FAILED).
         # Set-once: re-research and suppress/restore cycles keep the original timestamp, so a
         # report only ever counts once toward SignalTeamConfig.max_reports_per_day.
-        if new_status in (S.READY, S.PENDING_INPUT) and self.first_visible_at is None:
+        if new_status in (S.READY, S.PENDING_INPUT, S.FAILED) and self.first_visible_at is None:
             self.first_visible_at = timezone.now()
             updated_fields.add("first_visible_at")
 

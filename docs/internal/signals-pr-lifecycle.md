@@ -27,20 +27,28 @@ A report dismissed as `already_fixed`, `fixed_outside_posthog`, or `pr_merged` c
 The pipeline records the new report's parent with a typed `recurrence_of` report link.
 Generic `related_to` links do not control signal assignment.
 Later signals follow the recurrence chain, even if an older parent is restored.
+Matching selects the current successor before the specificity check, so the check uses its signals and title.
+Traversal passes through deleted intermediate reports without assigning signals to them.
 A successor dismissed for a preference reason keeps absorbing signals, including signals that match an older parent.
 Repeated fixed feedback does not create another successor.
 A new dismissal without feedback clears the fixed claim from an earlier dismissal cycle.
+Automatic suppression after an unmerged PR closes also records an empty dismissal.
+The state API rejects fixed reasons with `potential`; use `suppressed` or `resolved` for a fixed claim.
 
 This change does not recover historical signals automatically.
 Older dismissal records cannot reliably identify the active dismissal cycle.
 Historical recovery needs a verified transition history before it can create new reports.
 Research context excludes parent reports whose latest safety judgment rejects their content.
 New reports do not copy the title or summary from these unsafe parents.
+Legacy `related_to` links supply context only for resolved parents. Fixed-dismissed parents require a typed recurrence link.
 
 The state API also accepts resolution from `failed`.
 The web inbox offers Resolve for failed reports.
 The Needs decision section includes failed reports, even without an actionability judgment.
 Its `needs_decision` API view also includes actionable ready or pending-input reports without an implementation PR.
+Triage warns before a verdict closes an open implementation PR.
+New failed reports consume a daily inbox slot when they first become visible.
+Existing failed reports without a visibility timestamp remain historical backlog; they do not consume the rollout day's slots.
 The desktop eligibility change must ship separately after this backend transition is deployed.
 A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
 

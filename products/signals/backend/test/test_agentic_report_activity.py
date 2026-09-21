@@ -309,7 +309,10 @@ async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
     context = await _load_resolved_report_context(ateam.id, str(fork.id))
 
     safe = not safety_verdicts or safety_verdicts[-1] is True
-    assert context == (("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe else (None, None))
+    valid_link = typed_link or parent_status == SignalReport.Status.RESOLVED
+    assert context == (
+        ("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe and valid_link else (None, None)
+    )
     assert await _load_previous_research(ateam.id, str(fork.id)) is None
 
 
