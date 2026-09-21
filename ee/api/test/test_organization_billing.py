@@ -300,6 +300,25 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         response = self.client.get(self._url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+        # Billing's own body never reaches the caller. It renders through the same error envelope
+        # this API uses, so re-raising it would name billing's "type" field as the offending
+        # parameter and say nothing about the request.
+        mock_get.return_value = _response(
+            {"type": "validation_error", "code": "invalid", "attr": "breakdowns", "detail": "billing's own words"},
+            400,
+        )
+        response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
+        body = response.json()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(body["code"], "billing_query_rejected")
+        self.assertNotIn("billing's own words", response.content.decode())
+
+        # A code this API has guidance for keeps its own error, with its own wording.
+        mock_get.return_value = _response({"type": "validation_error", "code": "usage_date_range_too_long"}, 400)
+        response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "usage_date_range_too_long")
+
     @patch("ee.billing.billing_manager.http_session.get")
     def test_key_without_billing_scope_is_refused_before_billing_is_called(self, mock_get):
         raw = generate_random_token_personal()

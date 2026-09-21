@@ -116,6 +116,14 @@ class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
 # Billing's guidance codes on the usage and spend endpoints, each with the page's own sentence.
 # Billing's own text is never returned to the browser: it is written for API callers, and an
 # unexpected body could carry internal detail.
+# The breakdown combinations billing serves. Named in one place so the message, the help text and
+# the check cannot drift from each other.
+BREAKDOWNS_MESSAGE = (
+    'Value must be one of [], ["type"] or ["type","team"]. A project breakdown splits a product\'s '
+    "usage, so it is only served beside the product one."
+)
+
+
 BILLING_GUIDANCE_ERRORS: dict[str, type[APIException]] = {
     BillingQueryTimeout.default_code: BillingQueryTimeout,
     BillingQueryTooLarge.default_code: BillingQueryTooLarge,
@@ -328,8 +336,9 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         allow_blank=True,
         allow_null=True,
         help_text=(
-            'JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", '
-            'for example ["type","team"]. Omit for a single aggregate series.'
+            'JSON-encoded array of breakdown dimensions. One of `[]`, `["type"]` or '
+            '`["type","team"]`: a project breakdown is served beside the product one, not on its '
+            "own. Omit for a single aggregate series."
         ),
     )
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
@@ -426,10 +435,13 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
-            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+            raise serializers.ValidationError(BREAKDOWNS_MESSAGE)
 
-        if not isinstance(parsed, list) or any(breakdown not in ("type", "team") for breakdown in parsed):
-            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+        # The combinations billing serves, not every subset of the two names. A project breakdown
+        # splits a product's usage, so it only means something beside the product one, and billing
+        # refuses the rest. Checking here keeps the refusal specific and costs no call.
+        if not isinstance(parsed, list) or parsed not in ([], ["type"], ["type", "team"]):
+            raise serializers.ValidationError(BREAKDOWNS_MESSAGE)
 
         return value
 

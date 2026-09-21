@@ -1244,12 +1244,22 @@ class TestBillingUsageRequestSerializer(TestCase):
             ("team_ids_json_string_values", "team_ids", '["1","2"]'),
             ("breakdowns_comma_separated", "breakdowns", "type,team"),
             ("breakdowns_unknown_values", "breakdowns", '["type","project"]'),
+            # Billing serves a project breakdown beside the product one and refuses it alone, so
+            # this side names the same combinations. Otherwise the request costs a call and comes
+            # back refused by the service behind this one.
+            ("breakdowns_team_without_type", "breakdowns", '["team"]'),
+            ("breakdowns_reordered", "breakdowns", '["team","type"]'),
         ]
     )
     def test_rejects_invalid_json_array_fields(self, _case_name: str, field_name: str, value: str):
         serializer = BillingUsageRequestSerializer(data={field_name: value})
         self.assertFalse(serializer.is_valid())
         self.assertIn(field_name, serializer.errors)
+
+    @parameterized.expand([("none", "[]"), ("by_product", '["type"]'), ("by_product_and_project", '["type","team"]')])
+    def test_accepts_the_breakdown_combinations_billing_serves(self, _case_name: str, value: str):
+        serializer = BillingUsageRequestSerializer(data={"breakdowns": value})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
 
     def test_empty_and_null_dates_are_valid(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "", "end_date": None})

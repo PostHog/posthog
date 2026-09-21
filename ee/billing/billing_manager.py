@@ -18,7 +18,7 @@ import jwt
 import requests
 import structlog
 from requests import JSONDecodeError
-from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
@@ -233,11 +233,19 @@ def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, s
     }
 
 
-def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool = True) -> None:
-    """Map billing's refusals on the organization routes onto the matching DRF errors.
+BILLING_ORGANIZATION_ACCESS_DENIED = "You do not have access to Billing for this organization."
 
-    The body is read defensively. A non-JSON error, from billing or from a proxy in front of it,
-    must not turn a mapped refusal into a 500.
+
+def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool = True) -> None:
+    """Turn billing's refusals on the organization routes into this API's own errors.
+
+    Only the machine-readable `code` crosses over, and it chooses one of the errors defined here.
+    Billing's body never reaches the caller: it is written for a different API, it renders through
+    the same error envelope this one uses, so re-raising it names billing's `type` field as the
+    offending parameter, and an upstream body can carry detail a caller should not see.
+
+    The body is read defensively for the same reason. A non-JSON error, from billing or from a
+    proxy in front of it, must not turn a mapped refusal into a 500.
     """
     if res.status_code not in (400, 403, 404):
         return
@@ -245,14 +253,20 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
         parsed = res.json()
     except JSONDecodeError:
         parsed = None
-    body = parsed if isinstance(parsed, dict) else {}
+    code = parsed.get("code") if isinstance(parsed, dict) else None
+    if res.status_code != 404 or map_not_found:
+        logger.warning("billing_organization_error", upstream_status=res.status_code, code=code)
     if res.status_code == 403:
-        raise PermissionDenied(body.get("detail", "You do not have access to Billing for this organization."))
+        raise PermissionDenied(BILLING_ORGANIZATION_ACCESS_DENIED)
     if res.status_code == 404:
         if not map_not_found:
             return
-        raise NotFound(body.get("detail", "Not found."))
-    raise ValidationError(parsed if parsed else "Billing rejected the request.")
+        raise NotFound("Not found.")
+    from ee.api.billing import BILLING_GUIDANCE_ERRORS, BillingQueryRejected  # noqa: PLC0415 - circular import
+
+    if code in BILLING_GUIDANCE_ERRORS:
+        raise BILLING_GUIDANCE_ERRORS[code]()
+    raise BillingQueryRejected()
 
 
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
