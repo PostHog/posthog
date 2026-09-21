@@ -259,7 +259,7 @@ function ReportLinkBody({ content }: { content: ReportLinkContent }) {
         </Link>
       </div>
       {content.reason?.trim() ? (
-        <p className="m-0 text-muted-foreground text-xs">{content.reason}</p>
+        <p className="text-muted-foreground text-xs">{content.reason}</p>
       ) : null}
     </div>
   );

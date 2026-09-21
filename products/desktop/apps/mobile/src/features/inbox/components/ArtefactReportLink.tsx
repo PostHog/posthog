@@ -15,14 +15,14 @@ export function ArtefactReportLink({
 }) {
   const router = useRouter();
   const themeColors = useThemeColors();
-  const linkedQuery = useInboxReport(content.report_id ?? null);
+  const linkedQuery = useInboxReport(content.report_id);
 
   if (!content.report_id) return null;
 
   const linked = linkedQuery.data;
   const title = linked
-    ? humanizeReportTitle(linked.title, content.report_id)
-    : null;
+    ? humanizeReportTitle(linked.title, "Untitled report")
+    : "Open report";
 
   return (
     <View className="gap-1">
@@ -41,7 +41,7 @@ export function ArtefactReportLink({
           className="min-w-0 flex-1 text-[13px] text-gray-12"
           numberOfLines={1}
         >
-          {linkedQuery.isLoading ? "Loading report…" : (title ?? "Open report")}
+          {linkedQuery.isLoading ? "Loading report…" : title}
         </Text>
         <CaretRight size={14} color={themeColors.gray[9]} />
       </Pressable>
