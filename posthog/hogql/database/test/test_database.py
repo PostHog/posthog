@@ -95,6 +95,7 @@ from posthog.synthetic_user import SyntheticUser
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -4523,6 +4524,43 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         user_access_control, _denied = captured["result"]
         # A real user gets per-user access control computed rather than the anonymous all-deny path.
         assert user_access_control is not None
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, None, False),
+            ("organization_admin", OrganizationMembership.Level.ADMIN, None, True),
+            ("delegated_viewer", OrganizationMembership.Level.MEMBER, "viewer", True),
+        ]
+    )
+    def test_data_deletion_requests_system_table_visibility(
+        self,
+        _name: str,
+        membership_level: "OrganizationMembership.Level",
+        delegated_level: str | None,
+        expected_visible: bool,
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = membership_level
+        self.organization_membership.save()
+        if delegated_level:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="data_deletion",
+                access_level=delegated_level,
+                organization_member=self.organization_membership,
+            )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert ("system.data_deletion_requests" in database.get_system_table_names()) is expected_visible
+        if expected_visible:
+            database.get_table("system.data_deletion_requests")
+        else:
+            with pytest.raises(TableAccessDeniedError):
+                database.get_table("system.data_deletion_requests")
 
     def test_existing_saved_query_cannot_fill_denied_system_table_name(self) -> None:
         DataWarehouseSavedQuery.objects.create(

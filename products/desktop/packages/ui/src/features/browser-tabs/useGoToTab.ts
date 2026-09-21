@@ -56,6 +56,15 @@ export function useGoToTab(): (tab: TabRef) => void {
           case "activity":
             navigate({ to: "/activity", state });
             break;
+          case "canvases":
+            // The open canvas rides in the search, so a canvases tab that has
+            // no stored href still comes back on the canvas it showed.
+            navigate({
+              to: "/canvases",
+              search: { canvas: tab.dashboardId ?? undefined },
+              state,
+            });
+            break;
           case "home":
           case "report":
             navigate({ to: "/", state });

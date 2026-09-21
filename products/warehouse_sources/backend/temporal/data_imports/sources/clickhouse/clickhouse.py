@@ -144,7 +144,7 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     "Tunnel connection failed: 503",
     "Tunnel connection failed: 504",
     # The ClickHouse host (or a proxy/gateway in front of it) rate-limited the
-    # request with HTTP 429 ("HTTPDriver for <url> returned response code 429").
+    # request with HTTP 429 ("HTTP driver received HTTP status 429 (for url <url>)").
     # A 429 is a transient "back off and retry" signal, not a config error.
     # clickhouse-connect already retries 429 for queries (query_retries), but
     # the probe it runs while constructing the client passes retries=0, so a
@@ -152,7 +152,7 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     # retry here recovers the common transient burst. We match only 429; other
     # HTTP statuses keep their existing handling (404 is non-retryable in the
     # source, 5xx stay retryable via Temporal).
-    "returned response code 429",
+    "received HTTP status 429",
     # urllib3 couldn't open the TCP connection to our own egress proxy at all — it never got far
     # enough to attempt a CONNECT tunnel — and wraps the raw socket timeout as
     # `ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))`. This is our proxy
@@ -169,14 +169,14 @@ def _is_transient_connect_drop(error_message: str) -> bool:
 
 
 # clickhouse-connect surfaces an upstream rate-limit as a full HTTP response
-# ("HTTPDriver for <url> returned response code 429"), not a dropped connection:
+# ("HTTP driver received HTTP status 429 (for url <url>)"), not a dropped connection:
 # the request reached the server (or a proxy in front of it) and it told us to
 # slow down. A 429 is explicitly "retry later", so a brief backed-off re-attempt
 # often clears a short rate-limit burst; if it doesn't, the failing Temporal
 # activity stays retryable and recovers later. We match only 429 — other 4xx
 # response codes are deterministic (e.g. 404 stays non-retryable). Matching the
 # stable status phrase keeps the volatile per-request URL out of the comparison.
-_TRANSIENT_RATE_LIMIT_SUBSTRING = "returned response code 429"
+_TRANSIENT_RATE_LIMIT_SUBSTRING = "received HTTP status 429"
 
 # Backoff base between connect retries after a 429. Longer than the connect-drop
 # retry (which just re-dials) to give the rate limit room to clear.
@@ -1169,16 +1169,16 @@ def _get_incremental_row_count(
 
 
 # clickhouse-connect surfaces a non-2xx HTTP status from the server (or a
-# proxy/LB in front of it) as `HTTPDriver for <url> returned response code <N>`.
+# proxy/LB in front of it) as `HTTP driver received HTTP status <N>`.
 # 429 (rate limited) and the transient gateway codes mean the endpoint can't
 # serve us right now, not that anything we sent was wrong — they clear on their
 # own. A real ClickHouse query error carries a `Code: NNN` instead. We match
 # only these transient statuses so genuine failures still surface.
 _TRANSIENT_HTTP_RESPONSE_SUBSTRINGS: tuple[str, ...] = (
-    "returned response code 429",
-    "returned response code 502",
-    "returned response code 503",
-    "returned response code 504",
+    "received HTTP status 429",
+    "received HTTP status 502",
+    "received HTTP status 503",
+    "received HTTP status 504",
 )
 
 

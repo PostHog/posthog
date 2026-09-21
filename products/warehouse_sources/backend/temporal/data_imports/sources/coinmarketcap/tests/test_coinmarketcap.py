@@ -1,4 +1,5 @@
 import json
+import datetime
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -12,10 +13,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarket
     CoinMarketCapPaginator,
     CoinMarketCapResumeConfig,
     _history_start,
+    _last_published_snapshot_date,
     _rows_from,
+    _snapshot_start_date,
     coinmarketcap_source,
     get_batch_rows,
     get_resource,
+    get_snapshot_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import (
@@ -24,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarket
     HISTORICAL_BACKFILL_DAYS,
     HISTORICAL_BATCH_SIZE,
     HISTORICAL_COIN_LIMIT,
+    HISTORICAL_EXCHANGE_LIMIT,
+    LISTINGS_HISTORICAL_RANK_LIMIT,
     METADATA_BATCH_SIZE,
     PAGE_SIZE,
 )
@@ -109,7 +115,10 @@ class TestGetResource:
         assert endpoint_def["path"].startswith("/v1/")
         assert endpoint_def["data_selector"] == "data"
 
-    @pytest.mark.parametrize("endpoint", ["cryptocurrency_map", "listings_latest", "fiat_map", "exchange_map"])
+    @pytest.mark.parametrize(
+        "endpoint",
+        ["cryptocurrency_map", "listings_latest", "fiat_map", "exchange_map", "exchange_listings_latest"],
+    )
     def test_paginated_endpoints_pass_a_stable_sort(self, endpoint: str) -> None:
         # A stable `sort` keeps offset pagination from skipping/duplicating rows mid-sync.
         endpoint_def = cast(dict[str, Any], get_resource(endpoint)["endpoint"])
@@ -523,6 +532,185 @@ class TestGetBatchRows:
         assert second_batch[1]["id"] == str(HISTORICAL_BATCH_SIZE + 1)
         assert first_batch[1]["time_start"] == _history_start(None)
         assert first_batch[0].endswith(COINMARKETCAP_BATCH_ENDPOINTS[endpoint].path)
+
+    def test_exchange_info_batches_every_id_in_the_exchange_map(self) -> None:
+        manager = self._manager()
+        rows, session = self._run(
+            "exchange_info",
+            [
+                _make_batch_response({"data": [{"id": 16}, {"id": 24}]}),
+                _make_batch_response({"data": {"16": {"id": 16}, "24": {"id": 24}}}),
+            ],
+            manager,
+        )
+
+        map_call, info_call = session.calls
+        # The ids come from the exchange map, not the cryptocurrency map.
+        assert map_call[0].endswith("/v1/exchange/map")
+        assert info_call[0].endswith("/v1/exchange/info")
+        assert info_call[1]["id"] == "16,24"
+        assert [row["id"] for row in rows] == [16, 24]
+
+    def test_exchange_history_ranks_the_exchange_universe_by_volume(self) -> None:
+        listings = {"data": [{"id": exchange_id} for exchange_id in range(HISTORICAL_BATCH_SIZE + 1, 0, -1)]}
+        manager = self._manager()
+        _, session = self._run(
+            "exchange_quotes_historical",
+            [_make_batch_response(listings), _make_batch_response({"data": {}}), _make_batch_response({"data": {}})],
+            manager,
+        )
+
+        universe_call, first_batch, _ = session.calls
+        # `market_cap` is not in this endpoint's sort enum — exchanges rank by traded volume.
+        assert universe_call[0].endswith("/v1/exchange/listings/latest")
+        assert universe_call[1]["sort"] == "volume_24h"
+        assert universe_call[1]["sort_dir"] == "desc"
+        assert universe_call[1]["limit"] == HISTORICAL_EXCHANGE_LIMIT
+
+        assert first_batch[0].endswith("/v1/exchange/quotes/historical")
+        assert first_batch[1]["id"] == ",".join(str(i) for i in range(1, HISTORICAL_BATCH_SIZE + 1))
+        assert first_batch[1]["time_start"] == _history_start(None)
+
+
+class TestLastPublishedSnapshotDate:
+    @pytest.mark.parametrize(
+        ("hour", "expected_day"),
+        [
+            # A completed day's snapshot lands ~30 minutes after midnight UTC, so before 01:00
+            # yesterday is not there yet and asking for it would fail the sync.
+            (0, 8),
+            (1, 9),
+            (23, 9),
+        ],
+    )
+    def test_waits_for_the_snapshot_to_publish(self, hour: int, expected_day: int) -> None:
+        now = datetime.datetime(2026, 3, 10, hour, 15, tzinfo=datetime.UTC)
+        assert _last_published_snapshot_date(now) == datetime.date(2026, 3, expected_day)
+
+
+class TestSnapshotStartDate:
+    def test_falls_back_to_the_backfill_window(self) -> None:
+        expected = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=HISTORICAL_BACKFILL_DAYS)).date()
+        assert _snapshot_start_date(None) == expected
+
+    @pytest.mark.parametrize(
+        "watermark",
+        [
+            "2026-03-01",
+            "2026-03-01T00:00:00.000Z",
+            datetime.date(2026, 3, 1),
+            datetime.datetime(2026, 3, 1, 18, 0, tzinfo=datetime.UTC),
+        ],
+    )
+    def test_reads_the_day_out_of_every_watermark_shape(self, watermark: Any) -> None:
+        assert _snapshot_start_date(watermark) == datetime.date(2026, 3, 1)
+
+    def test_unparseable_watermark_falls_back_rather_than_raising(self) -> None:
+        expected = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=HISTORICAL_BACKFILL_DAYS)).date()
+        assert _snapshot_start_date("not-a-date") == expected
+
+
+class TestGetSnapshotRows:
+    def _manager(self, resume_config: CoinMarketCapResumeConfig | None = None) -> MagicMock:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = resume_config is not None
+        manager.load_state.return_value = resume_config
+        return manager
+
+    def _run(
+        self,
+        responses: list[Response],
+        manager: MagicMock,
+        now: Any,
+        db_incremental_field_last_value: Any = None,
+    ) -> tuple[list[dict[str, Any]], _FakeSession]:
+        patcher, session = _patch_session(responses)
+        with (
+            patcher,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.coinmarketcap._last_published_snapshot_date",
+                return_value=now,
+            ),
+        ):
+            batches = list(
+                get_snapshot_rows(
+                    api_key="test-key",
+                    endpoint="listings_historical",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                )
+            )
+        return [row for batch in batches for row in batch], session
+
+    def test_walks_one_request_per_day_from_the_watermark(self) -> None:
+        manager = self._manager()
+        rows, session = self._run(
+            [
+                _make_batch_response({"data": [{"id": 1, "cmc_rank": 1}]}),
+                _make_batch_response({"data": [{"id": 1, "cmc_rank": 2}]}),
+            ],
+            manager,
+            now=datetime.date(2026, 3, 2),
+            db_incremental_field_last_value="2026-03-01",
+        )
+
+        assert [params["date"] for _, params in session.calls] == ["2026-03-01", "2026-03-02"]
+        assert all(url.endswith("/v1/cryptocurrency/listings/historical") for url, _ in session.calls)
+        assert session.calls[0][1]["limit"] == LISTINGS_HISTORICAL_RANK_LIMIT
+        assert session.calls[0][1]["sort"] == "cmc_rank"
+
+        # The response identifies its day only through last_updated, which repeats for a coin that
+        # stopped trading, so the requested day is stamped on to keep the two days distinct.
+        assert [row["snapshot_date"] for row in rows] == ["2026-03-01", "2026-03-02"]
+        assert [row["cmc_rank"] for row in rows] == [1, 2]
+
+    def test_re_requests_the_watermark_day(self) -> None:
+        # A run cut short part-way through a day would otherwise leave the rest of that day's
+        # ranking missing for good.
+        _, session = self._run(
+            [_make_batch_response({"data": []})],
+            self._manager(),
+            now=datetime.date(2026, 3, 1),
+            db_incremental_field_last_value="2026-03-01",
+        )
+        assert [params["date"] for _, params in session.calls] == ["2026-03-01"]
+
+    def test_checkpoints_each_day_after_yielding_it(self) -> None:
+        manager = self._manager()
+        self._run(
+            [
+                _make_batch_response({"data": [{"id": 1}]}),
+                _make_batch_response({"data": [{"id": 1}]}),
+            ],
+            manager,
+            now=datetime.date(2026, 3, 2),
+            db_incremental_field_last_value="2026-03-01",
+        )
+
+        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+            CoinMarketCapResumeConfig(last_snapshot_date="2026-03-01"),
+            CoinMarketCapResumeConfig(last_snapshot_date="2026-03-02"),
+        ]
+
+    def test_resume_picks_up_the_day_after_the_checkpoint(self) -> None:
+        manager = self._manager(CoinMarketCapResumeConfig(last_snapshot_date="2026-03-02"))
+        _, session = self._run(
+            [_make_batch_response({"data": [{"id": 1}]})],
+            manager,
+            now=datetime.date(2026, 3, 3),
+            db_incremental_field_last_value="2026-03-01",
+        )
+        assert [params["date"] for _, params in session.calls] == ["2026-03-03"]
+
+    def test_makes_no_request_when_the_watermark_is_already_current(self) -> None:
+        _, session = self._run(
+            [],
+            self._manager(),
+            now=datetime.date(2026, 3, 1),
+            db_incremental_field_last_value="2026-03-02",
+        )
+        assert session.calls == []
 
 
 class TestBatchEndpointErrors:
