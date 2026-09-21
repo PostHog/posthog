@@ -92,7 +92,25 @@ describe('getDevicePushSubscriptions', () => {
 
         const [subscription] = getDevicePushSubscriptions(properties, 'my-project', encryptedFields)
 
-        expect(subscription.propertyKey).toBe(deviceSubscriptionKey('my-project', 'token-phone'))
+        expect(subscription.propertyKeys).toEqual([deviceSubscriptionKey('my-project', 'token-phone')])
+    })
+
+    it('carries every key holding one token, so pruning removes them together', () => {
+        // A device stored under both shapes: removing only one leaves the other to fail on the next
+        // send and be pruned then, so the person keeps a dead token for an extra notification.
+        const token = 'token-phone'
+        const properties = {
+            '$device_push_subscription_my-project': encryptedFields.encrypt(token),
+            [deviceSubscriptionKey('my-project', token)]: encryptedFields.encrypt(token),
+        }
+
+        const subscriptions = getDevicePushSubscriptions(properties, 'my-project', encryptedFields)
+
+        expect(subscriptions).toHaveLength(1)
+        expect(subscriptions[0].propertyKeys).toEqual([
+            '$device_push_subscription_my-project',
+            deviceSubscriptionKey('my-project', token),
+        ])
     })
 
     it('ignores another app, including one whose name extends this one', () => {

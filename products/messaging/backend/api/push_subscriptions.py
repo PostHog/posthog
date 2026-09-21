@@ -212,13 +212,13 @@ def _parse_user_agent_sdk(request: Request) -> _SdkIdentity:
 def device_subscription_key(app_id: str, device_token: str) -> str:
     """Person property key holding one device's push token.
 
-    The key used to be the app alone, so a person could hold one token per app and a second device
-    on the same platform silently replaced the first. Naming the device keeps them apart.
+    Naming the device in the key is what lets a person hold several devices on one app; a key on the
+    app alone holds one token, and a second device on the same platform replaces the first.
 
-    The device part is a digest of the token rather than a client-supplied id, so every SDK already
-    in the field gets the fix without shipping a new build. A device that keeps its token re-registers
-    onto the same key. A device whose token rotates lands on a new key and the provider reports the
-    old one unregistered on the next send, which prunes it.
+    The device part is a digest of the token rather than a client-supplied id, so an SDK already in
+    the field lands on the right key without shipping a new build. A device that keeps its token
+    re-registers onto the same key. A device whose token rotates lands on a new key, and the provider
+    reports the old one unregistered on the next send, which prunes it.
 
     A colon separates the two parts. Neither a Firebase project id nor an APNs bundle id can contain
     one, so the app part of an existing key can never be read as an app plus a device.
@@ -468,8 +468,8 @@ def push_subscriptions(request: Request):
             )
 
     property_key = device_subscription_key(app_id, device_token)
-    # Written by every client before this change, and still the only key for a device that has not
-    # registered since. The send path reads it too, so a device registered under it stays reachable.
+    # The app-wide key holds a single device for the whole app. A device is reachable there until it
+    # next registers, and the send path reads it, so one stored that way stays addressable.
     legacy_property_key = f"{DEVICE_SUBSCRIPTION_PREFIX}{app_id}"
 
     # $unset of an absent property is a no-op, so DELETE (logout) is idempotent.

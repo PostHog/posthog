@@ -985,6 +985,33 @@ describe('PushNotificationService', () => {
             expect(result.finished).toBe(false)
             expect(result.invocation.queueScheduledAt).toBeDefined()
         })
+
+        const badPayload = () => ({
+            fetchError: null,
+            fetchResponse: { status: 400, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+            fetchDuration: 10,
+        })
+
+        it.each([
+            [
+                'transient first',
+                () => mockTrackedFetch.mockResolvedValueOnce(serverError()).mockResolvedValueOnce(badPayload()),
+            ],
+            [
+                'terminal first',
+                () => mockTrackedFetch.mockResolvedValueOnce(badPayload()).mockResolvedValueOnce(serverError()),
+            ],
+        ])('reschedules when one device failed transiently and another terminally, %s', async (_name, arrange) => {
+            // Whether the step is worth re-running depends on any device being retriable, not on which
+            // device happened to fail last. Keeping only the last error made this order-dependent, so
+            // a terminal failure arriving second dropped the retry the transient one had earned.
+            arrange()
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queueScheduledAt).toBeDefined()
+        })
     })
 
     describe('multiple channels', () => {

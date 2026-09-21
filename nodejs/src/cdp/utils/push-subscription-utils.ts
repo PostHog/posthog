@@ -8,8 +8,10 @@ export const DEVICE_SUBSCRIPTION_PREFIX = '$device_push_subscription_'
 export const MAX_DEVICE_TOKENS_PER_APP = 20
 
 export interface DeviceSubscription {
-    /** Person property holding this token, so a dead token can be pruned on its own. */
-    propertyKey: string
+    /** Every person property holding this token, so a dead token is pruned from all of them at once.
+     * A device can appear under both supported key shapes, and removing one would leave the other to
+     * fail on the next send. */
+    propertyKeys: string[]
     token: string
 }
 
@@ -25,9 +27,9 @@ export function deviceSubscriptionKey(appIdentifier: string, token: string): str
 /**
  * Every device token registered for this person and app.
  *
- * Two key shapes are read. `<prefix><app>` is what every client wrote before tokens were keyed per
- * device, and a device that has not registered since still lives there. `<prefix><app>:<digest>` is
- * one key per device. Both are returned so a fix on the write side reaches devices already stored.
+ * Two key shapes carry a token. `<prefix><app>:<digest>` holds one device each. `<prefix><app>` holds
+ * a single device for the whole app, and a device is reachable there until it next registers. Both
+ * are read, so a person is addressed on every device whichever shape it is stored under.
  */
 export function getDevicePushSubscriptions(
     personProperties: Record<string, any> | undefined,
@@ -41,7 +43,7 @@ export function getDevicePushSubscriptions(
     const legacyKey = `${DEVICE_SUBSCRIPTION_PREFIX}${appIdentifier}`
     const devicePrefix = `${legacyKey}:`
     const subscriptions: DeviceSubscription[] = []
-    const seen = new Set<string>()
+    const seen = new Map<string, DeviceSubscription>()
 
     // Sorted so a person over the cap keeps the same devices from one send to the next, rather than
     // a set that shifts with property insertion order.
@@ -63,13 +65,18 @@ export function getDevicePushSubscriptions(
         } catch {
             continue
         }
-        if (!token || seen.has(token)) {
-            // A device registered before this change holds the same token under both shapes until the
-            // legacy key is pruned, so dedupe on the token to avoid sending twice.
+        if (!token) {
             continue
         }
-        seen.add(token)
-        subscriptions.push({ propertyKey, token })
+        // One device can hold the same token under both shapes, so send once and carry both keys.
+        const existing = seen.get(token)
+        if (existing) {
+            existing.propertyKeys.push(propertyKey)
+            continue
+        }
+        const subscription = { propertyKeys: [propertyKey], token }
+        seen.set(token, subscription)
+        subscriptions.push(subscription)
         if (subscriptions.length >= MAX_DEVICE_TOKENS_PER_APP) {
             break
         }

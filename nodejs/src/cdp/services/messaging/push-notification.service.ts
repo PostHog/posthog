@@ -396,17 +396,23 @@ export class PushNotificationService {
         const templateId = result.invocation.hogFunction.template_id ?? 'unknown'
 
         let delivered = 0
-        let retryable: Error | undefined
+        // A terminal failure on one device must not mask a retriable one on another: whether the step
+        // is worth re-running depends on any device being retriable, not on which failed last.
+        let retriableFailure: Error | undefined
+        let lastFailure: Error | undefined
 
         for (const subscription of subscriptions) {
             const outcome = await this.sendOneFcm(result, params, subscription, url, accessToken, templateId, addLog)
             if (outcome.sent) {
                 delivered++
             } else if (outcome.unregistered) {
-                this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKey, 'fcm')
+                this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'fcm')
                 addLog('warn', `FCM: ${outcome.message}`)
             } else if (outcome.error) {
-                retryable = outcome.error
+                lastFailure = outcome.error
+                if (!retriableFailure && outcome.error instanceof PushSendError && outcome.error.retriable) {
+                    retriableFailure = outcome.error
+                }
             }
         }
 
@@ -418,8 +424,9 @@ export class PushNotificationService {
             return true
         }
 
-        if (retryable) {
-            throw retryable
+        const failure = retriableFailure ?? lastFailure
+        if (failure) {
+            throw failure
         }
 
         return false
@@ -524,7 +531,10 @@ export class PushNotificationService {
         const templateId = result.invocation.hogFunction.template_id ?? 'unknown'
 
         let delivered = 0
-        let retryable: Error | undefined
+        // A terminal failure on one device must not mask a retriable one on another: whether the step
+        // is worth re-running depends on any device being retriable, not on which failed last.
+        let retriableFailure: Error | undefined
+        let lastFailure: Error | undefined
 
         for (const subscription of subscriptions) {
             const outcome = await this.sendOneApns(
@@ -537,10 +547,13 @@ export class PushNotificationService {
             if (outcome.sent) {
                 delivered++
             } else if (outcome.unregistered) {
-                this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKey, 'apns')
+                this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'apns')
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
-                retryable = outcome.error
+                lastFailure = outcome.error
+                if (!retriableFailure && outcome.error instanceof PushSendError && outcome.error.retriable) {
+                    retriableFailure = outcome.error
+                }
             }
         }
 
@@ -551,8 +564,9 @@ export class PushNotificationService {
             return true
         }
 
-        if (retryable) {
-            throw retryable
+        const failure = retriableFailure ?? lastFailure
+        if (failure) {
+            throw failure
         }
 
         return false
@@ -758,17 +772,17 @@ export class PushNotificationService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         invocation: CyclotronJobInvocationHogFunction,
         distinctId: string,
-        propertyKey: string,
+        propertyKeys: string[],
         platform: 'fcm' | 'apns'
     ): void {
-        // Only this device's key. Unsetting the app's whole subscription here would take every other
-        // device of the person with it.
+        // Only the keys holding this device's token. Unsetting the app's whole subscription here would
+        // take every other device of the person with it.
         result.capturedPostHogEvents.push({
             team_id: invocation.teamId,
             event: '$set',
             distinct_id: distinctId,
             timestamp: new Date().toISOString(),
-            properties: { $unset: [propertyKey] },
+            properties: { $unset: propertyKeys },
         })
         pushNotificationTokenPrunedCounter.labels({ platform }).inc()
         // A dead token is a non-delivery, not a failure to fix. Record it in the reason-labeled skip
