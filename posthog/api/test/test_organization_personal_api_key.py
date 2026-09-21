@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -97,3 +99,26 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
         assert response.json()["code"] == "payment_required"
+
+    def test_paging_is_stable_when_a_key_is_used_between_pages(self):
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        keys = [self._create_key(self.user, label=f"key-{i}", mask_value=f"phx_***{i:04}") for i in range(5)]
+
+        page_size = 2
+        seen: list[str] = []
+        offset = 0
+        while True:
+            response = self.client.get(self._url(), {"limit": page_size, "offset": offset})
+            assert response.status_code == status.HTTP_200_OK
+            results = response.json()["results"]
+            seen.extend(row["mask_value"] for row in results)
+            if not results:
+                break
+            # A key that the admin has already seen gets used. Ordering on last_used_at would move it
+            # past the offset the walk has reached, so a later key drops out of the results.
+            PersonalAPIKey.objects.filter(mask_value=results[0]["mask_value"]).update(last_used_at=timezone.now())
+            offset += page_size
+            if len(results) < page_size:
+                break
+
+        assert sorted(seen) == sorted(key.mask_value for key in keys)

@@ -91,7 +91,9 @@ class OrganizationPersonalAPIKeyViewSet(
     filter_rewrite_rules = {"organization_id": "user__organization_membership__organization_id"}
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return get_organization_personal_api_keys(self.organization).order_by("-last_used_at", "-created_at")
+        # Offset pagination needs an immutable, unique order. A key use writes last_used_at, which would
+        # move a row between pages while an admin walks them, so the audit could miss a key.
+        return get_organization_personal_api_keys(self.organization).order_by("-created_at", "-id")
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
