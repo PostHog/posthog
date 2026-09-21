@@ -2083,14 +2083,14 @@ Note: Cortex publishes an llms.txt index and every API page has a .md variant em
 
 ## Coupa — **thin**
 
-Today (8): `approvals`, `contracts`, `expense_reports`, `invoices`, `purchase_orders`, `requisitions`, `suppliers`, `users`
+Today (10): `approvals`, `contracts`, `expense_lines`, `expense_reports`, `invoices`, `purchase_order_lines`, `purchase_orders`, `requisitions`, `suppliers`, `users`
 
 Diffed against: <https://compass.coupa.com/en-us/products/product-documentation/integration-technical-documentation/the-coupa-core-api/resources>
 
-- [ ] `/invoices/{id}/lines (Invoice Line API, plus Invoice Charge / Tax Line)` — line-item grain for invoices already synced; without it spend cannot be broken down by item, account, or tax (high)
-- [ ] `/purchase_orders/{id}/order_lines (Purchase Order Lines API)` — line items for POs already synced - the unit almost every spend analysis aggregates (high)
-- [ ] `/requisitions/{id}/requisition_lines (Requisition Line API)` — line items behind requisitions already synced, needed for req-to-PO conversion analysis (high)
-- [ ] `/expense_reports/{id}/expense_lines (Expense Lines API)` — per-line expense detail with category and allocation; expense_reports alone is only a header (high)
+- [ ] `/invoices/{id}/lines (Invoice Line API, plus Invoice Charge / Tax Line)` — line-item grain for invoices already synced; without it spend cannot be broken down by item, account, or tax (high). Not buildable: the Invoice Line docs state the resource has no endpoint of its own, and Invoice Charge / Tax Line are reachable only through the invoice header response.
+- [x] `/purchase_orders/{id}/order_lines (Purchase Order Lines API)` — line items for POs already synced - the unit almost every spend analysis aggregates (high) — added as `purchase_order_lines`. There is no nested path; the endpoint is the top-level `/api/purchase_order_lines`.
+- [ ] `/requisitions/{id}/requisition_lines (Requisition Line API)` — line items behind requisitions already synced, needed for req-to-PO conversion analysis (high). Not buildable: `requisition-lines` is an element of the requisition response, and the Requisitions API exposes no line endpoint.
+- [x] `/expense_reports/{id}/expense_lines (Expense Lines API)` — per-line expense detail with category and allocation; expense_reports alone is only a header (high) — added as `expense_lines` on the top-level `/api/expense_lines`, which covers every report in one paginated stream instead of fanning out per report.
 - [ ] `/accounts (plus /account_types)` — chart-of-accounts lookup that resolves the account IDs carried on every PO, invoice, and expense allocation (high)
 - [ ] `/commodities` — spend category lookup referenced by requisitions, POs, and invoices; the standard breakdown dimension (high)
 - [ ] `/departments` — lookup resolving the department IDs on users, requisitions, and approvals (high)
@@ -2100,7 +2100,7 @@ Diffed against: <https://compass.coupa.com/en-us/products/product-documentation/
 - [ ] `Order Line Allocations and Req Line Allocation APIs` — cost-center/account splits per line - the breakdown dimension for allocated spend (medium)
 - [ ] `/purchase_orders/{id}/changes (Purchase Order Change / Revisions API)` — PO amendment history for change-order and cycle-time analysis (medium)
 
-Note: Coupa Core API is very large (several hundred documented resources across Reference, Shared, and Transactional groups). PostHog exposes 8 header-level objects and no line-level or lookup tables, so nearly all analytical grain is missing. The linked doc in the payload is the legacy Compass page; the maintained index is docs.coupa.com. A GraphQL API and flat-file (CSV) export path also exist.
+Note: Coupa Core API is very large (several hundred documented resources across Reference, Shared, and Transactional groups). PostHog exposes 8 header-level objects plus PO and expense lines, and no lookup tables, so most analytical grain is still missing. Coupa documents many line-level resources that have no endpoint of their own and are only reachable inside their parent object, so a gap naming a nested path is worth checking against the resource page before building it. The linked doc in the payload is the legacy Compass page; the maintained index is docs.coupa.com. A GraphQL API and flat-file (CSV) export path also exist.
 
 ## Courier — gaps
 
