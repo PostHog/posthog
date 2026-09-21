@@ -42,4 +42,18 @@ describe('eventsSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.query).toEqual(query)
     })
+
+    it('falls back to the default query when the #q= hash has no source', async () => {
+        // A DataTableNode without a source cannot be rendered, so it must never reach setQuery.
+        router.actions.push(
+            combineUrl(
+                urls.activity(ActivityTab.ExploreEvents),
+                {},
+                { q: { kind: NodeKind.DataTableNode, full: true } }
+            ).url
+        )
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.query).toEqual(logic.values.defaultQuery)
+    })
 })
