@@ -102,6 +102,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'Enter your MiniMax API key'
         case 'zeabur':
             return 'sk-...'
+        case 'typesafe':
+            return 'Enter your TypeSafe API key'
     }
 }
 
@@ -195,7 +197,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                     provider,
                     name,
                     api_key: apiKey,
-                    set_as_active: !evaluationConfig?.active_provider_key,
+                    set_as_active: provider !== 'typesafe' && !evaluationConfig?.active_provider_key,
                 }
                 if (isAzure) {
                     payload.azure_endpoint = azureEndpoint
@@ -229,7 +231,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                 provider,
                 name,
                 api_key: apiKey,
-                set_as_active: !evaluationConfig?.active_provider_key,
+                set_as_active: provider !== 'typesafe' && !evaluationConfig?.active_provider_key,
             }
             if (isAzure) {
                 payload.azure_endpoint = azureEndpoint

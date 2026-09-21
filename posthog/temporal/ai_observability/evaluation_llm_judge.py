@@ -41,10 +41,13 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderMismatchError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
 )
+from products.ai_observability.backend.llm.types import CompletionResponse, Usage
+from products.ai_observability.backend.llm.typesafe import TypeSafeClient, TypeSafeRateLimitError
 from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 
 logger = structlog.get_logger(__name__)
@@ -335,16 +338,55 @@ def call_llm_judge(
         capture_analytics=False,
     )
 
+    probability: float | None = None
     try:
-        response = client.complete(
-            CompletionRequest(
+        if provider == "typesafe":
+            if provider_key is not None and provider_key.provider != provider:
+                raise ProviderMismatchError(provider_key.provider, provider)
+            typesafe_result = TypeSafeClient.evaluate_boolean(
+                api_key=provider_key.encrypted_config.get("api_key", "") if provider_key else "",
                 model=model,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-                provider=provider,
-                response_format=response_format,
+                prompt=evaluation["evaluation_config"]["prompt"],
+                source=user_prompt,
+                allows_na=allows_na,
             )
-        )
+            probability = typesafe_result.answers["verdict"].noul
+            applicable = not allows_na or typesafe_result.answers["applicable"].noul >= 0.5
+            parsed: BooleanEvalResult | BooleanWithNAEvalResult = (
+                BooleanWithNAEvalResult(
+                    reasoning="", applicable=applicable, verdict=probability >= 0.5 if applicable else None
+                )
+                if allows_na
+                else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
+            )
+            model = typesafe_result.model
+            response = CompletionResponse(
+                content="",
+                model=model,
+                parsed=parsed,
+                usage=Usage(
+                    input_tokens=typesafe_result.usage.input_tokens,
+                    output_tokens=typesafe_result.usage.output_tokens,
+                    total_tokens=typesafe_result.usage.input_tokens + typesafe_result.usage.output_tokens,
+                ),
+            )
+        else:
+            response = client.complete(
+                CompletionRequest(
+                    model=model,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                    provider=provider,
+                    response_format=response_format,
+                )
+            )
+    except TypeSafeRateLimitError as e:
+        increment_errors("rate_limit", provider=provider)
+        raise ApplicationError(
+            str(e),
+            {"error_type": "provider_unavailable", "provider": provider},
+            next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,
+        ) from e
     except AuthenticationError:
         if is_byok:
             increment_user_errors("auth_error", provider=provider)
@@ -495,5 +537,8 @@ def call_llm_judge(
         pass
     else:
         raise ValueError(f"Unexpected result type: {type(parsed_result)}")
+
+    if probability is not None:
+        result_dict["probability"] = probability
 
     return result_dict

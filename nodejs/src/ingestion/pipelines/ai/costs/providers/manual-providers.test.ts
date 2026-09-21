@@ -5,6 +5,7 @@ describe('manualCosts', () => {
         model: string
         expected: { prompt_token: number; completion_token: number; cache_read_token?: number }
     }> = [
+        { model: 'jev-1.13.0', expected: { prompt_token: 0.000000042, completion_token: 0 } },
         {
             model: 'gpt-4.5',
             expected: {

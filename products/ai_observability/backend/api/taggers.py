@@ -39,7 +39,7 @@ from products.access_control.backend.presentation.access_control import AccessCo
 
 from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration
-from ..models.provider_keys import LLMProvider, LLMProviderKey
+from ..models.provider_keys import LLMProviderKey, llm_completion_provider_choices
 from ..models.taggers import Tagger, TaggerType, validate_tagger_config
 from .metrics import llma_track_latency
 
@@ -121,7 +121,9 @@ class TaggerConfigField(serializers.JSONField):
 
 
 class TaggerModelConfigurationWriteSerializer(serializers.Serializer):
-    provider = serializers.ChoiceField(choices=LLMProvider.choices, help_text="LLM provider to use for this tagger.")
+    provider = serializers.ChoiceField(
+        choices=llm_completion_provider_choices(), help_text="LLM provider to use for this tagger."
+    )
     model = serializers.CharField(max_length=100, help_text="Provider model identifier to use for this tagger.")
     provider_key_id = serializers.UUIDField(
         required=False,

@@ -1,25 +1,58 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.proxy import models_cache_key
+from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer
+from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerializer, models_cache_key
+from products.ai_observability.backend.api.taggers import TaggerModelConfigurationWriteSerializer
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+
+
+class TestProviderKeySerializer(SimpleTestCase):
+    @parameterized.expand([(LLMProxyCompletionSerializer,), (TaggerModelConfigurationWriteSerializer,)])
+    def test_typesafe_is_not_a_completion_provider(self, serializer_class: type[serializers.Serializer]) -> None:
+        serializer = serializer_class(
+            data={
+                "provider": "typesafe",
+                "model": "jev-1.13.0",
+                "provider_key_id": str(uuid4()),
+                "system": "Reply politely.",
+                "messages": [{"role": "user", "content": "Hello!"}],
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("provider", serializer.errors)
+
+    @parameterized.expand([("openai", "typesafe"), ("typesafe", "openai")])
+    def test_cannot_change_provider_of_an_existing_key(self, current: str, requested: str) -> None:
+        key = LLMProviderKey(provider=current, state="ok", encrypted_config={"api_key": "test-key"})
+        serializer = LLMProviderKeySerializer(key, data={"provider": requested}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("provider", serializer.errors)
+
+    def test_typesafe_cannot_be_created_as_the_shared_key(self) -> None:
+        serializer = LLMProviderKeySerializer(
+            data={"provider": "typesafe", "name": "TypeSafe", "api_key": "test-key", "set_as_active": True}
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("set_as_active", serializer.errors)
 
 
 def _setup_team():
@@ -85,13 +118,14 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @parameterized.expand([("openai",), ("typesafe",)])
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_can_create_provider_key(self, mock_validate):
+    def test_can_create_provider_key(self, provider: str, mock_validate: Mock) -> None:
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
-            {"provider": "openai", "name": "My Key", "api_key": "sk-test-key-12345"},
+            {"provider": provider, "name": "My Key", "api_key": "sk-test-key-12345"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(LLMProviderKey.objects.count(), 1)
@@ -99,14 +133,14 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         key = LLMProviderKey.objects.first()
         assert key is not None
         self.assertEqual(key.name, "My Key")
-        self.assertEqual(key.provider, "openai")
+        self.assertEqual(key.provider, provider)
         self.assertEqual(key.state, LLMProviderKey.State.OK)
         self.assertEqual(key.team, self.team)
         self.assertEqual(key.created_by, self.user)
 
         self.assertEqual(response.data["api_key_masked"], "sk-t...2345")
         self.assertNotIn("api_key", response.data)
-        mock_validate.assert_called_once_with("openai", "sk-test-key-12345")
+        mock_validate.assert_called_once_with(provider, "sk-test-key-12345")
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_provider_key_with_set_as_active(self, mock_validate):

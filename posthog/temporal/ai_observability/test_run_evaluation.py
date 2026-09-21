@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -42,8 +42,17 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS, TransientJudgeError, _execute_llm_judge_activity
-from .evaluation_workflow_activities import LocalEvaluationOutcome, backfill_verdict_timestamp
+from .evaluation_llm_judge import (
+    JUDGE_EVENT_MAX_CHARS,
+    TransientJudgeError,
+    _execute_llm_judge_activity,
+    call_llm_judge,
+)
+from .evaluation_workflow_activities import (
+    LocalEvaluationOutcome,
+    backfill_verdict_timestamp,
+    build_evaluation_event_properties,
+)
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -73,6 +82,75 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
     """A mocked EvaluationConfig whose active key resolves via DefaultModelSpec (usable, right provider)."""
     key = MagicMock(provider=provider, state=LLMProviderKey.State.OK)
     return MagicMock(active_provider_key=key)
+
+
+@pytest.mark.parametrize(
+    "probability,applicability,allows_na,verdict",
+    [(0.49, 1.0, False, False), (0.5, 1.0, False, True), (0.9, 0.1, True, None), (0.0, 0.9, True, False)],
+)
+def test_typesafe_judge_emits_boolean_probability_without_reasoning(
+    probability: float, applicability: float, allows_na: bool, verdict: bool | None
+) -> None:
+    key = MagicMock(provider="typesafe", encrypted_config={"api_key": "test-typesafe-key"})
+    resolved = MagicMock(provider="typesafe", model="jev-1.13.0", provider_key=key, is_byok=True)
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "model": "jev-1.13.0",
+        "answers": {
+            "verdict": {"type": "noul", "noul": probability},
+            "applicable": {"type": "noul", "noul": applicability},
+        },
+        "usage": {"input_tokens": 120, "output_tokens": 10},
+    }
+    evaluation = {
+        "id": "test-evaluation",
+        "name": "Politeness",
+        "team_id": 1,
+        "evaluation_config": {"prompt": "Is the response polite?"},
+    }
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("requests.request", return_value=response),
+    ):
+        spec.return_value.resolve.return_value = resolved
+        result = call_llm_judge(
+            evaluation=evaluation,
+            system_prompt="Unused generation instructions",
+            user_prompt="Hello!",
+            allows_na=allows_na,
+        )
+
+    assert result["verdict"] is verdict
+    assert result["reasoning"] == ""
+    assert result["probability"] == probability
+    assert result["total_tokens"] == 130
+    if allows_na:
+        assert result["applicable"] is (applicability >= 0.5)
+    properties = build_evaluation_event_properties(evaluation, result, datetime.now(UTC))
+    assert properties["$ai_evaluation_probability"] == probability
+    assert properties["$ai_model"] == "jev-1.13.0"
+    assert properties["$ai_evaluation_key_type"] == "byok"
+
+
+def test_typesafe_rate_limit_retries_without_disabling_the_evaluation() -> None:
+    key = MagicMock(provider="typesafe", encrypted_config={"api_key": "test-typesafe-key"})
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("requests.request", return_value=MagicMock(status_code=429, headers={"Retry-After": "15"})),
+        pytest.raises(ApplicationError) as error,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="typesafe", model="jev-1.13.0", provider_key=key, is_byok=True
+        )
+        call_llm_judge(
+            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert not error.value.non_retryable
+    assert error.value.next_retry_delay == timedelta(seconds=15)
+    assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
 
 
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():

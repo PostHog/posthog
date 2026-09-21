@@ -22,11 +22,16 @@ class LLMProvider(models.TextChoices):
     TOGETHER_AI = "together_ai", "Together AI"
     MINIMAX = "minimax", "MiniMax"
     ZEABUR = "zeabur", "Zeabur AI Hub"
+    TYPESAFE = "typesafe", "TypeSafe"
 
 
 def llm_provider_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(LLMProvider.choices)
+
+
+def llm_completion_provider_choices() -> list[tuple[str, str | Promise]]:
+    return [(provider, label) for provider, label in LLMProvider.choices if provider != LLMProvider.TYPESAFE]
 
 
 class LLMProviderKey(UUIDTModel):

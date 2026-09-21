@@ -14,7 +14,7 @@ from posthog.permissions import AccessControlPermission
 from posthog.scopes import APIScopeObjectOrNotSupported
 
 from ..models.evaluation_config import EvaluationConfig
-from ..models.provider_keys import LLMProviderKey
+from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 from .provider_keys import LLMProviderKeySerializer
 
@@ -107,6 +107,12 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(
                 {"detail": "Key not found."},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if key.provider == LLMProvider.TYPESAFE:
+            return Response(
+                {"detail": "Select the TypeSafe key on an evaluation instead."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         if key.state != LLMProviderKey.State.OK:

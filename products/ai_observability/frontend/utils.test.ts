@@ -75,6 +75,15 @@ function makeEvaluationRunRow({
 }
 
 describe('mapEvaluationRunRow', () => {
+    it.each([0, 0.49, 1])('preserves a Jev probability of %s without inventing reasoning', (probability) => {
+        const row = makeEvaluationRunRow()
+        row[7] = ''
+        row[15] = probability
+        const run = mapEvaluationRunRow(row)
+        expect(run.probability).toBe(probability)
+        expect(run.reasoning).toBe('')
+    })
+
     it('maps sentiment rows without coercing missing boolean results to false', () => {
         const run = mapEvaluationRunRow(
             makeEvaluationRunRow({

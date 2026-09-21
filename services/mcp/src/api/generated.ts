@@ -36051,6 +36051,7 @@ export namespace Schemas {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
+     * * `typesafe` - TypeSafe
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -36065,6 +36066,7 @@ export namespace Schemas {
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
       Zeabur: 'zeabur',
+      Typesafe: 'typesafe',
     } as const;
 
     /**
@@ -51320,6 +51322,32 @@ export namespace Schemas {
       createdAt: string | null;
     }
 
+    /**
+     * * `openai` - Openai
+     * * `anthropic` - Anthropic
+     * * `gemini` - Gemini
+     * * `openrouter` - Openrouter
+     * * `fireworks` - Fireworks
+     * * `azure_openai` - Azure OpenAI
+     * * `together_ai` - Together AI
+     * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub
+     */
+    export type LLMCompletionProviderEnum = typeof LLMCompletionProviderEnum[keyof typeof LLMCompletionProviderEnum];
+
+
+    export const LLMCompletionProviderEnum = {
+      Openai: 'openai',
+      Anthropic: 'anthropic',
+      Gemini: 'gemini',
+      Openrouter: 'openrouter',
+      Fireworks: 'fireworks',
+      AzureOpenai: 'azure_openai',
+      TogetherAi: 'together_ai',
+      Minimax: 'minimax',
+      Zeabur: 'zeabur',
+    } as const;
+
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
@@ -63502,7 +63530,7 @@ export namespace Schemas {
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
        * * `zeabur` - Zeabur AI Hub */
-      provider: LLMProviderEnum;
+      provider: LLMCompletionProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
          * @maxLength 100
@@ -73486,7 +73514,7 @@ export namespace Schemas {
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
        * * `zeabur` - Zeabur AI Hub */
-      provider: LLMProviderEnum;
+      provider: LLMCompletionProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
          * @maxLength 100
@@ -106108,6 +106136,7 @@ export namespace Schemas {
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
+      Typesafe: 'typesafe',
       Zeabur: 'zeabur',
     } as const;
 

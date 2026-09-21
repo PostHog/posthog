@@ -33,3 +33,23 @@ Generation evaluations extract message text without the per-message character cu
 They sample the combined input, tool definitions, and output only when that text exceeds 150,000 characters, with a final character slice enforcing the limit.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
+
+## Jev boolean judge
+
+Jev is available under the existing LLM judge option with a customer-provided TypeSafe API key.
+Select the key and `jev-1.13.0` on each evaluation; TypeSafe keys cannot become the shared active provider key used by other AI features.
+Provider keys keep the provider they were created with; switching providers requires a new key.
+Jev supports boolean evaluations only and uses the same formatted text for generation, trace, and session targets.
+
+The evaluation prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
+A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
+For evaluations that allow N/A, a separate question checks whether the criteria apply, using the same threshold.
+Uncertainty alone does not produce N/A.
+The raw probability is stored in `$ai_evaluation_probability`, with token usage and the resolved model version.
+Jev provides no written reasoning, so reports inspect the original source when explaining outcomes.
+
+TypeSafe rate limits and overload responses are retried through Temporal, honoring `Retry-After` up to five minutes.
+If retries fail, the run fails and the evaluation stays enabled.
+Invalid probabilities or missing answers fail the evaluation rather than producing a false result.
+Inputs rejected for exceeding the model's context window are skipped.
+See TypeSafe's [API reference](https://docs.typesafe.ai/api) and [model limits and pricing](https://docs.typesafe.ai/models).

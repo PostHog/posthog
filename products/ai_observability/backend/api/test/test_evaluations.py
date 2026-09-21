@@ -56,6 +56,21 @@ def _setup_team():
 class TestModelConfigurationSerializer(SimpleTestCase):
     @parameterized.expand(
         [
+            ("missing_key", "jev-1.13.0", None, False),
+            ("unsupported_model", "other-model", str(uuid4()), False),
+            ("configured", "jev-1.13.0", str(uuid4()), True),
+        ]
+    )
+    def test_typesafe_requires_supported_model_and_explicit_key(
+        self, _name: str, model: str, key_id: str | None, valid: bool
+    ) -> None:
+        serializer = ModelConfigurationSerializer(
+            data={"provider": "typesafe", "model": model, "provider_key_id": key_id}
+        )
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+
+    @parameterized.expand(
+        [
             ("missing_provider", {"model": "gpt-5-mini"}, "provider"),
             ("missing_model", {"provider": "openai"}, "model"),
         ]
@@ -114,16 +129,18 @@ class TestEvaluationConfigsApi(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_can_create_evaluation_config(self):
+    @parameterized.expand([("openai", "gpt-5-mini"), ("typesafe", "jev-1.13.0")])
+    def test_can_create_evaluation_config(self, provider: str, model: str) -> None:
         key = LLMProviderKey.objects.create(
             team=self.team,
-            provider="openai",
+            provider=provider,
             name="Active Key",
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
             created_by=self.user,
         )
-        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
+        if provider == "openai":
+            EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -131,7 +148,9 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "description": "Test Description",
                 "enabled": True,
                 "evaluation_type": "llm_judge",
-                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                "model_configuration": {"provider": provider, "model": model, "provider_key_id": str(key.id)}
+                if provider == "typesafe"
+                else _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},

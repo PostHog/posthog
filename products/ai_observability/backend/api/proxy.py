@@ -49,7 +49,7 @@ from products.ai_observability.backend.llm import (
     get_playground_models,
 )
 from products.ai_observability.backend.llm.errors import UnsupportedProviderError
-from products.ai_observability.backend.models.provider_keys import LLMProvider, LLMProviderKey
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey, llm_completion_provider_choices
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
@@ -63,6 +63,7 @@ def models_cache_key(provider_key_id: str | uuid.UUID) -> str:
 
 
 PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "typesafe": "TypeSafe",
     "openai": "OpenAI",
     "anthropic": "Anthropic",
     "gemini": "Gemini",
@@ -78,7 +79,7 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
     messages = serializers.ListField(child=serializers.DictField())
     model = serializers.CharField()
-    provider = serializers.ChoiceField(choices=LLMProvider.choices)
+    provider = serializers.ChoiceField(choices=llm_completion_provider_choices())
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
     top_p = serializers.FloatField(required=False)

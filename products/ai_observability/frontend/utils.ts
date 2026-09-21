@@ -1127,6 +1127,7 @@ type RawEvaluationRunRow = [
     sentiment_score: number | string | null,
     session_id: string | null,
     skipped: boolean | string | null,
+    probability?: number | string | null,
 ]
 
 export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
@@ -1231,7 +1232,8 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         session_id: row[13] || null,
         ...normalizedResult,
         skipped: isExplicitEvaluationPass(row[14]),
-        reasoning: row[7] || 'No reasoning provided',
+        reasoning: row[7] ?? '',
+        probability: normalizeOptionalNumber(row[15]),
         status: 'completed' as const,
     }
 }
@@ -1275,7 +1277,8 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_sentiment_label as sentiment_label,
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_session_id as session_id,
-            properties.$ai_evaluation_skipped as skipped
+            properties.$ai_evaluation_skipped as skipped,
+            properties.$ai_evaluation_probability as probability
         FROM events
         WHERE
             event = '$ai_evaluation'

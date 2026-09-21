@@ -5,17 +5,10 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { LLMProviderEnumApi } from '../generated/api.schemas'
+
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider =
-    | 'openai'
-    | 'anthropic'
-    | 'gemini'
-    | 'openrouter'
-    | 'fireworks'
-    | 'azure_openai'
-    | 'together_ai'
-    | 'minimax'
-    | 'zeabur'
+export type LLMProvider = LLMProviderEnumApi
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
@@ -30,6 +23,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     together_ai: 'Together AI',
     minimax: 'MiniMax',
     zeabur: 'Zeabur AI Hub',
+    typesafe: 'TypeSafe',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))

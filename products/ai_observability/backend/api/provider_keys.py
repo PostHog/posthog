@@ -159,6 +159,10 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"api_key": "API key is required when creating a new provider key."})
 
         provider = data.get("provider", getattr(self.instance, "provider", None))
+        if self.instance is not None and provider != self.instance.provider:
+            raise serializers.ValidationError({"provider": "A key's provider cannot change. Create a new key instead."})
+        if provider == LLMProvider.TYPESAFE and data.get("set_as_active"):
+            raise serializers.ValidationError({"set_as_active": "Select the TypeSafe key on an evaluation instead."})
         if provider == LLMProvider.AZURE_OPENAI:
             has_endpoint = bool(data.get("azure_endpoint"))
             has_existing_endpoint = self.instance and self.instance.encrypted_config.get("azure_endpoint")

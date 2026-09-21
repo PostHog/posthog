@@ -850,6 +850,7 @@ export const EvaluationTargetEnumApi = {
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
  * * `zeabur` - Zeabur AI Hub
+ * * `typesafe` - TypeSafe
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -863,6 +864,7 @@ export const LLMProviderEnumApi = {
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
     Zeabur: 'zeabur',
+    Typesafe: 'typesafe',
 } as const
 
 /**
@@ -3042,6 +3044,32 @@ export interface TaggerConditionApi {
 }
 
 /**
+ * * `openai` - Openai
+ * * `anthropic` - Anthropic
+ * * `gemini` - Gemini
+ * * `openrouter` - Openrouter
+ * * `fireworks` - Fireworks
+ * * `azure_openai` - Azure OpenAI
+ * * `together_ai` - Together AI
+ * * `minimax` - MiniMax
+ * * `zeabur` - Zeabur AI Hub
+ */
+export type LLMCompletionProviderEnumApi =
+    (typeof LLMCompletionProviderEnumApi)[keyof typeof LLMCompletionProviderEnumApi]
+
+export const LLMCompletionProviderEnumApi = {
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
+    TogetherAi: 'together_ai',
+    Minimax: 'minimax',
+    Zeabur: 'zeabur',
+} as const
+
+/**
  * Nested serializer for model configuration.
  */
 export interface TaggerModelConfigurationApi {
@@ -3056,7 +3084,7 @@ export interface TaggerModelConfigurationApi {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub */
-    provider: LLMProviderEnumApi
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -3110,7 +3138,7 @@ export interface TaggerModelConfigurationWriteApi {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub */
-    provider: LLMProviderEnumApi
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -3537,6 +3565,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openai: 'openai',
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',
+    Typesafe: 'typesafe',
     Zeabur: 'zeabur',
 } as const
 

@@ -286,6 +286,8 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_provider"] = result.get("provider", "openai")
         properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
         properties["$ai_evaluation_key_id"] = result.get("key_id")
+        if "probability" in result:
+            properties["$ai_evaluation_probability"] = result["probability"]
 
     if result["result_type"] == "sentiment":
         if not result.get("skipped"):

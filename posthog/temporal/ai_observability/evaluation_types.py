@@ -33,6 +33,7 @@ class EvaluationActivityResult(TypedDict, total=False):
     result_type: Required[Literal["boolean", "sentiment"]]
     reasoning: Required[str]
     verdict: NotRequired[bool | None]
+    probability: NotRequired[float]
     allows_na: NotRequired[bool]
     input_tokens: NotRequired[int]
     output_tokens: NotRequired[int]
