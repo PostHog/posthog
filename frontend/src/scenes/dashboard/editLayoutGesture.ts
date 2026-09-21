@@ -19,6 +19,12 @@ export function whenPressBecomesDrag(event: ReactMouseEvent, onDragStarted: (mov
     }
 
     function handleMove(moveEvent: MouseEvent): void {
+        // A release outside the browser window never delivers mouseup here, so trust what the move
+        // reports is still held rather than the release we may never see.
+        if (!(moveEvent.buttons & 1)) {
+            stopWatching()
+            return
+        }
         const travelled = Math.hypot(moveEvent.clientX - clientX, moveEvent.clientY - clientY)
         if (travelled < EDIT_MODE_GESTURE_THRESHOLD_PX) {
             return

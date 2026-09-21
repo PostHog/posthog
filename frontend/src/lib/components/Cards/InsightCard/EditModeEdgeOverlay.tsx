@@ -327,7 +327,7 @@ export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnte
                     }}
                     onMouseLeave={() => releaseHover()}
                     aria-hidden="true"
-                    title="Click to edit layout"
+                    title="Drag to resize"
                     data-attr={EDGE_ZONE_DATA_ATTR}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{

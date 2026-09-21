@@ -39,8 +39,8 @@ describe('editLayoutGesture', () => {
     describe('whenPressBecomesDrag', () => {
         const press = { clientX: 100, clientY: 100 } as ReactMouseEvent
 
-        const drag = (toX: number, toY: number): void => {
-            window.dispatchEvent(new MouseEvent('mousemove', { clientX: toX, clientY: toY }))
+        const drag = (toX: number, toY: number, buttons: number = 1): void => {
+            window.dispatchEvent(new MouseEvent('mousemove', { clientX: toX, clientY: toY, buttons }))
         }
 
         it.each([
@@ -84,11 +84,14 @@ describe('editLayoutGesture', () => {
             expect(onDragStarted).toHaveBeenCalledTimes(1)
         })
 
-        it('stops watching the pointer after the button is released', () => {
+        it.each([
+            ['the button is released', () => window.dispatchEvent(new MouseEvent('mouseup'))],
+            ['the release happened outside the window, so no mouseup arrived', () => drag(300, 300, 0)],
+        ])('stops watching the pointer once %s', (_case, endPress) => {
             const onDragStarted = jest.fn()
 
             whenPressBecomesDrag(press, onDragStarted)
-            window.dispatchEvent(new MouseEvent('mouseup'))
+            endPress()
             drag(300, 300)
 
             expect(onDragStarted).not.toHaveBeenCalled()
