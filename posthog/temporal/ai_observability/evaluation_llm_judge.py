@@ -515,9 +515,8 @@ def call_llm_judge(
         return _build_context_window_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
 
     except OutputTokenLimitError as e:
-        # Skip rather than raise: a reply the model could not finish within its output limit is not
-        # a PostHog defect, and the same retry hits the same limit. Providers word this failure
-        # differently per model, so raising files a fresh error tracking issue for each wording.
+        # Avoid automatic retries of a billed generation; a later backfill can retry it.
+        # Providers word this failure differently, so raising creates separate error tracking issues.
         increment_errors("output_limit_exceeded", provider=provider)
         logger.warning(
             "LLM judge response hit the model output limit",

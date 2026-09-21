@@ -193,25 +193,49 @@ class TestAnthropicErrorMapping:
                     analytics=AnalyticsContext(capture=False),
                 )
 
-    def test_output_limit_400_maps_to_output_token_limit(self):
+    @parameterized.expand(
+        [
+            (
+                "truncated_reply",
+                "Could not finish the message because max_tokens or model output limit was reached.",
+                OutputTokenLimitError,
+                "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again.",
+            ),
+            (
+                "invalid_token_limit",
+                "max_tokens: 8192 > 4096, which is the maximum allowed number of output tokens for this model",
+                anthropic.BadRequestError,
+                "The model provider rejected this request: max_tokens: 8192 > 4096, "
+                "which is the maximum allowed number of output tokens for this model",
+            ),
+        ]
+    )
+    def test_token_limit_400_preserves_the_failure_reason(
+        self, _name: str, message: str, expected_error: type[Exception], expected_stream_error: str
+    ) -> None:
         with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
-            mock_client.messages.create.side_effect = _make_bad_request_error(
-                "max_tokens: 8192 > 4096, which is the maximum allowed number of output tokens for this model"
+            mock_client.messages.create.side_effect = _make_bad_request_error(message)
+            request = CompletionRequest(
+                model="claude-haiku-4-5",
+                messages=[{"role": "user", "content": "hi"}],
+                provider="anthropic",
+                system="s",
             )
 
-            with pytest.raises(OutputTokenLimitError):
+            with pytest.raises(expected_error):
                 AnthropicAdapter().complete(
-                    CompletionRequest(
-                        model="claude-haiku-4-5",
-                        messages=[{"role": "user", "content": "hi"}],
-                        provider="anthropic",
-                        system="s",
-                    ),
+                    request,
                     api_key="sk-ant-test",
                     analytics=AnalyticsContext(capture=False),
                 )
+
+            chunks = list(
+                AnthropicAdapter().stream(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
+            )
+
+        assert [chunk.data["error"] for chunk in chunks if chunk.type == "error"] == [expected_stream_error]
 
     def test_model_404_maps_to_model_not_found(self):
         # A retired or misspelled model comes back as a 404. Unmapped, an evaluation burned its

@@ -279,7 +279,16 @@ class TestOpenAIStreamErrorSurfacing:
         assert errors == ["Model 'gpt-4-turbo-2024-04-09' is not available. Pick a different model and try again."]
         assert "Error code: 404" not in errors[0]
 
-    def test_unmapped_400_keeps_the_providers_reason_instead_of_telling_the_user_to_retry(self):
+    @parameterized.expand(
+        [
+            ("unsupported_temperature", "Unsupported value: 'temperature' does not support 0.7 with this model."),
+            ("invalid_token_limit", "Invalid 'max_output_tokens': integer below minimum value. Expected >= 16, got 8."),
+            ("excessive_token_limit", "Requested max_tokens exceeds the model output limit. Reduce max_tokens."),
+        ]
+    )
+    def test_unmapped_400_keeps_the_providers_reason_instead_of_telling_the_user_to_retry(
+        self, _name: str, detail: str
+    ) -> None:
         # An unsupported parameter is the most common way a playground run fails, and it has no
         # branch in the taxonomy. "Try again" would be advice that cannot work, so the provider's
         # sentence has to come through — without the SDK's `Error code: 400 - {...}` wrapper.
@@ -289,7 +298,6 @@ class TestOpenAIStreamErrorSurfacing:
             messages=[{"role": "user", "content": "hi"}],
             provider="openai",
         )
-        detail = "Unsupported value: 'temperature' does not support 0.7 with this model."
         body = {"error": {"message": detail}}
         http_request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
         mock_client = MagicMock()

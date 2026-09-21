@@ -85,21 +85,15 @@ def is_context_window_error_message(message: str) -> bool:
 class OutputTokenLimitError(LLMError):
     """Raised when the model stopped because it hit its output token limit.
 
-    The other side of `ContextWindowExceededError`: the prompt fitted, the reply did not. Providers
-    report it in two shapes — a 400 whose text names the output limit, and a successful response
-    whose finish reason is `length` (the OpenAI SDK raises `LengthFinishReasonError` for it, and a
-    truncated structured reply is invalid JSON). Both mean the same thing, so both map here: one
-    error type with one message keeps the fingerprint stable instead of filing a new error tracking
-    issue every time a provider rewords the sentence.
+    Providers report an exhausted output budget in a 400 or through a `length` finish reason,
+    which the OpenAI SDK raises as `LengthFinishReasonError`. Rejected token settings stay
+    separate because the request must change before the model can generate a reply.
     """
 
 
 _OUTPUT_LIMIT_ERROR_MARKERS = (
-    "model output limit",
     "output limit was reached",
     "higher max_tokens",
-    "max_output_tokens",
-    "maximum allowed number of output tokens",
 )
 
 
