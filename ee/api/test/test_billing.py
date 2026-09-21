@@ -1244,11 +1244,6 @@ class TestBillingUsageRequestSerializer(TestCase):
             ("team_ids_json_string_values", "team_ids", '["1","2"]'),
             ("breakdowns_comma_separated", "breakdowns", "type,team"),
             ("breakdowns_unknown_values", "breakdowns", '["type","project"]'),
-            # Billing serves a project breakdown beside the product one and refuses it alone, so
-            # this side names the same combinations. Otherwise the request costs a call and comes
-            # back refused by the service behind this one.
-            ("breakdowns_team_without_type", "breakdowns", '["team"]'),
-            ("breakdowns_reordered", "breakdowns", '["team","type"]'),
         ]
     )
     def test_rejects_invalid_json_array_fields(self, _case_name: str, field_name: str, value: str):
@@ -1256,8 +1251,17 @@ class TestBillingUsageRequestSerializer(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn(field_name, serializer.errors)
 
-    @parameterized.expand([("none", "[]"), ("by_product", '["type"]'), ("by_product_and_project", '["type","team"]')])
-    def test_accepts_the_breakdown_combinations_billing_serves(self, _case_name: str, value: str):
+    @parameterized.expand(
+        [
+            ("none", "[]"),
+            ("by_product", '["type"]'),
+            ("by_product_and_project", '["type","team"]'),
+            # Spend adds across products, so this one is a number that means something and the
+            # spend read serves it. The usage series has its own serializer that refuses it.
+            ("by_project_alone", '["team"]'),
+        ]
+    )
+    def test_accepts_every_breakdown_the_spend_read_serves(self, _case_name: str, value: str):
         serializer = BillingUsageRequestSerializer(data={"breakdowns": value})
         self.assertTrue(serializer.is_valid(), serializer.errors)
 

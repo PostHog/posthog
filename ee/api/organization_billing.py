@@ -34,7 +34,12 @@ from posthog.permissions import OrganizationMemberPermissions, PostHogFeatureFla
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 from posthog.utils import get_trusted_client_ip
 
-from ee.api.billing import BillingTimeSeriesPointSerializer, BillingUsageRequestSerializer, _resolve_team_labels
+from ee.api.billing import (
+    USAGE_BREAKDOWNS_MESSAGE,
+    BillingTimeSeriesPointSerializer,
+    BillingUsageRequestSerializer,
+    _resolve_team_labels,
+)
 from ee.billing.billing_manager import BillingManager
 from ee.billing.grants import (
     ORGANIZATION_BILLING_API_FLAG,
@@ -446,6 +451,29 @@ class OrganizationTimeseriesRequestSerializer(BillingUsageRequestSerializer):
     )
 
 
+class OrganizationUsageTimeseriesRequestSerializer(OrganizationTimeseriesRequestSerializer):
+    """The usage series' parameters. The usage read serves a project breakdown beside the product one."""
+
+    breakdowns = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            'JSON-encoded array of breakdown dimensions. One of `[]`, `["type"]` or `["type","team"]`: '
+            "usage is counted per product, so a project breakdown is served beside the product one "
+            "rather than on its own. Omit for a single aggregate series."
+        ),
+    )
+
+    def validate_breakdowns(self, value: Optional[str]) -> Optional[str]:
+        value = super().validate_breakdowns(value)
+        if not value:
+            return value
+        if json.loads(value) not in ([], ["type"], ["type", "team"]):
+            raise serializers.ValidationError(USAGE_BREAKDOWNS_MESSAGE)
+        return value
+
+
 INCLUDE_PLANS = OpenApiParameter(
     "include_plans",
     bool,
@@ -564,7 +592,11 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
-        serializer = OrganizationTimeseriesRequestSerializer(data=request.GET)
+        # Spend serves a project-only breakdown and usage does not, so each read checks its own.
+        serializer_class = (
+            OrganizationUsageTimeseriesRequestSerializer if kind == "usage" else OrganizationTimeseriesRequestSerializer
+        )
+        serializer = serializer_class(data=request.GET)
         serializer.is_valid(raise_exception=True)
         params = {key: value for key, value in serializer.validated_data.items() if value is not None}
         # Billing pages with page_size and after; the API's names for the same thing are limit and cursor.
@@ -750,7 +782,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         operation_id="billing_usage_timeseries_retrieve",
         summary="Usage over time",
         description=BETA_NOTICE,
-        parameters=[OrganizationTimeseriesRequestSerializer],
+        parameters=[OrganizationUsageTimeseriesRequestSerializer],
         responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="usage/timeseries")
