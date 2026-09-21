@@ -149,8 +149,14 @@ export class ExecLearnCatalog {
         if (args.length === 0) {
             return await this.readSkill(skill)
         }
-
         const flagIndex = args.findIndex((token) => token === '-s' || token === '--lines')
+        const paths = flagIndex === -1 ? args : args.slice(0, flagIndex)
+        if (paths.includes('--file')) {
+            throw new Error(
+                '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.'
+            )
+        }
+
         if (flagIndex === -1) {
             if (args.length === 1) {
                 return await this.readSkill(skill, args[0])
@@ -158,7 +164,6 @@ export class ExecLearnCatalog {
             return await this.batchReadFiles(skill, args)
         }
 
-        const paths = args.slice(0, flagIndex)
         if (paths.length !== 1) {
             throw new Error(SKILL_READ_USAGE)
         }
@@ -483,6 +488,11 @@ function parseQualifiedSkill(identifier: string): QualifiedSkill {
     if (!skill) {
         throw new Error(
             `Unknown guide or unqualified skill: "${identifier}". Use \`learn posthog:<skill>\` or \`learn project:<skill>\`.`
+        )
+    }
+    if (skill.name.includes('/')) {
+        throw new Error(
+            `Invalid skill identifier: "${identifier}". Separate the skill name and file path with a space: \`learn <source>:<skill> <path>\`.`
         )
     }
     return skill
