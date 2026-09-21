@@ -1435,6 +1435,7 @@ jobs:
                       product=$(basename "$(dirname "$f")")
                       cp "$f" "cov-staging/${product}.xml"
                   done
+                  git rev-parse HEAD > cov-staging/source-commit.txt
 
             - name: Upload product coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -1442,7 +1443,9 @@ jobs:
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
               with:
                   name: coverage-xml-${{ strategy.job-index }}
-                  path: cov-staging/*.xml
+                  path: |
+                      cov-staging/*.xml
+                      cov-staging/source-commit.txt
                   if-no-files-found: ignore
                   retention-days: 2
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
@@ -3094,12 +3097,19 @@ jobs:
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
 
+            - name: Stage core coverage commit
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core') }}
+              shell: bash
+              run: git rev-parse HEAD > source-commit.txt
+
             - name: Upload core coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core') }}
               with:
                   name: coverage-core-${{ strategy.job-index }}
-                  path: coverage-core.xml
+                  path: |
+                      coverage-core.xml
+                      source-commit.txt
                   if-no-files-found: ignore
                   retention-days: 2
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
@@ -3614,12 +3624,13 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   mkdir -p cov-artifacts core-artifacts
-                  git fetch --no-tags --filter=blob:none --quiet origin master
+                  git rev-parse HEAD > /tmp/coverage-source-commit
                   uv run --script .github/scripts/coverage_report.py \
                       --artifacts cov-artifacts \
                       --core-artifacts core-artifacts \
                       --combined-out combined-coverage.xml \
-                      --compare-branch origin/master \
+                      --compare-branch HEAD^1 \
+                      --source-commit "$(cat /tmp/coverage-source-commit)" \
                       --patch-json-out patch-coverage.json \
                       --report-data-out coverage-report-data.json \
                       --out coverage-comment.md

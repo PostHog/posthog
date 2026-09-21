@@ -47,6 +47,7 @@ MAX_REPORT_DATA_BYTES = 2 * 1024 * 1024
 MAX_REPORT_PRODUCTS = 500
 MAX_REPORT_FILES = 10_000
 MAX_REPORT_VIOLATIONS = 100_000
+SOURCE_COMMIT_FILENAME = "source-commit.txt"
 
 
 def sanitize_path(path: str) -> str:
@@ -125,6 +126,24 @@ def aggregate(artifacts_dir: Path) -> tuple[LineMap, LineMap]:
             continue
         parse_xml(xml_path, covered[product], valid[product])
     return covered, valid
+
+
+def artifacts_match_commit(artifacts_dir: Path, expected_commit: str) -> bool:
+    """Verify that every downloaded coverage artifact was produced from the expected source tree."""
+    artifact_dirs = {xml_path.parent for xml_path in artifacts_dir.rglob("*.xml")}
+    for artifact_dir in sorted(artifact_dirs):
+        marker = artifact_dir / SOURCE_COMMIT_FILENAME
+        try:
+            actual_commit = marker.read_text().strip()
+        except OSError:
+            actual_commit = ""
+        if actual_commit != expected_commit:
+            sys.stderr.write(
+                f"::warning::rejecting coverage artifact {artifact_dir}: "
+                f"expected source commit {expected_commit}, got {actual_commit or 'no commit marker'}\n"
+            )
+            return False
+    return True
 
 
 def collect(covered: LineMap, valid: LineMap) -> list[ProductCoverage]:
@@ -426,11 +445,9 @@ def render_markdown(results: list[ProductCoverage], patch_data: dict | None) -> 
 
     lines += [
         "",
-        "_Report-only. Patch coverage = changed backend lines covered vs `origin/master`. Sorted lowest first._",
-        # Known blind spots, so "uncovered" isn't read as gospel: the Django Temporal segment runs
-        # without coverage instrumentation, and core XMLs come from the PR-head tree while the diff
-        # is computed on the merge ref (line drift when master touched the same core file).
-        "_Known gaps: lines covered only by Temporal tests show as uncovered; core line numbers may drift if `master` changed the same file._",
+        "_Report-only. Patch coverage measures changed backend lines for this run. Sorted lowest first._",
+        # The Django Temporal segment runs without coverage instrumentation, so "uncovered" is not exact.
+        "_Known gaps: lines covered only by Temporal tests show as uncovered. Coverage artifacts from another source commit are ignored when commit metadata is available._",
     ]
     if patch_data is not None:
         lines += ["", build_machine_block(patch_data, results)]
@@ -538,6 +555,7 @@ def main() -> int:
     parser.add_argument(
         "--core-artifacts", type=Path, help="dir of core (posthog/ee) coverage-core-* artifacts to include"
     )
+    parser.add_argument("--source-commit", help="exact commit that every coverage artifact must have measured")
     args = parser.parse_args()
 
     if args.report_data_in is not None:
@@ -560,11 +578,16 @@ def main() -> int:
     if args.artifacts is None:
         parser.error("--artifacts is required unless --report-data-in is used")
 
-    covered, valid = aggregate(args.artifacts)
+    product_artifacts_valid = args.source_commit is None or artifacts_match_commit(args.artifacts, args.source_commit)
+    covered, valid = aggregate(args.artifacts) if product_artifacts_valid else ({}, {})
 
     core_covered: dict[str, set[int]] = {}
     core_valid: dict[str, set[int]] = {}
-    if args.core_artifacts is not None and args.core_artifacts.exists():
+    if (
+        args.core_artifacts is not None
+        and args.core_artifacts.exists()
+        and (args.source_commit is None or artifacts_match_commit(args.core_artifacts, args.source_commit))
+    ):
         core_covered, core_valid = aggregate_core(args.core_artifacts)
 
     results = collect(covered, valid)  # per-product table is products only; core feeds patch coverage

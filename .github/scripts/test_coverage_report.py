@@ -32,6 +32,24 @@ def test_product_from_path(xml_path: Path, expected: str | None) -> None:
     assert coverage_report.product_from_path(xml_path) == expected
 
 
+@pytest.mark.parametrize(
+    "marker,expected",
+    [("merge-sha\n", True), ("head-sha\n", False), (None, False)],
+    ids=["matching commit", "different commit", "missing marker"],
+)
+def test_artifacts_match_the_exact_source_commit(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], marker: str | None, expected: bool
+) -> None:
+    artifact = tmp_path / "coverage-xml-0"
+    artifact.mkdir()
+    (artifact / "product.xml").touch()
+    if marker is not None:
+        (artifact / coverage_report.SOURCE_COMMIT_FILENAME).write_text(marker)
+
+    assert coverage_report.artifacts_match_commit(tmp_path, "merge-sha") is expected
+    assert ("::warning::rejecting coverage artifact" in capsys.readouterr().err) is not expected
+
+
 # ---------- repo_path_for ----------
 
 
