@@ -54,6 +54,7 @@ from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 # In non-nullable materialized columns these stored strings are treated as NULL.
 MAT_COL_NULL_SENTINELS = ["", "null"]
+MAX_MATERIALIZED_LIKE_PATTERN_LENGTH = 16 * 1024
 
 # Leave the $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
 # (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two lists stay in sync). The value-read side skips
@@ -1754,6 +1755,9 @@ class ClickHousePropertyResolver(CloningVisitor):
             return _call("ifNull", [_call("notILike", [prop.bare_column(), _const(pattern.value)]), _const(True)])
 
         # Non-nullable: bail if the pattern could match a stored sentinel.
+        # Skipping this optional rewrite bounds planning work without rejecting the query.
+        if len(cast(str, pattern.value)) > MAX_MATERIALIZED_LIKE_PATTERN_LENGTH:
+            return None
         if any(ilike_matches(cast(str, pattern.value), s) for s in MAT_COL_NULL_SENTINELS):
             return None
         if is_ilike:
@@ -1776,6 +1780,8 @@ class ClickHousePropertyResolver(CloningVisitor):
                 return _call("and", [_call("like", [prop.bare_column(), _const(pattern.value)]), prop.is_not_null()])
             return _call("ifNull", [_call("notLike", [prop.bare_column(), _const(pattern.value)]), _const(True)])
 
+        if len(cast(str, pattern.value)) > MAX_MATERIALIZED_LIKE_PATTERN_LENGTH:
+            return None
         if any(like_matches(cast(str, pattern.value), s) for s in MAT_COL_NULL_SENTINELS):
             return None
         if is_like:
