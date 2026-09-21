@@ -72,6 +72,56 @@ const tableNode = {
     downstream_count: 3,
 }
 
+const downstreamNodes = [
+    {
+        ...node,
+        id: 'daily-revenue-node',
+        name: 'daily_revenue',
+        saved_query_id: 'daily-revenue-view',
+        upstream_count: 1,
+        downstream_count: 1,
+    },
+    {
+        ...node,
+        id: 'customer-health-node',
+        name: 'customer_health',
+        saved_query_id: 'customer-health-view',
+        upstream_count: 1,
+        downstream_count: 0,
+    },
+    {
+        ...node,
+        id: 'sales-forecast-node',
+        name: 'sales_forecast',
+        saved_query_id: 'sales-forecast-view',
+        upstream_count: 1,
+        downstream_count: 0,
+    },
+]
+
+const tableLineage = (
+    sourceNode: Omit<typeof tableNode, 'warehouse_table_id'> & { warehouse_table_id: string | null }
+): { nodes: object[]; edges: object[] } => ({
+    nodes: [sourceNode, ...downstreamNodes],
+    edges: downstreamNodes.map((targetNode, index) => ({
+        id: `table-edge-${index + 1}`,
+        source_id: sourceNode.id,
+        target_id: targetNode.id,
+        dag: sourceNode.dag,
+        properties: {},
+        created_at: sourceNode.created_at,
+        updated_at: sourceNode.updated_at,
+    })),
+})
+
+const postHogTableNode = {
+    ...tableNode,
+    id: 'events-table-node',
+    name: 'events',
+    origin: 'posthog',
+    warehouse_table_id: null,
+}
+
 const warehouseTable = {
     id: tableNode.warehouse_table_id,
     name: 'postgres_public_orders',
@@ -151,9 +201,7 @@ export const WarehouseTable: Story = {
             mocks: {
                 get: {
                     '/api/environments/:team_id/data_modeling_nodes/:id/': ({ request }: { request: Request }) =>
-                        request.url.includes('/lineage')
-                            ? [200, { nodes: [tableNode], edges: [] }]
-                            : [200, tableNode],
+                        request.url.includes('/lineage') ? [200, tableLineage(tableNode)] : [200, tableNode],
                     '/api/environments/:team_id/warehouse_tables/:id/': () => [200, warehouseTable],
                     '/api/environments/:team_id/external_data_sources/:id/': () => [200, warehouseSource],
                     '/api/environments/:team_id/external_data_schemas/:id/': () => [200, warehouseSchema],
@@ -184,18 +232,8 @@ export const PostHogTable: Story = {
                 get: {
                     '/api/environments/:team_id/data_modeling_nodes/:id/': ({ request }: { request: Request }) =>
                         request.url.includes('/lineage')
-                            ? [200, { nodes: [], edges: [] }]
-                            : [
-                                  200,
-                                  {
-                                      ...tableNode,
-                                      id: 'events-table-node',
-                                      name: 'events',
-                                      origin: 'posthog',
-                                      warehouse_table_id: null,
-                                      downstream_count: 12,
-                                  },
-                              ],
+                            ? [200, tableLineage(postHogTableNode)]
+                            : [200, postHogTableNode],
                 },
             },
         },
