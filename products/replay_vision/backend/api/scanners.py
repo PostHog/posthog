@@ -1468,6 +1468,15 @@ class WatchFeedQuerySerializer(serializers.Serializer):
             raise serializers.ValidationError("Scanner ids must be UUIDs.")
 
 
+class WatchFeedSignalSerializer(serializers.Serializer):
+    """One signal an observation raised, named rather than counted."""
+
+    problem_type = serializers.CharField(help_text="Issue type: `bug`, `crash`, `design_flaw`, or `ux_friction`.")
+    headline = serializers.CharField(
+        help_text="The finding in a few words, written by the scan. The full description lives on the signal itself."
+    )
+
+
 class WatchFeedReasonSerializer(serializers.Serializer):
     """Machine-readable reason an observation made the feed; the frontend renders the copy."""
 
@@ -1493,6 +1502,15 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         help_text=(
             "Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per "
             "signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped."
+        ),
+    )
+    signals = WatchFeedSignalSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Each emitted signal in the order raised, for `signal_emitted`. Carries what the card needs to name "
+            "the findings instead of counting them. Absent on sessions scanned before this shipped, which carry "
+            "`problem_types` alone."
         ),
     )
     verdict = serializers.CharField(

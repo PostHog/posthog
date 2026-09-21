@@ -37,6 +37,7 @@ from products.replay_vision.backend.temporal.activities import (
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     emit_observation_signal_activity,
+    emit_observation_signal_summaries_activity,
     emit_observation_signals_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
@@ -71,6 +72,7 @@ from products.replay_vision.backend.temporal.types import (
     EmitClassifierTagsInputs,
     EmitObservationEventInputs,
     EmitObservationSignalInputs,
+    EmittedSignal,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
     FetchSessionEventsInputs,
@@ -351,6 +353,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             self._advance_phase("finalizing")
             signals_count = 0
             signal_problem_types: list[str] = []
+            signal_summaries: list[EmittedSignal] = []
             if call_output.signals:
                 emit_inputs = EmitObservationSignalInputs(
                     team_id=inputs.team_id,
@@ -358,15 +361,26 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     exported_asset_id=asset_result.asset_id,
                     signals=call_output.signals,
                 )
-                # The signals-returning activity reports the problem type of each signal it actually emitted,
-                # so the count derives from that list. A pre-patch history scheduled the count-returning
-                # activity, so the else branch keeps calling it and in-flight scans replay cleanly. Both fail
-                # soft (emit nothing extra on error), so there is nothing to retry; the local catch covers
-                # Temporal-level failures (timeout, worker loss) — emission is advisory and must never demote
-                # an otherwise-successful observation. 30s once truncated the tail on a slow facade, so give
-                # it 2 minutes; retries are safe because each finding carries a deterministic idempotency key.
+                # The summaries activity reports every signal it actually emitted, so the count and the
+                # problem types both derive from that list. The two branches below it schedule the activity
+                # an older history recorded — a count, then a list of problem types — so in-flight scans
+                # replay cleanly. All three fail soft (emit nothing extra on error), so there is nothing to
+                # retry; the local catch covers Temporal-level failures (timeout, worker loss) — emission is
+                # advisory and must never demote an otherwise-successful observation. 30s once truncated the
+                # tail on a slow facade, so give it 2 minutes; retries are safe because each finding carries
+                # a deterministic idempotency key.
                 try:
-                    if wf.patched("replay-vision-emitted-signal-problem-types"):
+                    if wf.patched("replay-vision-emitted-signal-summaries"):
+                        signal_summaries = await wf.execute_activity(
+                            emit_observation_signal_summaries_activity,
+                            emit_inputs,
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            heartbeat_timeout=dt.timedelta(seconds=30),
+                            retry_policy=common.RetryPolicy(maximum_attempts=3),
+                        )
+                        signal_problem_types = [signal.problem_type for signal in signal_summaries]
+                        signals_count = len(signal_summaries)
+                    elif wf.patched("replay-vision-emitted-signal-problem-types"):
                         signal_problem_types = await wf.execute_activity(
                             emit_observation_signals_activity,
                             emit_inputs,
@@ -395,6 +409,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                         model_output=call_output.model_output,
                         signals_count=signals_count,
                         signal_problem_types=signal_problem_types,
+                        signal_summaries=signal_summaries,
                         verification=call_output.verification,
                     ),
                 ),
