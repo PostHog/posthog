@@ -429,7 +429,14 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
             </div>
             <p className="text-secondary mt-2 mb-0">
                 Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
-                above the allowance are not dropped, they are sent later.
+                above the allowance are not dropped, they are sent later.{' '}
+                <Link
+                    to="https://posthog.com/docs/workflows/sending-reputation#sending-allowance-tiers"
+                    target="_blank"
+                    data-attr="workflows-sending-allowance-docs-link"
+                >
+                    See what each tier allows and how to move up
+                </Link>
             </p>
             <div className="flex flex-wrap gap-8 mt-3">
                 <div className="min-w-48">
