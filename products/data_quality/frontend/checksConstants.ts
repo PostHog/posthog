@@ -2,6 +2,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import { CheckTypeEnumApi } from './generated/api.schemas'
 import type { DataQualityCheckApi, DataQualityCheckRunApi } from './generated/api.schemas'
@@ -155,9 +156,11 @@ function freshnessCell(stalenessSeconds: number, config: DataQualityCheckRunApi[
         typeof maxAgeMinutes === 'number'
             ? ` The limit is ${humanFriendlyDuration(maxAgeMinutes * SECONDS_PER_MINUTE, { maxUnits: DURATION_UNITS })}.`
             : ''
+    const direction = stalenessSeconds < 0 ? 'in the future' : 'old'
+    const magnitude = Math.abs(stalenessSeconds)
     return {
-        label: `${humanFriendlyDuration(stalenessSeconds, { maxUnits: DURATION_UNITS })} old`,
-        tooltip: `Newest row is ${humanFriendlyNumber(stalenessSeconds)} seconds old.${limit}`,
+        label: `${humanFriendlyDuration(magnitude, { maxUnits: DURATION_UNITS })} ${direction}`,
+        tooltip: `Newest row is ${humanFriendlyNumber(magnitude)} seconds ${direction}.${limit}`,
     }
 }
 
@@ -171,13 +174,13 @@ function rowCountLimit(min: unknown, max: unknown): string | null {
     const hasMin = typeof min === 'number'
     const hasMax = typeof max === 'number'
     if (hasMin && hasMax) {
-        return `between ${humanFriendlyNumber(min)} and ${humanFriendlyNumber(max)} rows`
+        return `between ${humanFriendlyNumber(min)} and ${pluralize(max, 'row')}`
     }
     if (hasMin) {
-        return `at least ${humanFriendlyNumber(min)} rows`
+        return `at least ${pluralize(min, 'row')}`
     }
     if (hasMax) {
-        return `at most ${humanFriendlyNumber(max)} rows`
+        return `at most ${pluralize(max, 'row')}`
     }
     return null
 }
