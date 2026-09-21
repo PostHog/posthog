@@ -610,8 +610,9 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
             "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
-            "asked for has been done. Resolving is only allowed from a researched status (ready or "
-            "pending_input) or a suppressed report; other statuses return 409 (skipped in bulk). "
+            "asked for has been done. Resolving is allowed from ready, pending_input, or failed, "
+            "or from a suppressed report that previously held one of those statuses or resolved. "
+            "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
             "Dismissing or resolving closes the report's open implementation PR, if it has one."
         ),
     )
@@ -2681,9 +2682,8 @@ class SignalReportViewSet(
 
             # Archiving must not grant a transition the report couldn't make directly. "Any
             # non-deleted status can be suppressed", so without this a report could be laundered
-            # through the archive into RESOLVED from a status the model refuses to resolve from —
-            # candidate/in_progress (landing in RESOLVED with no title or summary), or failed
-            # (a failed pipeline run presented as successfully resolved). So a suppressed report may
+            # through the archive into RESOLVED from candidate/in_progress with no title or summary.
+            # A suppressed report may
             # only resolve when it was in a directly-resolvable status before being archived.
             # Deliberately narrower than restore_target_status()'s researched set, which exists to
             # answer "where does restore put this report back", not "may it resolve".
@@ -2694,7 +2694,7 @@ class SignalReportViewSet(
             ):
                 return (
                     SignalReportBulkStateOutcome.SKIPPED,
-                    "Only a report that was ready, awaiting input, or already resolved when it was "
+                    "Only a report that was ready, awaiting input, failed, or already resolved when it was "
                     "archived can be resolved from the archive.",
                 )
 
@@ -2755,7 +2755,9 @@ class SignalReportViewSet(
             # and so multiple dismissals (with different rationales) can stack over time.
             # Captured for suppress, snooze (transition to potential), and resolve flows — on a
             # resolve it records why the report was resolved with user attribution.
-            if writes_dismissal_feedback:
+            if writes_dismissal_feedback or (
+                target_status == SignalReport.Status.SUPPRESSED and not already_holds_verdict
+            ):
                 user = self.request.user
                 is_authenticated = getattr(user, "is_authenticated", False)
                 user_uuid = getattr(user, "uuid", None) if is_authenticated else None

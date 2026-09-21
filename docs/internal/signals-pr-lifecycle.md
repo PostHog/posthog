@@ -21,6 +21,24 @@ Scouts attach them through the `links` list on `scout-edit-report`.
 Public callers can read `report_link` artefacts, but cannot create, edit, or delete them through the artefact API.
 Links must name a different live report in the same project and cannot form a cycle among links of the same kind.
 
+## Recurrence after a fixed verdict
+
+A report dismissed as `already_fixed`, `fixed_outside_posthog`, or `pr_merged` can create a new report when the issue returns.
+The pipeline records the new report's parent in `recurrence_parent` and adds a `related_to` link for the timeline.
+Generic `related_to` links do not control signal assignment.
+Later signals follow the recurrence chain.
+A successor dismissed for a preference reason keeps absorbing signals, including signals that match an older parent.
+Repeated fixed feedback does not create another successor.
+A new dismissal without feedback clears the fixed claim from an earlier dismissal cycle.
+
+The backfill command creates a potential report with zero signal count and weight.
+Historical evidence stays on the parent; only signals stored on the new report count toward its promotion.
+The earliest absorbed recurrence signal determines the new report's billing exemption.
+The command checks the parent and successor under the same parent lock as live grouping.
+
+The state API also accepts resolution from `failed`.
+A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
+
 ## Scout revisions
 
 Scout edits increment the content revision count only when the title or summary changes. Notes, evidence, routing updates, and unchanged text do not spend a revision. The edit response always includes the report's running revision total.

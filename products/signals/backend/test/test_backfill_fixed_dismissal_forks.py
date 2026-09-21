@@ -35,7 +35,9 @@ class TestBackfillFixedDismissalForks(BaseTest):
         return report
 
     def _signals(self, count: int, *, age: timedelta) -> list[dict]:
-        return [{"timestamp": timezone.now() - age, "weight": 0.5} for _ in range(count)]
+        return [
+            {"timestamp": timezone.now() - age, "weight": 0.5, "source_product": "error_tracking"} for _ in range(count)
+        ]
 
     def _forks(self, parent: SignalReport) -> list[SignalReport]:
         return list(SignalReport.objects.filter(team=self.team).exclude(id=parent.id))
@@ -44,7 +46,7 @@ class TestBackfillFixedDismissalForks(BaseTest):
         with patch(f"{COMMAND_MODULE_PATH}.fetch_signals_for_report_sync", return_value=signals):
             call_command("backfill_fixed_dismissal_forks", **options)
 
-    def test_forks_one_report_carrying_the_absorbed_signals(self):
+    def test_fork_does_not_count_signals_stored_on_the_parent(self):
         parent = self._dismissed_report("already_fixed")
 
         self._run(self._signals(3, age=timedelta(minutes=5)))
@@ -54,8 +56,9 @@ class TestBackfillFixedDismissalForks(BaseTest):
         fork = forks[0]
         assert fork.status == SignalReport.Status.POTENTIAL
         assert (fork.title, fork.summary) == (parent.title, parent.summary)
-        assert fork.signal_count == 3
-        assert fork.total_weight == 1.5
+        assert fork.signal_count == 0
+        assert fork.total_weight == 0
+        assert fork.recurrence_parent_id == parent.id
         link = SignalReportArtefact.objects.get(report=fork, type=SignalReportArtefact.ArtefactType.RELATED_TO)
         assert RelatedTo.model_validate_json(link.content) == RelatedTo(report_id=str(parent.id))
         parent.refresh_from_db()
@@ -92,3 +95,65 @@ class TestBackfillFixedDismissalForks(BaseTest):
         self._run(self._signals(3, age=timedelta(minutes=5)), dry_run=True)
 
         assert self._forks(parent) == []
+
+    def test_accepts_string_and_naive_timestamps(self):
+        parent = self._dismissed_report("already_fixed")
+        signals = self._signals(2, age=timedelta(minutes=5))
+        signals[0]["timestamp"] = signals[0]["timestamp"].isoformat()
+        signals[1]["timestamp"] = signals[1]["timestamp"].replace(tzinfo=None)
+
+        self._run(signals)
+
+        assert len(self._forks(parent)) == 1
+
+    def test_billing_uses_the_first_recurrence_source(self):
+        parent = self._dismissed_report("already_fixed")
+        signals = self._signals(2, age=timedelta(minutes=5))
+        signals[1]["timestamp"] -= timedelta(minutes=1)
+        signals[1]["source_product"] = "health_checks"
+
+        self._run(signals)
+
+        assert self._forks(parent)[0].billing_exempt_reason == SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK
+
+    def test_billable_recurrence_does_not_inherit_parent_exemption(self):
+        parent = self._dismissed_report("already_fixed")
+        parent.billing_exempt_reason = SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK
+        parent.save(update_fields=["billing_exempt_reason"])
+
+        self._run(self._signals(1, age=timedelta(minutes=5)))
+
+        assert self._forks(parent)[0].billing_exempt_reason is None
+
+    def test_rechecks_for_a_successor_under_the_parent_lock(self):
+        parent = self._dismissed_report("already_fixed")
+
+        def concurrent_recurrence(team, report_id):
+            SignalReport.objects.create(team=self.team, recurrence_parent=parent)
+            return self._signals(1, age=timedelta(minutes=5))
+
+        with patch(f"{COMMAND_MODULE_PATH}.fetch_signals_for_report_sync", side_effect=concurrent_recurrence):
+            call_command("backfill_fixed_dismissal_forks")
+
+        assert len(self._forks(parent)) == 1
+
+    def test_rechecks_parent_state_after_fetching_signals(self):
+        parent = self._dismissed_report("already_fixed")
+
+        def concurrent_restore(team, report_id):
+            SignalReport.objects.filter(id=parent.id).update(status=SignalReport.Status.READY)
+            return self._signals(1, age=timedelta(minutes=5))
+
+        with patch(f"{COMMAND_MODULE_PATH}.fetch_signals_for_report_sync", side_effect=concurrent_restore):
+            call_command("backfill_fixed_dismissal_forks")
+
+        assert self._forks(parent) == []
+
+    def test_team_cache_queries_each_team_once(self):
+        self._dismissed_report("already_fixed")
+        self._dismissed_report("already_fixed")
+
+        with patch(f"{COMMAND_MODULE_PATH}.Team.objects.get", wraps=type(self.team).objects.get) as get_team:
+            self._run(self._signals(1, age=timedelta(minutes=5)))
+
+        get_team.assert_called_once_with(pk=self.team.id)

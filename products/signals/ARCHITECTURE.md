@@ -383,8 +383,10 @@ potential → candidate → in_progress → ready
 # resolved one via a related_to artefact (assign_and_emit_signal_activity). A report dismissed with a
 # reason that claims the issue is fixed (already_fixed, fixed_outside_posthog, pr_merged) makes the
 # same claim, so it forks the same way; every other dismissal reason absorbs later signals silently
-# (recurrence.py). The fork joins an open fork of the same parent rather than being created twice, so
-# a parent that absorbs signals for months holds one live recurrence report, not one per signal.
+# (recurrence.py). The pipeline records each successor in recurrence_parent. Generic related_to
+# links do not control signal assignment. Matching follows this successor chain, including
+# preference-dismissed reports that must keep absorbing signals. Repeated feedback does not break
+# the chain. The parent lock protects both live assignment and backfill creation.
 ready → candidate
 
 # Resolve: a report is marked resolved when the requested work is done. Two paths:

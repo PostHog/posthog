@@ -180,8 +180,8 @@ Idempotent — skips any report that already has a `task_run` artefact referenci
 One-off data migration for reports dismissed as fixed (`already_fixed`, `fixed_outside_posthog`,
 `pr_merged`) before the grouping stage learned to fork on recurrence. Such a report absorbed every
 later matching signal silently, so the evidence that the fix did not hold is buried on it. The
-command forks one fresh report per parent, carrying the parent's title, summary and the weight of
-the absorbed signals, linked back with a `related_to` artefact.
+command creates one new report per parent, with the parent's title and summary.
+The pipeline records the parent in `recurrence_parent` and adds a `related_to` artefact for the timeline.
 
 ```bash
 # Preview, scoped to one team
@@ -191,10 +191,13 @@ python manage.py backfill_fixed_dismissal_forks --team-id 1 --dry-run
 python manage.py backfill_fixed_dismissal_forks
 ```
 
-The fork lands in `potential`, so it promotes under the normal thresholds on the next matching
-signal rather than spawning research from the command. Safe to re-run: a parent that already has an
-open fork is skipped. Signal counts come from ClickHouse, so the command needs a working analytics
-connection.
+The new report starts in `potential` with zero signal count and weight.
+Historical signals stay on the parent and do not count toward the new report's promotion.
+New matching signals increase its count and weight under the normal thresholds.
+The earliest absorbed recurrence signal determines the billing exemption.
+The command locks the parent and checks its state and successor again before it creates a report.
+It skips a parent that already has a successor, including a dismissed successor.
+The command reads recurrence evidence from ClickHouse, so it needs a working analytics connection.
 
 ## Backfilling report work and pull requests
 

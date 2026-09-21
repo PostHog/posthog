@@ -441,8 +441,8 @@ def _render_resolved_report_context(resolved_title: str | None, resolved_summary
     parts = [
         "\n---\n\n## Previously closed report",
         "",
-        "A very similar issue was covered by an earlier report that was already closed as **fixed** — someone "
-        "recorded that its fix had shipped. This signal is a recurrence, so it's a fresh report rather than a "
+        "A very similar issue was covered by an earlier report that was marked as **fixed**. "
+        "Verify this claim: it does not prove that a fix shipped. This signal is a recurrence, so it's a fresh report rather than a "
         "reopening of that one. Take the prior fix into account: figure out whether this is a regression of that "
         "fix, a new dimension of the same underlying issue, or a genuinely distinct problem, and say which in your "
         "findings.",

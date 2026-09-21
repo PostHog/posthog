@@ -36,7 +36,7 @@ from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
-from products.signals.backend.recurrence import fixed_dismissal_at, open_recurrence_report
+from products.signals.backend.recurrence import fixed_dismissal_at, recurrence_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -757,17 +757,16 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # does, so this signal contradicts it and must not be absorbed. The other dismissal
                 # codes state a preference about the report, and a sink is the right answer for
                 # them (see recurrence.py).
-                dismissed_as_fixed_at = (
-                    fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
-                )
-                if dismissed_as_fixed_at is not None:
-                    # An earlier recurrence may already have a live report. Handing the signal to it
-                    # keeps one report per recurrence rather than one per signal, and the rules below
-                    # then apply to that report.
-                    successor = open_recurrence_report(report, after=dismissed_as_fixed_at, lock=True)
-                    if successor is not None:
-                        report = successor
-                        dismissed_as_fixed_at = None
+                while True:
+                    dismissed_as_fixed_at = (
+                        fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
+                    )
+                    if report.status != SignalReport.Status.RESOLVED and dismissed_as_fixed_at is None:
+                        break
+                    successor = recurrence_report(report, lock=True)
+                    if successor is None:
+                        break
+                    report = successor
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and link it to the resolved report via a
@@ -783,6 +782,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         signal_count=1,
                         title=parent_report.title,
                         summary=parent_report.summary,
+                        recurrence_parent=parent_report,
                         billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
                     SignalReportArtefact.add_log(

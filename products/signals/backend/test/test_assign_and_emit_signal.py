@@ -512,7 +512,8 @@ async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam)
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_second_recurrence_signal_joins_the_open_fork(ateam):
+@pytest.mark.parametrize("repeat_feedback", [False, True])
+async def test_second_recurrence_signal_joins_the_open_fork(ateam, repeat_feedback):
     # A parent that absorbed hundreds of signals must produce one live recurrence report, not one
     # per signal: the second signal accumulates on the first signal's fork.
     parent = await _suppressed_report(ateam, "already_fixed")
@@ -520,6 +521,8 @@ async def test_second_recurrence_signal_joins_the_open_fork(ateam):
     first = await assign_and_emit_signal_activity(
         _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD * 0.5)
     )
+    if repeat_feedback:
+        await _dismiss(parent, "already_fixed")
     second = await assign_and_emit_signal_activity(
         _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD * 0.5)
     )
@@ -559,6 +562,50 @@ async def test_recurrence_forks_again_once_the_previous_fork_is_resolved(ateam):
     )
 
     assert second.report_id not in (str(parent.id), first.report_id)
+    third = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
+    )
+    assert third.report_id == second.report_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_generic_relation_does_not_redirect_recurrence(ateam):
+    parent = await _suppressed_report(ateam, "already_fixed")
+    unrelated = await database_sync_to_async(SignalReport.objects.create)(team=ateam)
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(parent.id),
+        content=RelatedTo(report_id=str(unrelated.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    result = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
+    )
+
+    assert result.report_id not in (str(parent.id), str(unrelated.id))
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("reason", ["wontfix_intentional", "already_fixed"])
+async def test_suppressed_successor_controls_parent_matches(ateam, reason):
+    parent = await _suppressed_report(ateam, "already_fixed")
+    successor = await _suppressed_report(ateam, reason)
+    successor.recurrence_parent = parent
+    await database_sync_to_async(successor.save)(update_fields=["recurrence_parent"])
+
+    result = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD)
+    )
+
+    if reason == "wontfix_intentional":
+        assert result.report_id == str(successor.id)
+        assert result.promoted is False
+    else:
+        fork = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
+        assert fork.recurrence_parent_id == successor.id
 
 
 # ---------------------------------------------------------------------------

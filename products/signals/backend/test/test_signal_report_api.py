@@ -2066,9 +2066,8 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, body, expected_final_status, expected_reason, expected_note (None = no artefact)
             (
-                "suppress_without_dismissal_creates_no_artefact",
+                "suppress_without_feedback_records_empty_dismissal",
                 {"state": "suppressed"},
                 SignalReport.Status.SUPPRESSED,
                 None,
@@ -2149,10 +2148,6 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         artefacts = list(
             SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
         )
-        if expected_reason is None and expected_note is None:
-            assert artefacts == []
-            return
-
         assert len(artefacts) == 1
         content = json.loads(artefacts[0].content)
         assert content["reason"] == expected_reason
@@ -2464,7 +2459,9 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
         assert report.status_before_suppression == SignalReport.Status.READY
-        assert not report.artefacts.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).exists()
+        dismissal = report.artefacts.get(type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert json.loads(dismissal.content)["reason"] is None
+        assert json.loads(dismissal.content)["note"] is None
 
     @parameterized.expand([("zero", 0), ("negative", -1), ("too_large", 100_001)])
     def test_snooze_for_out_of_bounds_rejected(self, _name, snooze_for):
@@ -2570,6 +2567,25 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert not SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
+
+    def test_suppression_without_feedback_replaces_the_previous_fixed_reason(self):
+        from products.signals.backend.recurrence import fixed_dismissal_at
+
+        report = self._create_report(report_status=SignalReport.Status.READY)
+        for payload in (
+            {"state": "suppressed", "dismissal_reason": "already_fixed"},
+            {"state": "potential"},
+            {"state": "suppressed"},
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)), data=json.dumps(payload), content_type="application/json"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert fixed_dismissal_at(report) is None
+        assert response.json()["dismissal_reason"] is None
 
     def test_restoring_a_report_already_in_the_inbox_is_still_refused(self):
         report = self._create_report(report_status=SignalReport.Status.POTENTIAL)
