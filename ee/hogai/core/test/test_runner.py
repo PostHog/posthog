@@ -827,11 +827,7 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
 
 
 class TestRunnerTraceContext(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
-
-    def _build_runner(self):
+    async def test_ai_events_carry_the_active_otel_span_ids(self):
         from ee.hogai.core.runner import BaseAgentRunner
 
         class TestRunner(BaseAgentRunner):
@@ -841,23 +837,20 @@ class TestRunnerTraceContext(BaseTest):
             def get_resumed_state(self):
                 return PartialAssistantState(messages=[])
 
-        return TestRunner(
-            team=self.team,
-            conversation=self.conversation,
-            user=self.user,
-            graph_class=cast(type[BaseAssistantGraph], MagicMock()),
-            state_type=AssistantState,
-            partial_state_type=PartialAssistantState,
-            stream_processor=MagicMock(),
-            use_checkpointer=False,
-        )
-
-    def test_ai_events_carry_the_active_otel_span_ids(self):
         with (
             patch("ee.hogai.core.runner.is_cloud", return_value=True),
             patch("ee.hogai.core.runner.get_instance_region", return_value="US"),
         ):
-            runner = self._build_runner()
+            runner = TestRunner(
+                team=self.team,
+                conversation=await Conversation.objects.acreate(team=self.team, user=self.user),
+                user=self.user,
+                graph_class=cast(type[BaseAssistantGraph], MagicMock()),
+                state_type=AssistantState,
+                partial_state_type=PartialAssistantState,
+                stream_processor=MagicMock(),
+                use_checkpointer=False,
+            )
 
         client = runner._callback_handlers[0]._ph_client
         tracer = TracerProvider().get_tracer(__name__)
