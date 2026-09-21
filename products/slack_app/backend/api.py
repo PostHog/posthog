@@ -1610,7 +1610,7 @@ def resolve_posthog_user_from_event(
         candidate_org_ids=org_ids,
     )
     if linked_user is not None and is_slack_app_oauth_enabled(probe_integration):
-        return linked_user if linked_user.is_active else None
+        return linked_user
 
     if slack_email is None:
         slack_email = get_slack_email_for_user(probe_integration, slack_user_id)
