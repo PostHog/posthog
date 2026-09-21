@@ -104,7 +104,7 @@ class MasterFailureIndex:
 @dataclass(frozen=True, kw_only=True)
 class PRTimelineInput:
     started_at: datetime
-    # The merge, or now for an open PR.
+    # The merge, the close, or now for an open PR.
     ended_at: datetime
     is_open: bool
     is_merged: bool
