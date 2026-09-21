@@ -19,10 +19,9 @@
 #   local action a depot workflow uses needs a mirror even when it is identical to
 #   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
 #   mirror fails the step at setup with "action manifest not found".
-# - permissions: read-only in every job, so the ambient token never writes. Canonical grants
-#   handle-snapshots' github.token pull-requests:write for its CI report section; here the
-#   section posts with a posthog-tests token scoped to pull-requests:write (see the header of
-#   .depot/actions/commit-snapshots). OpenAPI commits use the same App token.
+# - permissions: read-only in every job, so the ambient token never writes. Snapshot and
+#   OpenAPI generation export data to the trusted pull_request_target workflow, which owns
+#   the write credential and never executes pull request code.
 # - Stripped side effects: CI report section posters other than backend snapshots (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
 #   the shadow strips them entirely, so that gating has nothing to mirror),
@@ -55,8 +54,8 @@
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
 #   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
-# - OpenAPI types: an extra step fails the job when ghcommit-action reports no commit-hash,
-#   instead of allowing stale generated types to pass.
+# - OpenAPI types: generated changes are uploaded for a trusted base-context workflow to
+#   validate and commit. Pull request code never receives the contents-write credential.
 # - sqlmigrate SQL preview: canonical's check-migrations resolves changed migration files
 #   to full names, skips generated squash files by content, and degrades a sqlmigrate
 #   failure to a placeholder before posting the SQL preview comment. The shadow strips
@@ -85,8 +84,8 @@
 #   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
 #   Depot CI job across repos shares, and fails the paths-filter mint outright. Mints whose
 #   only consumer is a stripped side effect (telemetry) is stripped with it. Snapshot and
-#   OpenAPI commits mint the posthog-tests App token. The migration-risk check run is
-#   published here because stamphog waits for it on every pull request.
+#   OpenAPI commits happen in the trusted workflow. The migration-risk check run is published
+#   here because stamphog waits for it on every pull request.
 # - `depot ci run` fires with event_name `api`; the hand-off wait treats it like
 #   workflow_dispatch: it runs only when GitHub Actions already handed the commit off.
 #   Depot caps an inline workflow at 64 KiB, which this file exceeds, so
@@ -107,9 +106,8 @@
 #   depot-exempt. Login is best-effort because these jobs only pull public images and can
 #   fall back to anonymous pulls, which canonical relies on too.
 # - Path-filter persons-SQL is folded into migrations
-# - handle-snapshots sets up Node from .nvmrc for its CI report steps, which canonical runs on
-#   the node that ships with the GitHub-hosted image, and fails with a rebase hint when the PR
-#   head predates .depot/actions/commit-snapshots
+# - handle-snapshots uploads a data handoff and fails when snapshots changed. A trusted
+#   base-context workflow commits the update and posts the CI report section.
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
@@ -1991,7 +1989,7 @@ jobs:
         needs: [changes]
         # Not on master push: master only primes the schema cache.
         if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push'
-        timeout-minutes: 20
+        timeout-minutes: 30
         permissions:
             contents: read
         name: Validate OpenAPI types
@@ -2070,6 +2068,7 @@ jobs:
                   HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
                   BRANCH: ${{ github.event.pull_request.head.ref }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
                       echo "::error::The checkout was dirty before OpenAPI generation; refusing to commit unrelated files."
@@ -2096,12 +2095,12 @@ jobs:
                       exit 1
                   fi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-                  mapfile -t DRIFTED_FILES < <(
-                      git ls-files --modified --deleted --others --exclude-standard | LC_ALL=C sort -u
+                  mapfile -d '' -t DRIFTED_FILES < <(
+                      git ls-files -z --modified --deleted --others --exclude-standard | LC_ALL=C sort -zu
                   )
                   if [ "${#DRIFTED_FILES[@]}" -eq 0 ]; then
                       echo "OpenAPI types are up to date"
-                      echo "needs-commit=false" >> $GITHUB_OUTPUT
+                      echo "needs-commit=false" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
 
@@ -2126,7 +2125,7 @@ jobs:
                       exit 1
                   fi
 
-                  echo "::notice::Committing updated OpenAPI types to PR branch"
+                  echo "::notice::Sending updated OpenAPI types to the trusted commit workflow"
 
                   # Verify branch hasn't advanced since CI started
                   CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
@@ -2139,54 +2138,82 @@ jobs:
                       echo "  hogli build:openapi"
                       echo ""
                       echo "Then commit the updated generated files."
-                      echo "needs-commit=false" >> $GITHUB_OUTPUT
+                      echo "needs-commit=false" >> "$GITHUB_OUTPUT"
                       exit 1
                   fi
 
-                  # Commit exactly the files this check flagged. A hand-listed pattern
-                  # silently dropped generated paths it did not cover, so the PR passed on
-                  # an empty commit and every later master push failed this same check.
+                  additions="$RUNNER_TEMP/openapi-additions.jsonl"
+                  deletions="$RUNNER_TEMP/openapi-deletions.jsonl"
+                  : > "$additions"
+                  : > "$deletions"
                   for file in "${DRIFTED_FILES[@]}"; do
                       if [[ "$file" =~ [[:space:]] ]]; then
                           echo "::error::Cannot auto-commit generated path containing whitespace: $file"
                           exit 1
                       fi
+                      if [ -L "$file" ]; then
+                          echo "::error::Cannot auto-commit a generated symlink: $file"
+                          exit 1
+                      fi
+                      if [ -f "$file" ]; then
+                          jq -n \
+                              --arg path "$file" \
+                              --arg sha256 "$(sha256sum "$file" | cut -d' ' -f1)" \
+                              --rawfile contents <(base64 < "$file" | tr -d '\n') \
+                              '{path: $path, sha256: $sha256, contents: $contents}' >> "$additions"
+                      else
+                          jq -n --arg path "$file" '{path: $path}' >> "$deletions"
+                      fi
                   done
-                  printf -v DRIFTED_FILE_PATTERNS '%s ' "${DRIFTED_FILES[@]}"
-                  DRIFTED_FILE_PATTERNS=${DRIFTED_FILE_PATTERNS% }
-                  echo "Committing: $DRIFTED_FILE_PATTERNS"
-                  echo "drifted-files=$DRIFTED_FILE_PATTERNS" >> $GITHUB_OUTPUT
-                  echo "needs-commit=true" >> $GITHUB_OUTPUT
-            - name: Get app token for OpenAPI type commits
+
+                  jq -s '.' "$additions" > "$RUNNER_TEMP/openapi-additions.json"
+                  jq -s '.' "$deletions" > "$RUNNER_TEMP/openapi-deletions.json"
+                  jq -n \
+                      --arg repository "$GITHUB_REPOSITORY" \
+                      --argjson pull_request "$PR_NUMBER" \
+                      --arg branch "$BRANCH" \
+                      --arg head_sha "$HEAD_SHA" \
+                      --slurpfile additions "$RUNNER_TEMP/openapi-additions.json" \
+                      --slurpfile deletions "$RUNNER_TEMP/openapi-deletions.json" \
+                      '{version: 1, repository: $repository, pull_request: $pull_request, branch: $branch, head_sha: $head_sha, additions: $additions[0], deletions: $deletions[0]}' \
+                      > "$RUNNER_TEMP/openapi-update.json"
+                  echo "Prepared ${#DRIFTED_FILES[@]} generated file update(s)"
+                  echo "needs-commit=true" >> "$GITHUB_OUTPUT"
+            - name: Upload OpenAPI type update
               if: steps.openapi-check.outputs.needs-commit == 'true'
-              id: openapi-app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-            - name: Disable auto-merge before OpenAPI type commit
+                  name: openapi-update-${{ github.event.pull_request.head.sha }}
+                  path: ${{ runner.temp }}/openapi-update.json
+                  if-no-files-found: error
+                  retention-days: 1
+                  compression-level: 0
+            - name: Wait for the trusted OpenAPI commit
               if: steps.openapi-check.outputs.needs-commit == 'true'
+              timeout-minutes: 6
               env:
-                  GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-              run: gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
-            - name: Commit OpenAPI types via GitHub API (signed)
-              id: openapi-commit
-              if: steps.openapi-check.outputs.needs-commit == 'true'
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
-              with:
-                  commit_message: 'chore: update OpenAPI generated types'
-                  repo: ${{ github.repository }}
-                  branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: ${{ steps.openapi-check.outputs.drifted-files }}
-              env:
-                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
-            # The action's entrypoint reads `git status` through process substitution, so a git
-            # failure inside its container exits 0 with no commit-hash and the job passes on stale types.
-            - name: Fail when the OpenAPI types commit did not land
-              if: steps.openapi-check.outputs.needs-commit == 'true' && steps.openapi-commit.outputs.commit-hash == ''
+                  REPO: ${{ github.repository }}
               run: |
-                  echo "::error::OpenAPI types are out of date and ghcommit-action created no commit. Run 'hogli build:openapi' locally and push the result."
+                  set -euo pipefail
+                  deadline=$((SECONDS + 300))
+                  while [ "$SECONDS" -lt "$deadline" ]; do
+                      current=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+                      if [ "$current" != "$HEAD_SHA" ]; then
+                          commit=$(gh api "repos/$REPO/commits/$current")
+                          jq -e --arg parent "$HEAD_SHA" '
+                              .parents[0].sha == $parent and
+                              .commit.message == "chore: update OpenAPI generated types" and
+                              .author.login == "tests-posthog[bot]"
+                          ' <<< "$commit" > /dev/null || { echo "::error::Branch advanced without the expected trusted OpenAPI commit"; exit 1; }
+                          echo "Trusted OpenAPI commit landed in $current"
+                          exit 0
+                      fi
+                      sleep 10
+                  done
+                  echo "::error::Trusted workflow did not commit the generated OpenAPI types within five minutes"
                   exit 1
     build_django_matrix:
         name: Build Django matrix
@@ -3418,20 +3445,11 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
-            # Use GitHub app token so Actions run after commiting updated snapshots
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  token: ${{ steps.app-token.outputs.token }}
                   fetch-depth: 1
 
             - name: Download all snapshot patches
@@ -3447,60 +3465,104 @@ jobs:
               id: check-patches
               run: |
                   if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/snapshot-patches ]; then
-                    echo "has-patches=false" >> $GITHUB_OUTPUT
+                    echo "has-patches=false" >> "$GITHUB_OUTPUT"
                     echo "No snapshot patches found"
                     exit 0
                   fi
 
                   if [ -n "$(find /tmp/snapshot-patches -name '*.patch' -type f -size +0c 2>/dev/null)" ]; then
-                    echo "has-patches=true" >> $GITHUB_OUTPUT
+                    echo "has-patches=true" >> "$GITHUB_OUTPUT"
                     echo "Found patches:"
                     ls -la /tmp/snapshot-patches/
                   else
-                    echo "has-patches=false" >> $GITHUB_OUTPUT
+                    echo "has-patches=false" >> "$GITHUB_OUTPUT"
                     echo "Patch files empty or missing - no snapshot changes"
                   fi
 
-            # The commit action loads from the PR head, and a head that predates it would fail
-            # with "action manifest not found" instead of saying what to do.
-            - name: Require a PR head with the commit action
-              if: steps.check-patches.outputs.has-patches == 'true' && hashFiles('.depot/actions/commit-snapshots/action.yml') == ''
+            - name: Apply snapshot patches
+              if: steps.check-patches.outputs.has-patches == 'true'
               run: |
-                  echo "::error::This PR head predates Depot CI snapshot commits. Rebase onto master so CI can commit the updated snapshots."
+                  set -euo pipefail
+                  while IFS= read -r -d '' patch; do
+                      if git apply --check "$patch" 2>/dev/null; then
+                          git apply --index "$patch"
+                      elif git apply --reverse --check "$patch" 2>/dev/null; then
+                          echo "Skipping $patch (already applied)"
+                      else
+                          echo "::warning::Patch $patch could not be applied; skipping"
+                      fi
+                  done < <(find /tmp/snapshot-patches -name '*.patch' -type f -size +0c -print0 | sort -z)
+
+            - name: Prepare snapshot update
+              if: steps.check-patches.outputs.has-patches == 'true'
+              id: snapshot-update
+              env:
+                  BRANCH: ${{ github.event.pull_request.head.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  set -euo pipefail
+                  changes=$(.github/scripts/count-snapshot-changes.sh .)
+                  total=$(jq -r '.total' <<< "$changes")
+                  if [ "$total" -eq 0 ]; then
+                      echo "No snapshot changes to commit"
+                      exit 0
+                  fi
+
+                  additions="$RUNNER_TEMP/snapshot-additions.jsonl"
+                  deletions="$RUNNER_TEMP/snapshot-deletions.jsonl"
+                  : > "$additions"
+                  : > "$deletions"
+                  mapfile -d '' -t files < <(git diff --cached --name-only -z | LC_ALL=C sort -zu)
+                  for file in "${files[@]}"; do
+                      if [[ "$file" =~ [[:space:]] ]] || [[ ! "$file" =~ ^(ee|posthog|products)/[A-Za-z0-9_./-]+\.ambr$ ]]; then
+                          echo "::error::Snapshot update contains an unexpected path: $file"
+                          exit 1
+                      fi
+                      if [ -L "$file" ]; then
+                          echo "::error::Cannot auto-commit a snapshot symlink: $file"
+                          exit 1
+                      fi
+                      if [ -f "$file" ]; then
+                          jq -n \
+                              --arg path "$file" \
+                              --arg sha256 "$(sha256sum "$file" | cut -d' ' -f1)" \
+                              --rawfile contents <(base64 < "$file" | tr -d '\n') \
+                              '{path: $path, sha256: $sha256, contents: $contents}' >> "$additions"
+                      else
+                          jq -n --arg path "$file" '{path: $path}' >> "$deletions"
+                      fi
+                  done
+
+                  jq -s '.' "$additions" > "$RUNNER_TEMP/snapshot-additions.json"
+                  jq -s '.' "$deletions" > "$RUNNER_TEMP/snapshot-deletions.json"
+                  jq -n \
+                      --arg repository "$GITHUB_REPOSITORY" \
+                      --argjson pull_request "$PR_NUMBER" \
+                      --arg branch "$BRANCH" \
+                      --arg head_sha "$HEAD_SHA" \
+                      --argjson changes "$changes" \
+                      --slurpfile additions "$RUNNER_TEMP/snapshot-additions.json" \
+                      --slurpfile deletions "$RUNNER_TEMP/snapshot-deletions.json" \
+                      '{version: 1, repository: $repository, pull_request: $pull_request, branch: $branch, head_sha: $head_sha, changes: $changes, additions: $additions[0], deletions: $deletions[0]}' \
+                      > "$RUNNER_TEMP/snapshot-update.json"
+                  echo "changed=true" >> "$GITHUB_OUTPUT"
+
+            - name: Upload snapshot update
+              if: steps.snapshot-update.outputs.changed == 'true'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: snapshot-update-${{ github.event.pull_request.head.sha }}
+                  path: ${{ runner.temp }}/snapshot-update.json
+                  if-no-files-found: error
+                  retention-days: 1
+                  compression-level: 0
+
+            - name: Fail for snapshot review
+              if: steps.snapshot-update.outputs.changed == 'true'
+              run: |
+                  echo "::notice::Snapshots changed. The trusted workflow will commit them; this run fails to require review."
                   exit 1
-
-            - name: Get app token for CI report
-              # continue-on-error: an empty token skips the CI report section, not the commit.
-              if: steps.check-patches.outputs.has-patches == 'true'
-              id: ci-report-app-token
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-                  permission-pull-requests: write
-
-            - name: Set up Node.js
-              if: steps.ci-report-app-token.outputs.token != ''
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  token: ${{ steps.ci-report-app-token.outputs.token }}
-
-            - name: Commit snapshots
-              if: steps.check-patches.outputs.has-patches == 'true'
-              uses: ./.depot/actions/commit-snapshots
-              with:
-                  workflow-type: backend
-                  patch-path: /tmp/snapshot-patches
-                  snapshot-path: '.'
-                  commit-message: 'test(backend): update query snapshots'
-                  pr-number: ${{ github.event.pull_request.number }}
-                  repository: ${{ github.repository }}
-                  commit-sha: ${{ github.event.pull_request.head.sha }}
-                  branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ steps.app-token.outputs.token }}
-                  ci-report-token: ${{ steps.ci-report-app-token.outputs.token }}
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
