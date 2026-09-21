@@ -97,7 +97,8 @@ def build_channel_welcome(integration: Integration) -> tuple[str, list[dict[str,
                 "Tag me again in the thread while I'm working and I'll pick up what you say.",
                 "Want a different model? Say so: `@PostHog use fable for this one`, or "
                 "`@PostHog run this on opus 5 at high effort`.",
-                "Answering for the wrong project? `@PostHog project 12345` sends your mentions elsewhere.",
+                "Answering from the wrong project? Name the one you want: `@PostHog give me DAU for "
+                "Staging please`. `@PostHog project` shows your default.",
                 "You can DM me instead of tagging me here.",
             ),
         ),
@@ -166,8 +167,9 @@ def build_install_welcome(integration: Integration) -> tuple[str, list[dict[str,
         _bullets(
             "Set it up for the team",
             (
-                "`@PostHog project 12345` sends your mentions to a particular PostHog project. Slack admins "
-                "can set the default for everyone with `@PostHog project workspace 12345`.",
+                "Name a project in your question and I'll answer from it: `@PostHog give me DAU for Staging please`.",
+                "`@PostHog project` lists the projects you can reach and their ids. Slack admins can set "
+                "the default for everyone with `@PostHog project workspace <id>`.",
                 f"{_home_tab(integration, 'My Home tab')} has the default AI model, thread follow-ups and "
                 "the tasks you've started. Connect your GitHub there so pull requests open under your "
                 "own account.",
