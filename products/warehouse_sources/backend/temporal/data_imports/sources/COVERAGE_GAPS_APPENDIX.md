@@ -1904,12 +1904,12 @@ Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but e
 
 ## Commercetools — gaps
 
-Today (12): `carts`, `categories`, `channels`, `customer_groups`, `customers`, `discount_codes`, `inventory`, `orders`, `payments`, `product_projections`, `states`, `stores`
+Today (16): `carts`, `categories`, `channels`, `customer_groups`, `customers`, `discount_codes`, `inventory`, `messages`, `orders`, `payments`, `product_projections`, `product_types`, `shopping_lists`, `standalone_prices`, `states`, `stores`
 
 Diffed against: <https://raw.githubusercontent.com/commercetools/commercetools-api-reference/main/oas/api/openapi.yaml>
 
-- [ ] `/{projectKey}/messages` — the change-event stream (OrderStateChanged, PaymentStatusChanged, CustomerCreated...) - state and transition history for everything we already sync (high)
-- [ ] `/{projectKey}/product-types` — lookup resolving the productType id carried on every synced product projection (high)
+- [x] `/{projectKey}/messages` — the change-event stream (OrderStateChanged, PaymentStatusChanged, CustomerCreated...) - state and transition history for everything we already sync (high)
+- [x] `/{projectKey}/product-types` — lookup resolving the productType id carried on every synced product projection (high)
 - [x] `/{projectKey}/states` — lookup resolving the state ids on orders, payments, products and reviews; without it order state is an opaque uuid (high)
 - [x] `/{projectKey}/customer-groups` — lookup resolving customerGroup on customers, carts and orders - the standard segmentation dimension (high)
 - [x] `/{projectKey}/channels` — lookup resolving supplyChannel and distributionChannel ids on the inventory and orders we sync (high)
@@ -1918,8 +1918,8 @@ Diffed against: <https://raw.githubusercontent.com/commercetools/commercetools-a
 - [ ] `/{projectKey}/products` — full product master data including staged versus current, which product-projections flattens away (medium)
 - [ ] `/{projectKey}/cart-discounts` — resolves the discount ids applied to synced carts and orders; discount_codes alone does not explain the discount (medium)
 - [ ] `/{projectKey}/product-discounts` — explains discounted prices appearing on product projections (medium)
-- [ ] `/{projectKey}/standalone-prices` — prices held outside the product, so price analysis on product-projections alone is incomplete (medium)
-- [ ] `/{projectKey}/shopping-lists` — wishlist and saved-cart behavior, a common pre-purchase funnel table (medium)
+- [x] `/{projectKey}/standalone-prices` — prices held outside the product, so price analysis on product-projections alone is incomplete (medium)
+- [x] `/{projectKey}/shopping-lists` — wishlist and saved-cart behavior, a common pre-purchase funnel table (medium)
 
 Note: The full OpenAPI (292 paths) is published at commercetools/commercetools-api-reference under oas/api/openapi.yaml; the docs site itself is navigational only. Static endpoint config in sources/commercetools/settings.py, no dynamic discovery. Also uncovered but lower value: reviews, payment-methods, business-units and associate-roles (B2B), quotes/quote-requests/staged-quotes, recurring-orders and recurrence-policies, tax-categories, zones, orders/edits. Excluded as config or plumbing: subscriptions, extensions, api-clients, types, custom-objects, product-selections.
 
