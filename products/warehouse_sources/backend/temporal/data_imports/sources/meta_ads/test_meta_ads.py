@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
+    META_INVALID_CURSOR_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
@@ -37,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     MetaAdsResumeConfig,
     _earliest_supported_since,
     _fetch_integration_row,
+    _is_invalid_cursor_error,
     _is_permanent_auth_error,
     _is_transient_error,
     _iter_simple_pagination,
@@ -1367,6 +1370,10 @@ class TestNonRetryableErrors:
             '{"error":{"message":"Error validating access token: The session has been invalidated because the '
             "user changed their password or Facebook has changed the session for security "
             'reasons.","type":"OAuthException","code":190,"error_subcode":460}})',
+            # code 2642 — a paging cursor was rejected as invalid mid-sync. Retrying this job
+            # would resume with the same saved cursor and fail identically every time.
+            f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"(#2642) Invalid cursors values","type":"OAuthException","code":2642}})',
         ],
     )
     def test_errors_match_pattern(self, error_message: str) -> None:
@@ -1421,6 +1428,27 @@ class TestNonRetryableErrors:
     )
     def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
+
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            ({"error": {"code": 2642, "message": "(#2642) Invalid cursors values", "type": "OAuthException"}}, True),
+            # A different code must not be swept into the same reclassification.
+            ({"error": {"code": 1, "message": "An unknown error has occurred."}}, False),
+            ({"error": {}}, False),
+            ({}, False),
+        ],
+    )
+    def test_is_invalid_cursor_error(self, body: dict, expected: bool) -> None:
+        assert _is_invalid_cursor_error(_mock_response(400, body)) is expected
+
+    def test_invalid_cursor_error_raises_non_retryable_message(self) -> None:
+        # Confirms `_raise_meta_api_error` itself classifies a live 2642 response into the
+        # message `get_non_retryable_errors` matches on — the parametrized test above only
+        # checks the dict against a hand-written string, not the wiring that produces it.
+        body = {"error": {"code": 2642, "message": "(#2642) Invalid cursors values", "type": "OAuthException"}}
+        with pytest.raises(Exception, match=META_INVALID_CURSOR_ERROR_MESSAGE):
+            _raise_meta_api_error(_mock_response(400, body))
 
 
 class TestRetryableErrors:
@@ -1791,8 +1819,22 @@ class TestEndpointCatalog:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_every_advertised_endpoint_has_a_resource_schema(self, endpoint: str) -> None:
         # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
-        # without a `RESOURCE_SCHEMAS` entry only fails at sync time with a KeyError.
+        # without a `RESOURCE_SCHEMAS` entry only fails at sync time, once a customer selects it.
         assert endpoint in get_meta_ads_schemas()
+
+    def test_resource_the_worker_does_not_know_raises_a_named_error(self) -> None:
+        # The web pods and the workers deploy separately, so a newly shipped table is selectable in
+        # the schema picker about an hour before every worker can resolve it. A bare KeyError there
+        # reports as a bug and reaches the customer as raw Python; the named error is classified
+        # retryable instead.
+        with pytest.raises(UnknownResourceError, match="ad_stats_by_a_future_breakdown"):
+            meta_ads_source(
+                resource_name="ad_stats_by_a_future_breakdown",
+                config=_source_config(),
+                team_id=1,
+                resumable_source_manager=_build_manager(),
+                api_version=META_ADS_API_VERSION_V26,
+            )
 
 
 class TestBreakdownStatsSchemas:

@@ -80,6 +80,10 @@ Choose typed queries or SQL from the required calculation and output, as describ
 
 Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Code).
 
+### Knowledge source checks
+
+When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+
 ## Claude web and desktop exec schema budget
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
@@ -105,6 +109,10 @@ A missing flag evaluates as off. Development `FEATURE_FLAG_OVERRIDES` do not ena
 
 Verify the published skills archive loads, then start a new MCP session and sandbox task for an enabled user.
 Exercise `learn -s`, a qualified skill read, and a product call, and check that a disabled user retains the prior behavior.
+The skills-first gate response directs agents to search, load an exact qualified name with `learn posthog:<skill>` or `learn project:<skill>`, then retry the original call.
+Searching alone does not open the gate, and `skill-get` and `skill-list` cannot satisfy it.
+Unknown learning topics and empty search queries return recovery instructions; a failed `learn` does not open the gate.
+If no skill applies, the existing `call --no-skills ...` acknowledgement remains available.
 The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
 Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.
 

@@ -28,7 +28,12 @@ from itertools import pairwise
 
 from posthog.dataclasses import frozen
 
-from products.engineering_analytics.backend.facade.contracts import PRTimelineSegment, PRTimelineSegmentKind
+from products.engineering_analytics.backend.facade.contracts import (
+    PRTimelinePush,
+    PRTimelineSegment,
+    PRTimelineSegmentKind,
+)
+from products.engineering_analytics.backend.logic.merge_queue import GateAttempt
 from products.engineering_analytics.backend.logic.queries.master_failures import strip_shard_suffix
 from products.engineering_analytics.backend.logic.views.reviews import APPROVED_STATE, CHANGES_REQUESTED_STATE
 
@@ -56,15 +61,6 @@ class RunAttempt:
     succeeded: bool
     # Names of the jobs that failed in this attempt; empty when job data is not synced.
     failed_jobs: tuple[str, ...]
-
-
-@frozen
-class GateAttempt:
-    """One merge-queue attempt for the PR: the gate branch's runs, bisection probes folded in."""
-
-    started_at: datetime
-    # None while any of the attempt's runs is still running.
-    completed_at: datetime | None
 
 
 @frozen
@@ -100,7 +96,7 @@ class MasterFailureIndex:
 @dataclass(frozen=True, kw_only=True)
 class PRTimelineInput:
     started_at: datetime
-    # The merge, or now for an open PR.
+    # The merge, the close, or now for an open PR.
     ended_at: datetime
     is_open: bool
     is_merged: bool
@@ -170,6 +166,9 @@ class PRTimelineBuilder:
             started_at=queue_from,
             ended_at=max(gate.completed_at for gate in after_last_push if gate.completed_at is not None),
         )
+
+    def pushes(self) -> list[PRTimelinePush]:
+        return [PRTimelinePush(head_sha=push.head_sha, pushed_at=push.pushed_at) for push in self._pushes]
 
     def build(self) -> list[PRTimelineSegment]:
         start, end = self._pr.started_at, self._pr.ended_at

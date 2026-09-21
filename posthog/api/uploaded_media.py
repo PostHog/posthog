@@ -23,7 +23,7 @@ from statshog.defaults.django import statsd
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import UploadedMedia
-from posthog.models.uploaded_media import MEDIA_PURPOSES, ObjectStorageUnavailable
+from posthog.models.uploaded_media import MEDIA_PURPOSES, PRIVATE_MEDIA_PURPOSES, ObjectStorageUnavailable
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -186,6 +186,9 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
     if instance.pending:
         # Awaiting complete_upload — the bytes at media_location, if any, are unvetted.
+        return HttpResponse(status=404)
+
+    if instance.purpose in PRIVATE_MEDIA_PURPOSES:
         return HttpResponse(status=404)
 
     if instance.media_location is None:

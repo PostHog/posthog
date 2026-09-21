@@ -58,6 +58,8 @@ export interface HogFunctionFilters {
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
+    /** Set by Django when compilation failed. The bytecode is null beside it, unless the save kept the last working one. */
+    bytecode_error?: string
 }
 
 export type GroupType = {
@@ -654,7 +656,7 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns'
+    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns' | 'posthog'
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }

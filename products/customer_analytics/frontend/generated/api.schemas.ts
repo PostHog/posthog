@@ -29,6 +29,101 @@ export type ExternalAccountApiRelationships = { [key: string]: ExternalAccountAs
  */
 export type ExternalAccountApiCustomProperties = { [key: string]: unknown }
 
+/**
+ * * `unmanaged` - Unmanaged
+ * * `assigned` - Assigned
+ * * `cleared` - Cleared
+ * * `blocked` - Blocked
+ */
+export type OwnershipRoleStateEnumApi = (typeof OwnershipRoleStateEnumApi)[keyof typeof OwnershipRoleStateEnumApi]
+
+export const OwnershipRoleStateEnumApi = {
+    Unmanaged: 'unmanaged',
+    Assigned: 'assigned',
+    Cleared: 'cleared',
+    Blocked: 'blocked',
+} as const
+
+export interface ExternalAccountOwnershipHolderApi {
+    /** PostHog user id of the holder. */
+    user_id: number
+    /**
+     * Current email address of the holder; null for a holder outside the organization.
+     * @nullable
+     */
+    email: string | null
+    /**
+     * Current display name of the holder; null when unset or outside the organization.
+     * @nullable
+     */
+    name: string | null
+    /** Whether the holder is currently a member of the project's organization. */
+    is_organization_member: boolean
+    /** Whether the holder's PostHog user account is active. */
+    is_active: boolean
+}
+
+/**
+ * * `holder_missing` - The active relationship has no user
+ * * `holder_inactive` - The holder's user account is deactivated
+ * * `holder_not_in_organization` - The holder is not a member of the organization
+ * * `multiple_active_holders` - More than one active relationship holds the role
+ */
+export type OwnershipRoleDiagnosticEnumApi =
+    (typeof OwnershipRoleDiagnosticEnumApi)[keyof typeof OwnershipRoleDiagnosticEnumApi]
+
+export const OwnershipRoleDiagnosticEnumApi = {
+    HolderMissing: 'holder_missing',
+    HolderInactive: 'holder_inactive',
+    HolderNotInOrganization: 'holder_not_in_organization',
+    MultipleActiveHolders: 'multiple_active_holders',
+} as const
+
+export interface ExternalAccountRoleOwnershipApi {
+    /** The controlled relationship definition. Map it to the role you project; it does not change. */
+    definition_id: string
+    /** Current name of the relationship definition. */
+    definition_name: string
+    /** `unmanaged`: customer analytics does not hold authority over this relationship on this account; the holder, if any, is a legacy assignment. `assigned`: the holder is authoritative. `cleared`: the relationship is authoritatively empty. `blocked`: the relationship is managed but its holder cannot be projected; see `diagnostics` and keep the last applied value.
+     *
+     * * `unmanaged` - Unmanaged
+     * * `assigned` - Assigned
+     * * `cleared` - Cleared
+     * * `blocked` - Blocked */
+    state: OwnershipRoleStateEnumApi
+    /**
+     * When customer analytics last decided this relationship on this account; null while unmanaged.
+     * @nullable
+     */
+    controlled_at: string | null
+    /**
+     * The active relationship holding the role, or null when empty.
+     * @nullable
+     */
+    relationship_id: string | null
+    /** The current holder, or null. */
+    holder: ExternalAccountOwnershipHolderApi | null
+    /** Why a managed relationship is blocked. Informational on an unmanaged one. */
+    diagnostics: OwnershipRoleDiagnosticEnumApi[]
+}
+
+export interface ExternalAccountOwnershipApi {
+    /** Account UUID, the canonical identity within this project. */
+    account_id: string
+    /**
+     * External account key: the group key the account is linked to.
+     * @nullable
+     */
+    external_id: string | null
+    /**
+     * Region of this PostHog instance (`us`, `eu`), or null when self-hosted.
+     * @nullable
+     */
+    region: string | null
+    /** One entry per controlled relationship definition of the project, in name order, whether or not this account is managed under it. Empty when the project controls no relationship. */
+    roles: ExternalAccountRoleOwnershipApi[]
+}
+
 export interface ExternalAccountApi {
     /** Account UUID. */
     id: string
@@ -51,6 +146,8 @@ export interface ExternalAccountApi {
     ignored_at: string | null
     /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
     properties: ExternalAccountApiProperties
+    /** Authority state of each relationship the project controls. */
+    ownership: ExternalAccountOwnershipApi
     /** Tag names on the account, sorted alphabetically. */
     tags: string[]
     /** Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted. */
@@ -96,6 +193,8 @@ export interface ExternalAccountListItemApi {
      * @nullable
      */
     ignored_at: string | null
+    /** Authority state of each relationship the project controls. */
+    ownership: ExternalAccountOwnershipApi
     /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
     relationships: ExternalAccountListItemApiRelationships
 }
@@ -124,6 +223,22 @@ export interface ErrorResponseApi {
     /** Error message */
     error: string
 }
+
+export interface ExternalAccountListPermissionErrorApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable error code. */
+    code: string
+    /** Error message. */
+    detail: string
+    /**
+     * Request field associated with the error, if any.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export type ExternalAccountListAuthErrorApi = ErrorResponseApi | ExternalAccountListPermissionErrorApi
 
 /**
  * * `engineering` - Engineering
@@ -232,6 +347,8 @@ export interface AccountRelationshipDefinitionApi {
     description?: string | null
     /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
     is_single_holder?: boolean
+    /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+    readonly is_controlled: boolean
 }
 
 export interface PaginatedAccountRelationshipDefinitionListApi {
@@ -261,6 +378,8 @@ export interface PatchedAccountRelationshipDefinitionApi {
     description?: string | null
     /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
     is_single_holder?: boolean
+    /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+    readonly is_controlled?: boolean
 }
 
 /**
@@ -568,6 +687,24 @@ export interface AccountAssignmentApi {
 }
 
 /**
+ * * `human` - Human
+ * * `workflow` - Workflow
+ * * `ai` - AI
+ * * `salesforce_claim` - Salesforce claim
+ * * `migration` - Migration
+ */
+export type AccountRelationshipSourceEnumApi =
+    (typeof AccountRelationshipSourceEnumApi)[keyof typeof AccountRelationshipSourceEnumApi]
+
+export const AccountRelationshipSourceEnumApi = {
+    Human: 'human',
+    Workflow: 'workflow',
+    Ai: 'ai',
+    SalesforceClaim: 'salesforce_claim',
+    Migration: 'migration',
+} as const
+
+/**
  * One assignment of a user to an account relationship, with its effective range.
  */
 export interface AccountRelationshipApi {
@@ -584,6 +721,14 @@ export interface AccountRelationshipApi {
      * @nullable
      */
     readonly ended_at: string | null
+    /** Which kind of writer made this assignment; null on rows older than provenance tracking.
+     *
+     * * `human` - Human
+     * * `workflow` - Workflow
+     * * `ai` - AI
+     * * `salesforce_claim` - Salesforce claim
+     * * `migration` - Migration */
+    readonly source: AccountRelationshipSourceEnumApi | null
 }
 
 /**
@@ -1405,6 +1550,8 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
     customBotDefinitions?: CustomBotRuleApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
@@ -1454,6 +1601,16 @@ export interface ClickhouseQueryProgressApi {
     time_elapsed: number
 }
 
+export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
+
+export const QueryScanFixLocationApi = {
+    Query: 'query',
+    Subquery: 'subquery',
+    View: 'view',
+    InsightDateRange: 'insight_date_range',
+    DashboardDateFilter: 'dashboard_date_filter',
+} as const
+
 export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
 
 export const QueryScanFindingKindApi = {
@@ -1462,33 +1619,28 @@ export const QueryScanFindingKindApi = {
     PersonsJoin: 'persons_join',
 } as const
 
-export type QueryScanFindingReasonApi = (typeof QueryScanFindingReasonApi)[keyof typeof QueryScanFindingReasonApi]
-
-export const QueryScanFindingReasonApi = {
-    InOr: 'in_or',
-    Wrapped: 'wrapped',
-    Negated: 'negated',
-    Dynamic: 'dynamic',
-    NotPruned: 'not_pruned',
-    Filters: 'filters',
-} as const
-
 export interface QueryScanWarningApi {
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean | null
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string | null
     /** The one fact the finding rests on. */
     evidence?: string | null
     /** What "Fix with AI" and the assistant are told to do. */
     fix: string
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocationApi | null
     kind: QueryScanFindingKindApi
     /** Shown to the person: what happened and what to do. */
     message: string
-    /** Only with `no_event_filter` and `no_start_date`. */
-    reason?: QueryScanFindingReasonApi | null
 }
 
 export interface QueryScanAnalysisApi {
     /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
     assistant_prompt?: string | null
-    /** Empty when the analysis found nothing to fix. */
+    /** Every finding, fixable or not. Empty when the analysis found none. */
     findings: QueryScanWarningApi[]
     /** How much of all the project's events the query read, 0 to 1. */
     project_share?: number | null
@@ -1683,6 +1835,8 @@ export interface AccountsTableSortApi {
 export interface QueryLogTagsApi {
     /** Name of the query, preferably unique. For example web_analytics_vitals */
     name?: string | null
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string | null
     /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
     productKey?: string | null
     /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
@@ -3492,6 +3646,45 @@ export interface FeatureRequestAccountLinkApi {
     readonly updated_at: string | null
 }
 
+/**
+ * * `open` - open
+ * * `closed` - closed
+ */
+export type IssueStateEnumApi = (typeof IssueStateEnumApi)[keyof typeof IssueStateEnumApi]
+
+export const IssueStateEnumApi = {
+    Open: 'open',
+    Closed: 'closed',
+} as const
+
+export interface FeatureRequestGitHubLinkApi {
+    /** Stable GitHub link ID. */
+    readonly id: string
+    /** Canonical GitHub issue URL. */
+    readonly issue_url: string
+    /** Canonical owner and repository name. */
+    readonly repository: string
+    /**
+     * GitHub issue number.
+     * @minimum 1
+     */
+    readonly issue_number: number
+    /** Latest GitHub issue title. */
+    readonly issue_title: string
+    /** Latest GitHub issue state.
+     *
+     * * `open` - open
+     * * `closed` - closed */
+    readonly issue_state: IssueStateEnumApi
+    /** Whether GitHub issue changes update this request. */
+    readonly sync_enabled: boolean
+    /**
+     * When GitHub last updated this link.
+     * @nullable
+     */
+    readonly last_synced_at: string | null
+}
+
 export interface FeatureRequestApi {
     /** Stable feature request ID. */
     readonly id: string
@@ -3543,6 +3736,8 @@ export interface FeatureRequestApi {
     readonly evidence_count: number
     /** Product areas affected by this request. */
     readonly product_areas: readonly FeatureRequestProductAreaApi[]
+    /** Linked GitHub issue, or null when no issue is linked. */
+    readonly github_link: FeatureRequestGitHubLinkApi | null
     /**
      * ID of the user who created the request.
      * @nullable
@@ -3732,6 +3927,8 @@ export interface FeatureRequestVersionApi {
  * * `accounts` - Accounts
  * * `evidence` - Evidence
  * * `product_areas` - Product areas
+ * * `github_link` - GitHub link
+ * * `github_sync` - GitHub sync
  */
 export type FeatureRequestHistoryChangeFieldEnumApi =
     (typeof FeatureRequestHistoryChangeFieldEnumApi)[keyof typeof FeatureRequestHistoryChangeFieldEnumApi]
@@ -3743,6 +3940,8 @@ export const FeatureRequestHistoryChangeFieldEnumApi = {
     Accounts: 'accounts',
     Evidence: 'evidence',
     ProductAreas: 'product_areas',
+    GithubLink: 'github_link',
+    GithubSync: 'github_sync',
 } as const
 
 /**
@@ -3750,6 +3949,16 @@ export const FeatureRequestHistoryChangeFieldEnumApi = {
  */
 export type FeatureRequestHistoryChangeApiBefore =
     | string
+    | boolean
+    | {
+          id: string
+          issue_url: string
+          repository: string
+          issue_number: number
+          issue_title: string
+          issue_state: 'open' | 'closed'
+          sync_enabled: boolean
+      }
     | {
           /** @nullable */
           id: string | null
@@ -3780,6 +3989,16 @@ export type FeatureRequestHistoryChangeApiBefore =
  */
 export type FeatureRequestHistoryChangeApiAfter =
     | string
+    | boolean
+    | {
+          id: string
+          issue_url: string
+          repository: string
+          issue_number: number
+          issue_title: string
+          issue_state: 'open' | 'closed'
+          sync_enabled: boolean
+      }
     | {
           /** @nullable */
           id: string | null
@@ -3813,7 +4032,9 @@ export interface FeatureRequestHistoryChangeApi {
      * * `account` - Account
      * * `accounts` - Accounts
      * * `evidence` - Evidence
-     * * `product_areas` - Product areas */
+     * * `product_areas` - Product areas
+     * * `github_link` - GitHub link
+     * * `github_sync` - GitHub sync */
     readonly field: FeatureRequestHistoryChangeFieldEnumApi
     /** Value before the update, including relation snapshots. */
     readonly before: FeatureRequestHistoryChangeApiBefore
@@ -3823,12 +4044,14 @@ export interface FeatureRequestHistoryChangeApi {
 
 /**
  * * `manual` - Manual
+ * * `github` - GitHub
  */
 export type FeatureRequestHistorySourceEnumApi =
     (typeof FeatureRequestHistorySourceEnumApi)[keyof typeof FeatureRequestHistorySourceEnumApi]
 
 export const FeatureRequestHistorySourceEnumApi = {
     Manual: 'manual',
+    Github: 'github',
 } as const
 
 export interface FeatureRequestHistoryApi {
@@ -3840,7 +4063,8 @@ export interface FeatureRequestHistoryApi {
     readonly is_initial: boolean
     /** System that recorded the request change.
      *
-     * * `manual` - Manual */
+     * * `manual` - Manual
+     * * `github` - GitHub */
     readonly change_source: FeatureRequestHistorySourceEnumApi
     /**
      * ID of the user who changed the request, if known.
@@ -3854,6 +4078,21 @@ export interface FeatureRequestHistoryApi {
     readonly actor_name: string | null
     /** When the request changed. */
     readonly changed_at: string
+}
+
+export interface FeatureRequestGitHubLinkSerializerInputApi {
+    /**
+     * GitHub integration ID connected to this project.
+     * @minimum 1
+     */
+    integration_id: number
+    /** GitHub issue URL. Pull request URLs are not supported. */
+    issue_url: string
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
 }
 
 export interface FeatureRequestEvidenceDeleteApi {
@@ -3887,7 +4126,8 @@ export interface FeatureRequestStatusHistoryApi {
     readonly request_status: FeatureRequestStatusEnumApi
     /** System that recorded the status change.
      *
-     * * `manual` - Manual */
+     * * `manual` - Manual
+     * * `github` - GitHub */
     readonly change_source: FeatureRequestHistorySourceEnumApi
     /**
      * ID of the user who changed the status, if known.
@@ -4091,14 +4331,53 @@ export interface PinnedAccountPropertyApi {
     id: string
 }
 
+/**
+ * * `weekdays` - Weekdays
+ * * `every_day` - Every day
+ */
+export type TaskDigestCadenceEnumApi = (typeof TaskDigestCadenceEnumApi)[keyof typeof TaskDigestCadenceEnumApi]
+
+export const TaskDigestCadenceEnumApi = {
+    Weekdays: 'weekdays',
+    EveryDay: 'every_day',
+} as const
+
+export interface TaskDigestPreferencesApi {
+    /** Whether the task digest email is sent to this user. */
+    enabled: boolean
+    /** Time of day to send the digest, as HH:MM in the project timezone. */
+    send_time: string
+    /** How often the digest is sent.
+     *
+     * * `weekdays` - Weekdays
+     * * `every_day` - Every day */
+    cadence: TaskDigestCadenceEnumApi
+}
+
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+    /** Task digest email preferences. Disabled until the user turns the digest on. */
+    readonly task_digest: TaskDigestPreferencesApi
+}
+
+export interface TaskDigestPreferencesUpdateApi {
+    /** Whether the task digest email is sent to this user. */
+    enabled?: boolean
+    /** Time of day to send the digest, as HH:MM in the project timezone. */
+    send_time?: string
+    /** How often the digest is sent.
+     *
+     * * `weekdays` - Weekdays
+     * * `every_day` - Every day */
+    cadence?: TaskDigestCadenceEnumApi
 }
 
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
+    /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
+    task_digest?: TaskDigestPreferencesUpdateApi
 }
 
 export type CustomerAnalyticsExternalAccountRetrieveParams = {
@@ -4125,6 +4404,15 @@ export type CustomerAnalyticsExternalAccountsRetrieveParams = {
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
     limit?: number
+    /**
+     * When true, return only accounts where customer analytics holds authority over at least one controlled relationship, including accounts whose managed relationships are cleared and accounts that are ignored. Authority does not end when an account is ignored, so `include_ignored` is implied.
+     */
+    managed_only?: boolean
+    /**
+     * Project ID. Required for personal API keys. Project secret API keys use their bound project.
+     * @minimum 1
+     */
+    project_id?: number
 }
 
 export type AccountNotesListParams = {
@@ -4294,6 +4582,15 @@ export type AccountsSupportTicketMessagesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AccountsByExternalIdRetrieveParams = {
+    /**
+     * Exact external account identifier. Leading and trailing whitespace is significant.
+     * @minLength 1
+     * @maxLength 400
+     */
+    external_id: string
 }
 
 export type AnnouncementsListParams = {

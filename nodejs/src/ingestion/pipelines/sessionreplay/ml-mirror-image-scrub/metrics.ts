@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
+import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 
 import { type ImageTransportRejectionReason } from './image-transport'
 import { ScrubWaitReason } from './scrub-client'
@@ -106,8 +106,18 @@ export class ImageScrubConsumerMetrics {
     })
     private static readonly batchDuration = new Histogram({
         name: 'ml_mirror_image_scrub_consumer_batch_duration_seconds',
-        help: 'Wall time per poll batch. Read against Kafka max.poll.interval.ms (300s): batches approaching it get the pod evicted mid-batch, and the partition is redone by whoever picks it up',
+        help: 'Wall time per poll batch, from its first scrub until its images are handed to the write lane, including any wait for the lane to have room (write_wait_seconds); the S3 writes themselves run behind the next batch and are timed by write_duration_seconds. Read against Kafka max.poll.interval.ms (300s): batches approaching it get the pod evicted mid-batch, and the partition is redone by whoever picks it up',
         buckets: [1, 5, 15, 30, 60, 120, 240, 300, 600],
+    })
+    private static readonly writeDuration = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_write_duration_seconds',
+        help: 'Wall time one successful hand-off spends writing its shards, URL images and offsets, excluding the wait behind the previous hand-off. It overlaps the next batch, so it only costs throughput once it exceeds batch_duration_seconds',
+        buckets: [0.1, 0.5, 1, 2, 5, 15, 30, 60, 120],
+    })
+    private static readonly writeWait = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_write_wait_seconds',
+        help: 'Time a batch spent blocked because the write lane already held one writing and one queued hand-off. This is the only place S3 latency reaches the scrub, so a rising value means S3, not the sidecar, is what is slow',
+        buckets: [0.01, 0.1, 0.5, 1, 2, 5, 15, 30, 60, 120],
     })
     private static activeBatchStartedAtMs: number | undefined
     private static readonly activeBatchElapsed = new Gauge({
@@ -188,6 +198,12 @@ export class ImageScrubConsumerMetrics {
             this.batchRetiredRatio.observe(retired / planned)
         }
         this.batchDuration.observe(durationSeconds)
+    }
+    public static observeWrite(durationSeconds: number): void {
+        this.writeDuration.observe(durationSeconds)
+    }
+    public static observeWriteWait(durationSeconds: number): void {
+        this.writeWait.observe(durationSeconds)
     }
     public static startBatch(nowMs = performance.now()): void {
         this.activeBatchStartedAtMs = nowMs

@@ -110,6 +110,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
             <LemonButton
                 type="primary"
                 size="small"
+                className="w-fit"
                 to={urls.taskDetail(task.id)}
                 onClick={(event) => {
                     event.preventDefault()

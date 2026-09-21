@@ -2,7 +2,7 @@
 
 Before deciding, verify each moment that bears on this condition with `get_events_around`: the video alone is easy to misread, and what the events record at a moment outranks a visual impression of it.
 
-In `reasoning`, weigh the evidence for and against, noting what the events confirmed or contradicted; then set `verdict` to {% if allow_inconclusive %}`yes` if there's direct visual or event-level evidence the condition occurred, `no` if there's direct evidence it did not, or `inconclusive` only when the session genuinely doesn't provide enough signal to decide.{% else %}`yes` only if there's direct visual or event-level evidence the condition occurred, otherwise `no` — never `inconclusive`.{% endif %} A `yes` needs at least one specific moment you checked with `get_events_around`. A plausible story the events do not support is not a `yes`.
+In `reasoning`, weigh the evidence for and against, noting what the events confirmed or contradicted; then set `verdict` to {% if allow_inconclusive %}`yes` if there's direct visual or event-level evidence the condition occurred, `no` if there's direct evidence it did not, or `inconclusive` only when the session genuinely doesn't provide enough signal to decide.{% else %}`yes` only if there's direct visual or event-level evidence the condition occurred, otherwise `no` — never `inconclusive`.{% endif %} A `yes` needs at least one specific moment you checked with `get_events_around`. A plausible story the events do not support is not a `yes`. Never say you checked the events at a moment unless you called `get_events_around` for it; if a claim rests on the video alone, say so.
 
 {{ cite_in('reasoning') }}
 

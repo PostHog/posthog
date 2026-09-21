@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPlay } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
@@ -13,10 +13,21 @@ import { urls } from 'scenes/urls'
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
+import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTimestampRange } from '../../utils/citations'
 import { ScannerType } from '../types'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
+
+const PROBLEM_TYPE_LABELS: Record<string, string> = {
+    bug: 'bug',
+    crash: 'crash',
+    design_flaw: 'design flaw',
+    ux_friction: 'UX friction',
+}
+
+const problemTypeLabel = (problemType: string): string =>
+    PROBLEM_TYPE_LABELS[problemType] ?? problemType.replace(/_/g, ' ')
 
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     // The scan wrote this sentence while watching the session, so it beats anything derived from the
@@ -25,10 +36,37 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
         return reason.notability_reason
     }
     switch (reason.kind) {
-        case 'signal_emitted':
-            return (reason.signals_count ?? 0) > 1
-                ? `The scanner raised ${reason.signals_count} signals from this session.`
-                : 'The scanner raised a signal from this session.'
+        case 'signal_emitted': {
+            const total = reason.signals_count ?? 0
+            const problemTypes = reason.problem_types ?? []
+            if (problemTypes.length === 0) {
+                return total > 1
+                    ? `The scanner raised ${total} signals from this session.`
+                    : 'The scanner raised a signal from this session.'
+            }
+            // Count each problem type, keeping the order the scan first raised them.
+            const order: string[] = []
+            const countByType = new Map<string, number>()
+            for (const problemType of problemTypes) {
+                if (!countByType.has(problemType)) {
+                    order.push(problemType)
+                }
+                countByType.set(problemType, (countByType.get(problemType) ?? 0) + 1)
+            }
+            if (order.length === 1) {
+                const label = problemTypeLabel(order[0])
+                return total > 1
+                    ? `The scanner raised ${total} ${label} signals from this session.`
+                    : `The scanner raised a ${label} signal from this session.`
+            }
+            const breakdown = order
+                .map((problemType) => {
+                    const n = countByType.get(problemType) ?? 0
+                    return `${n} ${problemTypeLabel(problemType)} signal${n === 1 ? '' : 's'}`
+                })
+                .join(', ')
+            return `The scanner raised ${total} signals from this session: ${breakdown}.`
+        }
         case 'unusual_verdict':
             return reason.verdict
                 ? `The scanner answered ${reason.verdict}, which is rare for it in this window.`
@@ -85,18 +123,30 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
     const { observation, reason } = item
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const clip = observationClipRange(observation)
-    const scannerType = observation.scanner_snapshot?.scanner_type as ScannerType | undefined
+    const result = readResult(observation)
+    // Fall back to the result's own scanner_type when the snapshot is absent, like observationClipRange,
+    // so a scan with no snapshot still places its outcome in the right spot.
+    const scannerType =
+        (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
+        (result?.scanner_type as ScannerType | undefined)
     const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
     const person = observation.recording_subject_email || observation.distinct_id
+    // A monitor verdict or a scorer score is a single token, so it rides the header row instead of
+    // taking its own line. Classifier tags and summarizer text need the body's full width, so their
+    // outcome stays there.
+    const outcomeInHeader = scannerType === 'monitor' || scannerType === 'scorer'
     // Summarizers already tell the story through title + summary; the other types show only an
     // outcome chip, so bring their reasoning along for context, clamped to keep the card scannable.
-    const result = readResult(observation)
     const reasoning =
         scannerType !== 'summarizer' && typeof result?.reasoning === 'string'
             ? { text: result.reasoning, segments: result.reasoning_segments }
             : null
-    // t=0 when nothing is cited, so the observation page still opens with the player expanded.
-    const observationUrl = `${urls.replayVisionObservation(observation.id)}?t=${clip ? Math.floor(clip.startMs / 1000) : 0}`
+    // t=0 when nothing is cited, so the observation page still opens with the player expanded. `from`
+    // marks the feed as the origin, so the observation's back button returns here rather than the scanner.
+    const observationUrl = combineUrl(urls.replayVisionObservation(observation.id), {
+        t: clip ? Math.floor(clip.startMs / 1000) : 0,
+        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
+    }).url
     const capture = (target: 'clip_modal' | 'observation'): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
             scanner_id: observation.scanner_id,
@@ -157,6 +207,13 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                     <div className="flex flex-wrap items-center gap-2 min-w-0">
                         {scannerType && <ScannerTypeBadge scannerType={scannerType} />}
                         <span className="text-muted text-sm truncate">{scannerName}</span>
+                        {/* Above the card's full-area overlay link, like the other interactive
+                            elements, so the outcome's hover tooltip stays reachable. */}
+                        {outcomeInHeader && (
+                            <span className="relative z-10">
+                                <ObservationResultSummary observation={observation} />
+                            </span>
+                        )}
                     </div>
                     <LemonButton
                         type="secondary"
@@ -179,7 +236,7 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                     data-attr="vision-watch-feed-card-body"
                 >
                     <div className="flex flex-col gap-1">
-                        <ObservationResultSummary observation={observation} />
+                        {!outcomeInHeader && <ObservationResultSummary observation={observation} />}
                         {reasoning && (
                             <p className="text-muted m-0 line-clamp-2">
                                 <CitedText text={reasoning.text} segments={reasoning.segments} />

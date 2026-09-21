@@ -9,7 +9,9 @@ import {
 import {
     type ComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
+    withPersistedComponentPanelProps,
 } from 'lib/components/MarkdownNotebook/componentPanels'
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -71,6 +73,18 @@ function getInsertCommandsByLabel(
 }
 
 describe('markdownNotebookRegistry', () => {
+    it.each([undefined, 'saved-widget'])('pins widget identity when opening filters (explicit ID: %s)', (nodeId) => {
+        const node = parseMarkdownNotebook(`<Widget prompt="Draw a chart"${nodeId ? ` nodeId="${nodeId}"` : ''} />`)
+            .nodes[0] as NotebookComponentBlockNode
+        const updated = withPersistedComponentPanelProps(node, NOTEBOOK_MARKDOWN_REGISTRY.components.Widget, {
+            filters: true,
+            results: true,
+        })
+
+        expect(updated.props.nodeId).toBe(nodeId ?? node.id)
+        expect(updated.props.showFilters).toBe(true)
+    })
+
     describe('getMarkdownRegistryForFeatureFlags', () => {
         it('offers a single SQL and Python cell, gated by the revamped notebooks flag', () => {
             // The unified insert surface: SQLV2 ("SQL") and PythonV2 ("Python") are the only
@@ -126,9 +140,15 @@ describe('markdownNotebookRegistry', () => {
             )
 
             commands.find((command) => command.key === commandKey)?.run('target-node')
+            commands.find((command) => command.key === commandKey)?.run('target-node')
 
-            expect(insertedNodes).toHaveLength(1)
+            expect(insertedNodes).toHaveLength(2)
+            expect(insertedNodes[0].props.nodeId).not.toEqual(insertedNodes[1].props.nodeId)
             expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
+            if (_label !== 'Widget') {
+                expect(insertedNodes[0].props.returnVariable).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/)
+                expect(insertedNodes[0].props.returnVariable).not.toEqual(insertedNodes[1].props.returnVariable)
+            }
         })
     })
 
@@ -448,6 +468,19 @@ describe('markdownNotebookRegistry', () => {
         expect(getSerializableAttributeInputValue(NotebookNodeType.Group, 'groupTypeIndex', ' not-a-number ')).toEqual(
             'not-a-number'
         )
+    })
+
+    it.each(['Query', 'Insight'])('assigns distinct render IDs to identical ID-less %s blocks', (tagName) => {
+        const nodes = parseMarkdownNotebook(`<${tagName} id="example" />\n\n<${tagName} id="example" />`)
+            .nodes as NotebookComponentBlockNode[]
+        const attributes = nodes.map((node) =>
+            getNodeAttributes(node.props, node.id, KNOWN_NODES[NotebookNodeType.Query], NotebookNodeType.Query, false)
+        )
+
+        expect(attributes.map(({ nodeId }) => nodeId)).toEqual(nodes.map(({ id }) => id))
+        expect(attributes[0].nodeId).toBeTruthy()
+        expect(attributes[1].nodeId).toBeTruthy()
+        expect(attributes[0].nodeId).not.toEqual(attributes[1].nodeId)
     })
 
     it('renders a SQL cell whose query arrived as a query prop', () => {

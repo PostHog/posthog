@@ -1,5 +1,5 @@
 import type { GroupType } from '@/api/client'
-import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
+import { MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET, MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
     buildAvailableToolsBlock,
     buildDefinedGroupsBlock,
@@ -13,6 +13,7 @@ import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import ANALYSIS_ARTIFACTS from '@/templates/sections/analysis-artifacts.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
+import BUSINESS_KNOWLEDGE_FIRST from '@/templates/sections/business-knowledge-first.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
@@ -28,6 +29,7 @@ import ENTITY_SCHEMA_DISCOVERY from '@/templates/sections/entity-schema-discover
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
+import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
@@ -66,6 +68,12 @@ export interface InstructionsContext {
  * modes live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
+    private knowledgeFirstSections(ctx: InstructionsContext): string[] {
+        return ctx.tools?.some(({ name }) => name === 'business-knowledge-documents-search' || name === 'docs-search')
+            ? [BUSINESS_KNOWLEDGE_FIRST]
+            : []
+    }
+
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
      *  Python-goes-in-a-cell rule when the notebook cell tools are available. */
     private artifactSections(ctx: InstructionsContext): string[] {
@@ -77,6 +85,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 BASIC_FUNCTIONALITY,
+                ...this.knowledgeFirstSections(ctx),
                 TOOL_SEARCH,
                 METRIC_DISCOVERY,
                 RETRIEVING_DATA,
@@ -107,13 +116,14 @@ export class InstructionsFormatter {
      *  overshoots, because `formatPrompt` trims the trailing separator the real payload
      *  keeps.) Enforced by the budget test in `instructions-formatter-snapshot.test.ts`. */
     buildExecInstructions(ctx: InstructionsContext): string {
-        const rendered = this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        const sections = [COMPACT_INSTRUCTIONS]
+        const rendered = this.compose(sections, ctx, { compact: true })
         const overflow = rendered.length - MCP_INSTRUCTIONS_CHAR_BUDGET
         if (overflow <= 0) {
             return rendered
         }
         const domains = buildToolDomainsCompact(ctx.tools ?? [])
-        return this.compose([COMPACT_INSTRUCTIONS], ctx, {
+        return this.compose(sections, ctx, {
             compact: true,
             toolDomainsMaxChars: domains.length - overflow,
         })
@@ -124,12 +134,15 @@ export class InstructionsFormatter {
      *  The skills mandate LEADS the description: it is the only signal that reaches
      *  an agent before its first tool call, and agents that answer PostHog-behavior
      *  questions by cloning the public repo never make a call for the gate to catch. */
-    buildExecToolDescription(opts: { skillsEnabled?: boolean } = {}): string {
-        const blurb = EXEC_TOOL_BLURB.trim()
-        if (!opts.skillsEnabled) {
-            return blurb
-        }
-        return `${SKILLS_FIRST.trim()}\n\n${blurb}`
+    buildExecToolDescription(opts: { skillsEnabled?: boolean; knowledgeSearchEnabled?: boolean } = {}): string {
+        const hasMandate = opts.skillsEnabled || opts.knowledgeSearchEnabled
+        return [
+            ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
+            ...(opts.knowledgeSearchEnabled ? [BUSINESS_KNOWLEDGE_FIRST] : []),
+            hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
+        ]
+            .map((section) => section.trim())
+            .join('\n\n')
     }
 
     /**
@@ -233,6 +246,7 @@ export class InstructionsFormatter {
             {
                 compact: false,
                 compactToolDomains: true,
+                toolDomainsMaxChars: MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET,
                 extraCommands: learnEnabled ? LEARN_COMMAND_LINE : undefined,
             }
         )

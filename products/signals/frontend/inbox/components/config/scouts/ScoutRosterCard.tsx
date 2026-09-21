@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -34,8 +35,11 @@ function MetaSeparator(): JSX.Element {
  * last checked, and its cadence on the left; the recent-run strip and the on/off switch on the
  * right. The body links to the scout page. The run boxes and the switch sit outside that link, so
  * a run box opens its task and the switch flips the scout without opening it.
+ *
+ * Memoized: a roster row keeps its identity while the search box narrows the list, so typing
+ * re-renders only the cards that entered or left it.
  */
-export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
+export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
     const {
         rollups,
@@ -120,4 +124,4 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
             </div>
         </div>
     )
-}
+})

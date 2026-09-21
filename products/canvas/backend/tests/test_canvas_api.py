@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -1546,8 +1547,8 @@ class TestCanvasState(CanvasAPIBaseTest):
             format="json",
         )
 
-    def _entries(self, canvas_id: str) -> list[dict[str, Any]]:
-        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/")
+    def _entries(self, canvas_id: str, **params: Any) -> list[dict[str, Any]]:
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/", params)
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()["entries"]
 
@@ -1565,6 +1566,29 @@ class TestCanvasState(CanvasAPIBaseTest):
         self.client.force_login(self.user)
         own_view = {(e["scope"], e["key"]): e["value"] for e in self._entries(canvas_id)}
         assert own_view == {("shared", "board"): {"columns": 3}, ("user", "draft"): "mine"}
+        value_url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/value/"
+        own_value = self.client.get(value_url, {"scope": "user", "key": "draft"})
+        assert json.loads(own_value.json()["value_json"]) == "mine"
+        self.client.force_login(teammate)
+        peer_value = self.client.get(value_url, {"scope": "user", "key": "draft"})
+        assert json.loads(peer_value.json()["value_json"]) == "theirs"
+
+    def test_state_reads_can_be_bounded_by_prefix_and_to_keys_only(self):
+        canvas_id = self._state_canvas()
+        assert self._set_state(canvas_id, "shared", "todo:1", {"title": "first"}).status_code == status.HTTP_200_OK
+        assert self._set_state(canvas_id, "shared", "todo:2", {"title": "second"}).status_code == status.HTTP_200_OK
+        assert self._set_state(canvas_id, "shared", "history", "x" * 1000).status_code == status.HTTP_200_OK
+
+        assert [e["key"] for e in self._entries(canvas_id, key_prefix="todo:")] == ["todo:1", "todo:2"]
+
+        rejected = self.client.get(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/", {"key_prefix": "todo:\x00"}
+        )
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+
+        inventory = self._entries(canvas_id, keys_only="true")
+        assert [e["key"] for e in inventory] == ["history", "todo:1", "todo:2"]
+        assert all("value" not in e for e in inventory)
 
     def test_state_reads_only_declared_scopes(self):
         canvas_id = self._state_canvas()
@@ -1580,6 +1604,49 @@ class TestCanvasState(CanvasAPIBaseTest):
         assert self._publish(canvas_id, project=self._project(capabilities=narrowed)).status_code == status.HTTP_200_OK
 
         assert [(e["scope"], e["key"]) for e in self._entries(canvas_id)] == [("shared", "board")]
+        hidden = self.client.get(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/value/", {"scope": "user", "key": "draft"}
+        )
+        assert hidden.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_state_inventory_is_paged_and_can_select_keys(self):
+        canvas_id = self._state_canvas()
+        self._set_state(canvas_id, "shared", "board", {"columns": 3})
+        self._set_state(canvas_id, "shared", "policy", "a long policy")
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/"
+
+        first = self.client.get(url, {"keys_only": "true", "limit": "1"}).json()
+        assert [entry["key"] for entry in first["entries"]] == ["board"]
+        assert "value" not in first["entries"][0]
+        assert first["next_offset"] == 1
+        assert first["complete"] is False
+        second = self.client.get(url, {"keys_only": "true", "limit": "1", "offset": "1"}).json()
+        assert [entry["key"] for entry in second["entries"]] == ["policy"]
+        assert second["next_offset"] is None
+        assert second["complete"] is True
+        selected = self.client.get(url, {"key": "policy"}).json()
+        assert [(entry["key"], entry["value"]) for entry in selected["entries"]] == [("policy", "a long policy")]
+
+    def test_state_value_chunks_detect_changes(self):
+        canvas_id = self._state_canvas()
+        value = {"text": "é\\n" * 30}
+        self._set_state(canvas_id, "shared", "policy", value)
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/value/"
+        params = {"scope": "shared", "key": "policy", "limit": "17"}
+        first = self.client.get(url, params)
+        assert first.status_code == status.HTTP_200_OK, first.content
+        page = first.json()
+        chunks = [page["value_json"]]
+        while page["next_offset"] is not None:
+            page = self.client.get(url, {**params, "offset": page["next_offset"], "revision": page["revision"]}).json()
+            chunks.append(page["value_json"])
+        assert json.loads("".join(chunks)) == value
+        assert page["complete"] is True
+
+        self._set_state(canvas_id, "shared", "policy", {"text": "changed"})
+        conflict = self.client.get(url, {**params, "offset": "17", "revision": first.json()["revision"]})
+        assert conflict.status_code == status.HTTP_409_CONFLICT
+        assert self.client.get(url, {**params, "offset": "17"}).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_set_state_requires_the_scope_to_be_declared(self):
         canvas_id = self._state_canvas(scopes=("user",))
@@ -1656,6 +1723,21 @@ class TestCanvasState(CanvasAPIBaseTest):
         }
         assert write_shared.status_code == status.HTTP_200_OK
         assert write_user.status_code == status.HTTP_200_OK
+
+        inventory = client.get(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/",
+            {"keys_only": "true", "limit": "1"},
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+        assert inventory.status_code == status.HTTP_200_OK, inventory.content
+        assert "value" not in inventory.json()["entries"][0]
+        chunk = client.get(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/value/",
+            {"scope": "shared", "key": "progress", "limit": "5"},
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+        assert chunk.status_code == status.HTTP_200_OK, chunk.content
+        assert chunk.json()["complete"] is False
 
 
 class TestCanvasErrorReports(CanvasAPIBaseTest):

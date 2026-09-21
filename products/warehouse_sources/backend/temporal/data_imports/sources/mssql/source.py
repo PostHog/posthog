@@ -68,6 +68,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # A fresh connection from the next Temporal retry resolves it; keep it out of
             # error tracking so it doesn't surface as noise.
             "Unexpected EOF from the server",
+            # pymssql's own InterfaceError, raised when `Cursor.execute` calls `cancel()` to
+            # clear pending results and finds the connection already dead (`assert_connected`
+            # in pymssql's `_mssql.pyx`). It's the same underlying DBPROCESS-death class as the
+            # 20017 case above — the driver's own retry loop tried to reuse a connection that
+            # died between opening and the query running — just surfaced through a different
+            # internal code path. A fresh connection from the next Temporal retry resolves it.
+            "Not connected to any MS SQL server",
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

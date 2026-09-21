@@ -20,6 +20,7 @@ use crate::logs::{
     histogram::Histogram,
     parse::*,
 };
+use crate::tags;
 use anyhow::Result;
 use async_trait::async_trait;
 use once_cell::sync::OnceCell;
@@ -189,6 +190,8 @@ impl Collector for Logs {
                     ("query_id", "bigint"),
                     ("fingerprint", "bigint"),
                     ("duration_ms", "double precision"),
+                    ("tags", "jsonb"),
+                    ("trace_id", "text"),
                 ]),
                 by_statement(),
             ));
@@ -219,9 +222,15 @@ impl Collector for Logs {
             let rows = out
                 .latency
                 .into_iter()
-                .map(|((db, fp, qid, minute), h)| {
+                .map(|((db, fp, qid, minute, tags), h)| {
                     let mut r = Row::new();
                     r.insert("datname".into(), db.map(Value::Text).unwrap_or(Value::Null));
+                    r.insert(
+                        "tags".into(),
+                        tags.and_then(|t| serde_json::from_str(&t).ok())
+                            .map(Value::Json)
+                            .unwrap_or(Value::Null),
+                    );
                     r.insert(
                         "fingerprint".into(),
                         fp.map(Value::Int).unwrap_or(Value::Null),
@@ -259,6 +268,7 @@ impl Collector for Logs {
                     ("logged_counts", "integer[]"),
                     ("sample_rate", "double precision"),
                     ("hard_threshold_ms", "double precision"),
+                    ("tags", "jsonb"),
                 ]),
                 by_statement(),
             ));
@@ -276,6 +286,8 @@ impl Collector for Logs {
                     ("duration_ms", "double precision"),
                     ("plan", "jsonb"),
                     ("query", "text"),
+                    ("tags", "jsonb"),
+                    ("trace_id", "text"),
                 ]),
                 by_statement(),
             ));
@@ -309,6 +321,8 @@ impl Collector for Logs {
                     ("query_id", "bigint"),
                     ("size_bytes", "bigint"),
                     ("statement", "text"),
+                    ("tags", "jsonb"),
+                    ("trace_id", "text"),
                 ]),
                 vec![],
             ));
@@ -325,6 +339,8 @@ impl Collector for Logs {
                     ("sqlstate", "text"),
                     ("statement", "text"),
                     ("detail", "text"),
+                    ("tags", "jsonb"),
+                    ("trace_id", "text"),
                 ]),
                 vec![],
             ));
@@ -434,11 +450,13 @@ fn types_of(t: &[(&str, &str)]) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// (datname, fingerprint, query id, minute, tags as canonical JSON).
 type LatencyKey = (
     Option<String>,
     Option<i64>,
     Option<i64>,
     chrono::DateTime<chrono::Utc>,
+    Option<String>,
 );
 
 #[derive(Default)]
@@ -451,7 +469,8 @@ struct Outputs {
     sample_rate: f64,
     hard_threshold_ms: f64,
     durations: Vec<Row>,
-    /// (datname, fingerprint, query id, minute) → latency histogram.
+    /// One histogram per statement, minute and tag set, so latency can be cut by
+    /// code path even though pg_stat_statements cannot.
     latency: BTreeMap<LatencyKey, Histogram>,
     /// (datname, fingerprint) → statement text, stored once per fingerprint in
     /// `cur_query_texts` rather than on every duration row.
@@ -471,6 +490,28 @@ fn text(s: &str) -> Value {
 }
 fn opt(s: &Option<String>) -> Value {
     s.as_deref().map(text).unwrap_or(Value::Null)
+}
+/// Tag comments come off before redaction, which would otherwise blank their
+/// quoted values; the row gets the comment-free text plus `tags` and `trace_id`.
+fn tagged(r: &mut Row, column: &str, statement: Option<&str>) {
+    let ex = statement.map(tags::extract);
+    r.insert(
+        column.into(),
+        ex.as_ref().map(|x| text(&x.sql)).unwrap_or(Value::Null),
+    );
+    tag_only(r, ex.as_ref());
+}
+fn tag_only(r: &mut Row, ex: Option<&tags::Extracted>) {
+    r.insert(
+        "tags".into(),
+        ex.map(|x| tags::to_value(&x.tags)).unwrap_or(Value::Null),
+    );
+    r.insert(
+        "trace_id".into(),
+        ex.and_then(|x| x.trace_id.clone())
+            .map(Value::Text)
+            .unwrap_or(Value::Null),
+    );
 }
 fn json_to_value(v: &serde_json::Value) -> Value {
     match v {
@@ -548,6 +589,11 @@ impl Outputs {
                     return;
                 }
                 let fp = query.as_deref().map(fingerprint);
+                let ex = query.as_deref().map(tags::extract);
+                let tag_key = ex
+                    .as_ref()
+                    .filter(|x| !x.tags.is_empty())
+                    .and_then(|x| serde_json::to_string(&x.tags).ok());
                 if let (Some(fp), Some(q)) = (fp, &query) {
                     self.texts
                         .entry((e.db.clone(), fp))
@@ -560,7 +606,7 @@ impl Outputs {
                     let always_logged =
                         self.hard_threshold_ms >= 0.0 && duration_ms >= self.hard_threshold_ms;
                     self.latency
-                        .entry((e.db.clone(), fp, e.query_id, minute))
+                        .entry((e.db.clone(), fp, e.query_id, minute, tag_key))
                         .or_default()
                         .add(duration_ms, always_logged);
                 }
@@ -574,6 +620,7 @@ impl Outputs {
                     "fingerprint".into(),
                     fp.map(Value::Int).unwrap_or(Value::Null),
                 );
+                tag_only(&mut r, ex.as_ref());
                 self.durations.push(r);
             }
             Record::Plan {
@@ -590,7 +637,7 @@ impl Outputs {
                         .map(|q| Value::Int(fingerprint(q)))
                         .unwrap_or(Value::Null),
                 );
-                r.insert("query".into(), opt(&query));
+                tagged(&mut r, "query", query.as_deref());
                 let mut plan = plan;
                 if let Some(o) = plan.as_object_mut() {
                     // auto_explain.log_parameter_max_length puts bound values here.
@@ -620,7 +667,7 @@ impl Outputs {
                 let mut r = Self::base(stream, e);
                 r.insert("size_bytes".into(), Value::Int(size_bytes));
                 r.insert("path".into(), Value::Text(path));
-                r.insert("statement".into(), opt(&e.statement));
+                tagged(&mut r, "statement", e.statement.as_deref());
                 r.insert(
                     "fingerprint".into(),
                     e.statement
@@ -665,7 +712,7 @@ impl Outputs {
         r.insert("sqlstate".into(), opt(&e.sqlstate));
         r.insert("message".into(), text(&e.message));
         r.insert("detail".into(), opt(&e.detail));
-        r.insert("statement".into(), opt(&e.statement));
+        tagged(&mut r, "statement", e.statement.as_deref());
         r.insert(
             "fingerprint".into(),
             e.statement
@@ -697,6 +744,7 @@ mod tests {
             "2026-08-27 18:22:49 UTC:10.1.2.3(5000):app@app:[140]:LOG:  duration: 1.500 ms  execute <unnamed>: select id from t where id = $1",
             "2026-08-27 18:22:59 UTC:10.1.2.3(5000):app@app:[140]:LOG:  duration: 3.000 ms  execute <unnamed>: select id from t where id = $1",
             "2026-08-27 18:22:50 UTC:10.1.2.3(5000):app@app:[141]:LOG:  duration: 250.0 ms  statement: select count(*) from t /* not stored */",
+            "2026-08-27 18:22:51 UTC:10.1.2.3(5000):app@app:[142]:LOG:  duration: 300.0 ms  statement: /* nodejs:PERSONS_WRITE<fetchPerson> */ select count(*) from t /* not stored */",
         ];
         for l in lines {
             if let Some(e) = asm.push(&re, l) {
@@ -716,7 +764,16 @@ mod tests {
             [Some("app"), Some("app")]
         );
         let kinds: Vec<&Value> = out.durations.iter().map(|r| &r["kind"]).collect();
-        assert_eq!(kinds, [&Value::Text("statement".into())]);
+        assert_eq!(kinds, [&Value::Text("statement".into()); 2]);
+        // The tagged statement keeps its tags on the slow row and gets its own
+        // histogram, although it shares the untagged statement's fingerprint.
+        assert_eq!(
+            out.durations[1]["tags"],
+            Value::Json(
+                serde_json::json!({ "service": "nodejs", "db_use": "PERSONS_WRITE", "operation": "fetchPerson" })
+            )
+        );
+        assert_eq!(out.latency.keys().filter(|k| k.4.is_some()).count(), 1);
         // The 250 ms statement is over the always-log threshold, the executes were sampled.
         let mut hists: Vec<(i64, f64, i32, i32)> = out
             .latency
@@ -724,18 +781,18 @@ mod tests {
             .map(|h| (h.n, h.max_ms, h.sampled.iter().sum(), h.logged.iter().sum()))
             .collect();
         hists.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        assert_eq!(hists, [(1, 250.0, 0, 1), (2, 3.0, 2, 0)]);
+        assert_eq!(hists, [(1, 250.0, 0, 1), (1, 300.0, 0, 1), (2, 3.0, 2, 0)]);
         assert!(out
             .latency
             .keys()
-            .all(|(_, _, _, minute)| minute.to_rfc3339() == "2026-08-27T18:22:00+00:00"));
+            .all(|(_, _, _, minute, _)| minute.to_rfc3339() == "2026-08-27T18:22:00+00:00"));
         assert_eq!(
             out.counts[&(
                 "writer".to_string(),
                 "LOG".to_string(),
                 "duration".to_string()
             )],
-            5
+            6
         );
     }
 }

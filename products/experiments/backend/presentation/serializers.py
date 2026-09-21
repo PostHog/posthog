@@ -1127,8 +1127,8 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Requires the requesting user to have access to PostHog Desktop "
-            "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "from the linked repository. A personal API key needs the task:write scope (403 otherwise). "
+            "Skipped when the conclusion is empty, or when no connected repository can be resolved."
         ),
     )
     repository = serializers.CharField(

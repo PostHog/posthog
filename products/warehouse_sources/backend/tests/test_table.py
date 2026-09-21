@@ -243,6 +243,22 @@ class TestRunChdbQuery:
 
         assert not DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
 
+    @pytest.mark.parametrize("platform, suppressed", [("darwin", True), ("linux", False)])
+    def test_missing_deltalake_function_is_suppressed_only_on_macos(self, platform: str, suppressed: bool) -> None:
+        # Kept verbatim from chdb 4.3.0 on macOS, where the wheel ships without delta-kernel.
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="Code: 46. DB::Exception: Unknown table function deltaLake. (UNKNOWN_FUNCTION)",
+        )
+        with patch("products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed):
+            with pytest.raises(RuntimeError) as exc_info:
+                run_chdb_query("DESCRIBE TABLE deltaLake('https://example.com/table/')")
+
+        with patch("products.warehouse_sources.backend.models.table.sys.platform", platform):
+            assert DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value) is suppressed
+
 
 class TestStructureAgainstTheEngine(BaseTest):
     # chdb embeds the same ClickHouse engine that introspects a table and that every warehouse read

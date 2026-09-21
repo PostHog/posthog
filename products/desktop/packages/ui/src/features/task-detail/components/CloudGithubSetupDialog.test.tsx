@@ -28,9 +28,9 @@ vi.mock("@posthog/ui/features/integrations/useGithubUserConnect", () => ({
     return connectState;
   },
 }));
-vi.mock("@posthog/ui/utils/browser", () => ({
-  openUrlInBrowser: vi.fn(),
-}));
+const { openUrlInBrowser } = vi.hoisted(() => ({ openUrlInBrowser: vi.fn() }));
+
+vi.mock("@posthog/ui/utils/browser", () => ({ openUrlInBrowser }));
 
 describe("CloudGithubSetupDialog", () => {
   beforeEach(() => {
@@ -53,14 +53,31 @@ describe("CloudGithubSetupDialog", () => {
     render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
 
     expect(
-      screen.getByText("GitHub authentication required"),
+      screen.getByText("Connect GitHub to run in the cloud"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Cloud tasks require GitHub authentication."),
+      screen.getByText(
+        "To run this task in the cloud, PostHog reads the GitHub repositories you authorize so agents can use their latest code. Code changes are sent in a pull request for your review.",
+      ),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Connect GitHub" }));
 
     expect(connectState.connect).toHaveBeenCalledOnce();
+  });
+
+  it("opens the GitHub permissions guide", async () => {
+    const user = userEvent.setup();
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "What permissions does this grant?",
+      }),
+    );
+
+    expect(openUrlInBrowser).toHaveBeenCalledExactlyOnceWith(
+      "https://posthog.com/docs/libraries/github?tab=Desktop",
+    );
   });
 
   it("shows the onboarding visual while it waits for GitHub", () => {
@@ -70,7 +87,7 @@ describe("CloudGithubSetupDialog", () => {
 
     const waitingState = screen
       .getByText("Waiting for GitHub")
-      .closest('[data-slot="empty"]');
+      .closest('[data-slot="dialog-content"]');
     expect(waitingState).toBeInTheDocument();
     expect(waitingState).toHaveTextContent(
       "Finish authorizing in your browser, then return here.",
@@ -78,17 +95,42 @@ describe("CloudGithubSetupDialog", () => {
     expect(
       waitingState?.querySelector('[aria-label="Loading"]'),
     ).not.toBeNull();
+    expect(
+      waitingState?.querySelector('[data-slot="dialog-header"]'),
+    ).toHaveAttribute("aria-live", "polite");
   });
 
-  it("cancels only after the user selects Cancel", async () => {
+  it("keeps the current location after the user selects Not now", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={onClose} />);
 
     expect(onClose).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Not now" }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(connectState.reset).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      name: "keeps the pending location when Escape arrives mid-connection",
+      isConnecting: true,
+      closeCount: 0,
+    },
+    {
+      name: "closes on Escape before the connection starts",
+      isConnecting: false,
+      closeCount: 1,
+    },
+  ])("$name", async ({ isConnecting, closeCount }) => {
+    const user = userEvent.setup();
+    connectState.isConnecting = isConnecting;
+    const onClose = vi.fn();
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={onClose} />);
+
+    await user.keyboard("{Escape}");
+
+    expect(onClose).toHaveBeenCalledTimes(closeCount);
   });
 
   it("waits for window focus after the integration appears", () => {
@@ -125,7 +167,7 @@ describe("CloudGithubSetupDialog", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Cancel" }),
+      screen.queryByRole("button", { name: "Not now" }),
     ).not.toBeInTheDocument();
     expect(connectState.reset).toHaveBeenCalledOnce();
     expect(onConnected).not.toHaveBeenCalled();

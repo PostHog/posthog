@@ -110,6 +110,16 @@
             },
             "required": ["name", "url"]
         },
+        "CanvasStateKeysOnlySchema": {
+            "default": true,
+            "type": "boolean"
+        },
+        "CanvasStateReadLimitSchema": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+        },
         "ChannelInstructionsBaseVersionSchema": {
             "type": "integer",
             "minimum": 0,
@@ -1445,6 +1455,12 @@
                 }
             ],
             "description": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array)."
+        },
+        "WikiPageReadLimitSchema": {
+            "default": 12000,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12000
         },
         "WorkflowActionEmailPatchSchema": {
             "type": "object",

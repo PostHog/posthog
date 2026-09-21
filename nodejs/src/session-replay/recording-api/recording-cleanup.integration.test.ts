@@ -112,14 +112,23 @@ describe('recording cleanup (integration)', () => {
             [randomUUID(), alertId, targetObservationId, teamId],
             'fixtureMatch'
         )
-        await postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_exportedasset
-                 (team_id, export_format, created_at, export_context, is_system, expires_after)
-             VALUES ($1, 'video/mp4', now(), $2::jsonb, true, now() + interval '30 days')`,
-            [teamId, JSON.stringify({ session_recording_id: 'session-to-delete' })],
-            'fixtureAsset'
-        )
+        // Of the deleted recording: a system render, a person's own gif export, and an event screenshot frame.
+        // Of a kept recording: one export, which must stay.
+        for (const [format, isSystem, sessionId] of [
+            ['video/mp4', true, 'session-to-delete'],
+            ['image/gif', false, 'session-to-delete'],
+            ['image/png', true, 'session-to-delete'],
+            ['video/mp4', false, 'session-to-keep'],
+        ] as const) {
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_exportedasset
+                     (team_id, export_format, created_at, export_context, is_system, expires_after)
+                 VALUES ($1, $2, now(), $3::jsonb, $4, now() + interval '30 days')`,
+                [teamId, format, JSON.stringify({ session_recording_id: sessionId }), isSystem],
+                'fixtureAsset'
+            )
+        }
     })
 
     afterEach(async () => {
@@ -159,15 +168,41 @@ describe('recording cleanup (integration)', () => {
         ).toBe(1)
     })
 
-    it('expires the rendered video for the deleted recording', async () => {
+    it('queues the deleted observations for the ClickHouse event sweep, once', async () => {
+        const queued = (observationId: string): Promise<number> =>
+            count(
+                `SELECT count(*) FROM posthog_asyncdeletion
+                 WHERE deletion_type = 5 AND team_id = $1 AND key = $2 AND delete_verified_at IS NULL`,
+                [teamId, observationId]
+            )
+        // Already queued, as after a cleanup that failed past this insert: the unique (deletion_type, key)
+        // constraint must not abort the whole statement on the retry.
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_asyncdeletion (deletion_type, team_id, key, created_at) VALUES (5, $1, $2, now())`,
+            [teamId, targetObservationId],
+            'fixtureQueuedEvent'
+        )
+
         await service.deleteRecordings(['session-to-delete'], teamId, 'test@example.com')
 
         expect(
-            await count(
-                `SELECT count(*) FROM posthog_exportedasset
-                 WHERE team_id = $1 AND expires_after > now()`,
-                [teamId]
-            )
+            await count(`SELECT count(*) FROM replay_vision_replayobservation WHERE id = $1`, [targetObservationId])
         ).toBe(0)
+        expect(await queued(targetObservationId)).toBe(1)
+        expect(await queued(otherObservationId)).toBe(0)
+    })
+
+    it('expires every export of the deleted recording and none of a kept one', async () => {
+        await service.deleteRecordings(['session-to-delete'], teamId, 'test@example.com')
+
+        const live = async (sessionId: string): Promise<number> =>
+            count(
+                `SELECT count(*) FROM posthog_exportedasset
+                 WHERE team_id = $1 AND expires_after > now() AND export_context ->> 'session_recording_id' = $2`,
+                [teamId, sessionId]
+            )
+        expect(await live('session-to-delete')).toBe(0)
+        expect(await live('session-to-keep')).toBe(1)
     })
 })
