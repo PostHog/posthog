@@ -289,8 +289,10 @@ class RemoteConfig(UUIDTModel):
                 quota_limited.append("recordings")
                 config["sessionRecording"] = False
             if team.api_token in limited_tokens_mobile_recordings:
+                # Only the web limit switches off the shared `sessionRecording` flag: the web
+                # SDK stops on it, and a mobile limit still leaves web recording available.
+                # Mobile capture stops on the `mobile_recordings` entry below instead.
                 quota_limited.append("mobile_recordings")
-                config["sessionRecording"] = False
 
             if quota_limited:
                 config["quotaLimited"] = quota_limited

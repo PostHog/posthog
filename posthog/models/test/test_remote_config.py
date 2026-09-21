@@ -316,9 +316,9 @@ class TestRemoteConfig(_RemoteConfigBase):
         list_limited_team_attributes.clear_cache()
 
     def test_build_config_reports_mobile_recordings_limit_independently(self):
-        """A mobile-only limit surfaces `quotaLimited: ["mobile_recordings"]` and switches off
-        recording, while a web-only limit reports only `recordings`: the two meters are
-        independent, so a web limit must not report mobile (and vice versa)."""
+        """A mobile-only limit surfaces `quotaLimited: ["mobile_recordings"]` and leaves web
+        recording on, while a web-only limit reports only `recordings` and switches it off: the
+        two meters are independent, so neither limit must switch off the other's capture path."""
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
             QuotaResource,
@@ -335,7 +335,7 @@ class TestRemoteConfig(_RemoteConfigBase):
 
         mobile_only_config = self.remote_config.build_config(bypass_recordings_quota_cache=True)
         assert mobile_only_config["quotaLimited"] == ["mobile_recordings"]
-        assert mobile_only_config["sessionRecording"] is False
+        assert mobile_only_config["sessionRecording"] is not False
 
         replace_limited_team_tokens(QuotaResource.MOBILE_RECORDINGS, {}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
         replace_limited_team_tokens(

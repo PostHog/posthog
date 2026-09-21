@@ -263,7 +263,8 @@ class TestQuotaLimiting(BaseTest):
     def test_quota_limiting_limits_mobile_sessions_under_the_mobile_resource(self) -> None:
         # Mobile sessions meter against their own quota resource: billing converts the combined
         # $ limit into separate web/mobile unit counts, so mobile volume must never be summed
-        # into the web `recordings` meter (that was the rejected #38706 approach). Overage
+        # into the web `recordings` meter (the web limit is in ratio-adjusted base units, so
+        # summing raw counts would limit mobile users too early). Overage
         # buffer for both replay resources is 1000, so todays usage alone has to cross it.
         with self.settings(USE_TZ=False):
             self.organization.usage = {
