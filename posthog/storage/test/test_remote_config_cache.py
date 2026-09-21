@@ -1,3 +1,5 @@
+import time
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -97,6 +99,25 @@ class TestRefreshExpiringRemoteConfigCaches(BaseTest):
         assert push_kwargs["successful"] == 0
         assert push_kwargs["failed"] == 0
         assert push_kwargs["expiry_backlog"] == 0
+
+    @patch("posthog.storage.cache_expiry_manager.push_hypercache_teams_processed_metrics")
+    @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_the_fork_reports_the_same_run_diagnostics_as_the_shared_sweep(self, mock_get_client, mock_push):
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.zrangebyscore.return_value = []
+        mock_redis.zcount.side_effect = [40, 12]
+        mock_redis.zrange.return_value = [(self.team.api_token.encode(), time.time() - 60)]
+
+        refresh_expiring_caches(ttl_threshold_hours=24)
+
+        # This fork selects its teams itself, so it is the one that can drift from the
+        # shared sweep and report a bare count while every other cache reports a run.
+        push_kwargs = mock_push.call_args.kwargs
+        assert push_kwargs["expiry_backlog_before"] == 40
+        assert push_kwargs["expiry_backlog"] == 12
+        assert push_kwargs["limit_reached"] is False
+        assert push_kwargs["oldest_expiry_seconds"] < 0
 
 
 class TestCleanupStaleRemoteConfigExpiryTracking(BaseTest):

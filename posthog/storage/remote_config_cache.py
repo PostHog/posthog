@@ -23,8 +23,8 @@ from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import (
     CacheRefreshCounts,
     cleanup_stale_expiry_tracking as cleanup_generic,
-    get_teams_with_expiring_caches as get_teams_generic,
     push_refresh_metrics,
+    start_refresh_run,
 )
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
@@ -91,12 +91,12 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
     Batch-loads every expiring team's config in one query — the config lives in a separate
     table from Team, so re-stamping per team would be an N+1.
     """
-    teams = get_teams_generic(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
+    run = start_refresh_run(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
     # An empty run falls through to push_refresh_metrics rather than returning early,
     # for the reason that function gives. Django resolves `team__in=[]` without a
     # query, so the fall-through costs an empty run nothing.
-    team_by_id = {team.id: team for team in teams}
-    configs = dict(RemoteConfig.objects.filter(team__in=teams).values_list("team_id", "config"))
+    team_by_id = {team.id: team for team in run.teams}
+    configs = dict(RemoteConfig.objects.filter(team__in=run.teams).values_list("team_id", "config"))
 
     successful = 0
     failed = 0
@@ -115,7 +115,7 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
             failed += 1
 
     counts = CacheRefreshCounts(successful=successful, failed=failed)
-    push_refresh_metrics(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, counts, ttl_threshold_hours)
+    push_refresh_metrics(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, run, counts, ttl_threshold_hours)
     return counts
 
 

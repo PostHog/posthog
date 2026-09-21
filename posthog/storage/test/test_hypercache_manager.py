@@ -477,6 +477,9 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
                 failed=100,
                 enqueued=25,
                 expiry_backlog=7000,
+                expiry_backlog_before=11000,
+                oldest_expiry_seconds=-1800.0,
+                limit_reached=True,
             )
 
         mock_registry_cm.assert_called_once_with("hypercache_teams_processed_feature_flags_flags")
@@ -496,6 +499,11 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
         # Once the sweep only produces, this gauge is the only thing left that says
         # whether the queue drains.
         assert registry.get_sample_value("posthog_hypercache_expiry_backlog_last_run", base) == 7000
+        # The before sample is what the after sample is read against: 11000 - 7000 is what
+        # the run drained, and the next run's before sample against 7000 is the arrival rate.
+        assert registry.get_sample_value("posthog_hypercache_expiry_backlog_before_run", base) == 11000
+        assert registry.get_sample_value("posthog_hypercache_expiry_oldest_seconds_before_run", base) == -1800.0
+        assert registry.get_sample_value("posthog_hypercache_refresh_limit_reached_last_run", base) == 1
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_an_unavailable_backlog_emits_no_backlog_series(self, mock_registry_cm):
@@ -510,16 +518,40 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
                 successful=900,
                 failed=100,
                 expiry_backlog=None,
+                expiry_backlog_before=None,
+                oldest_expiry_seconds=None,
             )
 
         base = {"namespace": "feature_flags", "cache_name": "flags"}
         # Absent rather than zero: a zero here reads as a drained queue, which is the
         # opposite of "Redis did not answer".
         assert registry.get_sample_value("posthog_hypercache_expiry_backlog_last_run", base) is None
+        assert registry.get_sample_value("posthog_hypercache_expiry_backlog_before_run", base) is None
+        assert registry.get_sample_value("posthog_hypercache_expiry_oldest_seconds_before_run", base) is None
         assert (
             registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "success"})
             == 900
         )
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_a_run_that_stayed_under_its_limit_pushes_a_zero(self, mock_registry_cm):
+        registry = CollectorRegistry()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_teams_processed_metrics(
+                namespace="feature_flags",
+                cache_name="flags",
+                successful=900,
+                failed=100,
+                limit_reached=False,
+            )
+
+        base = {"namespace": "feature_flags", "cache_name": "flags"}
+        # Dropping a known False on falsiness would leave Pushgateway serving the last run
+        # that did fill its limit, which reads as work still being shed.
+        assert registry.get_sample_value("posthog_hypercache_refresh_limit_reached_last_run", base) == 0
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_skips_push_when_no_pushgateway_address(self, mock_registry_cm):

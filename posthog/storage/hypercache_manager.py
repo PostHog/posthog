@@ -128,6 +128,9 @@ def push_hypercache_teams_processed_metrics(
     failed: int,
     enqueued: int = 0,
     expiry_backlog: int | None = None,
+    expiry_backlog_before: int | None = None,
+    oldest_expiry_seconds: float | None = None,
+    limit_reached: bool | None = None,
 ) -> None:
     """
     Push teams processed metrics to Pushgateway after batch refresh operations.
@@ -151,9 +154,44 @@ def push_hypercache_teams_processed_metrics(
         expiry_backlog: Entries in the expiry sorted set that are due for refresh,
             sampled after the run. None when the count is unavailable, which pushes
             no series rather than a zero that reads as a drained queue.
+        expiry_backlog_before: The same count, sampled before the run started. A run
+            that routes its refreshes to another builder leaves those teams in the
+            sorted set until that builder rebuilds them, so the after count includes
+            work that is already in flight and the before count does not.
+        oldest_expiry_seconds: Seconds until the oldest tracked entry expires, sampled
+            before the run started. Negative once that entry is past its expiry.
+        limit_reached: Whether the run filled its team limit and left work behind.
+            None when the caller cannot tell, which pushes no series.
+
+    Every optional value is dropped when None. Pushgateway keeps serving the last value
+    pushed, so a series that goes missing holds its previous reading until the next run
+    supplies one.
     """
     if not settings.PROM_PUSHGATEWAY_ADDRESS:
         return
+
+    run_gauges = [
+        (
+            "posthog_hypercache_expiry_backlog_last_run",
+            "Entries due for refresh in the expiry sorted set, sampled after the last batch refresh run",
+            expiry_backlog,
+        ),
+        (
+            "posthog_hypercache_expiry_backlog_before_run",
+            "Entries due for refresh in the expiry sorted set, sampled before the last batch refresh run started",
+            expiry_backlog_before,
+        ),
+        (
+            "posthog_hypercache_expiry_oldest_seconds_before_run",
+            "Seconds until the oldest tracked entry expires, sampled before the last batch refresh run started, negative once it is past expiry",
+            oldest_expiry_seconds,
+        ),
+        (
+            "posthog_hypercache_refresh_limit_reached_last_run",
+            "1 when the last batch refresh run filled its team limit and left work behind, 0 otherwise",
+            None if limit_reached is None else int(limit_reached),
+        ),
+    ]
 
     try:
         with pushed_metrics_registry(f"hypercache_teams_processed_{namespace}_{cache_name}") as registry:
@@ -167,14 +205,11 @@ def push_hypercache_teams_processed_metrics(
             success_gauge.labels(namespace=namespace, cache_name=cache_name, result="failure").set(failed)
             success_gauge.labels(namespace=namespace, cache_name=cache_name, result="enqueued").set(enqueued)
 
-            if expiry_backlog is not None:
-                backlog_gauge = Gauge(
-                    "posthog_hypercache_expiry_backlog_last_run",
-                    "Entries due for refresh in the expiry sorted set, sampled after the last batch refresh run",
-                    labelnames=["namespace", "cache_name"],
-                    registry=registry,
-                )
-                backlog_gauge.labels(namespace=namespace, cache_name=cache_name).set(expiry_backlog)
+            for name, description, value in run_gauges:
+                if value is None:
+                    continue
+                gauge = Gauge(name, description, labelnames=["namespace", "cache_name"], registry=registry)
+                gauge.labels(namespace=namespace, cache_name=cache_name).set(value)
     except Exception as e:
         logger.warning(
             "Failed to push hypercache teams processed to Pushgateway",
