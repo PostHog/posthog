@@ -60,7 +60,25 @@ This is why the design keeps the state cache on the GPU node and puts affinity r
 - **Provider portability.** Lambda and Thunder Compute first, but nothing in the request path may depend on either. A GPU node is a replaceable box that runs one container.
 - **Model portability.** Kev first, but the node contract (health, capacity, model version, `/v1/systemone`) must fit an embedding model or a classifier later.
 
-## 3. Topology: where auth and business logic live
+## 3. Decisions inherited from the training stack
+
+The ML training repo (MLHog) already made several infrastructure choices for rented GPU boxes. Inference reuses them rather than choosing again.
+
+| Concern                     | What training does today                                                                                                                                                                                | What inference inherits                                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Network to rented GPUs      | Every rented box joins the company Tailscale mesh; a subnet router exposes the AWS VPC to it.                                                                                                           | Gateway to node traffic rides the same mesh. No WireGuard of our own, no provider VPC peering.                                                     |
+| Node bootstrap              | One script provisions a bare box over SSH: apt packages, NVIDIA driver check, Tailscale, AWS CLI, `s5cmd`, a locked Python 3.12 venv built from `uv.lock`.                                              | Phase 1 nodes bootstrap the same way. Kubernetes waits for phase 2.                                                                                |
+| Credentials on a rented box | One per-rental IAM access key, minted at rental start and disabled at the end, scoped to a few S3 prefixes. No AWS identity on the box otherwise.                                                       | Same pattern, with a read-only policy on a model weights prefix. Weights live in the ML training account's S3, immutable under a versioned prefix. |
+| Python                      | 3.12 only, `uv` with locked dependency groups, new releases held back seven days.                                                                                                                       | Same. Kev needs 3.12 or newer anyway.                                                                                                              |
+| Model code                  | Pure PyTorch (`torch.compile`, FlexAttention, bf16 autocast, DDP). No Hugging Face `transformers`, no vLLM, no custom kernels.                                                                          | The node runner is PyTorch-native and model-agnostic. See section 5.                                                                               |
+| Service deployment          | Images build for arm64, push to the shared ECR, and dispatch a `commit_state_update` to the charts repo; the service runs on the production EKS cluster through the golden chart, tailnet-only ingress. | The inference gateway deploys exactly this way.                                                                                                    |
+| LLM calls                   | MLHog's labeling judge already goes through the AI gateway.                                                                                                                                             | Strengthens the case for the inference route family living on the AI gateway.                                                                      |
+| Batch orchestration         | The replay score export runs as a Temporal workflow in the monorepo.                                                                                                                                    | The bulk lane is Temporal.                                                                                                                         |
+| Region                      | Everything is in one US region.                                                                                                                                                                         | US only until an EU pool is needed.                                                                                                                |
+
+The in-house model, Glaucon, is a self-supervised encoder over rrweb sessions. It is prefill-only like Kev, has a custom architecture that no serving engine knows, and will need serving eventually. That is the strongest tie-break in this document: the node runner must serve a custom PyTorch model, not only Qwen-shaped ones.
+
+## 4. Topology: where auth and business logic live
 
 Three options were considered.
 
@@ -97,15 +115,15 @@ The gateway reads that through the same key-validation path the AI gateway uses.
 Per [`.agents/security.md`](../../.agents/security.md), gateway-to-node calls use a scoped JWT with the team and model in the claims, never `INTERNAL_API_SECRET`.
 The node verifies the JWT and nothing else.
 
-## 4. The GPU node
+## 5. The GPU node
 
 ### Engine
 
 Kev's own server is FastAPI plus HF `transformers` with a threading lock and one request at a time.
 That is the starting point, not the destination.
 
-- **Phase 1.** Keep the HF model and pointer head. Replace the server with a batching runner: one process per GPU, an asyncio front, a single model thread that drains a bounded queue. This is a few hundred lines and gets us to a correct multi-tenant node fast.
-- **Phase 2.** Port Kev to a vLLM pooling model with a custom head. vLLM already runs Qwen3.5's hybrid layout with CUDA graphs, varlen packing, continuous batching, Prometheus metrics, and the LMCache and Dynamo integrations. Writing that ourselves is a bad trade once traffic is real. Two caveats decide when phase 2 pays off, both checked 2026-09-21:
+- **Phase 1.** Keep the HF model and pointer head. Replace the server with a batching runner: one process per GPU, an asyncio front, a single model thread that drains a bounded queue. This is a few hundred lines and gets us to a correct multi-tenant node fast. The runner talks to the model through a small adapter interface (tokenize, build rows, forward a packed batch, read the head), so Glaucon plugs in as a second adapter with the same batcher, cache, and node contract. That makes the runner the durable component, not a stopgap.
+- **Phase 2, Kev only.** Port Kev to a vLLM pooling model with a custom head. vLLM already runs Qwen3.5's hybrid layout with CUDA graphs, varlen packing, continuous batching, Prometheus metrics, and the LMCache and Dynamo integrations. Writing that ourselves is a bad trade once traffic is real. Two caveats decide when phase 2 pays off, both checked 2026-09-21:
   - vLLM's prefix cache for GDN hybrids works at a 528-token block granularity (`--mamba-cache-mode align`). A state shorter than 528 tokens never hits, and a 772-token state reuses 528 tokens and recomputes 244. The finer `all` mode is an unmerged PR that costs 28 to 40% throughput and stores the GDN state in bf16 unless forced to fp32, which makes cold and warm answers differ slightly. See [vllm#40696](https://github.com/vllm-project/vllm/issues/40696) and [vllm#26807](https://github.com/vllm-project/vllm/pull/26807).
   - vLLM enables prefix caching for pooling models only when the pooler reads the last token. Kev's head reads hidden states at every option end token and at the decide token, so the port needs a custom pooler that pools a set of positions, and those positions must all sit in the question suffix, after the cached state prefix, for the cache to apply.
 
@@ -123,7 +141,7 @@ The base model already exists in vLLM (`Qwen3_5ForCausalLM`). The port is:
 
 Estimate: one to two engineer weeks for a working port, then a similar amount for parity, cache tuning, and load testing. The ongoing cost is that an out-of-tree subclass tracks vLLM's internal model API, which changes between releases, so pin the version and re-run parity on every bump.
 
-The node contract must not change between the phases: same `/v1/systemone`, `/healthz`, `/capacity`, `/metrics`.
+The node contract must not change between the phases: same `/v1/systemone`, `/healthz`, `/capacity`, `/metrics`. Glaucon gets its own route on the same node contract when it ships.
 
 ### Batching
 
@@ -151,7 +169,7 @@ A broker is right for the other lane: bulk, offline decisions over many rows (th
 That lane is a separate endpoint that writes work to Kafka or a Temporal workflow, calls the same gateway with a low-priority header, and lands results in ClickHouse or object storage.
 The node batcher gives low-priority rows the leftover token budget, so bulk work fills idle GPU time without hurting online p99.
 
-## 5. Caches
+## 6. Caches
 
 There are three caches with three different homes. Only one of them holds tensors.
 
@@ -176,7 +194,7 @@ That is what Dynamo's KV-aware router and llm-d's endpoint picker do at fleet sc
 Eviction is LRU by state hash, with a minimum state length to be worth caching (Kev uses 384 tokens).
 Model version is part of every key, so a rollout invalidates nothing explicitly: old entries age out.
 
-## 6. Nodes, providers, and the network
+## 7. Nodes, providers, and the network
 
 A node is one container per GPU with a fixed contract:
 
@@ -193,14 +211,15 @@ Provider notes as of 2026-09-21:
 - **Lambda** sells on-demand and reserved instances with GPUs on PCIe or SXM, multi-node clusters, a Managed Kubernetes offering with the NVIDIA GPU Operator preinstalled, per-instance firewall rules, networked persistent storage, and an API for launching instances. It works for both dev and the first production pools. Its [region list](https://docs.lambda.ai/public-cloud/on-demand/) has one EU region, `europe-central-1` in Germany, alongside nine US regions and four in Asia and the Middle East. Check which GPU types the German region actually stocks before planning an EU pool on it. On-demand H100 inventory is reported to run out at peak times, so a production pool needs reserved capacity, not on-demand.
 - **Thunder Compute** attaches the GPU to the VM over TCP rather than PCIe. That is how it undercuts on price. It also means host-to-device copies and small-batch latency are worse than on a real PCIe box, which hurts exactly the host DRAM tier and the low-latency path above. Fine for development and load testing of the batcher. Measure before serving production from it.
 
-Network between the gateway and nodes: a WireGuard or Tailscale mesh per region, or provider VPC peering where it exists, with mTLS on top.
+Network between the gateway and nodes: the existing Tailscale mesh, with mTLS on top.
 Nodes expose the inference port only on the mesh interface.
-Nodes hold no PostHog credentials, only the JWT verification key.
+Run `tailscaled` on the host, not inside the inference container: without `CAP_NET_ADMIN` it falls back to a userspace SOCKS proxy that does not route transparently, which the training bootstrap already documents.
+Nodes hold no PostHog credentials, only the JWT verification key and the per-rental S3 key for pulling weights.
 
 Autoscaling is by queue wait time and GPU utilization, with a floor of two nodes per region.
 Boot time of a node (image pull plus ~8 to 18 GB of weights) is minutes, so scale on a trend, keep headroom, and never scale to zero on the online lane.
 
-## 7. Observability and SLOs
+## 8. Observability and SLOs
 
 Per request at the gateway: team, model version, state tokens, question count, result-cache hit, prefix-cache hit (reported back by the node), node, queue wait, model time, total time.
 No state text anywhere in logs or events.
@@ -210,21 +229,21 @@ Team is never a label on a node metric (unbounded cardinality); it lives in the 
 
 SLOs are per region: availability, p50 and p99 total time for warm and cold state, and result-cache hit ratio as a leading indicator of cost.
 
-## 8. Phases
+## 9. Phases
 
 1. **Single node, real traffic shape.** Kev-4B, the phase 1 batcher, one Lambda or Thunder box, gateway with key validation and a result cache, internal callers only. Measure everything in the tables above.
 2. **Pool per region.** Node registry, affinity routing, host DRAM tier, autoscaling, EU pool. Open to customers behind a project secret API key scope.
 3. **Engine swap.** vLLM pooling model port, keeping the node contract. Adopt LMCache only if measurements from phase 2 show remote prefix reuse would pay.
 4. **Bulk lane.** Offline endpoint on Kafka or Temporal with low-priority scheduling on the same nodes.
 
-## 9. Open questions
+## 10. Open questions
 
 - What is the real hit ratio of the result cache and the prefix cache on PostHog's own use cases (replay, tickets, error groups)? This decides node count more than anything else.
 - Does an EU GPU pool exist at either provider, or does EU need a different provider from day one?
 - Does vLLM's 528-token block granularity for GDN state caching lose more than the batching gains recover on PostHog's real state lengths? If most states are under 528 tokens, phase 2 needs either the `all` cache mode to land upstream or our own state cache in front of vLLM.
 - What does SGLang's hybrid GDN prefix cache do at the same granularity? Its radix cache is token-exact for attention layers; the GDN checkpoint interval is the number to check.
 - Is Kev-0.8B accurate enough for the high-volume PostHog use cases? It changes the throughput math by about 5x.
-- Should the gateway be a new service or a route family on the Go AI gateway (`PostHog/ai-gateway`)? The auth, rate limiting, and usage emission are the same code.
+- Should the gateway be a new service or a route family on the Go AI gateway (`PostHog/ai-gateway`)? The auth, rate limiting, and usage emission are the same code, and the training repo already calls the AI gateway for its LLM judge. Lean: route family on the AI gateway, unless the affinity router turns out to need state the gateway does not want to hold.
 
 ## Sources
 
