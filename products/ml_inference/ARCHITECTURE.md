@@ -121,8 +121,11 @@ Other GPU homes and their roles:
 ### Weights live in the ML training account
 
 The ML training AWS account already has a base-models bucket, described in its own Terraform as a mirror of third-party foundation-model weights for training and inference, laid out as `<vendor>/<model>/`.
-Kev's merged checkpoints go there, immutable and versioned.
-The CI apply job reads it with its own role and hands instances presigned URLs, so no Lambda instance ever holds a bucket credential.
+Kev's merged checkpoints go there, published by a CI job to a versioned prefix such as `jaredpalmer/kev-4b/<git sha>/` and never overwritten.
+The merge is our artifact: Kev's loader merges the LoRA in fp32 at load time, and the vLLM port needs the merged checkpoint anyway.
+The apply job assumes a role in the ML account through OIDC and hands instances presigned URLs, so no Lambda instance ever holds a bucket credential and no prod account role needs a grant.
+An instance fetches weights once, on first boot, and keeps them on local disk across restarts; a replaced instance gets fresh URLs from the next apply.
+Weights stay out of the container image, so a code change does not re-push gigabytes, and the weights version is a field in the declared instance file.
 
 ## 4. Topology
 
