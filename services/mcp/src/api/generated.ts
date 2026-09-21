@@ -96272,6 +96272,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * One signal an observation raised, named rather than counted.
+     */
+    export interface WatchFeedSignal {
+      /** Issue type: `bug`, `crash`, `design_flaw`, or `ux_friction`. */
+      problem_type: string;
+      /** The finding in a few words, written by the scan. The full description lives on the signal itself. */
+      headline: string;
+    }
+
+    /**
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
@@ -96295,6 +96305,8 @@ export namespace Schemas {
       signals_count?: number | null;
       /** Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped. */
       problem_types?: string[];
+      /** Each emitted signal in the order raised, for `signal_emitted`. Carries what the card needs to name the findings instead of counting them. Absent on sessions scanned before this shipped, which carry `problem_types` alone. */
+      signals?: WatchFeedSignal[];
       /**
          * The monitor's answer, for `unusual_verdict`.
          * @nullable
