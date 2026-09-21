@@ -582,6 +582,12 @@ export interface HogFlowScheduleApi {
 export interface HogFlowApi {
     readonly id: string
     /**
+     * Client-chosen identifier, unique within the project. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.
+     * @maxLength 400
+     * @nullable
+     */
+    key?: string | null
+    /**
      * Workflow name.
      * @maxLength 400
      * @nullable
@@ -681,6 +687,11 @@ export type HogFlowUpdateApiActionRedirects = { [key: string]: string } | null
 export interface HogFlowUpdateApi {
     readonly id: string
     /**
+     * Client-chosen identifier, unique within the project. This value cannot change after creation.
+     * @nullable
+     */
+    readonly key: string | null
+    /**
      * Workflow name.
      * @maxLength 400
      * @nullable
@@ -779,6 +790,11 @@ export type PatchedHogFlowUpdateApiActionRedirects = { [key: string]: string } |
  */
 export interface PatchedHogFlowUpdateApi {
     readonly id?: string
+    /**
+     * Client-chosen identifier, unique within the project. This value cannot change after creation.
+     * @nullable
+     */
+    readonly key?: string | null
     /**
      * Workflow name.
      * @maxLength 400
@@ -1787,6 +1803,7 @@ export type HogFlowsListParams = {
      */
     created_by?: string
     id?: string
+    key?: string
     /**
      * Number of results to return per page.
      */
