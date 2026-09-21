@@ -57,14 +57,14 @@ pub(crate) fn split_by_size(
 pub struct SendError {
     pub error: TransportError,
     pub messages: Vec<SerializedKafkaMessage>,
-    /// Set on a fenced worker stream send. Hold it until `messages` are stashed: the
-    /// worker stream keeps fencing new arrivals until every guard from that fence is
-    /// dropped, so nothing enqueued before the stash lands can reach the
-    /// worker ahead of the fenced groups on the next stream.
+    /// Set on a fenced worker stream send. Hold it until `messages` are requeued:
+    /// the worker stream keeps fencing new arrivals until every guard from that
+    /// fence is dropped, so nothing enqueued before the requeue lands can reach
+    /// the worker ahead of the fenced groups on the next stream.
     pub fence_guard: Option<FenceGuard>,
 }
 
-/// Tells a fencing worker stream that one fenced send's messages are stashed.
+/// Tells a fencing worker stream that one fenced send's messages are requeued.
 pub struct FenceGuard {
     /// One release per fenced send this guard stands for: a split sub-batch
     /// fenced across several chunks merges their guards into one.

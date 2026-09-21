@@ -314,7 +314,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
     test('Rust consumer holds the batch then exits when all Node ingestion API workers stay down', async () => {
         // During a full worker outage the consumer must hold the batch (nothing
-        // dropped, nothing committed) and retry for the configured deferred-flush
+        // dropped, nothing committed) and retry for the configured stall
         // timeout, then exit non-zero so the pod restarts and Kafka redelivers.
         // A short timeout keeps the bounded-exit contract observable quickly.
         const { workers, rustConsumer, rustMetricsPort } = await startRustNodeStack(services, {
@@ -343,7 +343,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
             const exit = await rustConsumer.waitForExit(60_000)
             expect(exit.exitCode).not.toBe(0)
-            expect(exit.output).toContain('deferred messages made no progress within the flush timeout')
+            expect(exit.output).toContain('key-table work made no progress within the stall timeout')
             await waitForTopicMessageCount(KAFKA_EVENTS_JSON, 0)
         } finally {
             await producer.disconnect()

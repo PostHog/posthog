@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka_consumer::Partition;
-use lifecycle::{ComponentOptions, Manager};
 
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -16,8 +15,6 @@ use tokio_util::sync::CancellationToken;
 use ingestion_consumer::batcher::Batcher;
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::scheduler::SchedulerKind;
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig, WorkerState};
 
@@ -184,10 +181,10 @@ async fn test_new_keys_skip_unhealthy_worker() {
     token.cancel();
 }
 
-/// A key pinned to a worker while it was healthy must be re-routed to a
+/// A key served by a worker while it was healthy must be routed to a
 /// healthy worker after the original worker is declared dead.
 #[tokio::test]
-async fn test_pinned_key_rerouted_after_dead_declaration() {
+async fn test_key_rerouted_after_dead_declaration() {
     let w0 = FakeWorker::start().await;
     let w1 = FakeWorker::start().await;
 
@@ -198,46 +195,45 @@ async fn test_pinned_key_rerouted_after_dead_declaration() {
     let token = CancellationToken::new();
     Arc::clone(&registry).start_probing(token.clone());
 
-    // Pin "t:user-1" to whichever worker gets it first. Hold the sub-batch
-    // open (don't call on_sub_batch_resolved) so the pin stays alive.
+    // Route "t:user-1" to whichever worker gets it first. Hold the sub-batch
+    // open (don't settle) so the key stays outstanding.
     let b1 = dispatcher.assign("b", vec![make_msg("t:user-1")]);
     assert_eq!(b1.len(), 1);
-    let pinned_to = b1[0].worker.clone();
-    let other = if pinned_to.as_ref() == w0.url {
+    let first_worker = b1[0].worker.clone();
+    let other = if first_worker.as_ref() == w0.url {
         w1.url.clone()
     } else {
         w0.url.clone()
     };
 
-    // Kill the pinned worker's health endpoint.
-    if pinned_to.as_ref() == w0.url {
+    // Kill the first worker's health endpoint.
+    if first_worker.as_ref() == w0.url {
         w0.set_healthy(false);
     } else {
         w1.set_healthy(false);
     }
 
     // Wait for Unhealthy then dead declaration.
-    wait_for_state(&registry, &pinned_to, WorkerState::Unhealthy).await;
-    wait_for_dead(&registry, &pinned_to).await;
+    wait_for_state(&registry, &first_worker, WorkerState::Unhealthy).await;
+    wait_for_dead(&registry, &first_worker).await;
 
-    // Resolve b1: with max_in_flight=1 the previous batch completes before the
-    // next assigns, so the dead worker has no in-flight and its zero-ref pin is
-    // evicted (an unresolved pin would instead defer to preserve order).
-    dispatcher.on_sub_batch_resolved(
-        &pinned_to,
+    // Settle b1: with max_in_flight=1 the previous batch completes before the
+    // next assigns, so the key is released (an outstanding key would instead
+    // queue to preserve order).
+    dispatcher.settle(
+        &first_worker,
         b1[0].messages.len(),
         &b1[0].routing_keys,
-        false,
-        false,
+        None,
     );
 
-    // Next assign: the evicted pin means the key re-routes to the live worker.
+    // Next assign: the released key re-routes to the live worker.
     let b2 = dispatcher.assign("b", vec![make_msg("t:user-1")]);
     assert_eq!(b2.len(), 1, "expected exactly one sub-batch");
     assert_eq!(
         b2[0].worker.as_ref(),
         other,
-        "user-1 should reroute to the live worker after {pinned_to} is dead"
+        "user-1 should reroute to the live worker after {first_worker} is dead"
     );
 
     token.cancel();
@@ -285,8 +281,8 @@ async fn test_worker_recovery_detected_by_probe() {
 }
 
 /// With 3 workers, one dying mid-flight:
-/// - Keys pinned to the dead worker are evicted and re-routed to the survivors.
-/// - Keys pinned to the two live workers are unaffected.
+/// - Keys on the dead worker re-route to the survivors once released.
+/// - Keys on the two live workers are unaffected.
 /// - No new keys reach the dead worker.
 #[tokio::test]
 async fn test_three_workers_one_dies_and_load_rebalances() {
@@ -318,9 +314,9 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
     );
     let workers_covered: std::collections::HashSet<String> =
         first.iter().map(|b| b.worker.to_string()).collect();
-    assert_eq!(workers_covered.len(), 3, "all 3 workers must receive a pin");
+    assert_eq!(workers_covered.len(), 3, "all 3 workers must receive a key");
 
-    // Remember which routing key was pinned to w1 — we'll re-assign it later
+    // Remember which routing key went to w1 — we'll re-assign it later
     // to verify it migrates to a live worker.
     let w1_key = first
         .iter()
@@ -352,18 +348,17 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
             .collect::<Vec<_>>()
     );
 
-    // Resolve w1's in-flight sub-batch (max_in_flight=1: the prior batch
-    // completes before the next assigns), evicting its now zero-ref pin.
+    // Settle w1's in-flight sub-batch (max_in_flight=1: the prior batch
+    // completes before the next assigns), releasing its key.
     let w1_sub = first.iter().find(|b| b.worker.as_ref() == w1.url).unwrap();
-    dispatcher.on_sub_batch_resolved(
+    dispatcher.settle(
         &w1_sub.worker,
         w1_sub.messages.len(),
         &w1_sub.routing_keys,
-        false,
-        false,
+        None,
     );
 
-    // The key that was pinned to w1 must re-route to w0 or w2 on its next assign.
+    // The key that went to w1 must re-route to w0 or w2 on its next assign.
     let rerouted = dispatcher.assign("b", vec![make_msg(&w1_key)]);
     assert_eq!(
         rerouted.len(),
@@ -373,7 +368,7 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
     assert_ne!(
         rerouted[0].worker.as_ref(),
         w1.url,
-        "key previously pinned to w1 must reroute to a live worker, not w1"
+        "key previously on w1 must reroute to a live worker, not w1"
     );
 
     token.cancel();
@@ -408,95 +403,18 @@ async fn test_all_workers_unhealthy_returns_empty() {
     token.cancel();
 }
 
-/// Graceful drain end-to-end at the dispatcher level: a draining worker keeps
-/// its in-flight pin (new messages defer rather than reroute or pile onto it),
-/// the liveness probe does not evict it while draining, and once its in-flight
-/// resolves it becomes reapable and the deferred key reroutes to a survivor.
-#[tokio::test]
-async fn test_draining_worker_defers_then_flushes_to_survivor() {
-    let w0 = FakeWorker::start().await;
-    let w1 = FakeWorker::start().await;
-
-    let urls = vec![w0.url.clone(), w1.url.clone()];
-    let registry = Arc::new(WorkerRegistry::new(&urls, fast_config()));
-    let dispatcher = Dispatcher::new(Arc::clone(&registry));
-
-    let token = CancellationToken::new();
-    Arc::clone(&registry).start_probing(token.clone());
-
-    // Pin user-1 to whichever worker gets it; hold the sub-batch open.
-    let b1 = dispatcher.assign("batch-1", vec![make_msg("t:user-1")]);
-    let pinned = b1[0].worker.clone();
-    let other = if pinned.as_ref() == w0.url {
-        w1.url.clone()
-    } else {
-        w0.url.clone()
-    };
-
-    // Begin draining (as an EndpointSlice removal would).
-    registry.start_draining(&pinned);
-
-    // New messages for user-1 defer — not sent to the drainer, not yet rerouted.
-    let b2 = dispatcher.assign("batch-2", vec![make_msg("t:user-1")]);
-    assert!(
-        b2.is_empty(),
-        "must defer while the pinned worker is draining"
-    );
-    assert!(dispatcher.has_deferred("batch-2"));
-
-    // The drainer is still alive and healthy — the probe must not evict it while
-    // it finishes in-flight work (its /_ready still returns 200 here).
-    tokio::time::sleep(Duration::from_millis(120)).await;
-    assert!(
-        !registry.is_dead(&pinned),
-        "drainer must not be probed to death"
-    );
-    assert!(
-        registry.reapable_workers().is_empty(),
-        "not reapable while in-flight remains"
-    );
-
-    // Resolve batch-1: the drainer finishes and becomes reapable.
-    dispatcher.on_sub_batch_resolved(
-        &pinned,
-        b1[0].messages.len(),
-        &b1[0].routing_keys,
-        false,
-        false,
-    );
-    assert_eq!(registry.reapable_workers(), vec![pinned.clone()]);
-
-    // Flushing batch-2 reroutes the deferred key onto the surviving worker.
-    let flushed = dispatcher.flush_deferred("batch-2");
-    assert_eq!(flushed.len(), 1);
-    assert_eq!(flushed[0].worker.as_ref(), other);
-    assert!(!dispatcher.has_deferred("batch-2"));
-
-    token.cancel();
-}
-
 #[tokio::test(flavor = "current_thread")]
 async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
     let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
-        registry,
-        RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
-    ));
+    let dispatcher = Arc::new(Dispatcher::new(registry));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("submission-purge-race-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
     let (batcher, mut outputs) = Batcher::new(
         Arc::clone(&dispatcher),
         transport,
-        handle,
         Duration::from_secs(10),
         Duration::from_millis(20),
     );
@@ -519,25 +437,15 @@ async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
 #[tokio::test]
 async fn dropping_an_idle_key_table_batcher_closes_its_outputs() {
     let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
-        registry,
-        RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
-    ));
+    let dispatcher = Arc::new(Dispatcher::new(registry));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("batcher-drop-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
     let (batcher, mut outputs) = Batcher::new(
         dispatcher,
         transport,
-        handle,
         Duration::from_secs(10),
         Duration::from_millis(20),
     );

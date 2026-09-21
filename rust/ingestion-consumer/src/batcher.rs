@@ -3,16 +3,14 @@
 //! The consumer loop submits one [`Accumulator`] per poll, in poll order, and
 //! receives one [`GroupCompletion`] per group back. Everything in between is
 //! an implementation detail of this module: assignment, the scatter over the
-//! worker streams with its send resolution, and the serialized oldest-first
-//! deferred flush. No batch identity crosses the boundary: the batcher
-//! creates an internal batch id per accumulator for the dispatcher and the
-//! wire request, and the consumer correlates completions by partition and
-//! offset.
+//! worker streams with its send resolution, and the parked-retry pump. No
+//! batch identity crosses the boundary: the batcher creates an internal batch
+//! id per accumulator for the dispatcher and the wire request, and the
+//! consumer correlates completions by partition and offset.
 //!
-//! Fatal orchestration failures (a wedged deferred flush, shutdown while
-//! deferred work is unroutable, a batch with no usable workers) are reported
-//! on an error channel; the consumer turns them into a process failure, so
-//! the failure decision stays in the consumer loop.
+//! Fatal orchestration failures (a stalled key table, a batch with no usable
+//! workers) are reported on an error channel; the consumer turns them into a
+//! process failure, so the failure decision stays in the consumer loop.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,7 +18,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Offset, Partition};
-use lifecycle::Handle;
 use metrics::{counter, histogram};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -29,7 +26,6 @@ use tracing::{error, info};
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch, Submission};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::KeyOrderSentinel;
-use crate::scheduler::SchedulerKind;
 use crate::transport::SendError;
 use crate::types::Accumulator;
 use crate::types::SerializedKafkaMessage;
@@ -56,9 +52,8 @@ struct PendingSubBatch {
     /// The accumulator groups this sub-batch carries, kept aside so the
     /// resolved send can be broken back into per-group completions.
     groups: Vec<CompletionGroup>,
-    /// The runs' epoch when the scheduler stamped one; completions then use
-    /// it instead of the awaiting batch's epoch.
-    assignment_epoch: Option<u64>,
+    /// The runs' epoch, stamped on their completions.
+    assignment_epoch: u64,
     pending: PendingWorkerStreamSend,
 }
 
@@ -66,14 +61,6 @@ struct PendingSubBatch {
 struct CompletionGroup {
     partition: Partition,
     offsets: Vec<Offset>,
-}
-
-/// One submitted batch in the flush driver's queue: the driver awaits the
-/// batch's scatter, then flushes its deferred groups, oldest batch first.
-struct FlushTicket {
-    batch_id: String,
-    assignment_epoch: u64,
-    scatter: JoinHandle<()>,
 }
 
 struct BatcherInner {
@@ -124,21 +111,19 @@ fn send_group_completions(
 }
 
 /// Owns the dispatch orchestration: the dispatcher, the scatter tasks, and
-/// the deferred-flush driver. Holds shared handles to the transport; the
+/// the parked-retry pump. Holds shared handles to the transport; the
 /// transport, router, and registry keep their construction and ownership in
 /// `main.rs`.
 pub struct Batcher {
     inner: Arc<BatcherInner>,
-    flush_queue: mpsc::UnboundedSender<FlushTicket>,
-    parked_retry_pump: Option<JoinHandle<()>>,
+    parked_retry_pump: JoinHandle<()>,
 }
 
 impl Batcher {
     pub fn new(
         dispatcher: Arc<Dispatcher>,
         transport: Arc<GrpcTransport>,
-        handle: Handle,
-        deferred_flush_timeout: Duration,
+        stall_timeout: Duration,
         parked_retry_interval: Duration,
     ) -> (Self, BatcherOutputs) {
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
@@ -152,25 +137,14 @@ impl Batcher {
             completions: completions_tx,
             errors: errors_tx,
         });
-        let (flush_queue, flush_rx) = mpsc::unbounded_channel();
-        let parked_retry_pump = (inner.dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
-            .then(|| {
-                tokio::spawn(run_parked_retry_pump(
-                    Arc::clone(&inner),
-                    parked_retry_interval,
-                    deferred_flush_timeout,
-                ))
-            });
-        tokio::spawn(run_flush_driver(
+        let parked_retry_pump = tokio::spawn(run_parked_retry_pump(
             Arc::clone(&inner),
-            flush_rx,
-            handle,
-            deferred_flush_timeout,
+            parked_retry_interval,
+            stall_timeout,
         ));
         (
             Self {
                 inner,
-                flush_queue,
                 parked_retry_pump,
             },
             BatcherOutputs {
@@ -195,19 +169,16 @@ impl Batcher {
     /// order. Returns the assignment epoch stamped on the poll's completions,
     /// so the consumer can correlate them without a second epoch read.
     ///
-    /// Registration and assignment both happen here, synchronously, so both
-    /// happen in true batch order. Registration first, so the stash learns
-    /// batch order before failed-send deferrals (which land in gather order)
-    /// can reach it. Assignment too: on spawned tasks, batch N+1's assign
-    /// could beat batch N's to the pin table and send a key's newer messages
-    /// first — per-key send order must be fixed exactly once, in Kafka order,
-    /// at assignment. Send order is also established here, under the
-    /// dispatcher's lock: `begin_send` is synchronous, so a key's sub-batches
-    /// enter its worker's stream in assignment order.
+    /// Assignment happens here, synchronously, so it happens in true batch
+    /// order: on a spawned task, batch N+1's assign could beat batch N's to
+    /// the key table and send a key's newer messages first — per-key send
+    /// order must be fixed exactly once, in Kafka order, at assignment. Send
+    /// order is also established here, under the dispatcher's lock:
+    /// `begin_send` is synchronous, so a key's sub-batches enter its worker's
+    /// stream in assignment order.
     pub fn submit(&self, accumulator: Accumulator) -> u64 {
         let assignment_epoch = self.inner.assignment_epoch.current();
         let batch_id = make_batch_id();
-        self.inner.dispatcher.register_batch(&batch_id);
         let assign_start = Instant::now();
         let groups = accumulator.into_groups();
         let Submission { pending, retained } = self.inner.dispatcher.assign_and_send(
@@ -222,27 +193,19 @@ impl Batcher {
         histogram!("ingestion_consumer_assign_duration_seconds")
             .record(assign_start.elapsed().as_secs_f64());
 
-        let scatter = tokio::spawn(run_scatter(
+        drop(tokio::spawn(run_scatter(
             Arc::clone(&self.inner),
-            batch_id.clone(),
+            batch_id,
             pending,
             retained,
-            assignment_epoch,
-        ));
-        let _ = self.flush_queue.send(FlushTicket {
-            batch_id,
-            assignment_epoch,
-            scatter,
-        });
+        )));
         assignment_epoch
     }
 }
 
 impl Drop for Batcher {
     fn drop(&mut self) {
-        if let Some(pump) = self.parked_retry_pump.take() {
-            pump.abort();
-        }
+        self.parked_retry_pump.abort();
     }
 }
 
@@ -254,7 +217,6 @@ async fn run_scatter(
     batch_id: String,
     pending: Vec<PendingSubBatch>,
     retained: bool,
-    assignment_epoch: u64,
 ) {
     // Use the submission's synchronous assignment outcome. Mutable scheduler
     // state may have changed by the time this spawned task runs.
@@ -264,7 +226,7 @@ async fn run_scatter(
         return;
     }
     let start = Instant::now();
-    match scatter(&inner, &batch_id, pending, false, assignment_epoch).await {
+    match scatter(&inner, &batch_id, pending).await {
         Ok(_) => {
             histogram!("ingestion_consumer_batch_processing_duration_seconds")
                 .record(start.elapsed().as_secs_f64());
@@ -274,22 +236,14 @@ async fn run_scatter(
     }
 }
 
-/// Await sub-batch sends in parallel and resolve each in the dispatcher.
-/// On a send failure (the worker died mid-send, or its worker stream was fenced),
-/// the failed messages are deferred — before the resolve, so the pin
-/// isn't evicted — to be replayed in order. A successful send emits one
-/// completion per group it carried. Returns the number of messages accepted.
-///
-/// `from_flush` is true when awaiting sub-batches produced by the flush driver:
-/// the resolve then clears one deferral per key, so a key stays deferring from
-/// when it was first held until its flushed messages actually land (preventing
-/// a newer batch from racing them).
+/// Await sub-batch sends in parallel and settle each in the dispatcher. A
+/// successful send emits one completion per group it carried; a failed send
+/// (the worker died mid-send, or its worker stream was fenced) requeues its
+/// messages for the parked retry. Returns the number of messages accepted.
 async fn scatter(
     inner: &Arc<BatcherInner>,
     batch_id: &str,
     pending: Vec<PendingSubBatch>,
-    from_flush: bool,
-    assignment_epoch: u64,
 ) -> anyhow::Result<u32> {
     let mut handles = Vec::with_capacity(pending.len());
     for sub_batch in pending {
@@ -297,8 +251,6 @@ async fn scatter(
             Arc::clone(inner),
             batch_id.to_string(),
             sub_batch,
-            from_flush,
-            assignment_epoch,
         )));
     }
 
@@ -310,15 +262,13 @@ async fn scatter(
 }
 
 /// Await one in-flight send, settle it in one seam call, and spawn an
-/// awaiter for every follow-up send the settlement dispatched (the key
-/// table releases a key's next run at settlement). Every begin_send gets
-/// exactly one awaiter, so every dispatch settles exactly once.
+/// awaiter for every follow-up send the settlement dispatched (a delivered
+/// settlement releases the key's next run). Every begin_send gets exactly
+/// one awaiter, so every dispatch settles exactly once.
 async fn await_settled(
     inner: Arc<BatcherInner>,
     batch_id: String,
     sub_batch: PendingSubBatch,
-    from_flush: bool,
-    batch_epoch: u64,
 ) -> u32 {
     let PendingSubBatch {
         worker,
@@ -326,7 +276,7 @@ async fn await_settled(
         key_offsets,
         message_count,
         groups,
-        assignment_epoch: run_epoch,
+        assignment_epoch,
         pending,
     } = sub_batch;
 
@@ -340,22 +290,10 @@ async fn await_settled(
             // Advance ACK high-water marks before the settle, which
             // may evict the keys' sentinel state.
             inner.dispatcher.on_sub_batch_acked(&key_offsets);
-            let followups = settle_and_send(
-                &inner,
-                &worker,
-                message_count,
-                &routing_keys,
-                from_flush,
-                None,
-            );
+            let followups = settle_and_send(&inner, &worker, message_count, &routing_keys, None);
             inner.dispatcher.record_send_outcome(&worker, false);
-            send_group_completions(
-                &inner.completions,
-                groups,
-                run_epoch.unwrap_or(batch_epoch),
-                accepted,
-            );
-            spawn_followups(&inner, followups, batch_epoch);
+            send_group_completions(&inner.completions, groups, assignment_epoch, accepted);
+            spawn_followups(&inner, followups);
             accepted
         }
         Err(send_err) => {
@@ -376,13 +314,12 @@ async fn await_settled(
                 &worker,
                 message_count,
                 &routing_keys,
-                from_flush,
                 Some((batch_id, messages)),
             );
-            // Stashed: let the worker stream stop fencing new arrivals.
+            // Requeued: let the worker stream stop fencing new arrivals.
             drop(fence_guard);
             inner.dispatcher.record_send_outcome(&worker, is_fault);
-            spawn_followups(&inner, followups, batch_epoch);
+            spawn_followups(&inner, followups);
             0
         }
     }
@@ -396,7 +333,6 @@ fn settle_and_send(
     worker: &WorkerId,
     message_count: usize,
     routing_keys: &[String],
-    from_flush: bool,
     failed: Option<(String, Vec<SerializedKafkaMessage>)>,
 ) -> (String, Vec<PendingSubBatch>) {
     let settle_id = make_batch_id();
@@ -404,37 +340,32 @@ fn settle_and_send(
         worker,
         message_count,
         routing_keys,
-        from_flush,
         failed,
         |sub_batch| begin_send(&inner.transport, &settle_id, sub_batch, false),
     );
     (settle_id, followups)
 }
 
-/// Spawn one detached awaiter per follow-up send. Follow-ups are never
-/// flush sends, and their completions are stamped from their run's epoch.
+/// Spawn one detached awaiter per follow-up send.
 fn spawn_followups(
     inner: &Arc<BatcherInner>,
     (settle_id, followups): (String, Vec<PendingSubBatch>),
-    batch_epoch: u64,
 ) {
     for sub_batch in followups {
         drop(tokio::spawn(await_settled(
             Arc::clone(inner),
             settle_id.clone(),
             sub_batch,
-            false,
-            batch_epoch,
         )));
     }
 }
 
 /// The key table's retry driver: fire the parked-retry deadline on an
 /// interval. Parked keys are the ones no settlement can release, so the
-/// pump is their only retry path. Its stall watchdog matches the flush
-/// driver's: acceptance resets the deadline, and pending work with zero
-/// acceptance for a full window fails the process, so a wedged key table
-/// restarts loudly instead of growing lag silently.
+/// pump is their only retry path. Its stall watchdog: acceptance resets the
+/// deadline, and pending work with zero acceptance for a full window fails
+/// the process, so a wedged key table restarts loudly instead of growing lag
+/// silently.
 async fn run_parked_retry_pump(
     inner: Arc<BatcherInner>,
     interval: Duration,
@@ -455,7 +386,7 @@ async fn run_parked_retry_pump(
         // deadline, while failure leaves queued work with nothing outstanding
         // and trips the watchdog on the next tick.
         let accepted = inner.accepted_messages.load(Ordering::Relaxed);
-        let (queued, outstanding) = inner.dispatcher.key_work().unwrap_or((0, 0));
+        let (queued, outstanding) = inner.dispatcher.key_work();
         let now = Instant::now();
         if accepted != seen_accepted || (queued == 0 && outstanding == 0) {
             seen_accepted = accepted;
@@ -471,103 +402,18 @@ async fn run_parked_retry_pump(
         }
 
         // A retried send may replay a failed run, so it goes on the wire
-        // with the replay flag, like a deferred flush.
+        // with the replay flag.
         let settle_id = make_batch_id();
         let pending = inner.dispatcher.parked_retry_and_send(|sub_batch| {
             begin_send(&inner.transport, &settle_id, sub_batch, true)
         });
-        let epoch = inner.assignment_epoch.current();
         for sub_batch in pending {
             drop(tokio::spawn(await_settled(
                 Arc::clone(&inner),
                 settle_id.clone(),
                 sub_batch,
-                false,
-                epoch,
             )));
         }
-    }
-}
-
-/// Flush each batch's deferred groups (keys whose worker was draining/dead)
-/// in submit order, re-routing them to healthy workers. Serialized, oldest
-/// batch first, after that batch's own scatter has resolved, which preserves
-/// per-key order across batches. Retries with backoff while a flush can't
-/// route (no healthy worker yet).
-///
-/// The stall deadline bounds **stalls, not total time**: it resets whenever
-/// any of the batch's messages are accepted, so a large backlog draining
-/// slowly under saturation keeps going, and the batcher only reports failure
-/// — exiting the process and replaying — when flushing is truly wedged:
-/// nothing landed for a full timeout (nothing routable, or a flapping worker
-/// re-deferring every send). Failing the whole process for a mere slow drain
-/// amplified today's saturation: each restart replayed all its partitions
-/// into an already overloaded pool.
-async fn run_flush_driver(
-    inner: Arc<BatcherInner>,
-    mut tickets: mpsc::UnboundedReceiver<FlushTicket>,
-    handle: Handle,
-    deferred_flush_timeout: Duration,
-) {
-    while let Some(ticket) = tickets.recv().await {
-        if let Err(err) = ticket.scatter.await {
-            inner.report_error(format!("batch processing task failed: {err:#}"));
-            return;
-        }
-        if inner.dispatcher.has_unfinished_flush(&ticket.batch_id) {
-            let mut stall_deadline = Instant::now() + deferred_flush_timeout;
-            while inner.dispatcher.has_unfinished_flush(&ticket.batch_id) {
-                if Instant::now() >= stall_deadline {
-                    inner.report_error(
-                        "deferred messages made no progress within the flush timeout".to_string(),
-                    );
-                    return;
-                }
-                // Serialized on this driver, oldest batch first, so
-                // begin_send order preserves the flush's key order.
-                let pending = inner
-                    .dispatcher
-                    .flush_deferred_and_send(&ticket.batch_id, |sub_batch| {
-                        begin_send(&inner.transport, &ticket.batch_id, sub_batch, true)
-                    });
-                if pending.is_empty() {
-                    // Nothing is routable right now (no healthy worker), so wait.
-                    tokio::select! {
-                        _ = handle.shutdown_recv() => {
-                            inner.report_error(
-                                "shutdown while flushing deferred messages".to_string(),
-                            );
-                            return;
-                        }
-                        _ = tokio::time::sleep(Duration::from_millis(200)) => {
-                            handle.report_healthy();
-                        }
-                    }
-                } else {
-                    match scatter(
-                        &inner,
-                        &ticket.batch_id,
-                        pending,
-                        true,
-                        ticket.assignment_epoch,
-                    )
-                    .await
-                    {
-                        Ok(accepted) if accepted > 0 => {
-                            stall_deadline = Instant::now() + deferred_flush_timeout;
-                        }
-                        Ok(_) => {}
-                        Err(err) => {
-                            inner.report_error(format!(
-                                "awaiting flushed sub-batches failed: {err:#}"
-                            ));
-                            return;
-                        }
-                    }
-                }
-            }
-        }
-        inner.dispatcher.release_batch(&ticket.batch_id);
     }
 }
 
@@ -603,7 +449,7 @@ fn begin_send(
 
 /// Reconstruct the accumulator's groups from a sub-batch's messages: one
 /// group per partition and key, a keyless message on its own. The dispatcher
-/// may merge one key's groups from two partitions into one sub-batch (the pin
+/// may merge one key's groups from two partitions into one sub-batch (the key
 /// table is partition-blind); a completion names one partition, so the merge
 /// splits back here.
 fn completion_groups(messages: &[SerializedKafkaMessage]) -> Vec<CompletionGroup> {

@@ -1,8 +1,8 @@
 # ingestion-consumer
 
-Rust Kafka consumer that routes analytics events to Node.js ingestion workers over ordered gRPC streams with sticky per-key assignment.
-It reads batches from Kafka, groups messages by Kafka message key, pins each key to a worker (preserving per-key ordering; unkeyed messages can go to any worker), sends each worker's sub-batches on its `WorkerIngest` stream, and commits offsets only after every message in the batch is accepted.
-Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully — in-flight work finishes, new work for their keys defers and re-routes to survivors in order.
+Rust Kafka consumer that routes analytics events to Node.js ingestion workers over ordered gRPC streams, with at most one request in flight per key.
+It reads batches from Kafka, groups messages by Kafka message key, queues each key in the scheduler's key table (a key's next run goes out only when its previous request has settled, which preserves per-key ordering; unkeyed messages can go to any worker), sends each worker's sub-batches on its `WorkerIngest` stream, and commits offsets only after every message in the batch is accepted.
+Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully — in-flight work finishes, and a key's later runs route to survivors in order.
 
 ## Ordering sentinels
 
@@ -25,7 +25,7 @@ The rebalance metrics from the consumer context stay on regardless, and the `con
 The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every sub-batch.
 It measures the invariant at its end point: the worker's grouping stage processes each key strictly in feed order, so "fed in offset order per key" is "processed in order per key".
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
-Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually rather than pinning it, so there is no invariant to check on either side.
+Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually under a synthetic key, so there is no invariant to check on either side.
 
 ## Offset ledger
 
@@ -48,9 +48,9 @@ Set `DEBUG_API_ENABLED=true` **and** `DEBUG_API_SECRET` to mount a real-time deb
 Every request must present the secret as `X-Debug-Api-Secret`; enabling without a secret fails closed (nothing is mounted).
 The secret is dedicated to this control-plane→consumer hop — deliberately not `INTERNAL_API_SECRET` (see `.agents/security.md`).
 The ingestion control plane UI consumes these endpoints to render the consumer's live state.
-`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events — batch dispatch/assignment/commit, deferrals and flushes, worker health and membership — recorded at the same points that emit metrics, and it never influences routing.
+`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events — batch dispatch/assignment/commit, deferrals and retries, worker health and membership — recorded at the same points that emit metrics, and it never influences routing.
 
-- `/debug/load` — cheap JSON snapshot (worker health + dispatcher in-flight/pins/stash), safe to poll fast.
+- `/debug/load` — cheap JSON snapshot (worker health + dispatcher in-flight and key-table depth), safe to poll fast.
 - `/debug/state` — the same plus the retained event backlog.
 - `/debug/events` — SSE stream: backlog replay, then live events (concurrent subscribers capped at 8; 429 beyond).
 
@@ -83,7 +83,7 @@ Non-UTF-8 payloads — currently nulled in `collect_batch` with no metric — sh
 
 ### 4. Revoke-aware partition handoff
 
-Sticky pins and the deferral stash are per-process.
+The key table is per-process.
 During a consumer-group rebalance another instance can start a partition from the last commit while this instance still has uncommitted in-flight work — duplicates and possible cross-pod interleaving per key (`second_consumer_joining_the_group_preserves_all_messages` asserts no loss only, deliberately).
 Fix: on partition revoke (cooperative-sticky callback, via the same `ConsumerContext` as item 2), finish and commit in-flight batches for the revoked partitions before acknowledging the revoke.
 

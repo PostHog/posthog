@@ -4,8 +4,8 @@
 //! When `DEBUG_API_ENABLED` is set, an `Arc<DebugRecorder>` is injected into
 //! the dispatcher, consumer, transport, and worker registry. Each records a
 //! structured [`DebugEvent`] at the same points it already emits metrics —
-//! batch assignment, sub-batch resolution, deferral/flush, retries, worker
-//! health transitions. The recorder keeps a bounded rolling window of recent
+//! batch assignment, sub-batch resolution, deferral, retries, worker health
+//! transitions. The recorder keeps a bounded rolling window of recent
 //! events (for a client connecting mid-stream to see history) and broadcasts
 //! every new event to live subscribers (the SSE feed at `/debug/events`).
 //!
@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
-/// One worker's slice of an assigned (or flushed) batch.
+/// One worker's slice of an assigned batch.
 #[derive(Clone, Serialize)]
 pub struct SubBatchInfo {
     pub worker: String,
@@ -67,19 +67,13 @@ pub enum DebugEventKind {
         worker: String,
         messages: usize,
         routing_keys: usize,
-        cleared_deferral: bool,
     },
-    /// Messages were stashed rather than sent
-    /// (`reason`: drain/queued_behind_deferral/unroutable/send_failed).
+    /// Messages were queued rather than sent
+    /// (`reason`: queued_behind_deferral/unroutable/send_failed).
     Deferred {
         batch_id: String,
         reason: &'static str,
         groups: u64,
-    },
-    /// Previously-deferred groups were re-routed to healthy workers.
-    DeferredFlushed {
-        batch_id: String,
-        sub_batches: Vec<SubBatchInfo>,
     },
     /// A batch's offsets were committed to Kafka.
     BatchCommitted {
@@ -140,14 +134,15 @@ pub struct LoadEntry {
     pub in_flight: usize,
 }
 
-/// The dispatcher's current load/pin/stash accounting.
+/// The dispatcher's current load and key-table accounting.
 #[derive(Serialize)]
 pub struct DispatcherLoad {
     pub per_worker: Vec<LoadEntry>,
     pub total_in_flight: usize,
-    pub pin_count: usize,
-    pub stashed_messages: usize,
-    pub stashed_batches: usize,
+    pub queued_messages: usize,
+    pub queued_bytes: usize,
+    pub outstanding_keys: usize,
+    pub parked_keys: usize,
 }
 
 /// The dispatcher's routing configuration and, under aperture, its current
@@ -161,7 +156,7 @@ pub struct RoutingDebug {
     pub min_aperture: Option<usize>,
     /// The canonical sorted worker ring shared by all peers.
     pub ring: Vec<String>,
-    /// This dispatcher's current slice candidates for unpinned keys; `None`
+    /// This dispatcher's current slice candidates for fresh keys; `None`
     /// when routing uses the full healthy pool (non-aperture strategy, or
     /// aperture falling back while the peer set is unknown).
     pub slice: Option<Vec<String>>,
