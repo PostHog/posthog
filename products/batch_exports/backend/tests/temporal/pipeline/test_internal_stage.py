@@ -842,6 +842,7 @@ async def test_insert_into_stage_activity_for_persons_model_with_out_of_order_pe
     latest_version_timestamp = data_interval_start + dt.timedelta(seconds=10)
     stale_version_timestamp = data_interval_start + dt.timedelta(seconds=20)
 
+    # one insert per row, so ReplacingMergeTree cannot collapse them into the highest version
     for version, timestamp in ((2, latest_version_timestamp), (1, stale_version_timestamp)):
         await insert_person_values_in_clickhouse(
             client=clickhouse_client,
