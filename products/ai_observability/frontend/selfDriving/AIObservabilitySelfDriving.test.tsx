@@ -6,8 +6,6 @@ import { Provider } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -97,10 +95,6 @@ describe('AIObservabilitySelfDriving', () => {
             },
         } as AppContext
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI], {
-            [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]: true,
-        })
         jest.mocked(newInternalTab).mockReset()
         jest.mocked(aiObservabilityApi.evaluationDirectoriesList).mockResolvedValue([])
         jest.mocked(aiObservabilityApi.evaluationsList).mockResolvedValue({
@@ -262,7 +256,7 @@ describe('AIObservabilitySelfDriving', () => {
             </Provider>
         )
 
-        expect(screen.getAllByText('Use template')).toHaveLength(3)
+        expect(screen.getAllByText('Use template')).toHaveLength(4)
 
         // Counting the labels alone passes even when every button is disabled, which is what
         // happens if the scene stops granting scout-creation access. Prove one actually opens.

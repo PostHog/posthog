@@ -348,6 +348,7 @@ mod tests {
             team_id: team.id,
             key: "group_flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "name".to_string(),
@@ -434,6 +435,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
@@ -522,6 +524,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![
                         mock!(PropertyFilter,
@@ -758,6 +761,7 @@ mod tests {
             team_id: team.id,
             key: "leaf_flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -802,18 +806,22 @@ mod tests {
                             name: None,
                             key: "control".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: None,
                             key: "test".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: None,
                             key: "other".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -1208,6 +1216,7 @@ mod tests {
             team_id: team.id,
             key: "leaf_flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -1246,13 +1255,16 @@ mod tests {
                             name: None,
                             key: "control".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: None,
                             key: "test".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -2355,18 +2367,22 @@ mod tests {
                             name: Some("Control".to_string()),
                             key: "control".to_string(),
                             rollout_percentage: 33.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test".to_string()),
                             key: "test".to_string(),
                             rollout_percentage: 33.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test2".to_string()),
                             key: "test2".to_string(),
                             rollout_percentage: 34.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: Some(1),
                 ..Default::default()
@@ -2615,16 +2631,19 @@ mod tests {
                 name: Some("Control".to_string()),
                 key: "control".to_string(),
                 rollout_percentage: 10.0,
+                ..Default::default()
             },
             MultivariateFlagVariant {
                 name: Some("Test".to_string()),
                 key: "test".to_string(),
                 rollout_percentage: 30.0,
+                ..Default::default()
             },
             MultivariateFlagVariant {
                 name: Some("Test2".to_string()),
                 key: "test2".to_string(),
                 rollout_percentage: 60.0,
+                ..Default::default()
             },
         ];
 
@@ -2801,6 +2820,7 @@ mod tests {
             name: "Complex Flag".mock_into(),
             key: "complex_flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -3050,6 +3070,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -3162,6 +3183,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -3259,6 +3281,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -3356,6 +3379,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -3474,6 +3498,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -3571,6 +3596,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -3668,6 +3694,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -3728,6 +3755,7 @@ mod tests {
             team_id: team_id,
             key: "freeze-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![group],
                 multivariate: Some(multivariate),
                 aggregation_group_type_index: None,
@@ -3813,13 +3841,16 @@ mod tests {
                     name: Some("Control".to_string()),
                     key: "control".to_string(),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     name: Some("Test".to_string()),
                     key: "test".to_string(),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         // Open flag: one catch-all group at 100%, everyone matches.
@@ -3913,6 +3944,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -3997,6 +4029,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -4096,6 +4129,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -4225,6 +4259,7 @@ mod tests {
         mock!(FeatureFlag,
             team_id: team_id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -4744,6 +4779,7 @@ mod tests {
             team_id: team.id,
             key: "flag_continuity".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
@@ -4850,6 +4886,7 @@ mod tests {
             team_id: team.id,
             key: "flag_continuity_missing".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
@@ -4939,6 +4976,7 @@ mod tests {
             team_id: team.id,
             key: "flag_continuity_mix".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
@@ -4973,6 +5011,7 @@ mod tests {
             team_id: team.id,
             key: "flag_no_continuity_mix".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "age".to_string(),
@@ -5079,6 +5118,7 @@ mod tests {
             team_id: team.id,
             key: "test_flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
@@ -5100,18 +5140,22 @@ mod tests {
                             name: Some("Control".to_string()),
                             key: "control".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test".to_string()),
                             key: "test".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test2".to_string()),
                             key: "test2".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -5152,6 +5196,7 @@ mod tests {
             team_id: team.id,
             key: "test_flag_invalid".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
@@ -5173,13 +5218,16 @@ mod tests {
                             name: Some("Control".to_string()),
                             key: "control".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test".to_string()),
                             key: "test".to_string(),
                             rollout_percentage: 75.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -5243,18 +5291,22 @@ mod tests {
                     key: "first-variant".to_string(),
                     name: Some("First Variant".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "second-variant".to_string(),
                     name: Some("Second Variant".to_string()),
                     rollout_percentage: 25.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "third-variant".to_string(),
                     name: Some("Third Variant".to_string()),
                     rollout_percentage: 25.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         let flag_with_holdout = mock!(FeatureFlag,
@@ -5262,6 +5314,7 @@ mod tests {
             name: "Flag with holdout".mock_into(),
             key: "flag-with-gt-filter".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
@@ -5280,6 +5333,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 70.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
@@ -5297,6 +5351,7 @@ mod tests {
             name: "Other flag with holdout".mock_into(),
             key: "other-flag-with-gt-filter".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
@@ -5315,6 +5370,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 70.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
@@ -5332,6 +5388,7 @@ mod tests {
             name: "Flag".mock_into(),
             key: "other-flag-without-holdout-with-gt-filter".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
@@ -5350,6 +5407,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 0.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json),
                 aggregation_group_type_index: None,
@@ -5481,18 +5539,22 @@ mod tests {
                     key: "first-variant".to_string(),
                     name: Some("First Variant".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "second-variant".to_string(),
                     name: Some("Second Variant".to_string()),
                     rollout_percentage: 25.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "third-variant".to_string(),
                     name: Some("Third Variant".to_string()),
                     rollout_percentage: 25.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         // holdout field with id and exclusion_percentage
@@ -5501,6 +5563,7 @@ mod tests {
             name: "Flag with new holdout".mock_into(),
             key: "flag-with-gt-filter".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
@@ -5520,6 +5583,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 70.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
@@ -5606,13 +5670,16 @@ mod tests {
                     key: "first-variant".to_string(),
                     name: Some("First Variant".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "second-variant".to_string(),
                     name: Some("Second Variant".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         // Both formats present — new `holdout` should take precedence.
@@ -5622,6 +5689,7 @@ mod tests {
             team_id: team.id,
             key: "flag-both-formats".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
@@ -5640,6 +5708,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 42,
                     exclusion_percentage: 70.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json),
                 aggregation_group_type_index: None,
@@ -5696,6 +5765,7 @@ mod tests {
             team_id: team.id,
             key: "flag-zero-holdout".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
@@ -5715,6 +5785,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 0.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -5722,13 +5793,16 @@ mod tests {
                             key: "control".to_string(),
                             name: None,
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: None,
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -5799,6 +5873,7 @@ mod tests {
             team_id: team.id,
             key: "flag-full-holdout".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
@@ -5818,6 +5893,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 100.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -5825,13 +5901,16 @@ mod tests {
                             key: "control".to_string(),
                             name: None,
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: None,
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -5885,6 +5964,7 @@ mod tests {
             key: "beta-feature".to_string(),
             has_experiment: false,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: None,
@@ -5897,18 +5977,22 @@ mod tests {
                             name: Some("First Variant".to_string()),
                             key: "first-variant".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Second Variant".to_string()),
                             key: "second-variant".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Third Variant".to_string()),
                             key: "third-variant".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -6044,6 +6128,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -6108,6 +6193,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
@@ -6181,6 +6267,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
@@ -6630,6 +6717,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 1: Requires app_version, focus, os
                     FlagPropertyGroup {
@@ -6892,6 +6980,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 1: Requires plan, region, feature_access (group properties)
                     FlagPropertyGroup {
@@ -7205,6 +7294,7 @@ mod tests {
             key: "test_order_flag".to_string(),
             has_experiment: false,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     FlagPropertyGroup {
                         variant: None, // No variant override
@@ -7234,13 +7324,16 @@ mod tests {
                             key: "control".to_string(),
                             name: Some("Control".to_string()),
                             rollout_percentage: 100.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: Some("Test".to_string()),
                             rollout_percentage: 0.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -8193,6 +8286,7 @@ mod tests {
             team_id: team.id,
             key: "opt_multivariate".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(100.0),
@@ -8205,13 +8299,16 @@ mod tests {
                             key: "control".to_string(),
                             name: Some("Control".to_string()),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: Some("Test".to_string()),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -8301,6 +8398,7 @@ mod tests {
             team_id: team.id,
             key: "opt_multivariate_100".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(100.0),
@@ -8313,13 +8411,16 @@ mod tests {
                             key: "control".to_string(),
                             name: Some("Control".to_string()),
                             rollout_percentage: 100.0, // 100% variant
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: Some("Test".to_string()),
                             rollout_percentage: 0.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -8474,6 +8575,7 @@ mod tests {
             team_id: team.id,
             key: "flag_optimizable".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(100.0),
@@ -8499,6 +8601,7 @@ mod tests {
             team_id: team.id,
             key: "flag_needs_lookup".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(50.0),
@@ -8524,6 +8627,7 @@ mod tests {
             team_id: team.id,
             key: "flag_no_continuity".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(100.0),
@@ -8640,6 +8744,7 @@ mod tests {
             team_id: team.id,
             key: "flag_optimizable".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(100.0),
@@ -8665,6 +8770,7 @@ mod tests {
             team_id: team.id,
             key: "flag_needs_lookup".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(50.0),
@@ -8872,6 +8978,7 @@ mod tests {
             name: "Feature Enrollment Flag".mock_into(),
             key: "my-feature".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(0.0),
@@ -8936,6 +9043,7 @@ mod tests {
             name: "Feature Enrollment Flag".mock_into(),
             key: "my-feature".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(0.0),
@@ -8997,6 +9105,7 @@ mod tests {
         let project_flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "name".to_string(),
@@ -9030,6 +9139,7 @@ mod tests {
             team_id: team.id,
             name: "org_flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "tier".to_string(),
@@ -9335,6 +9445,7 @@ mod tests {
         let flag = mock!(FeatureFlag,
             team_id: team.id,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
@@ -9429,6 +9540,7 @@ mod tests {
             team_id: team.id,
             key: "mixed-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
@@ -9507,6 +9619,7 @@ mod tests {
             team_id: team.id,
             key: "person-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
@@ -9575,6 +9688,7 @@ mod tests {
             team_id: team.id,
             key: "mixed-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: group-aggregated (organization)
                     FlagPropertyGroup {
@@ -9760,6 +9874,7 @@ mod tests {
             team_id: team.id,
             key: "mixed-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups,
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -9819,6 +9934,7 @@ mod tests {
             team_id: team.id,
             key: "mixed-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: group-aggregated
                     FlagPropertyGroup {
@@ -9923,6 +10039,7 @@ mod tests {
             team_id: team.id,
             key: "legacy-group-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
@@ -10003,6 +10120,7 @@ mod tests {
             team_id: team.id,
             key: "override-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
@@ -10081,6 +10199,7 @@ mod tests {
             team_id: team.id,
             key: "variant-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: group-aggregated — won't match (group not provided)
                     FlagPropertyGroup {
@@ -10114,13 +10233,16 @@ mod tests {
                             key: "control".to_string(),
                             name: Some("Control".to_string()),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: Some("Test".to_string()),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -10183,6 +10305,7 @@ mod tests {
             team_id: team.id,
             key: "no-match-flag".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: group-aggregated — no group provided
                     FlagPropertyGroup {
@@ -10275,6 +10398,7 @@ mod tests {
             team_id: team.id,
             key: "rollout-mixed".mock_into(),
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: group-aggregated, 100% rollout, no properties
                     FlagPropertyGroup {
@@ -10665,6 +10789,7 @@ mod tests {
             key: "early-exit-test-flag".mock_into(),
             active: true,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -10750,6 +10875,7 @@ mod tests {
             key: "no-early-exit-test-flag".mock_into(),
             active: true,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -10834,6 +10960,7 @@ mod tests {
             key: "early-exit-non-first".mock_into(),
             active: true,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: property does not match — NoConditionMatch, no early exit
                     FlagPropertyGroup {
@@ -10940,6 +11067,7 @@ mod tests {
             key: "early-exit-no-condition-match".mock_into(),
             active: true,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: property does not match — NoConditionMatch, must not early exit
                     FlagPropertyGroup {
@@ -11027,6 +11155,7 @@ mod tests {
             key: "early-exit-multivariate".mock_into(),
             active: true,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -11058,13 +11187,16 @@ mod tests {
                             name: Some("Control".to_string()),
                             key: "control".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test".to_string()),
                             key: "test".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -11125,6 +11257,7 @@ mod tests {
             key: "early-exit-group".mock_into(),
             active: true,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -11255,6 +11388,7 @@ mod tests {
             key: "early-exit-cohort-no-match".mock_into(),
             active: true,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: NOT in cohort → NoConditionMatch, must NOT trigger early_exit
                     FlagPropertyGroup {
@@ -11337,6 +11471,7 @@ mod tests {
             key: flag_key.mock_into(),
             active: true,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: would trigger early exit if the enrollment check didn't win first
                     FlagPropertyGroup {
@@ -11423,6 +11558,7 @@ mod tests {
             key: "early-exit-holdout".mock_into(),
             active: true,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![
                     // Condition 0: would trigger early exit if holdout didn't win first
                     FlagPropertyGroup {
@@ -11449,6 +11585,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 42,
                     exclusion_percentage: 100.0,
+                    ..Default::default()
                 }),
                 early_exit: Some(true),
                 extra: Default::default(),

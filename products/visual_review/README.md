@@ -29,7 +29,7 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 
 ### Retention
 
-A daily Celery task, `sweep visual review retention`, deletes data that can no longer be used.
+Two daily Celery tasks delete data that can no longer be used: `sweep visual review runs`, and an hour later `sweep visual review artifacts`.
 The windows and the reasons behind them are constants in `backend/logic/retention.py`.
 
 - Superseded runs on PR branches go after 30 days, on the default branch after 180 days.
@@ -39,20 +39,24 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
   An artifact goes when no snapshot of the repo points at it or names its hash, no artifact uses it as a thumbnail, and it is over 7 days old.
 - Rows go before objects, and run registration and the delete share a per-repo lock, so a run is never told an artifact exists that the sweep then removes.
   An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
+- A story-to-file map goes when the sweep deletes the last run that names it.
 - Each invocation is capped by rows and by a time budget, so a backlog drains over days.
+  The budget stays below the time a deploy gives a busy worker to finish, so a deploy cannot kill a sweep.
+  Artifacts have their own task and budget, so a backlog of runs cannot use up the time the artifact sweep needs.
 
 ### Weekly debt digest
 
 Every Monday morning a Celery task, `send visual review debt digests`, posts each team a Slack reminder about the visual review debt it still carries.
 The digest is stateless: every Monday both conditions below are evaluated from current data, and nothing is stored about what was sent.
 An item repeats every week while it stands, and stops the week the condition no longer holds.
-The same task runs twice a day, and only the Monday morning run posts.
-The other runs read the Storybook story index into the cache, because the build artifact it comes from is short lived and the Monday run would otherwise have nothing to attribute against.
 
 Each message is Block Kit.
-The lead names the team, the week, and the two counts, with buttons to the repository's flakiness overview and its snapshots.
+The lead names the team and the week, and counts each condition that has items, with buttons to the repository's flakiness overview and its snapshots.
 Under it, one thread reply per condition that has items: a line saying what to do about that condition, then one section per item with the single action that resolves it on a button beside it.
-The last reply says when the next digest comes and how to opt out.
+Theme variants of one story list as one entry when the reader would see the same facts for each.
+A merged expiring quarantine links to the flakiness page searched to that story, and a merged unowned file keeps its file button.
+Pile-ups never merge, because a baseline resets one snapshot at a time.
+The last reply says when the next digest comes.
 A team that owns nothing gets no message at all.
 
 Two conditions, and nothing else:
@@ -72,12 +76,13 @@ A baseline change invalidates the tolerations recorded against the old baseline:
 That is not evidence the story recovered.
 Reminders about retained exceptions repeat until they are removed or no longer apply.
 
-Attribution runs through the Storybook build behind the current baseline, and then through `owners.yaml`.
-The build uploads its story index as a GitHub Actions artifact, so the digest reads the artifact of the workflow run recorded on that baseline run (`metadata["github_run_id"]`), and the index names the file each story lives in.
+Attribution runs through the story index of the newest default-branch Storybook run, and then through `owners.yaml`.
+`vr run upload --storybook-index <index.json> --storybook-root <dir>` turns the build's `index.json` into a story-to-file map, and each default-branch run records the map's SHA-256 in `metadata["story_index_hash"]`.
+The map is stored once per distinct content, under `visual_review/<repo_id>/story-index/<hash>.json`, and uploaded only when the store does not hold that hash yet.
+A reader accepts the stored bytes only when they hash to their name.
 A snapshot identifier is a story id plus the theme, the browser when it is not chromium, and the viewport width for a story that snapshots several.
 The full story id is looked up first and the width suffix is only stripped when that misses, because a story can be named after a width.
-The parsed index is cached per repository and workflow run for eight days, and the key rotates on its own whenever the baseline moves.
-The cache has to outlive a week, because the run that reads the artifact and the run that posts are usually days apart.
+The parsed map is cached by its hash, so a cached copy is never stale.
 Nothing is guessed from the identifier: a story name is not a path.
 Only Storybook runs are attributed today.
 
@@ -85,7 +90,7 @@ Three outcomes have no owning team, and the digest keeps them apart:
 
 - **Nobody owns the file.** The story maps to a file, and no owners entry covers it. Add one for the path, which the message carries.
 - **The story is not in the index.** It moved, was renamed, was deleted, or it only exists on a branch.
-- **Ownership could not be worked out.** The artifact was missing or expired, the download failed, the team has no GitHub integration, or the run type is not supported yet.
+- **Ownership could not be worked out.** The newest default-branch run recorded no story index, the stored map could not be read, or the run type is not supported yet.
 
 All three go to whoever owns `products/visual_review/`, in a message of their own rather than inside the digest those maintainers get for what they own.
 Holding an item until a team takes it is not owning it, and the wording says so.
@@ -93,8 +98,6 @@ The message goes out only when at least one item asks somebody to act.
 The first two outcomes are listed, each with a button to the file or the snapshot.
 The third is only counted in the footer, because it asks the reader for nothing; the reasons go to the log instead.
 When nobody owns `products/visual_review/` either, the items are logged and dropped rather than posted somewhere arbitrary.
-The artifact is kept for one day, so the digest reads it on the day the baseline moves and serves the Monday post from the cache.
-A baseline whose artifact expired before any run read it reads as ownership could not be worked out, and the digest says so instead of guessing.
 
 Routing goes to the team's `notifications` channel in the repository's root `owners.yaml` registry, under the `visual_review` producer.
 A team opts out with `notifications: {visual_review: false}` under its entry.
@@ -102,7 +105,7 @@ A shared Slack channel is refused, so a name match never carries an internal rem
 
 The digest is off for a repository until `debt_digest_enabled` is set on it.
 Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
-The beat task runs twice a day and fans out only to the repositories that are on.
+The beat task runs on Monday morning and fans out only to the repositories that are on.
 A repository that owes nothing posts nothing.
 
 `./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand on any day, whatever `debt_digest_enabled` says, because a run somebody starts is already a decision to send it.
@@ -163,6 +166,7 @@ Setup job: `vr run create --type storybook`
 Each shard: `vr run upload --run-id <id> --dir ./screenshots`
   - hash PNGs, POST /runs/{id}/add-snapshots
   - upload missing artifacts to S3
+  - with --storybook-index: send the story-to-file map's hash, upload the map if missing
   (shards run in parallel, idempotent per identifier)
        │
        ▼
@@ -191,7 +195,7 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 **`vr run create`** — creates an empty pending run, outputs the run ID to stdout. Call once before shards. Default `--purpose review`; pass `--purpose observe` on master to make the run tracking-only (non-approvable, no PR comment).
 
-**`vr run upload`** — per-shard: hashes PNGs in a directory, sends identifiers + hashes via `add-snapshots`, uploads missing artifacts.
+**`vr run upload`** — per-shard: hashes PNGs in a directory, sends identifiers + hashes via `add-snapshots`, uploads missing artifacts. Pass `--storybook-index <index.json> --storybook-root <dir>` to send the Storybook build's story-to-file map, which the debt digest and the flakiness page use to find each snapshot's owning team. A map that cannot be read or sent is logged and does not fail the upload.
 
 **`vr run complete`** — triggers completion (classification, removal detection, diffs).
 Exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set, and 2 if the command itself failed (auth, network, timeout, backend processing).
@@ -205,6 +209,17 @@ Add `--tolerate-drift` to report the drift and still exit 0. Use it on the defau
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
 - **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes and merge-queue branches, where there's no PR to approve.
   The commit status never gates, but the exit code of `vr run complete` still does, and that is where a caller chooses. A merge-queue branch renders the tree about to land, so it lets drift fail the job. Master passes `--tolerate-drift` instead.
+
+### PR comments
+
+Enabled per repo with `enable_pr_comments`.
+A run that needs review posts its own comment, so GitHub notifies the reviewers and the prompt sits at the bottom of the PR with the new changes.
+GitHub sends nothing for an edit, so a run must not rewrite an earlier comment into a new prompt — a reviewer who already approved would never learn that more changes arrived.
+After the new prompt lands, the run clears the previous comment of its own run type: an approval is kept and marked as covering an earlier revision, an unanswered prompt is deleted.
+This order keeps the existing prompt on the PR when the post fails.
+Each run type keeps its own live prompt, because each one has a separate gate and a separate approval.
+An approval updates the prompt of its own run in place, because the reviewer who approved needs no notification.
+A run that never got a prompt, because it found nothing to review or because the post failed, posts a new comment on approval instead.
 
 ## Current state
 
@@ -237,6 +252,11 @@ The share is split in two, because the two cost different things: a `hard` run f
 
 Rows are read over 30 days but rated over 7.
 The rate has to lapse before the history does, so a quarantine over a snapshot that stopped failing last week becomes liftable while the activity strip still shows what it used to do.
+
+The Team facet narrows the list to the snapshots one team owns.
+Each Storybook entry carries `owner_team`, resolved the same way as the debt digest: the newest default-branch run's story index names the story file, and `owners.yaml` names the team that owns it.
+`unowned` means no entry covers the file, and a null owner means the file or its owner is unknown, so the row only appears when no team is selected.
+The digest's "Open flakiness overview" button links here with `#teams=<team slug>`.
 
 The states are an urgency ladder, and each rung asks for a different fix:
 

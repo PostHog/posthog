@@ -14,6 +14,7 @@ from products.tasks.backend.constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
+    REASONING_EFFORTS,
     InitialPermissionMode,
     get_required_model_flag,
 )
@@ -27,7 +28,6 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.temporal.process_task.utils import (
     CONTEXT_WINDOW_CHOICES,
-    PUBLIC_REASONING_EFFORTS,
     GitHubCredentialSource,
     LLMProvider,
     PrAuthorshipMode,
@@ -66,7 +66,7 @@ __all__ = [
     "INITIAL_PERMISSION_MODE_CHOICES",
     "WARMABLE_ORIGIN_PRODUCTS",
     "InitialPermissionMode",
-    "PUBLIC_REASONING_EFFORTS",
+    "REASONING_EFFORTS",
     "GitHubCredentialSource",
     "LLMProvider",
     "PrAuthorshipMode",

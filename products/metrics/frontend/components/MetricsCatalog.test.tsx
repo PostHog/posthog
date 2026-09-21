@@ -1,18 +1,18 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import { metricsNamesRetrieve, metricsValuesRetrieve } from '../generated/api'
+import { metricsNamesRetrieve, metricsValuesCreate } from '../generated/api'
 import { MetricsCatalog } from './MetricsCatalog'
 
 jest.mock('../generated/api', () => ({
     ...jest.requireActual('../generated/api'),
     metricsNamesRetrieve: jest.fn(),
-    metricsValuesRetrieve: jest.fn(),
+    metricsValuesCreate: jest.fn(),
     metricsQueryCreate: jest.fn(),
 }))
 
@@ -52,9 +52,6 @@ const scrollIntoView = (testId: string): void => {
     }
 }
 
-// The catalog only lists names, so each card asks for its own sparkline. That
-// request must wait until the card is near the viewport, or the lazy load is
-// no cheaper than the one query over every metric it replaced.
 describe('MetricsCatalog', () => {
     beforeEach(() => {
         window.POSTHOG_APP_CONTEXT = {
@@ -68,8 +65,8 @@ describe('MetricsCatalog', () => {
         FakeIntersectionObserver.observers = []
         window.IntersectionObserver = FakeIntersectionObserver as unknown as typeof IntersectionObserver
         jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: CATALOG_ITEMS } as any)
-        jest.mocked(metricsValuesRetrieve).mockReset()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: [] } as any)
+        jest.mocked(metricsValuesCreate).mockReset()
+        jest.mocked(metricsValuesCreate).mockResolvedValue({ results: [] } as any)
     })
 
     afterEach(() => cleanup())
@@ -81,16 +78,32 @@ describe('MetricsCatalog', () => {
             </Provider>
         )
         expect(await screen.findByText('queue.depth')).toBeInTheDocument()
-        expect(jest.mocked(metricsValuesRetrieve)).not.toHaveBeenCalled()
+        expect(metricsValuesCreate).not.toHaveBeenCalled()
 
         await act(async () => {
             scrollIntoView('metrics-catalog-card-queue.depth')
         })
 
-        expect(jest.mocked(metricsValuesRetrieve)).toHaveBeenCalledTimes(1)
-        expect(jest.mocked(metricsValuesRetrieve)).toHaveBeenCalledWith(
-            expect.any(String),
-            expect.objectContaining({ value: 'queue.depth', limit: 1 })
+        await waitFor(() => expect(metricsValuesCreate).toHaveBeenCalledTimes(1))
+        expect(metricsValuesCreate).toHaveBeenCalledWith(expect.any(String), { names: ['queue.depth'] })
+    })
+
+    it('batches cards that enter view together', async () => {
+        render(
+            <Provider>
+                <MetricsCatalog />
+            </Provider>
         )
+        expect(await screen.findByText('queue.depth')).toBeInTheDocument()
+
+        await act(async () => {
+            scrollIntoView('metrics-catalog-card-http.server.duration')
+            scrollIntoView('metrics-catalog-card-queue.depth')
+        })
+
+        await waitFor(() => expect(metricsValuesCreate).toHaveBeenCalledTimes(1))
+        expect(metricsValuesCreate).toHaveBeenCalledWith(expect.any(String), {
+            names: ['http.server.duration', 'queue.depth'],
+        })
     })
 })

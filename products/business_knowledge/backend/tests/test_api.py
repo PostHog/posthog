@@ -74,6 +74,72 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         names = [row["name"] for row in response.json()["results"]]
         assert names == ["Mine"]
 
+    def test_list_applies_search_and_type_filters(self, _ff) -> None:
+        from posthog.models.team import Team
+
+        KnowledgeSource.objects.unscoped().create(team=self.team, name="Alpha docs", source_type="text", status="ready")
+        KnowledgeSource.objects.unscoped().create(
+            team=self.team,
+            name="Beta guide",
+            source_type="url",
+            status="ready",
+            source_url="https://example.com/beta-handbook",
+        )
+        KnowledgeSource.objects.unscoped().create(
+            team=self.team, name="Gamma report", source_type="file", status="ready"
+        )
+        other_team = Team.objects.create_with_data(
+            organization=self.organization, initiating_user=self.user, name="Other"
+        )
+        KnowledgeSource.objects.unscoped().create(
+            team=other_team, name="Alpha secrets", source_type="text", status="ready"
+        )
+
+        def names(query: str) -> list[str]:
+            resp = self.client.get(f"{self.url}?{query}")
+            assert resp.status_code == status.HTTP_200_OK, resp.content
+            return sorted(row["name"] for row in resp.json()["results"])
+
+        # Search matches the name case-insensitively and never leaks another team's row.
+        assert names("search=alpha") == ["Alpha docs"]
+        assert names("search=ALPHA") == ["Alpha docs"]
+        # Search also matches source_url, not just the name.
+        assert names("search=beta-handbook") == ["Beta guide"]
+        # Type filter narrows to a single source_type.
+        assert names("source_type=url") == ["Beta guide"]
+        # Search and type combine as AND.
+        assert names("source_type=file&search=gamma") == ["Gamma report"]
+        assert names("source_type=text&search=beta") == []
+
+    def test_list_pages_do_not_skip_or_repeat_sources_with_equal_timestamps(self, _ff) -> None:
+        created_ids = sorted(
+            str(
+                KnowledgeSource.objects.unscoped()
+                .create(team=self.team, name=f"Tied {index}", source_type="text", status="ready")
+                .id
+            )
+            for index in range(4)
+        )
+        sources = KnowledgeSource.objects.unscoped().filter(team=self.team)
+        sources.update(created_at=timezone.now())
+
+        def page(offset: int) -> list[str]:
+            resp = self.client.get(f"{self.url}?limit=2&offset={offset}")
+            assert resp.status_code == status.HTTP_200_OK, resp.content
+            return [row["id"] for row in resp.json()["results"]]
+
+        first_page = page(0)
+        # An edit between the two reads rewrites the row, which moves it in the
+        # database's own tie order. Only the id tie-breaker keeps the pages aligned.
+        sources.filter(id=first_page[0]).update(name="Edited between pages")
+        paged_ids = first_page + page(2)
+
+        assert paged_ids == created_ids
+
+    def test_list_rejects_unknown_source_type(self, _ff) -> None:
+        response = self.client.get(f"{self.url}?source_type=bogus")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_cannot_read_other_team_source_via_id(self, _ff) -> None:
         from posthog.models.team import Team
 
@@ -496,8 +562,10 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
             "document_title",
             "heading_path",
             "content",
+            "is_generated",
         }
         assert first["source_name"] == "Docs"
+        assert first["is_generated"] is False
         assert "pricing" in first["content"].lower() or "Pricing" in first["content"]
 
     @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))

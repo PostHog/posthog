@@ -1,6 +1,7 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
@@ -782,6 +783,7 @@ describe('HogFunctionHandler', () => {
                 deadlineAt: handlerResult.scheduledAt!.toISO(),
                 dispatch: { id: 't1', run_id: 'r1' },
                 label: 'task',
+                parkedAt: expect.any(String),
             })
             expect(invocationResult.metrics.map((m) => m.metric_name)).toContain('billable_invocation')
             expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
@@ -847,13 +849,20 @@ describe('HogFunctionHandler', () => {
             let executeSpy: jest.SpyInstance
             const deadlineAt = DateTime.now().plus({ hours: 1 }).toISO()!
 
+            const finishedCount = async (outcome: string): Promise<number> => {
+                const metric = await register.getSingleMetric('cdp_hogflow_awaited_step_finished')!.get()
+                return metric.values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+            }
+
             beforeEach(() => {
+                register.resetMetrics()
                 executeSpy = jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions')
                 invocation.state.currentAction!.awaitingResume = {
                     key: dispatchKey,
                     deadlineAt,
                     dispatch: { id: 't1', run_id: 'r1' },
                     label: 'task',
+                    parkedAt: DateTime.now().minus({ minutes: 5 }).toISO()!,
                 }
             })
 
@@ -904,6 +913,14 @@ describe('HogFunctionHandler', () => {
                 })
                 expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
                 expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
+                expect(await finishedCount('completed')).toBe(1)
+                const waited = await register.getSingleMetric('cdp_hogflow_awaited_step_wait_seconds')!.get()
+                // prom-client types histogram values without metricName, but the runtime sets it.
+                const sum = waited.values.find(
+                    (v) =>
+                        (v as { metricName?: string }).metricName?.endsWith('_sum') && v.labels.outcome === 'completed'
+                )
+                expect(sum?.value).toBeGreaterThanOrEqual(300)
             })
 
             it.each([4000, 4700])('fits the resumed result with %s bytes of existing variables', async (usedBytes) => {
@@ -960,6 +977,7 @@ describe('HogFunctionHandler', () => {
                     error_message: 'sandbox crashed',
                 })
                 expect(executeSpy).not.toHaveBeenCalled()
+                expect(await finishedCount('failed')).toBe(1)
             })
 
             it('ignores a wake for an earlier visit and keeps waiting', async () => {
@@ -982,6 +1000,7 @@ describe('HogFunctionHandler', () => {
                     .toISO()!
 
                 await expect(execute()).rejects.toThrow('Timed out waiting for the task to finish')
+                expect(await finishedCount('timed_out')).toBe(1)
             })
         })
     })

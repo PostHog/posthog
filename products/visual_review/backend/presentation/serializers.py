@@ -197,9 +197,26 @@ class CreateRunInputSerializer(DataclassSerializer):
 class AddSnapshotsInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = AddSnapshotsInput
+        extra_kwargs = {
+            "story_index_hash": {
+                "help_text": (
+                    "SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this "
+                    "run's build. Every shard of a run sends the same value. Empty when the run sends no map."
+                )
+            },
+        }
 
 
 class AddSnapshotsResultSerializer(DataclassSerializer):
+    story_index_upload = UploadTargetSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Where to upload the story-to-file map, as a presigned POST with a JSON body. Null when the "
+            "request sent no map, or the store already holds a map with that hash."
+        ),
+    )
+
     class Meta:
         dataclass = AddSnapshotsResult
 
@@ -265,7 +282,7 @@ class FinalizeRunInputSerializer(DataclassSerializer):
             "Whether the server commits the approved baseline to the PR branch and greens the gate (the normal "
             "path — leave true). Set false only for tooling that commits the baseline itself: the server skips "
             "the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT "
-            "greened and `metadata.baseline_commit_sha` is absent."
+            "greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted."
         ),
     )
     add_images_to_comment_on_pr = serializers.BooleanField(
@@ -273,9 +290,10 @@ class FinalizeRunInputSerializer(DataclassSerializer):
         default=False,
         help_text=(
             "Whether to embed the before/after snapshot images in the post-approval PR comment. The comment "
-            "itself is always posted (when the run was initiated from a GitHub review prompt and the repo has "
-            "PR comments enabled); this flag only controls the images. Defaults false — the comment stays a "
-            "text summary unless the reviewer opts in to attach the snapshots."
+            "itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates "
+            "the run's review prompt when the run has one, and posts a new comment when it does not. This flag "
+            "only controls the images. Defaults false — the comment stays a text summary unless the reviewer "
+            "opts in to attach the snapshots."
         ),
     )
 
@@ -518,6 +536,16 @@ class FlakinessEntrySerializer(DataclassSerializer):
         allow_null=True,
         required=False,
         help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
+    )
+    owner_team = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Slug of the team that owns the file this snapshot's story lives in, from the repository's "
+            "ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: "
+            "the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, "
+            "the story is not in it, or the ownership files could not be read."
+        ),
     )
 
     class Meta:

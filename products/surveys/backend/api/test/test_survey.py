@@ -1538,7 +1538,8 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(20):
+        # Includes one query for the project's replay gates
+        with self.assertNumQueries(21):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -5250,6 +5251,59 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Cannot change survey recurrence to 1, should be at least 2"
 
+    @parameterized.expand(
+        [
+            ("once", "once"),
+            ("null", None),
+        ]
+    )
+    def test_switching_schedule_to_non_recurring_clears_iteration_fields(self, _name: str, schedule: Optional[str]):
+        survey = self._create_recurring_survey()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now(), "iteration_count": 2, "iteration_frequency_days": 30},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"schedule": schedule},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["schedule"] == schedule
+        assert response_data["iteration_count"] is None
+        assert response_data["iteration_frequency_days"] is None
+        assert response_data["iteration_start_dates"] == []
+        assert response_data["current_iteration"] is None
+
+    @parameterized.expand(
+        [
+            ("schedule_omitted", {}),
+            ("schedule_null", {"schedule": None}),
+        ]
+    )
+    def test_setting_iterations_without_a_schedule_marks_the_survey_recurring(self, _name: str, schedule_payload: dict):
+        survey = self._create_non_recurring_survey()
+        assert survey.schedule == Survey.Schedule.ONCE
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now(),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+                **schedule_payload,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["schedule"] == "recurring"
+        assert response_data["iteration_count"] == 2
+        assert response_data["iteration_frequency_days"] == 30
+        assert len(response_data["iteration_start_dates"]) == 2
+
     def test_can_handle_non_nil_current_iteration(self):
         survey = self._create_non_recurring_survey()
         survey.current_iteration = 2
@@ -6762,6 +6816,38 @@ class TestSurveyBulkDuplication(APIBaseTest):
 
         # Generic condition fields SHOULD be copied
         assert duplicated.conditions.get("url") == "https://example.com"
+
+    @parameterized.expand(
+        [
+            ("once_with_stale_iterations", Survey.Schedule.ONCE, None, None),
+            ("recurring", Survey.Schedule.RECURRING, 3, 30),
+        ]
+    )
+    def test_bulk_duplicate_reconciles_schedule_with_iteration_fields(
+        self, _name: str, schedule: str, expected_count: Optional[int], expected_frequency: Optional[int]
+    ) -> None:
+        source = Survey.objects.create(
+            team=self.team,
+            name=f"Source {schedule}",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+            schedule=schedule,
+            iteration_count=3,
+            iteration_frequency_days=30,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{source.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        duplicated = Survey.objects.get(team=self.team2)
+        assert duplicated.schedule == schedule
+        assert duplicated.iteration_count == expected_count
+        assert duplicated.iteration_frequency_days == expected_frequency
 
     @parameterized.expand(
         [

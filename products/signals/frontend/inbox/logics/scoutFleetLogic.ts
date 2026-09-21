@@ -62,8 +62,7 @@ import { computeScoutCostRollups, ScoutCostRollup } from '../utils/scoutCosts'
 import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
-/** Roster order: A to Z by name, or by lifecycle group so scouts that need a decision lead. */
-export type ScoutRosterSort = 'name' | 'status'
+export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
 import type { BreakPointFunction } from 'kea'
 
 import { configMatchesScoutOwner, listScoutOwnerOptions } from '../utils/scoutOwners'
@@ -89,6 +88,22 @@ import type { ScoutTagOption } from '../utils/scoutTags'
 // which Replay Vision's scanner scouts do.
 export type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
+
+const SCOUT_RECENCY_TIMESTAMPS: Record<
+    'created' | 'updated' | 'last_run',
+    (config: SignalScoutConfig) => string | null
+> = {
+    created: (config) => config.created_at,
+    updated: (config) => config.updated_at,
+    last_run: (config) => config.last_run_at,
+}
+
+function compareByRecency(firstTimestamp: string | null, secondTimestamp: string | null): number {
+    if (!firstTimestamp || !secondTimestamp) {
+        return firstTimestamp === secondTimestamp ? 0 : firstTimestamp ? -1 : 1
+    }
+    return dayjs(secondTimestamp).valueOf() - dayjs(firstTimestamp).valueOf()
+}
 
 function isRecentlySystemPaused(config: SignalScoutConfig, evaluatedAt: Date): boolean {
     return Boolean(
@@ -306,6 +321,7 @@ export interface scoutFleetLogicValues {
     rosterEvaluatedAt: number
     rosterGroupCounts: Record<ScoutGroupKey, number>
     rosterScouts: ScoutRosterRow[]
+    rosterScoutsBeforeSearch: ScoutRosterRow[]
     runningChatType: ScoutChatType | null
     runsWindow: {
         complete: boolean
@@ -600,16 +616,16 @@ export interface scoutFleetLogicMeta {
         activeScoutTags: (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]) => string[]
         scoutOwnerOptions: (scoutConfigs: SignalScoutConfigApi[] | null) => ScoutOwnerOption[]
         activeScoutOwner: (selectedScoutOwner: string | null, scoutOwnerOptions: ScoutOwnerOption[]) => string | null
-        rosterScouts: (
+        rosterScoutsBeforeSearch: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
             rosterEvaluatedAt: number,
             activeScoutTags: string[],
             activeScoutOwner: string | null,
-            scoutSearch: string,
             scoutEnabledFilter: ScoutEnabledFilter,
             scoutRosterSort: ScoutRosterSort
         ) => ScoutRosterRow[]
+        rosterScouts: (rosterScoutsBeforeSearch: ScoutRosterRow[], scoutSearch: string) => ScoutRosterRow[]
         rosterGroupCounts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
@@ -1224,19 +1240,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 scoutOwnerOptions.some((option) => option.uuid === selectedScoutOwner) ? selectedScoutOwner : null,
         ],
         /**
-         * The roster as one alphabetical list, each row tagged with its lifecycle group and narrowed
-         * by the roster's own chrome (search and the tag, owner, and on/off filters).
+         * The roster as one sorted list, each row tagged with its lifecycle group and narrowed by
+         * every piece of the roster's chrome except search: the tag, owner, and on/off filters.
          * `rosterEvaluatedAt` advances only when time changes a lifecycle group, so settled polls keep
          * this selector's output stable.
+         * Search sits in `rosterScouts` on top of this, so a keystroke only re-runs a name match:
+         * the sort does not run again, and every row that still matches keeps its object identity.
          */
-        rosterScouts: [
+        rosterScoutsBeforeSearch: [
             (s) => [
                 s.scoutConfigs,
                 s.rollups,
                 s.rosterEvaluatedAt,
                 s.activeScoutTags,
                 s.activeScoutOwner,
-                s.scoutSearch,
                 s.scoutEnabledFilter,
                 s.scoutRosterSort,
             ],
@@ -1246,11 +1263,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 rosterEvaluatedAt: number,
                 activeScoutTags: string[],
                 activeScoutOwner: string | null,
-                scoutSearch: string,
                 scoutEnabledFilter: ScoutEnabledFilter,
                 scoutRosterSort: ScoutRosterSort
             ): ScoutRosterRow[] => {
-                const query = scoutSearch.trim().toLowerCase()
                 const now = new Date(rosterEvaluatedAt)
                 const rows = [...(scoutConfigs ?? [])]
                     .filter((config) => configMatchesScoutTags(config, activeScoutTags))
@@ -1259,20 +1274,34 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         (config) =>
                             scoutEnabledFilter === 'all' || config.enabled === (scoutEnabledFilter === 'enabled')
                     )
-                    .filter(
-                        (config) =>
-                            !query ||
-                            scoutDisplayName(config).toLowerCase().includes(query) ||
-                            config.skill_name.toLowerCase().includes(query) ||
-                            (config.description ?? '').toLowerCase().includes(query)
-                    )
                     .sort(compareScoutsByName)
                     .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
+                // Both re-sorts are stable: rows are already A to Z, so equal keys keep their name order.
                 if (scoutRosterSort === 'status') {
-                    // Stable: rows are already A to Z, so scouts in one group keep their name order.
                     rows.sort((a, b) => SCOUT_GROUP_ORDER.indexOf(a.group) - SCOUT_GROUP_ORDER.indexOf(b.group))
+                } else if (scoutRosterSort !== 'name') {
+                    const timestampOf = SCOUT_RECENCY_TIMESTAMPS[scoutRosterSort]
+                    rows.sort((a, b) => compareByRecency(timestampOf(a.config), timestampOf(b.config)))
                 }
                 return rows
+            },
+        ],
+        /**
+         * The roster the list renders: the filtered rows narrowed by the search box.
+         * Search matches the name on the card and nothing else. A scout whose `skill_name` or
+         * description holds the query, while its card reads something different, is not a match. A
+         * returned card whose name misses the query reads as a broken search.
+         */
+        rosterScouts: [
+            (s) => [s.rosterScoutsBeforeSearch, s.scoutSearch],
+            (rosterScoutsBeforeSearch: ScoutRosterRow[], scoutSearch: string): ScoutRosterRow[] => {
+                const query = scoutSearch.trim().toLowerCase()
+                if (!query) {
+                    return rosterScoutsBeforeSearch
+                }
+                return rosterScoutsBeforeSearch.filter((row) =>
+                    scoutDisplayName(row.config).toLowerCase().includes(query)
+                )
             },
         ],
         /**
@@ -1409,6 +1438,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 surface: 'fleet_list',
                 // `filter_match_count`: rows still shown after every filter.
                 extra: { filter, filter_match_count: values.rosterScouts.length },
+            })
+        },
+        setScoutRosterSort: ({ sort }) => {
+            captureScoutAction({
+                actionType: 'sort_roster',
+                surface: 'fleet_list',
+                extra: { sort, filter_match_count: values.rosterScouts.length },
             })
         },
         // The owner's identity stays out of the payload: which teammate was picked answers no product

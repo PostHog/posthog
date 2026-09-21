@@ -1618,13 +1618,14 @@ CREATE TABLE posthog.sharded_raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool),
   INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+  INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
   INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
   INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
   INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
@@ -1655,7 +1656,7 @@ CREATE TABLE posthog.sharded_session_replay_events (
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
   _timestamp SimpleAggregateFunction(max, DateTime),
-  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
@@ -1667,7 +1668,7 @@ CREATE TABLE posthog.sharded_session_replay_events (
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
+  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.session_replay_events', '{replica}') ORDER BY (toDate(min_first_timestamp), team_id, session_id) PARTITION BY toYYYYMM(min_first_timestamp) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.sharded_sessions (
   session_id String,
@@ -2294,7 +2295,7 @@ CREATE TABLE posthog.writable_raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
@@ -2330,9 +2331,9 @@ CREATE TABLE posthog.writable_session_replay_events (
   size SimpleAggregateFunction(sum, Int64),
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
-  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
   retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
@@ -3405,7 +3406,7 @@ CREATE TABLE posthog.raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
@@ -3438,7 +3439,7 @@ CREATE TABLE posthog.session_replay_events (
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
   _timestamp SimpleAggregateFunction(max, DateTime),
-  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
@@ -3450,7 +3451,7 @@ CREATE TABLE posthog.session_replay_events (
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
+  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.sessions (
   session_id String,
@@ -3735,7 +3736,7 @@ CREATE VIEW posthog.raw_sessions_v3_v AS SELECT
   uniqExactMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
-  groupUniqArrayMapMerge(flag_values) AS flag_values,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
   groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,

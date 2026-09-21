@@ -1,8 +1,14 @@
-import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
+import {
+  activityCanvasId,
+  type TaskActivityItem,
+} from "@posthog/core/canvas/taskActivity";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import type { TaskRowMenuProps } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
-import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
+import {
+  placeCanvasInCommandCenter,
+  placeTaskInCommandCenter,
+} from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCallback, useEffect, useRef } from "react";
@@ -14,6 +20,12 @@ import { useCallback, useEffect, useRef } from "react";
  * Three items stay behind. Rename edits a row in place and the feed has no
  * inline editor; hand off and analysis need the task itself, which an activity
  * row doesn't carry — it holds one update about a task, not the task.
+ *
+ * A canvas comment row gets the canvas menu instead. Its `taskId` is the task
+ * that generated the canvas, which may sit in another space or be one the
+ * reader can't open, so task actions on it would fail or move the wrong item.
+ * Filing and deleting a canvas need its own mutations and a confirm, which the
+ * feed doesn't carry, so those two stay off here.
  *
  * Built once for the feed rather than per row: each hook here is a mutation or
  * a store subscription, and the feed shows a page of rows at a time.
@@ -35,27 +47,47 @@ export function useActivityTaskMenu(): (
   });
 
   return useCallback(
-    (item) => ({
-      kind: "task",
-      id: item.taskId,
-      title: item.taskTitle,
-      isPinned: pinnedTaskIds.has(item.taskId),
-      // Ticks the space the task is already filed to, inside "File to…".
-      channelId: item.channelId ?? undefined,
-      onAddToCommandCenter: cells.includes(item.taskId)
-        ? undefined
-        : () => placeTaskInCommandCenter(item.taskId, item.taskTitle),
-      onTogglePin: () => {
-        togglePin(item.taskId).catch(() => {
-          toast.error("Couldn't update pin");
-        });
-      },
-      onArchive: () => {
-        archiveRef.current({ taskId: item.taskId }).catch(() => {
-          toast.error("Couldn't archive task");
-        });
-      },
-    }),
+    (item) => {
+      const canvasId = activityCanvasId(item);
+      if (canvasId) {
+        return {
+          kind: "canvas",
+          id: canvasId,
+          title: item.taskTitle,
+          isPinned: pinnedTaskIds.has(canvasId),
+          channelId: item.channelId ?? undefined,
+          onAddToCommandCenter: cells.includes(canvasId)
+            ? undefined
+            : () => placeCanvasInCommandCenter(canvasId, item.taskTitle),
+          onTogglePin: () => {
+            togglePin(canvasId).catch(() => {
+              toast.error("Couldn't update pin");
+            });
+          },
+        };
+      }
+      return {
+        kind: "task",
+        id: item.taskId,
+        title: item.taskTitle,
+        isPinned: pinnedTaskIds.has(item.taskId),
+        // Ticks the space the task is already filed to, inside "File to…".
+        channelId: item.channelId ?? undefined,
+        onAddToCommandCenter: cells.includes(item.taskId)
+          ? undefined
+          : () => placeTaskInCommandCenter(item.taskId, item.taskTitle),
+        onTogglePin: () => {
+          togglePin(item.taskId).catch(() => {
+            toast.error("Couldn't update pin");
+          });
+        },
+        onArchive: () => {
+          archiveRef.current({ taskId: item.taskId }).catch(() => {
+            toast.error("Couldn't archive task");
+          });
+        },
+      };
+    },
     [cells, pinnedTaskIds, togglePin],
   );
 }

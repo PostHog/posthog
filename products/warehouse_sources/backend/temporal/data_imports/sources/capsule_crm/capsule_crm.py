@@ -113,7 +113,7 @@ def capsule_crm_source(
 ) -> SourceResponse:
     config = CAPSULE_CRM_ENDPOINTS[endpoint]
 
-    params: dict[str, Any] = {"perPage": PAGE_SIZE}
+    params: dict[str, Any] = {"perPage": PAGE_SIZE, **config.extra_params}
     if config.embed:
         params["embed"] = config.embed
     if config.supports_since and should_use_incremental_field and db_incremental_field_last_value is not None:
@@ -181,7 +181,7 @@ def capsule_crm_source(
         # Capsule does not document an ordering guarantee for `since`, but the ResumableSource
         # next-URL state (not the watermark) drives mid-sync resume, so the dominant interruption
         # path is order-independent. `asc` matches the framework's default incremental checkpointing.
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
     )
 
 

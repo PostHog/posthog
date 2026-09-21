@@ -19,7 +19,9 @@ use tower::{Service, ServiceExt};
 
 use crate::backend::{ChannelBackend, LeaderBackend};
 use crate::config::RetryConfig;
-use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_response};
+use crate::grpc_http::{
+    grpc_error_response, grpc_status_code, is_grpc_error_response, unapplied_refusal_reason,
+};
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
@@ -39,7 +41,9 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeleteHashKeyOverridesByTeams",
     "DeletePersons",
     "DeletePersonsBatchForTeam",
+    "DeleteTombstonedPersons",
     "FencePerson",
+    "FencePersons",
     "FoldPersonDocument",
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
@@ -63,6 +67,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "ListCohortMemberIds",
     "ListGroups",
     "ReleaseFence",
+    "ReleaseFences",
     "SetPersonDistinctIdVersionFloor",
     "SetPersonVersionFloor",
     "SplitPerson",
@@ -251,13 +256,23 @@ impl RawProxyInner {
                 (resp, "leader", call_ms)
             }
             // Lifecycle fence RPCs: person writes, so they route to the
-            // owning leader and share the handoff stash discipline.
+            // owning leader and share the handoff stash discipline. A batch
+            // is routed by the one person its headers name, like any other
+            // leader call; the leader checks the rest hash there too.
             (Target::Service, "FencePerson") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePerson").await;
                 (resp, "leader", call_ms)
             }
+            (Target::Service, "FencePersons") => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePersons").await;
+                (resp, "leader", call_ms)
+            }
             (Target::Service, "ReleaseFence") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFence").await;
+                (resp, "leader", call_ms)
+            }
+            (Target::Service, "ReleaseFences") => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFences").await;
                 (resp, "leader", call_ms)
             }
             // The merge saga's document write: leader-routed like every
@@ -498,13 +513,28 @@ impl RawProxyInner {
             match ready_channel.call(req).await {
                 Ok(response) => {
                     let channel_call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
+                    let unapplied = unapplied_refusal_reason(&response).map(str::to_owned);
                     histogram!(
                         "personhog_router_channel_call_ms",
                         "method" => method.clone(),
                         "client" => client.clone(),
-                        "outcome" => "ok",
+                        "outcome" => if unapplied.is_some() { "refused" } else { "ok" },
                     )
                     .record(channel_call_ms);
+                    if let (Some(reason), true) =
+                        (unapplied, attempt < self.retry_config.max_retries)
+                    {
+                        counter!(
+                            "personhog_router_unapplied_retries_total",
+                            "method" => method.clone(),
+                            "client" => client.clone(),
+                            "reason" => reason,
+                        )
+                        .increment(1);
+                        // The balancer re-picks an endpoint per request.
+                        retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
+                        continue;
+                    }
                     return (response, Some(channel_call_ms));
                 }
                 Err(e) => {

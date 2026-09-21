@@ -9,8 +9,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
-from products.skills.backend.api.skill_services import normalize_skill_file_path
-from products.skills.backend.marketplace.adapters import bundle_paths_are_safe
+from products.skills.backend.api.skill_services import compute_file_path_problems, normalize_skill_file_path
 from products.skills.backend.models import LLMSkill, LLMSkillFile
 
 READ_CHUNK_SIZE = 1000
@@ -81,7 +80,7 @@ def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
     collisions.sort()
     unfixable.sort()
     rewritten = {path: canonical for _, path, canonical in rewrites}
-    if rewrites and not bundle_paths_are_safe([rewritten.get(path, path) for _, path in rows]):
+    if rewrites and compute_file_path_problems([rewritten.get(path, path) for _, path in rows]):
         return SkillPathPlan(rewrites=[], collisions=collisions, unfixable=unfixable, unsafe=True)
     return SkillPathPlan(rewrites=rewrites, collisions=collisions, unfixable=unfixable, unsafe=False)
 

@@ -10,11 +10,11 @@ from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
-    SUPPORTED_COMPRESSIONS,
 )
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
     TEST_S3_MODELS,
     has_valid_credentials,
@@ -23,12 +23,9 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials("S3_TEST_BUCKET", check=has_valid_credentials),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        "S3_TEST_BUCKET" not in os.environ or not has_valid_credentials(),
-        reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
-    ),
 ]
 
 

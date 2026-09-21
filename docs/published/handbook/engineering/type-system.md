@@ -81,6 +81,8 @@ ViewSets in `products/*/backend/` are **automatically tagged** based on their mo
 
 Serializers are the source of truth for response types. Use explicit field types and `help_text` where helpful.
 
+Some response contracts already exist in the backend as Pydantic models, for example a discriminated union that sources build at runtime. Declare those models directly as the response in `@extend_schema(responses=...)`. drf-spectacular converts them to OpenAPI, so do not copy them into a serializer. Keep ordinary resource endpoints on serializers. See `products/warehouse_sources/backend/facade/source_config.py` for an example.
+
 For detailed guidance on serializer patterns, field typing, and annotations that improve OpenAPI generation, see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).
 
 ### Documenting query parameters
@@ -154,7 +156,7 @@ Add to `schema.ts` when you need a type that:
 - Do not add types that are only used in the frontend UI
 - Do not add types just because you need a type in Python – use handwritten types for backend-only logic
 
-If you need a type from the backend in the frontend, define it in serializers and use the backend → frontend generation system.
+If you need a type from the backend in the frontend, define it in a serializer or a Pydantic response model and use the backend → frontend generation system.
 
 For backend-only types, define Pydantic models directly in your own product e.g. in a `domain_types.py` file.
 

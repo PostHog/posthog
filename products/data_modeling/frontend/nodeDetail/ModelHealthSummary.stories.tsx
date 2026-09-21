@@ -1,10 +1,20 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { ModelHealthSummary } from './ModelHealthSummary'
+import { ModelMetadata } from './ModelMetadata'
 
 const meta: Meta<typeof ModelHealthSummary> = {
     title: 'Products/Data modeling/Model health summary',
     component: ModelHealthSummary,
+    decorators: [
+        (Story) => (
+            // The card is width-filling by design, so a story needs a definite column to sit in:
+            // Storybook's padded root is shrink-to-fit and collapses it to nothing otherwise.
+            <div className="w-[56rem]">
+                <Story />
+            </div>
+        ),
+    ],
     args: {
         status: 'Completed',
         suspended: false,
@@ -13,6 +23,7 @@ const meta: Meta<typeof ModelHealthSummary> = {
         schedule: 'Every 1 hour',
         lineageUrl: '#lineage',
         downstreamCount: 3,
+        metadata: <ModelMetadata createdAt="2026-01-10T10:00:00Z" />,
     },
     parameters: { testOptions: { snapshotBrowsers: ['chromium'] } },
 }
@@ -44,7 +55,13 @@ export const Running: Story = { args: { status: 'Running' } }
 export const FirstRun: Story = { args: { status: null, lastSuccessfulSyncAt: null } }
 export const Loading: Story = {
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
-    args: { status: null, lastSuccessfulSyncAt: null, historyLoaded: false, schedule: null },
+    args: {
+        status: null,
+        lastSuccessfulSyncAt: null,
+        historyLoaded: false,
+        schedule: null,
+        metadata: <ModelMetadata loading />,
+    },
 }
 export const Narrow: Story = {
     ...Suspended,

@@ -31,7 +31,9 @@ export type RestoreTextSelectionRequest = {
     textRanges: RestoreTextRange[]
 }
 
-export type RestoreSelectionRequest = RestoreInlineSelectionRequest | RestoreTextSelectionRequest
+export type RestoreSelectionRequest = (RestoreInlineSelectionRequest | RestoreTextSelectionRequest) & {
+    preserveViewport?: boolean
+}
 
 export type InsertCommand = {
     key: string

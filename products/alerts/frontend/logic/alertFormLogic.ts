@@ -66,6 +66,7 @@ export type AlertFormType = Pick<
     | 'config'
     | 'skip_weekend'
     | 'schedule_restriction'
+    | 'schedule_start_time'
     | 'detector_config'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
@@ -556,6 +557,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           calculation_interval: calculationInterval,
                           skip_weekend: false,
                           schedule_restriction: null,
+                          schedule_start_time: null,
                           detector_config: props.defaultToAnomalyDetection
                               ? getDefaultAnomalyDetectorConfig(calculationInterval)
                               : null,

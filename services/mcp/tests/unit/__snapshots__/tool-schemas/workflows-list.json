@@ -27,7 +27,7 @@
             "type": "string"
         },
         "search": {
-            "description": "Case-insensitive search across workflow name and description.",
+            "description": "Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
             "type": "string"
         },
         "status": {
@@ -40,8 +40,8 @@
             "type": "string"
         },
         "type": {
-            "description": "Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
-            "enum": ["automation", "messaging"],
+            "description": "Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.",
+            "enum": ["automation", "loop", "messaging"],
             "type": "string"
         },
         "updated_at": {

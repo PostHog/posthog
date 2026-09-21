@@ -8,7 +8,9 @@ import pytest
 import httpx
 
 from products.data_catalog.scripts.semantic_layer_canary import (
+    MAX_CANCEL_ATTEMPTS,
     BrowserSessionCredentials,
+    CanaryError,
     CanaryRunConfig,
     PermanentCanaryError,
     PostHogCanaryClient,
@@ -185,6 +187,38 @@ async def test_execute_canary_rejects_dataset_without_enabled_cases() -> None:
             await execute_canary(client, CanaryRunConfig())
 
 
+@pytest.mark.parametrize(
+    "malformed_path,content,expected_code",
+    [
+        ("/datasets/", b"<html>gateway error</html>", "invalid_dataset_response"),
+        ("/dataset_items/", b"<html>gateway error</html>", "invalid_dataset_item_response"),
+        ("/datasets/", b'{"results": "caf\xe9"}', "invalid_dataset_response"),
+    ],
+    ids=["dataset_page_not_json", "item_page_not_json", "dataset_page_not_utf8"],
+)
+@pytest.mark.asyncio
+async def test_execute_canary_reports_an_unparseable_dataset_response_as_a_canary_error(
+    malformed_path: str, content: bytes, expected_code: str
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(malformed_path):
+            return httpx.Response(200, content=content)
+        if request.url.path.endswith("/datasets/"):
+            return _dataset_response()
+        return _items_response([_dataset_item("ambiguous")])
+
+    async with PostHogCanaryClient(
+        host="https://us.posthog.test",
+        project_id=2,
+        browser_credentials=_browser_credentials(),
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        with pytest.raises(CanaryError) as caught:
+            await execute_canary(client, CanaryRunConfig())
+
+    assert caught.value.code == expected_code
+
+
 @pytest.mark.asyncio
 async def test_execute_canary_retries_with_new_correlation_ids_without_leaking_content() -> None:
     post_payloads: list[dict[str, object]] = []
@@ -251,7 +285,7 @@ async def test_execute_canary_retries_with_new_correlation_ids_without_leaking_c
     assert case_result.attempts[0].task_url == (
         "https://us.posthog.test/project/2/tasks/task-failed?runId=task-run-failed"
     )
-    assert result.schema_version == 2
+    assert result.schema_version == 3
     serialized = result.model_dump_json()
     assert "Show weekly widget activations" not in serialized
     assert "private failure" not in serialized
@@ -370,13 +404,31 @@ async def test_execute_canary_resumes_an_open_stream_without_resending_the_quest
     assert [attempt.status for attempt in case_result.attempts] == ["completed"]
 
 
+@pytest.mark.parametrize(
+    "cancel_status,run_status,expected_case_status,expected_cancel_attempts",
+    [
+        (200, "cancelled", "completed", 1),
+        (503, "cancelled", "completed", MAX_CANCEL_ATTEMPTS),
+        (429, "cancelled", "completed", MAX_CANCEL_ATTEMPTS),
+        (503, "in_progress", "failed", MAX_CANCEL_ATTEMPTS),
+    ],
+)
 @pytest.mark.asyncio
-async def test_execute_canary_accepts_an_agent_clarification_question_as_a_completed_turn() -> None:
+async def test_execute_canary_cancels_the_run_behind_an_agent_clarification_question(
+    cancel_status: int, run_status: str, expected_case_status: str, expected_cancel_attempts: int
+) -> None:
+    cancelled: list[str] = []
+
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/datasets/"):
             return _dataset_response()
         if request.url.path.endswith("/dataset_items/"):
             return _items_response([_dataset_item("ambiguous", question="How engaged are our workspaces?")])
+        if request.url.path.endswith("/cancel/"):
+            cancelled.append(request.url.path)
+            return httpx.Response(cancel_status, json={"id": "task-run-1", "status": "cancelled"})
+        if request.url.path.endswith("/runs/task-run-1/"):
+            return httpx.Response(200, json={"status": run_status})
         if request.method == "POST":
             payload = json.loads(request.content)
             return _open_response(task_id="task-1", task_run_id="task-run-1", trace_id=str(payload["trace_id"]))
@@ -403,8 +455,13 @@ async def test_execute_canary_accepts_an_agent_clarification_question_as_a_compl
             CanaryRunConfig(dataset_name="semantic-layer-canaries-v1", run_id="run-clarification", max_attempts=1),
         )
 
-    assert result.status == "completed"
-    assert result.cases[0].task_run_id == "task-run-1"
+    assert result.cases[0].status == expected_case_status
+    assert len(cancelled) == expected_cancel_attempts
+    if expected_case_status == "completed":
+        assert result.cases[0].task_run_id == "task-run-1"
+        assert result.cases[0].clarification_questions == ["Which engagement window?"]
+    else:
+        assert result.cases[0].attempts[-1].error == "cancel_unconfirmed"
 
 
 @pytest.mark.asyncio

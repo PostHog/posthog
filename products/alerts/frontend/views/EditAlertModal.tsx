@@ -223,6 +223,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                     ? {
                           calculation_interval: alert.calculation_interval,
                           schedule_restriction: alert.schedule_restriction,
+                          schedule_start_time: alert.schedule_start_time,
                           skip_weekend: alert.skip_weekend,
                           config: supportsOngoingInterval(alert.config)
                               ? { check_ongoing_interval: alert.config.check_ongoing_interval }
@@ -232,6 +233,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 {
                     calculation_interval: alertForm.calculation_interval,
                     schedule_restriction: alertForm.schedule_restriction,
+                    schedule_start_time: alertForm.schedule_start_time,
                     skip_weekend: alertForm.skip_weekend,
                     config: supportsOngoingInterval(alertForm.config)
                         ? { check_ongoing_interval: alertForm.config.check_ongoing_interval }
@@ -242,6 +244,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             alert,
             alertForm.calculation_interval,
             alertForm.schedule_restriction,
+            alertForm.schedule_start_time,
             alertForm.skip_weekend,
             alertForm.config,
             creatingNewAlert,

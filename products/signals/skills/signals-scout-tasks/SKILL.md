@@ -1,5 +1,6 @@
 ---
 name: signals-scout-tasks
+scout-display-name: Tasks
 description: >
   Signals scout for PostHog Tasks. Watches delivery health — failing runs clustered by
   repository and error class, retry storms — and, on a slower rotation, recurring demand across
@@ -60,7 +61,7 @@ Field population is **not** uniform, and two of the traps below are verified, no
 | `tasks.created_by_id`          | always                       | reach; an **integer** id, see routing below                                                   |
 | `tasks.title` / `.description` | usually                      | the demand lens                                                                               |
 | `task_runs.branch`             | ~60%                         | weak; don't build detection on it                                                             |
-| **`task_runs.stage`**          | **unpopulated in practice**  | **never build a lens on it — it reads as null**                                               |
+| **`task_runs.stage`**          | **check before use**         | **probe `countIf(stage != '')` first; a column that reads null carries no lens**              |
 
 Two consequences worth carrying:
 
@@ -214,7 +215,8 @@ Author / edit / remember / skip, against the four-states classifier:
   Cite task and run ids inline.
 - **Actionability and repo.**
   A failure localized to a component the project owns, with a concrete fix, is `immediately_actionable` with `repository="owner/repo"`.
-  A break in the task platform itself, or one whose cause you could only name as a hypothesis, is `requires_human_input` with `repository=NO_REPO` — `NO_REPO` is what stops a pointless repo-selection sandbox from spawning.
+  A cause you could only name as a hypothesis keeps the same call, as long as the failing component sits in a repo the project owns: checking the hypothesis is the work.
+  A break in the task platform itself, or a cluster whose next step is a call only a person can make, is `requires_human_input` with `repository=NO_REPO` — `NO_REPO` is what stops a pointless repo-selection sandbox from spawning.
 - **Routing.**
   Resolve a reviewer from the `reviewer:tasks:<repo>` cache, then inbox precedent (`inbox-report-artefacts-list` on a comparable report), then `tasks-retrieve` on a representative task in the cluster for its `created_by.uuid`, then `scout-members-list`.
   Pass reviewer objects (`{github_login}` or `{user_uuid}`), never bare strings.
@@ -238,7 +240,7 @@ Author / edit / remember / skip, against the four-states classifier:
   Only a rate well above baseline is interesting, and even then as a prompt, not a finding.
 - **Known upstream provider errors** — model provider rate limits and third-party outages, already covered by memory.
   Don't re-file unless the shape changes.
-- **`stage`-based findings** — the column is unpopulated; anything derived from it is an artifact.
+- **`stage`-based findings** — when the column reads null across runs, anything derived from it is an artifact.
 - **In-flight runs** — `queued` / `in_progress` rows are not failures.
   Only an aging backlog is a signal.
 

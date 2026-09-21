@@ -5,8 +5,10 @@ from pydantic import ValidationError
 
 from posthog.schema import (
     AccountCustomPropertyFilter,
+    ActionConversionGoal,
     BehavioralPropertyFilter,
     CohortPropertyFilter,
+    CustomEventConversionGoal,
     DashboardFilter,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
@@ -40,13 +42,6 @@ from posthog.schema import (
 )
 
 
-# Mirrors TrendsQueryWithTemplateVariables in filter_to_query.py: subclassing a schema
-# model from another module only works if the parent's annotations resolved at class
-# creation, i.e. the discriminated aliases were emitted before their usage sites.
-class TrendsQuerySubclassedElsewhere(TrendsQuery):
-    pass
-
-
 class TestPropertyFilterDiscriminator(SimpleTestCase):
     # The AnyPropertyFilter union was an undiscriminated smart union — Pydantic walked
     # every member per item, so one malformed filter produced an error per member and
@@ -55,6 +50,18 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
     # also preserves legacy tolerance: filters without `type`, `{}` rows, multi-value
     # log/span tags, and the AND/OR-tagged recursive group. These tests pin both the
     # routing and the tolerance so a schema regeneration that drops either fails here.
+
+    @parameterized.expand([("action", {"actionId": 1}), ("event", {"customEventName": "customer_created"})])
+    def test_conversion_goal_properties(self, kind: str, fields: dict[str, object]) -> None:
+        model = ActionConversionGoal if kind == "action" else CustomEventConversionGoal
+        goal = model.model_validate({**fields, "properties": [{"type": "event", "key": "plan", "value": "paid"}]})
+        assert goal.properties is not None
+        assert isinstance(goal.properties[0], EventPropertyFilter)
+        for property_type in ["account_custom_property", "revenue_analytics", "recording"]:
+            with self.assertRaises(ValidationError):
+                model.model_validate(
+                    {**fields, "properties": [{"type": property_type, "key": "plan", "value": "paid"}]}
+                )
 
     @parameterized.expand(
         [
@@ -265,13 +272,6 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
         errors = ctx.exception.errors()
         assert len(errors) == 3, f"expected exactly one error per item, got {len(errors)}: {errors}"
         assert all(error["type"] == "extra_forbidden" for error in errors)
-
-    def test_subclass_in_another_module_resolves_the_alias(self) -> None:
-        query = TrendsQuerySubclassedElsewhere.model_validate(
-            {"kind": "TrendsQuery", "series": [], "properties": [{"type": "event", "key": "k", "operator": "exact"}]}
-        )
-        assert isinstance(query.properties, list)
-        assert type(query.properties[0]) is EventPropertyFilter
 
     def test_mcp_model_breakdown_properties_use_the_discriminated_filter(self) -> None:
         query = MCPModelBreakdownQuery.model_validate(

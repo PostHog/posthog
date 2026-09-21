@@ -107,17 +107,29 @@ tools:
             This is the "what has Replay Vision found about this session?" lookup — pair it with the session-recording
             MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query
             parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced
-            it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal
-            non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one
-            specific scanner over time instead, use `vision-scanners-observations-list`.
+            it, the observation `status` (pending/running/succeeded/failed/ineligible), and `summary_line` — one line
+            saying what the scanner found, or why it found nothing on a terminal non-success status. The rows come back
+            narrowed to the id, session, status and that line; read a row in full with `vision-observations-retrieve`,
+            which carries the whole `scanner_result` and `error_reason`. To list observations for one specific scanner
+            over time instead, use `vision-scanners-observations-list`.
         agent_note: >
-            Each observation's `_posthogUrl` opens the recording it analysed.
-            `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
-            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
-            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
-            someone, deep-link the one or two moments it turns on rather than only describing them.
+            Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns
+            on, call `vision-observations-retrieve` for that row: its `scanner_result.model_output.reasoning_segments`
+            interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the
+            cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to
+            it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only
+            describing them.
         ui_app: vision-observation-list
         url_prefix: /replay
+        response:
+            text_include:
+                - id
+                - session_id
+                - status
+                - summary_line
+                - created_at
+                - scanner_id
+                - _posthogUrl
     vision-observations-retrieve:
         operation: vision_observations_retrieve
         enabled: true
@@ -178,6 +190,9 @@ tools:
         enabled: false
     vision-observations-search-viewed-create:
         operation: vision_observations_search_viewed_create
+        enabled: false
+    vision-observations-signal-reports-list:
+        operation: vision_observations_signal_reports_list
         enabled: false
     vision-observations-viewed-create:
         operation: vision_observations_viewed_create
@@ -269,9 +284,17 @@ tools:
             `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's
             other scanners. The scanner stops scanning once the credits left cannot cover another observation, and
             resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an alert
-            from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, load
-            the `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's
-            exposure criteria.
+            from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, set
+            `experiment_targeting` to `{"experiment_id": <id>, "variant": null}` (or one variant key) and leave exposure
+            out of `query`: the API derives the person-scoped exposure filter server-side, and rejects an
+            `experiment_exposure` filter set directly in `query`. Pass the same `experiment_targeting` to
+            `vision-scanners-estimate-create`, so the estimate counts only exposed sessions. Create with `enabled:
+            false`, so you can preview the prompt on real sessions first. The `scanning-experiments-with-replay-vision`
+            skill carries the full flow (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a
+            team skill in the skills store, so do not fetch it with `skill-get`. Load it with `learn
+            posthog:scanning-experiments-with-replay-vision` when the `learn` command is available, or read it from your
+            installed PostHog skills (`.agents/skills/`). If you have neither, the facts above are sufficient to
+            continue.
         agent_note: >
             A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person
             that rating its results thumbs up or down turns into a config recommendation they can review, and that
@@ -324,7 +347,8 @@ tools:
             Preview how many observations a proposed scanner would generate, and what they would cost, before saving it.
             Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed
             30-day lookback) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when
-            re-estimating an existing scanner so its own projection isn't double-counted. Returns
+            re-estimating an existing scanner so its own projection isn't double-counted. For an experiment scanner,
+            pass the same `experiment_targeting` you will save, so the estimate counts only exposed sessions. Returns
             `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`,
             `credits_per_observation`, `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits` (the
             org's other enabled scanners' projected spend). Enabled scanners sweep every 5 minutes, so a broad query can
@@ -465,24 +489,38 @@ tools:
             List the observations recorded by a single scanner. Each observation is one scan of one session and includes
             its `status` (pending/running/succeeded/failed/ineligible), `error_reason` (set on terminal non-success
             statuses, e.g. `too_short`/`no_recording` for ineligible or `provider_rejected`/`validation_failed` for
-            failed — useful for triaging why a scan produced no result), `triggered_by` (`schedule` or `on_demand`),
-            `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that
-            scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
-            found over time; to see every scanner's observations for one session, use `vision-observations-list`.
+            failed), the `session_id` of the recording it analysed, and `summary_line` — one line saying what the
+            scanner found, or why it found nothing, which is where the reason for a non-success status arrives. The rows
+            come back narrowed to the id, session, status and that line; read a row in full with
+            `vision-observations-retrieve`, which carries the whole `scanner_result` and `error_reason`. Use this to
+            inspect what a scanner has found over time; to see every scanner's observations for one session, use
+            `vision-observations-list`.
         agent_note: >
-            Each observation's `_posthogUrl` opens the recording it analysed.
-            `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
-            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
-            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
-            someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the
-            person's verdict on whether the scanner was right, and it is what
+            Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns
+            on, call `vision-observations-retrieve` for that row: its `scanner_result.model_output.reasoning_segments`
+            interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the
+            cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to
+            it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only
+            describing them. A rating is the person's verdict on whether the scanner was right, and it is what
             `vision-scanners-prompt-suggestions-generate` learns the config from, so ask them for it and record what
             they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating
             is team-wide, and a scanner's output can repeat text from the recording it analysed.
         ui_app: vision-observation-list
         url_prefix: /replay
+        response:
+            text_include:
+                - id
+                - session_id
+                - status
+                - summary_line
+                - created_at
+                - scanner_id
+                - _posthogUrl
     vision-scanners-observations-retry-create:
         operation: vision_scanners_observations_retry_create
+        enabled: false
+    vision-scanners-observations-signal-reports-list:
+        operation: vision_scanners_observations_signal_reports_list
         enabled: false
     vision-scanners-observations-stats:
         operation: vision_scanners_observations_stats_retrieve
@@ -657,3 +695,6 @@ tools:
             - created_by
             - updated_at
         requires_ai_consent: true
+    vision-scanners-watch-feed-retrieve:
+        operation: vision_scanners_watch_feed_retrieve
+        enabled: false

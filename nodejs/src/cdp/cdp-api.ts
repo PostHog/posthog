@@ -47,6 +47,7 @@ import {
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
+import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
@@ -76,6 +77,7 @@ import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { PosthogJwtAudience } from './utils/jwt-utils'
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
+import { parseWorkflowStepDispatchKey } from './utils/workflow-step-dispatch-key'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -155,6 +157,7 @@ export class CdpApi {
     private rescheduleJwt: ScopedServiceJwt
     private cancelInvocationsJwt: ScopedServiceJwt
     private cancelBatchJwt: ScopedServiceJwt
+    private stepResumeJwt: ScopedServiceJwt
 
     constructor(
         private config: PluginsServerConfig,
@@ -217,6 +220,10 @@ export class CdpApi {
         this.cancelBatchJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
             config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
+        this.stepResumeJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_STEP_RESUME,
+            config.WORKFLOWS_STEP_RESUME_JWT_SECRET || ''
         )
     }
 
@@ -298,6 +305,7 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/batch_jobs/:batch_job_id/cancel',
             asyncHandler(this.postHogFlowCancelBatchJob)
         )
+        router.post('/api/projects/:team_id/workflow_steps/resume', asyncHandler(this.postWorkflowStepResume))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -920,7 +928,19 @@ export class CdpApi {
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
 
-            await this.hogflowQueue.queueInvocations([invocation])
+            // Queued before queueInvocations serializes the invocation, so the
+            // `state.firstScheduledAt` stamp reaches cyclotron.
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+
+            try {
+                await this.hogflowQueue.queueInvocations([invocation])
+            } catch (error) {
+                this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
+                throw error
+            }
+            // Only the lifecycle sink, which swallows its own produce failures. Flushing every sink
+            // would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
+            await this.invocationResultsService.invocationResultsRowsService.flush()
 
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {
@@ -1049,8 +1069,9 @@ export class CdpApi {
     // Shared gate for the per-call scoped JWTs Django mints (reschedule, cancel): verifies the
     // token and requires its claims to match the URL's team + workflow, so a leaked token can't
     // touch another team or flow. Routes scoped tighter than a workflow (batch cancel) pass the
-    // narrower claims via extraClaims and every one must match too. Writes the 401 itself and
-    // returns false on any mismatch.
+    // narrower claims via extraClaims and every one must match too; a route without a workflow
+    // in its path (step resume) pins the job through extraClaims instead. Writes the 401 itself
+    // and returns false on any mismatch.
     private verifyScopedWorkflowJwt(
         jwt: ScopedServiceJwt,
         req: ModifiedRequest,
@@ -1069,7 +1090,8 @@ export class CdpApi {
             claims = undefined
         }
         const extrasMatch = !extraClaims || Object.entries(extraClaims).every(([key, value]) => claims?.[key] === value)
-        if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id || !extrasMatch) {
+        const flowMatches = id === undefined || claims?.hog_flow_id === id
+        if (!claims || claims.team_id !== parseInt(team_id) || !flowMatches || !extrasMatch) {
             res.status(401).json({ error: `Unauthorized: Invalid ${label} token` })
             return false
         }
@@ -1153,6 +1175,53 @@ export class CdpApi {
             })
         } catch (e) {
             logger.error('Error rescheduling parked hog flow jobs', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Wake the parked workflow step that dispatched a task run, with the run's outcome. Django
+    // calls this from a retrying Celery task when the run reaches a terminal status. One resume
+    // per call; the outcome tells the caller whether to retry (409: the worker still holds the
+    // job) or stop (200: delivered, or the step is past this wake).
+    //
+    // Auth mirrors the cancel routes: a per-call JWT minted by Django on its own audience and key,
+    // pinned to the team and to the origin key, so a leaked token can wake exactly one step.
+    private postWorkflowStepResume = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.stepResumeJwt.enabled) {
+                return res.status(503).json({
+                    error: 'Step resume auth not configured (WORKFLOWS_STEP_RESUME_JWT_SECRET unset)',
+                })
+            }
+            // The token pins the origin key, so read it raw for the claim check; the body is
+            // validated only once the caller is allowed to wake this step.
+            const originKey = typeof req.body?.origin_key === 'string' ? req.body.origin_key : ''
+            if (!this.verifyScopedWorkflowJwt(this.stepResumeJwt, req, res, 'step resume', { origin_key: originKey })) {
+                return
+            }
+            const parsed = WorkflowStepResumeSchema.safeParse(req.body)
+            const key = parsed.success ? parseWorkflowStepDispatchKey(parsed.data.origin_key) : null
+            if (!parsed.success || !key) {
+                return res.status(400).json({ error: 'origin_key must be a workflow step dispatch key' })
+            }
+            const teamId = parseInt(req.params.team_id)
+            const team = await this.deps.teamManager.getTeam(teamId).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const outcomes = await this.batchResolverProducer.resumeParkedSteps(teamId, [{ ...parsed.data, ...key }])
+            const outcome = outcomes.get(key.jobId) ?? 'job_missing'
+            return res.status(outcome === 'job_running' ? 409 : 200).json({ outcome })
+        } catch (e) {
+            logger.error('Error resuming workflow step', {
                 error: e instanceof Error ? e.message : String(e),
             })
             return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })

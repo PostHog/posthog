@@ -205,6 +205,31 @@ async fn test_inactive_flag_rejected() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_unsupported_config_format_rejected() -> Result<()> {
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await?;
+    let server = ServerHandle::for_config(batch_eval_config()).await;
+
+    for version in [json!(2), json!(3), json!("1")] {
+        let key = format!("unsupported-{version}");
+        context
+            .insert_flag(
+                team.id,
+                Some(flag_row(team.id, &key, json!({"version": version}))),
+            )
+            .await?;
+
+        let res =
+            send_batch_request(&server, Some(INTERNAL_TOKEN), &batch_body(team.id, &key, 0)).await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let json_response = res.json::<Value>().await?;
+        assert_eq!(json_response["error"], "unsupported_config_format");
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_group_aggregated_flag_rejected() -> Result<()> {
     // The Django caller returns [] for group-aggregated flags without calling us;
     // this guard is defensive.

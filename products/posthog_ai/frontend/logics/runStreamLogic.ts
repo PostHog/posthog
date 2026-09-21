@@ -235,7 +235,9 @@ export async function resolveStreamTarget(
         return null
     }
     try {
-        const { token, stream_base_url } = await tasksRunsStreamTokenRetrieve(projectId, taskId, runId)
+        const { token, stream_base_url } = await tasksRunsStreamTokenRetrieve(projectId, taskId, runId, {
+            resync: true,
+        })
         if (!stream_base_url) {
             return null
         }
@@ -815,6 +817,16 @@ interface OptimisticResume {
 
 export function emptyRunLog(): RunLog {
     return { entries: [], toolUpdateIndex: {} }
+}
+
+function windowShowsToolCallInFlight(entries: StoredLogEntry[]): boolean {
+    return entries.some((entry) => {
+        if (entry.notification.method !== 'session/update') {
+            return false
+        }
+        const update = entry.notification.params?.update
+        return isRecord(update) && update.sessionUpdate === 'tool_call_update'
+    })
 }
 
 /** The non-empty toolCallId of a `tool_call_update` frame, or null for every other frame. */
@@ -1601,6 +1613,51 @@ export function foldLogToThread(
     return { threadItems: items, toolInvocations: invocations }
 }
 
+function retainUnpersistedEntries(
+    previous: StoredEntry[],
+    history: StoredLogEntry[],
+    isResumeRun: boolean
+): StoredEntry[] {
+    const transient = previous.filter(({ source }) => source !== 'replay')
+    if (transient.length === 0) {
+        return []
+    }
+    const survivors = new Set(
+        dedupeBufferedAgainstHistory(
+            transient.map(({ entry }) => entry),
+            history
+        )
+    )
+    const newHumanTexts = new Map<string, number>()
+    const countHumans = (entries: StoredEntry[], increment: number): void => {
+        for (const item of foldLogToThread(entries, { isResumeRun }).threadItems) {
+            if (item.type === 'human_message' && item.text) {
+                newHumanTexts.set(item.text, (newHumanTexts.get(item.text) ?? 0) + increment)
+            }
+        }
+    }
+    countHumans(
+        history.map((entry) => ({ entry, source: 'replay' })),
+        1
+    )
+    countHumans(
+        previous.filter(({ source }) => source === 'replay'),
+        -1
+    )
+    return transient.filter(({ entry }) => {
+        // Only newly persisted turns can replace local echoes; an older identical message is a different send.
+        if (entry.notification.method === '_client/human_message') {
+            const text = String(entry.notification.params?.content ?? '')
+            const count = newHumanTexts.get(text) ?? 0
+            if (count > 0) {
+                newHumanTexts.set(text, count - 1)
+                return false
+            }
+        }
+        return survivors.has(entry)
+    })
+}
+
 /**
  * Empty assistant messages, priming thoughts, and step-less progress rows stay in the log for folding.
  * Hide them from the rendered thread so message wrappers and virtualized consumers cannot reserve
@@ -1645,6 +1702,7 @@ export interface runStreamLogicValues {
     foldedThread: FoldedThread
     hasGitArtifacts: boolean
     hasThreadItems: boolean
+    historyRecoveryFailed: boolean
     isBootstrapResumeRun: boolean
     isThinking: boolean
     latestTurnTraceId: string | null
@@ -1718,12 +1776,14 @@ export interface runStreamLogicActions {
     }
     bootstrapRun: (payload: {
         justCreatedRun?: boolean
+        reconcileHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
+        reconcileHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
@@ -1786,6 +1846,9 @@ export interface runStreamLogicActions {
     markBootstrapResumeRun: (value: boolean) => {
         value: boolean
     }
+    markHistoryRecoveryFailed: () => {
+        value: true
+    }
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
     }
@@ -1795,8 +1858,8 @@ export interface runStreamLogicActions {
     markRunStarted: () => {
         value: true
     }
-    markTurnComplete: () => {
-        value: true
+    markTurnComplete: (isReplay?: boolean) => {
+        isReplay: boolean
     }
     markTurnStarted: () => {
         value: true
@@ -1951,6 +2014,7 @@ export interface runStreamLogicMeta {
             reconnectAttempt: number,
             bootstrapError: StreamErrorEnvelope | null,
             currentRunStatus: RunStatus | null,
+            historyRecoveryFailed: boolean,
             arg: boolean | undefined
         ) => RunConnectionState | null
     }
@@ -2022,6 +2086,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             justCreatedRun?: boolean
             traceId?: string
             retainedMessage?: string
+            reconcileHistory?: boolean
         }) => payload,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
         /**
@@ -2140,7 +2205,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         markRunStarted: true,
         /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
         setConversationClearSupported: (supported: boolean) => ({ supported }),
-        markTurnComplete: true,
+        markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
+        markHistoryRecoveryFailed: true,
         /**
          * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
          * or from another tab. Dispatched from a user turn seen on the wire, and from the agent's first
@@ -2213,7 +2279,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 sseReconnecting: (_, { attempt }) => attempt,
                 // A successful (re)connection clears the counter; bootstrapping a run starts fresh.
                 sseOpened: () => 0,
-                bootstrapRun: () => 0,
+                bootstrapRun: (state, { reconcileHistory }) => (reconcileHistory ? state : 0),
                 reset: () => 0,
             },
         ],
@@ -2224,7 +2290,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             0,
             {
                 sseReconnecting: (state) => state + 1,
-                bootstrapRun: () => 0,
+                bootstrapRun: (state, { reconcileHistory }) => (reconcileHistory ? state : 0),
                 reset: () => 0,
             },
         ],
@@ -2283,7 +2349,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         bootstrapLoading: [
             false,
             {
-                bootstrapRun: () => true,
+                bootstrapRun: (_, { reconcileHistory }) => !reconcileHistory,
                 sseOpened: () => false,
                 bootstrapReplayComplete: () => false,
                 handleStreamError: () => false,
@@ -2343,6 +2409,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 bootstrapReplayComplete: () => null,
                 handleStreamError: (_, envelope) => envelope,
                 reset: () => null,
+            },
+        ],
+        historyRecoveryFailed: [
+            false,
+            {
+                markHistoryRecoveryFailed: () => true,
+                bootstrapRun: () => false,
+                bootstrapLogReady: () => false,
+                bootstrapReplayComplete: () => false,
+                reset: () => false,
             },
         ],
         // Whether the bootstrapped run is a resume run — drives the §6 resume-prompt filter in the
@@ -2718,18 +2794,27 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * healthy. `reconnecting` drives the attempt-counter card during the backoff loop; `connection_failed`
          * is its terminal state (retries/cumulative exhausted, a non-retryable open, or a bootstrap-fetch
          * failure — including read-only replay, which surfaces via `sseStatus='error'`). A terminal run's own
-         * failure/crash is an inline `error` item, not a banner, so it's excluded here.
+         * failure/crash is an inline `error` item, not a banner, so it's excluded here — except when a resync
+         * failed to re-read the history, which leaves a hole no inline item reports.
          */
         runConnectionState: [
-            (s, p) => [s.sseStatus, s.reconnectAttempt, s.bootstrapError, s.currentRunStatus, p.replayOnly!],
+            (s, p) => [
+                s.sseStatus,
+                s.reconnectAttempt,
+                s.bootstrapError,
+                s.currentRunStatus,
+                s.historyRecoveryFailed,
+                p.replayOnly!,
+            ],
             (
                 sseStatus: RunSseStatus,
                 reconnectAttempt: number,
                 bootstrapError: StreamErrorEnvelope | null,
                 currentRunStatus: RunStatus | null,
+                historyRecoveryFailed: boolean,
                 replayOnly: boolean | undefined
             ): RunConnectionState | null => {
-                if (isTerminalRunStatus(currentRunStatus)) {
+                if (isTerminalRunStatus(currentRunStatus) && !historyRecoveryFailed) {
                     return null
                 }
                 if (!replayOnly && sseStatus === 'reconnecting') {
@@ -2750,7 +2835,20 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props }) => ({
-        bootstrapRun: async ({ taskId, runId, justCreatedRun, retainedMessage }, breakpoint) => {
+        bootstrapRun: async ({ taskId, runId, justCreatedRun, retainedMessage, reconcileHistory }, breakpoint) => {
+            if (!reconcileHistory) {
+                cache.streamBootstrap = { taskId, runId, retainedMessage }
+                cache.bufferingLiveFrames = false
+                cache.bufferedLiveFrames = undefined
+            }
+            const bootstrap = cache.streamBootstrap
+            const disposables = cache.disposables
+            const isCurrentBootstrap = (): boolean => cache.streamBootstrap === bootstrap && !disposables.isDisposed
+            const turnCompleteBeforeReconcile = reconcileHistory ? values.turnComplete : false
+            if (reconcileHistory) {
+                cache.bufferingLiveFrames = true
+                cache.bufferedLiveFrames ??= []
+            }
             if (cache.activeRun && (cache.activeRun.runId !== runId || cache.activeRun.taskId !== taskId)) {
                 actions.cancelPermissionDelivery()
                 actions.permissionRunChanged()
@@ -2758,6 +2856,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             const projectId = values.currentProjectId
             if (projectId === null) {
+                if (reconcileHistory) {
+                    actions.markHistoryRecoveryFailed()
+                }
                 actions.handleStreamError({ errorTitle: 'No current project', retryable: false })
                 return
             }
@@ -2808,11 +2909,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // Persistent provisioning flag for disconnect telemetry: stays true across the async
             // gap between bootstrap and the first connection/run_started. Cleared on the first
             // `sseOpened`/`_posthog/run_started`.
-            cache.isBootstrapping = true
+            if (!reconcileHistory) {
+                cache.isBootstrapping = true
+            }
             // Fresh run: clear the durable-stream end sentinel and the proxy re-mint budget so a
             // reopened conversation starts clean.
-            cache.streamEnded = false
-            cache.streamTokenRefreshes = 0
+            if (!reconcileHistory) {
+                cache.streamEnded = false
+                cache.streamTokenRefreshes = 0
+            }
 
             // Fresh-run fast path: nothing historical to assemble — stream from the top, with nothing
             // to buffer or drain.
@@ -2828,10 +2933,22 @@ export const runStreamLogic = kea<runStreamLogicType>([
             try {
                 run = await api.tasks.runs.get(taskId, runId)
             } catch (error) {
+                if (!isCurrentBootstrap()) {
+                    return
+                }
+                if (reconcileHistory) {
+                    cache.bufferingLiveFrames = false
+                    cache.bufferedLiveFrames = undefined
+                    cache.disposables.dispose('event-source')
+                    actions.markHistoryRecoveryFailed()
+                }
                 actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
                 return
             }
             breakpoint()
+            if (!isCurrentBootstrap()) {
+                return
+            }
             // Flag the run's resume-ness so the projection can drop the synthetic resume-context
             // prompt (§6) before any history frame folds.
             actions.markBootstrapResumeRun(isResumeRun(run))
@@ -2845,14 +2962,22 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // agent emits while the history loads are then captured by the live stream and buffered
             // (see `handleSseEvent`), not gapped between the snapshot read and the connect cutoff. The
             // buffered tail is reconciled against the history once the snapshot lands (the drain below).
-            if (!terminal) {
+            if (!terminal && !reconcileHistory) {
+                // History replaces the previous page's position, including retries before the first live event.
+                cache.lastEventId = undefined
+                clearStreamResumeId(runId)
                 cache.bufferingLiveFrames = true
                 cache.bufferedLiveFrames = []
                 actions.openSseForRun({ taskId, runId, startLatest: true })
+                return
             }
 
             // Retry the snapshot before giving up (§case 5) — a transient blip shouldn't kill the live SSE.
             const historyResult = await fetchLogEntriesWithRetry(taskId, runId, breakpoint)
+            breakpoint()
+            if (!isCurrentBootstrap()) {
+                return
+            }
             if (!Array.isArray(historyResult)) {
                 // Retries exhausted; for an in-progress run the SSE is already open, so tear it down too —
                 // a thread of live-only frames with no history is more confusing than a clean, retryable error.
@@ -2860,13 +2985,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.bufferedLiveFrames = undefined
                 cache.disposables.dispose('reconnect-backoff')
                 cache.disposables.dispose('event-source')
+                if (reconcileHistory) {
+                    actions.markHistoryRecoveryFailed()
+                }
                 actions.handleStreamError(
                     mapHttpStatusToStreamError((historyResult.historyError as { status?: number })?.status)
                 )
                 return
             }
             const entries = historyResult
-            breakpoint()
 
             // The full resume-chain S3 snapshot — replayed as `replay`, so the projection renders
             // persisted human turns and side-effect telemetry stays suppressed for history.
@@ -2900,7 +3027,28 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     actions.pushHumanMessage(retainedMessage)
                 }
             } else {
+                const retainedEntries = retainUnpersistedEntries(values.log.entries, history, isResumeRun(run))
+                actions.replaceLog(emptyRunLog())
                 history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+                actions.appendEntries(retainedEntries)
+            }
+
+            cache.streamBootstrap = { taskId, runId }
+
+            // A terminal status can arrive while the snapshot loads; its buffered tail still belongs in the thread.
+            const buffered = (cache.bufferedLiveFrames as StoredLogEntry[] | undefined) ?? []
+            cache.bufferingLiveFrames = false
+            cache.bufferedLiveFrames = undefined
+            const survivors = dedupeBufferedAgainstHistory(buffered, history)
+            survivors.forEach((entry) => actions.ingestAcpFrame(entry, 'live'))
+
+            if (
+                reconcileHistory &&
+                !turnCompleteBeforeReconcile &&
+                values.turnComplete &&
+                !windowShowsToolCallInFlight(survivors)
+            ) {
+                actions.markTurnComplete()
             }
 
             if (terminal) {
@@ -2920,16 +3068,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 return
             }
 
-            // Drain the seam: drop buffered-live frames the snapshot already accounts for (content
-            // multiset), then append the surviving tail as live. Stop buffering first so any frame
-            // arriving during the drain appends directly rather than landing in a buffer we've moved past.
-            const buffered = (cache.bufferedLiveFrames as StoredLogEntry[] | undefined) ?? []
-            cache.bufferingLiveFrames = false
-            cache.bufferedLiveFrames = undefined
-            dedupeBufferedAgainstHistory(buffered, history).forEach((entry) => actions.ingestAcpFrame(entry, 'live'))
             actions.bootstrapLogReady()
         },
-        openSseForRun: ({ taskId, runId, startLatest }) => {
+        openSseForRun: ({ taskId, runId, startLatest: requestedStartLatest }) => {
             // A read-only instance must never stream — guard here too, so even a stray or connected
             // dispatch can't open SSE into a read-only thread.
             if (props.replayOnly) {
@@ -2939,6 +3080,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (projectId === null) {
                 actions.handleStreamError({ errorTitle: 'No current project', retryable: false })
                 return
+            }
+            if (
+                cache.streamBootstrap &&
+                (cache.streamBootstrap.taskId !== taskId || cache.streamBootstrap.runId !== runId)
+            ) {
+                cache.streamBootstrap = undefined
+                cache.bufferingLiveFrames = false
+                cache.bufferedLiveFrames = undefined
             }
 
             // Every open starts a fresh connection. The end sentinel and the proxy re-mint budget
@@ -2960,9 +3109,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // The cursor is a Redis id from the previous run's stream — it addresses nothing in
                 // this one, so resuming from it can skip this run's opening frames.
                 cache.lastEventId = undefined
+                cache.resyncPending = false
             }
             // Track the active run so the reconnect loop can refetch it on a drop.
             cache.activeRun = { taskId, runId }
+            const startLatest = cache.resyncPending ? false : requestedStartLatest
 
             actions.sseConnecting()
             cache.disposables.dispose('reconnect-backoff')
@@ -2977,6 +3128,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     // steady-state stream never re-delivers a frame we've already appended. Mirrored to
                     // sessionStorage so a live reconnect that lost the in-memory cursor can recover it.
                     cache.lastEventId = id
+                    cache.resyncPending = false
                     writeStreamResumeId(runId, id)
                 }
                 if (event === STREAM_END_EVENT) {
@@ -3002,6 +3154,20 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         })
                     } catch {
                         actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+                    }
+                    return
+                }
+                if (event === 'end') {
+                    let control: unknown
+                    try {
+                        control = JSON.parse(data)
+                    } catch {
+                        return
+                    }
+                    if (isRecord(control) && control.type === 'resync') {
+                        cache.lastEventId = undefined
+                        clearStreamResumeId(runId)
+                        cache.resyncPending = true
                     }
                     return
                 }
@@ -3054,6 +3220,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // unknown frame types are ignored.
             }
 
+            // Token lookup can outlast history loading, so capture the bootstrap cursor policy before awaiting it.
+            const storedResumeId = cache.bufferingLiveFrames ? undefined : (readStreamResumeId(runId) ?? undefined)
+
             // Open the stream as a fetch response and pump its body through the parser. A native
             // `EventSource` can't set request headers; a fetch can, so a reconnect resumes exactly
             // after `cache.lastEventId` via the Last-Event-ID header instead of re-broadcasting the
@@ -3070,14 +3239,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (signal.aborted) {
                     return
                 }
-                // Resume cursor: prefer the in-memory id stamped by the reader; fall back to the
-                // persisted sessionStorage cursor only outside the bootstrap seam window
-                // (`bufferingLiveFrames`). The connect-first bootstrap deliberately streams
-                // `start=latest` and reconciles the S3 history seam, so a persisted cursor must never
-                // pre-empt it — only a live reconnect that lost its in-memory cursor honors it.
-                const lastEventId =
-                    (cache.lastEventId as string | undefined) ??
-                    (cache.bufferingLiveFrames ? undefined : (readStreamResumeId(runId) ?? undefined))
+                const lastEventId = (cache.lastEventId as string | undefined) ?? storedResumeId
 
                 let response: Response
                 try {
@@ -3123,6 +3285,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
                 // Headers received and a body to read → the connection is open.
                 actions.sseOpened()
+                const bootstrap = cache.streamBootstrap as
+                    | { taskId: string; runId: string; retainedMessage?: string }
+                    | undefined
+                if (cache.resyncPending) {
+                    actions.bootstrapRun({
+                        taskId,
+                        runId,
+                        retainedMessage: bootstrap?.runId === runId ? bootstrap.retainedMessage : undefined,
+                        reconcileHistory: true,
+                    })
+                } else if (
+                    bootstrap?.taskId === taskId &&
+                    bootstrap.runId === runId &&
+                    (cache.bufferingLiveFrames || (startLatest && !lastEventId))
+                ) {
+                    // A cursorless open skips to the new head, so read history only after this connection succeeds.
+                    actions.bootstrapRun({ ...bootstrap, reconcileHistory: true })
+                }
                 const decoder = new TextDecoder()
                 const parser = createParser({ onEvent: handleSseEvent })
                 try {
@@ -3215,6 +3395,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
 
             // Terminal → final terminal-status action + close.
             if (isTerminalRunStatus(result.status)) {
+                const bootstrap = cache.streamBootstrap as
+                    | { taskId: string; runId: string; retainedMessage?: string }
+                    | undefined
+                if (!cache.lastEventId && (bootstrap || cache.resyncPending)) {
+                    actions.bootstrapRun({
+                        taskId: bootstrap?.taskId ?? activeRun.taskId,
+                        runId: bootstrap?.runId ?? activeRun.runId,
+                        ...(bootstrap?.retainedMessage !== undefined
+                            ? { retainedMessage: bootstrap.retainedMessage }
+                            : {}),
+                        reconcileHistory: true,
+                    })
+                }
                 actions.handleTerminalStatus({ status: result.status as RunStatus })
                 return
             }
@@ -3563,8 +3756,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         closeSse: () => {
             actions.cancelPermissionDelivery()
+            cache.streamBootstrap = undefined
+            cache.bufferingLiveFrames = false
+            cache.bufferedLiveFrames = undefined
             cache.activeRun = undefined
             cache.lastEventId = undefined
+            cache.resyncPending = false
             cache.disposables.dispose('reconnect-backoff')
             // Aborts the in-flight fetch reader (its signal); the reader loop sees `aborted` and
             // exits without scheduling a reconnect.
@@ -3572,6 +3769,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         reset: () => {
             actions.cancelPermissionDelivery()
+            cache.streamBootstrap = undefined
             cache.optimisticResume = undefined
             // `log` clears via its own reducer on `reset`, so the projection empties with it. The
             // per-frame invocation tracker mirrors the log, so it must clear alongside it.
@@ -3582,6 +3780,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.isBootstrapping = false
             cache.bufferingLiveFrames = false
             cache.bufferedLiveFrames = undefined
+            cache.resyncPending = false
             cache.sseConnectedAtMs = undefined
             cache.streamEnded = false
             cache.streamTokenRefreshes = 0
@@ -3782,7 +3981,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (!isReplay) {
                     actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
                 }
-                actions.markTurnComplete()
+                actions.markTurnComplete(isReplay)
                 return
             }
             if (method === '_posthog/progress') {
