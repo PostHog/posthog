@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { CSSProperties, DragEvent } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconEllipsis } from '@posthog/icons'
@@ -16,9 +16,13 @@ import type { HogFlowEdge } from '../types'
 import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeStep } from './HogFlowTreeStep'
 import type { WorkflowTreeNode } from './workflowTree'
-import { getWorkflowTreeBranchSummary } from './workflowTreePresentation'
-
-const BRANCH_LIMIT = 6
+import {
+    getWorkflowTreeBranchSummary,
+    getWorkflowTreeOccurrenceKey,
+    getWorkflowTreeStepId,
+    WORKFLOW_TREE_BRANCH_LIMIT,
+    type WorkflowTreeNodeViewState,
+} from './workflowTreePresentation'
 
 export function HogFlowTreeNode({
     activeDropzones,
@@ -30,6 +34,9 @@ export function HogFlowTreeNode({
     showIncomingConnector = true,
     onFocusBranch,
     onSelectContinuation,
+    path,
+    viewStates,
+    onViewStateChange,
 }: {
     activeDropzones: boolean
     draggedActionId: string | null
@@ -38,20 +45,26 @@ export function HogFlowTreeNode({
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string, dragPreviewElement: HTMLDivElement | null) => void
     showIncomingConnector?: boolean
-    onFocusBranch?: (edge: HogFlowEdge) => void
-    onSelectContinuation?: (actionId: string) => void
+    onFocusBranch?: (path: HogFlowEdge[]) => void
+    onSelectContinuation: (actionId: string, path: HogFlowEdge[]) => void
+    path: HogFlowEdge[]
+    viewStates: Record<string, WorkflowTreeNodeViewState>
+    onViewStateChange: (key: string, state: WorkflowTreeNodeViewState) => void
 }): JSX.Element {
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
-    const [branchesOpen, setBranchesOpen] = useState(true)
-    const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(new Set())
-    const [showAllBranches, setShowAllBranches] = useState(false)
+    const occurrenceKey = getWorkflowTreeOccurrenceKey(node.action.id, path)
+    const {
+        branchesOpen = true,
+        collapsedBranches = new Set<string>(),
+        showAllBranches = false,
+    } = viewStates[occurrenceKey] ?? {}
     const nodeRef = useRef<HTMLDivElement>(null)
     const conditionBranches = node.branches.filter((branch) => branch.edge.type === 'branch')
     const visibleBranches = showAllBranches
         ? node.branches
         : [
-              ...conditionBranches.slice(0, BRANCH_LIMIT),
+              ...conditionBranches.slice(0, WORKFLOW_TREE_BRANCH_LIMIT),
               ...node.branches.filter((branch) => branch.edge.type === 'continue'),
           ]
     const hiddenBranchCount = node.branches.length - visibleBranches.length
@@ -60,19 +73,16 @@ export function HogFlowTreeNode({
     const branchNoun = node.action.type === 'conditional_branch' ? 'conditions' : 'paths'
 
     const toggleBranchCollapsed = (branchKey: string): void => {
-        setCollapsedBranches((current) => {
-            const next = new Set(current)
-            next.has(branchKey) ? next.delete(branchKey) : next.add(branchKey)
-            return next
-        })
+        const next = new Set(collapsedBranches)
+        next.has(branchKey) ? next.delete(branchKey) : next.add(branchKey)
+        onViewStateChange(occurrenceKey, { collapsedBranches: next })
     }
 
     const selectContinuation = (): void => {
         if (joinAction) {
             setSelectedBranch(null)
             setSelectedNodeId(joinAction.id)
-            onSelectContinuation?.(joinAction.id)
-            document.getElementById(`workflow-tree-step-${joinAction.id}`)?.scrollIntoView({ block: 'center' })
+            onSelectContinuation(joinAction.id, path)
         }
     }
 
@@ -87,6 +97,7 @@ export function HogFlowTreeNode({
     const step = (
         <HogFlowTreeStep
             action={node.action}
+            stepId={getWorkflowTreeStepId(node.action.id, path)}
             collapseControl={
                 node.branches.length > 0 ? (
                     <LemonButton
@@ -97,7 +108,7 @@ export function HogFlowTreeNode({
                         aria-expanded={branchesOpen}
                         tooltip={`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
                         icon={<IconChevronDown className={cn(!branchesOpen && '-rotate-90')} />}
-                        onClick={() => setBranchesOpen((open) => !open)}
+                        onClick={() => onViewStateChange(occurrenceKey, { branchesOpen: !branchesOpen })}
                     />
                 ) : undefined
             }
@@ -135,12 +146,14 @@ export function HogFlowTreeNode({
                                 className="flex min-w-0 flex-col gap-3 pt-3"
                                 data-workflow-tree-branch-content={node.action.id}
                             >
-                                {conditionBranches.length > BRANCH_LIMIT && (
+                                {conditionBranches.length > WORKFLOW_TREE_BRANCH_LIMIT && (
                                     <LemonButton
                                         type="secondary"
                                         size="xsmall"
                                         className="self-start"
-                                        onClick={() => setShowAllBranches((showAll) => !showAll)}
+                                        onClick={() =>
+                                            onViewStateChange(occurrenceKey, { showAllBranches: !showAllBranches })
+                                        }
                                         data-attr="workflow-tree-toggle-more-branches"
                                     >
                                         {showAllBranches
@@ -283,7 +296,8 @@ export function HogFlowTreeNode({
                                                                 items={[
                                                                     {
                                                                         label: 'Focus on this path',
-                                                                        onClick: () => onFocusBranch(branch.edge),
+                                                                        onClick: () =>
+                                                                            onFocusBranch([...path, branch.edge]),
                                                                     },
                                                                 ]}
                                                             >
@@ -293,6 +307,7 @@ export function HogFlowTreeNode({
                                                                     className="!bg-transparent shrink-0"
                                                                     icon={<IconEllipsis />}
                                                                     aria-label={`Actions for ${branch.label}`}
+                                                                    id={`workflow-tree-path-${getWorkflowTreeOccurrenceKey(node.action.id, [...path, branch.edge])}`}
                                                                     tooltip="Path actions"
                                                                     data-attr="workflow-tree-focus-branch"
                                                                 />
@@ -317,6 +332,9 @@ export function HogFlowTreeNode({
                                                             showIncomingConnector={childIndex > 0}
                                                             onFocusBranch={onFocusBranch}
                                                             onSelectContinuation={onSelectContinuation}
+                                                            path={[...path, branch.edge]}
+                                                            viewStates={viewStates}
+                                                            onViewStateChange={onViewStateChange}
                                                         />
                                                     ))}
                                                     {branch.sequence.trailingEdge && (

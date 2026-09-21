@@ -49,6 +49,12 @@ Use **Focus on this path** in the path actions menu to show a path with multiple
 The focused view shows its location and destination.
 Use **Back to workflow** or the continuation button to return to the full workflow.
 Focus changes only the view, not the stored workflow.
+Open and collapsed paths stay the same when you enter or leave the focused view.
+The editor also keeps the choice to show more conditions.
+Keyboard focus moves to **Back to workflow** when you focus a path.
+On return, keyboard focus moves to that path's actions menu.
+A continuation link moves keyboard focus to its destination step and opens any hidden parent paths.
+Repeated steps keep the location of the path you chose, including its breadcrumb and return location.
 
 **Add step to [path]** inserts a step inside that path.
 **Add step after [branch] paths** inserts a step before the shared continuation, using the existing join edges.

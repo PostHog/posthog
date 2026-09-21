@@ -5,7 +5,13 @@ import {
     getWorkflowBranchLabel,
     isWorkflowTreeComplete,
 } from './workflowTree'
-import { findWorkflowTreePath, getWorkflowTreeBranchSummary, getWorkflowTreeStepIds } from './workflowTreePresentation'
+import {
+    findWorkflowTreePath,
+    getWorkflowTreeBranchSummary,
+    getWorkflowTreeContinuationPath,
+    getWorkflowTreeStepId,
+    getWorkflowTreeStepIds,
+} from './workflowTreePresentation'
 
 const action = (id: string, type: HogFlowAction['type'] = 'function'): HogFlowAction =>
     ({ id, type, name: id, description: '', config: {} }) as HogFlowAction
@@ -156,15 +162,20 @@ describe('buildWorkflowTree', () => {
             '4 steps · Continue to: shared'
         )
         expect(
-            findWorkflowTreePath(tree, edge('onboarding', 'guided', 'branch', 0)).map(({ node, branch }) => [
-                node.action.id,
-                branch.edge.index,
-            ])
+            findWorkflowTreePath(tree, [
+                edge('outer', 'trial', 'branch', 1),
+                edge('onboarding', 'guided', 'branch', 0),
+            ]).map(({ node, branch }) => [node.action.id, branch.edge.index])
         ).toEqual([
             ['outer', 1],
             ['onboarding', 0],
         ])
-        expect(findWorkflowTreePath(tree, edge('deleted-branch', 'guided', 'branch', 0))).toEqual([])
+        expect(
+            findWorkflowTreePath(tree, [
+                edge('outer', 'trial', 'branch', 1),
+                edge('deleted-branch', 'guided', 'branch', 0),
+            ])
+        ).toEqual([])
     })
 
     it('keeps a nested join inside the focused path and the outer join outside it', () => {
@@ -198,7 +209,7 @@ describe('buildWorkflowTree', () => {
             )
         )
 
-        const [focused] = findWorkflowTreePath(tree, edge('outer', 'trial', 'branch', 0))
+        const [focused] = findWorkflowTreePath(tree, [edge('outer', 'trial', 'branch', 0)])
 
         expect(focused.branch.sequence.nodes.find((node) => node.action.id === 'inner')?.joinActionId).toBe('followup')
         expect(focused.node.joinActionId).toBe('shared')
@@ -209,6 +220,43 @@ describe('buildWorkflowTree', () => {
             'self-serve',
             'followup',
         ])
+        const innerPath = [edge('outer', 'trial', 'branch', 0), edge('inner', 'guided', 'branch', 0)]
+        expect(getWorkflowTreeContinuationPath(tree, innerPath, 'followup')).toEqual(innerPath.slice(0, 1))
+        expect(getWorkflowTreeContinuationPath(tree, innerPath, 'shared')).toEqual([])
+    })
+
+    it('keeps the selected occurrence when paths share a branching action', () => {
+        const tree = buildWorkflowTree(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('outer', 'conditional_branch'),
+                    action('wait', 'wait_until_condition'),
+                    action('matched'),
+                    action('timeout'),
+                    action('exit', 'exit'),
+                ],
+                [
+                    edge('trigger', 'outer'),
+                    edge('outer', 'wait', 'branch', 0),
+                    edge('outer', 'wait', 'branch', 1),
+                    edge('outer', 'exit'),
+                    edge('wait', 'matched', 'branch', 0),
+                    edge('wait', 'timeout'),
+                    edge('matched', 'exit'),
+                    edge('timeout', 'exit'),
+                ]
+            )
+        )
+        const firstPath = [edge('outer', 'wait', 'branch', 0), edge('wait', 'matched', 'branch', 0)]
+        const secondPath = [edge('outer', 'wait', 'branch', 1), edge('wait', 'matched', 'branch', 0)]
+
+        for (const path of [firstPath, secondPath]) {
+            expect(findWorkflowTreePath(tree, path).map(({ branch }) => branch.edge)).toEqual(path)
+            expect(getWorkflowTreeContinuationPath(tree, path, 'matched')).toEqual(path)
+        }
+        expect(getWorkflowTreeStepId('matched', firstPath)).not.toBe(getWorkflowTreeStepId('matched', secondPath))
+        expect(findWorkflowTreePath(tree, [edge('wait', 'matched', 'branch', 0)])).toEqual([])
     })
 
     it.each([

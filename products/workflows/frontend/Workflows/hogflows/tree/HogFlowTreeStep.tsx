@@ -19,12 +19,14 @@ export function HogFlowTreeStep({
     onDragEnd,
     onDragStart,
     collapseControl,
+    stepId,
     canDrag = !['trigger', 'exit'].includes(action.type) && !isBranchingAction(action),
 }: {
     action: HogFlowAction
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string, dragPreviewElement: HTMLDivElement | null) => void
     collapseControl?: ReactNode
+    stepId: string
     canDrag?: boolean
 }): JSX.Element {
     const { animatingEdgePair, nodesById, selectedNode } = useValues(hogFlowEditorLogic)
@@ -77,7 +79,7 @@ export function HogFlowTreeStep({
                 'data-[workflow-tree-dragging]:opacity-50'
             )}
             data-attr="workflow-tree-step"
-            id={`workflow-tree-step-${action.id}`}
+            id={stepId}
         >
             <Button
                 type="button"
