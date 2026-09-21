@@ -97,7 +97,8 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_INPUT_TABLE_NAME}
     `attributes` Map(LowCardinality(String), String),
     `_partition` UInt32,
     `_topic` String,
-    `_offset` UInt64
+    `_offset` UInt64,
+    `retention_days_explicit` Int32 DEFAULT 0
 )
 ENGINE = Null
 """
@@ -112,16 +113,16 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
     `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
     `series_fingerprint` UInt64 CODEC(Delta, Default),
     `resource_fingerprint` UInt64 DEFAULT 0,
-    `timestamp` DateTime64(6) CODEC(DoubleDelta),
-    `observed_timestamp` DateTime64(6),
-    `original_expiry_timestamp` DateTime64(6),
+    `timestamp` DateTime64(6) CODEC(DoubleDelta, Default),
+    `observed_timestamp` DateTime64(6) CODEC(DoubleDelta, Default),
+    `original_expiry_timestamp` DateTime64(6) CODEC(DoubleDelta, Default),
     `created_at` DateTime64(6) MATERIALIZED now(),
     `service_name` LowCardinality(String),
     `metric_type` LowCardinality(String),
-    `value` Float64 CODEC(Gorilla),
-    `count` UInt64 DEFAULT 1 CODEC(T64),
+    `value` Float64 CODEC(Gorilla, Default),
+    `count` UInt64 DEFAULT 1 CODEC(T64, Default),
     `histogram_bounds` Array(Float64),
-    `histogram_counts` Array(UInt64),
+    `histogram_counts` Array(UInt64) CODEC(T64, Default),
     `trace_id` String,
     `span_id` String,
     `trace_flags` Int32,
@@ -132,7 +133,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
     `instrumentation_scope` String,
     `_partition` UInt32,
     `_topic` String,
-    `_offset` UInt64,
+    `_offset` UInt64 CODEC(Delta, Default),
     INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
     INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
     INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -256,6 +257,12 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     sorted_resource_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))"
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
     labelled = "toBool(ifNull(has_labels, 1))"
+    # The retention the producer asked for: the record field, else the `retention-days` header,
+    # else 0. `metrics2` applies the 90-day default here; the metrics4 views apply their own.
+    explicit_retention = (
+        "assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, "
+        "toInt32OrZero(_headers.value[indexOf(_headers.name, 'retention-days')])))"
+    )
     # Retention counts from the sample's own timestamp, so late samples expire with their series.
     # Capture already replaces a timestamp far from the ingest time, so no clock guard is needed here.
     return f"""SELECT
@@ -266,7 +273,7 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     cityHash64({sorted_resource_attributes}) AS resource_fingerprint,
     timestamp,
     observed_timestamp,
-    timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32({DEFAULT_RETENTION_DAYS}))))) AS original_expiry_timestamp,
+    timestamp + toIntervalDay(if(retention_days_explicit > 0, retention_days_explicit, toInt32({DEFAULT_RETENTION_DAYS}))) AS original_expiry_timestamp,
     ifNull(service_name, '') AS service_name,
     ifNull(metric_type, '') AS metric_type,
     ifNull(value, 0) AS value,
@@ -285,7 +292,8 @@ def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
     if({labelled}, {sorted_attributes}, CAST(map(), 'Map(String, String)')) AS attributes,
     _partition,
     _topic,
-    _offset
+    _offset,
+    {explicit_retention} AS retention_days_explicit
 FROM {db}.{KAFKA_TABLE_NAME}
 WHERE {KAFKA_TABLE_NAME}.series_fingerprint IS NOT NULL
 SETTINGS
@@ -359,6 +367,32 @@ def METRICS2_ADD_TIMESTAMP_INDEX_SQL() -> str:
         f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME} "
         "ADD INDEX IF NOT EXISTS idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1"
     )
+
+
+def METRICS2_INPUT_ADD_RETENTION_DAYS_EXPLICIT_SQL() -> str:
+    return (
+        f"ALTER TABLE {_db()}.{METRICS2_INPUT_TABLE_NAME} "
+        "ADD COLUMN IF NOT EXISTS retention_days_explicit Int32 DEFAULT 0"
+    )
+
+
+# A chain that ends in `Default` keeps the server compression as its second stage. `Delta` on
+# `_offset` and `DoubleDelta` on the timestamps rely on the sort key: within one series-hour the
+# rows are in timestamp order, so both columns are near-sorted in storage order.
+METRICS2_CODECS: tuple[tuple[str, str], ...] = (
+    ("timestamp", "DateTime64(6) CODEC(DoubleDelta, Default)"),
+    ("observed_timestamp", "DateTime64(6) CODEC(DoubleDelta, Default)"),
+    ("original_expiry_timestamp", "DateTime64(6) CODEC(DoubleDelta, Default)"),
+    ("value", "Float64 CODEC(Gorilla, Default)"),
+    ("count", "UInt64 DEFAULT 1 CODEC(T64, Default)"),
+    ("histogram_counts", "Array(UInt64) CODEC(T64, Default)"),
+    ("_offset", "UInt64 CODEC(Delta, Default)"),
+)
+
+
+def METRICS2_MODIFY_CODECS_SQL() -> str:
+    clauses = ",\n    ".join(f"MODIFY COLUMN IF EXISTS `{name}` {definition}" for name, definition in METRICS2_CODECS)
+    return f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME}\n    {clauses}"
 
 
 def METRIC_SERIES2_ADD_LAST_SEEN_INDEX_SQL() -> str:
