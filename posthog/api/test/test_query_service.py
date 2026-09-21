@@ -240,10 +240,16 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("service_error", LanguageServiceError("unavailable"), "service_error"),
-            ("invalid_http", MalformedLanguageServiceResponse("malformed"), "invalid_response"),
+            ("service_error", LanguageServiceError("unavailable"), "service_error", None),
+            (
+                "invalid_http",
+                MalformedLanguageServiceResponse("malformed"),
+                "invalid_response",
+                "http_response",
+            ),
         ]
     )
+    @patch("posthog.api.services.query._capture_malformed_language_service_response")
     @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
@@ -253,10 +259,12 @@ class TestLanguageServiceRouting(SimpleTestCase):
         _name: str,
         failure: Exception,
         reason: str,
+        malformed_stage: str | None,
         client_class: MagicMock,
         enabled: MagicMock,
         python_metadata: MagicMock,
         analytics_client: MagicMock,
+        capture_malformed: MagicMock,
     ) -> None:
         client_class.return_value.validate.side_effect = failure
         python_metadata.return_value = HogQLMetadataResponse(
@@ -278,6 +286,10 @@ class TestLanguageServiceRouting(SimpleTestCase):
         analytics_client.labels.assert_called_once_with(operation="metadata", backend="python", reason=reason)
         analytics_client.labels.return_value.inc.assert_called_once_with()
         enabled.assert_called_once()
+        if malformed_stage is None:
+            capture_malformed.assert_not_called()
+        else:
+            capture_malformed.assert_called_once_with("metadata", malformed_stage)
 
     @parameterized.expand([("collection", {}), ("nested", [None])])
     @patch("posthog.api.services.query._capture_malformed_language_service_response")
@@ -640,10 +652,10 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("warehouse-aliases-v1:concurrent", True),
-            ("legacy-v1:other", False),
-            (None, False),
-            (123, False),
+            ("warehouse-aliases-v1:concurrent", True, "served", None),
+            ("legacy-v1:other", False, "invalid_response", "http_response"),
+            (None, False, "invalid_response", "http_response"),
+            (123, False, "invalid_response", "http_response"),
         ]
     )
     @patch("posthog.api.services.query.build_catalog", return_value={"tables": {}, "properties": {}})
@@ -655,6 +667,8 @@ class TestLanguageServiceRouting(SimpleTestCase):
         self,
         retry_revision: object,
         expected_success: bool,
+        expected_reason: str,
+        expected_malformed_stage: str | None,
         client_class: MagicMock,
         get_redis_client: MagicMock,
         _enabled: MagicMock,
@@ -691,6 +705,8 @@ class TestLanguageServiceRouting(SimpleTestCase):
         )
 
         assert (result.result is not None) is expected_success
+        assert result.reason == expected_reason
+        assert result.malformed_stage == expected_malformed_stage
         client_class.return_value.publish.assert_called_once()
         assert client_class.return_value.validate.call_count == 3
 

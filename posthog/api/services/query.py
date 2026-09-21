@@ -133,7 +133,10 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
         if _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
             return _EditorAssistRoute(enabled=True, result=result, reason="served")
 
+    publication_succeeded = False
+
     def publish_catalog() -> None:
+        nonlocal publication_succeeded
         schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
         revision = f"{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}{time.time_ns()}"
         client.publish(
@@ -147,6 +150,7 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
                 database=schema_catalog.database,
             ),
         )
+        publication_succeeded = True
 
     def check_catalog() -> LanguageServiceResult | None:
         try:
@@ -154,6 +158,8 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
         except CatalogMissing:
             return None
         if not _is_alias_capable_catalog_revision(current.body.get("catalogRevision")):
+            if publication_succeeded:
+                raise MalformedLanguageServiceResponse("language service returned an incompatible catalog revision")
             return None
         return current
 
