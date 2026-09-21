@@ -113,6 +113,80 @@ def test_load_cookies_dia_uses_chromium_based_with_dia_keychain(monkeypatch: pyt
     assert seen_kwargs["cookie_file"] == "/fake/dia/Default/Cookies"
 
 
+def test_load_cookies_does_not_merge_a_complete_session_from_two_profiles(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Profiles A and B are each partial but jointly cover REQUIRED_COOKIES; profile C
+    # is complete on its own. The result must be C's set, never a mix of A and B.
+    jars_by_file = {
+        "/a/Cookies": [_FakeCookie("metabase.SESSION", "s-a"), _FakeCookie("metabase.DEVICE", "d-a")],
+        "/b/Cookies": [_FakeCookie("ph_int_auth-0", "a0-b"), _FakeCookie("ph_int_auth-1", "a1-b")],
+        "/c/Cookies": [
+            _FakeCookie("metabase.SESSION", "s-c"),
+            _FakeCookie("metabase.DEVICE", "d-c"),
+            _FakeCookie("ph_int_auth-0", "a0-c"),
+            _FakeCookie("ph_int_auth-1", "a1-c"),
+        ],
+    }
+
+    class FakeBC3:
+        @staticmethod
+        def chrome(domain_name: str, cookie_file: str | None = None) -> list[_FakeCookie]:
+            return jars_by_file[cookie_file]
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "browser_cookie3", FakeBC3)
+    monkeypatch.setattr(
+        metabase,
+        "_enumerate_cookie_files",
+        lambda browser: [
+            ("chrome", Path("/a/Cookies")),
+            ("chrome", Path("/b/Cookies")),
+            ("chrome", Path("/c/Cookies")),
+        ],
+    )
+
+    cookies = metabase._load_cookies_from_browser("metabase.prod-us.posthog.dev", "chrome")
+    assert cookies == {
+        "metabase.SESSION": "s-c",
+        "metabase.DEVICE": "d-c",
+        "ph_int_auth-0": "a0-c",
+        "ph_int_auth-1": "a1-c",
+    }
+
+
+def test_load_cookies_exits_on_first_complete_profile_without_reading_later_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    complete = [
+        _FakeCookie("metabase.SESSION", "s"),
+        _FakeCookie("metabase.DEVICE", "d"),
+        _FakeCookie("ph_int_auth-0", "a0"),
+        _FakeCookie("ph_int_auth-1", "a1"),
+    ]
+    calls: list[str] = []
+
+    class FakeBC3:
+        @staticmethod
+        def chrome(domain_name: str, cookie_file: str | None = None) -> list[_FakeCookie]:
+            calls.append(cookie_file or "default")
+            if cookie_file == "/first/Cookies":
+                return complete
+            raise AssertionError("must not read a later profile once one is complete")
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "browser_cookie3", FakeBC3)
+    monkeypatch.setattr(
+        metabase,
+        "_enumerate_cookie_files",
+        lambda browser: [("chrome", Path("/first/Cookies")), ("chrome", Path("/second/Cookies"))],
+    )
+
+    cookies = metabase._load_cookies_from_browser("metabase.prod-us.posthog.dev", "chrome")
+    assert cookies == {"metabase.SESSION": "s", "metabase.DEVICE": "d", "ph_int_auth-0": "a0", "ph_int_auth-1": "a1"}
+    assert calls == ["/first/Cookies"]
+
+
 def test_enumerate_cookie_files_globs_chromium_profiles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     chrome_root = tmp_path / "Chrome"
     (chrome_root / "Default").mkdir(parents=True)
@@ -274,6 +348,7 @@ def test_all_readable_browsers_blocked_true_when_only_installed_candidates_are_b
     firefox_root.mkdir()
     monkeypatch.setattr(metabase, "_CHROMIUM_PROFILE_ROOTS", {"chrome": [chrome_root]})
     monkeypatch.setattr(metabase, "_FIREFOX_ROOT", firefox_root)
+    monkeypatch.setattr(metabase, "_default_https_browser", lambda: None)
 
     assert metabase._all_readable_browsers_blocked(None, ["chrome", "firefox"]) is True
 
@@ -288,6 +363,7 @@ def test_all_readable_browsers_blocked_false_when_an_installed_candidate_is_unbl
     arc_root.mkdir()
     monkeypatch.setattr(metabase, "_CHROMIUM_PROFILE_ROOTS", {"chrome": [chrome_root], "arc": [arc_root]})
     monkeypatch.setattr(metabase, "_FIREFOX_ROOT", tmp_path / "does-not-exist")
+    monkeypatch.setattr(metabase, "_default_https_browser", lambda: None)
 
     assert metabase._all_readable_browsers_blocked(None, ["arc"]) is False
 
@@ -297,8 +373,25 @@ def test_all_readable_browsers_blocked_true_when_no_candidate_is_installed(
 ) -> None:
     monkeypatch.setattr(metabase, "_CHROMIUM_PROFILE_ROOTS", {"chrome": [tmp_path / "does-not-exist"]})
     monkeypatch.setattr(metabase, "_FIREFOX_ROOT", tmp_path / "also-missing")
+    monkeypatch.setattr(metabase, "_default_https_browser", lambda: None)
 
     assert metabase._all_readable_browsers_blocked(None, []) is True
+
+
+@pytest.mark.parametrize(
+    ("browser", "blocked"),
+    [
+        pytest.param(None, ["chrome", "firefox"], id="default-browser-is-safari"),
+        pytest.param("safari", [], id="explicit-safari"),
+    ],
+)
+def test_all_readable_browsers_blocked_false_for_safari(
+    monkeypatch: pytest.MonkeyPatch, browser: str | None, blocked: list[str]
+) -> None:
+    # Safari isn't directory-checked, so a blocked Chrome/Firefox must not read as
+    # "hopeless" when Safari is the browser actually in play.
+    monkeypatch.setattr(metabase, "_default_https_browser", lambda: "safari")
+    assert metabase._all_readable_browsers_blocked(browser, blocked) is False
 
 
 def test_metabase_cookie_command_errors_when_no_cache(cache_dir: Path) -> None:
@@ -459,6 +552,28 @@ def test_wait_for_valid_cookie_does_not_fail_fast_when_another_browser_might_wor
     # must not cut off SSO in the browser the user is actually completing it in.
     monkeypatch.setattr(metabase, "_detect_blocked_browsers", lambda browser: ["arc"])
     monkeypatch.setattr(metabase, "_all_readable_browsers_blocked", lambda browser, blocked: False)
+    monkeypatch.setattr(metabase, "_load_cookies_from_browser", lambda d, b, seen_warnings=None: {})
+    monkeypatch.setattr(metabase.time, "sleep", lambda _: None)
+
+    call_count = {"n": 0}
+
+    def fake_monotonic() -> float:
+        call_count["n"] += 1
+        return 0.0 if call_count["n"] <= 2 else 100.0
+
+    monkeypatch.setattr(metabase.time, "monotonic", fake_monotonic)
+
+    with pytest.raises(click.ClickException, match="Timed out"):
+        metabase._wait_for_valid_cookie("metabase.example", None, timeout=10.0, interval=0.0)
+
+
+def test_wait_for_valid_cookie_keeps_polling_when_default_browser_is_safari(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Chrome is blocked, but Safari (the actual default) isn't directory-checked,
+    # so this must not fail fast on the first empty poll.
+    monkeypatch.setattr(metabase, "_detect_blocked_browsers", lambda browser: ["chrome"])
+    monkeypatch.setattr(metabase, "_default_https_browser", lambda: "safari")
     monkeypatch.setattr(metabase, "_load_cookies_from_browser", lambda d, b, seen_warnings=None: {})
     monkeypatch.setattr(metabase.time, "sleep", lambda _: None)
 

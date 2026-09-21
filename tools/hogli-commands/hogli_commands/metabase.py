@@ -200,12 +200,15 @@ def _load_cookies_from_browser(
         except Exception as exc:
             errors.append(f"{loader_name} ({cookie_file or 'default'}): {exc}")
             continue
+        source_cookies: dict[str, str] = {}
         for cookie in jar:
             if cookie.name in REQUIRED_COOKIES and cookie.value:
-                found[cookie.name] = cookie.value
-        if all(name in found for name in REQUIRED_COOKIES):
-            # Avoid an unnecessary Keychain prompt for every remaining browser/profile.
-            break
+                source_cookies[cookie.name] = cookie.value
+        if all(name in source_cookies for name in REQUIRED_COOKIES):
+            # One profile already has a complete session on its own; stop here
+            # rather than mixing it with cookies from a different profile's session.
+            return source_cookies
+        found.update(source_cookies)
 
     if not found and errors:
         new_errors = errors if seen_warnings is None else [e for e in errors if e not in seen_warnings]
@@ -306,10 +309,15 @@ def _detect_blocked_browsers(browser: str | None) -> list[str]:
 def _all_readable_browsers_blocked(browser: str | None, blocked: list[str]) -> bool:
     """True when every installed, directory-checkable candidate is blocked.
 
-    An uninstalled browser and Safari are neither blocked nor a reason to keep
-    polling, so only an installed Chromium/Firefox root that isn't blocked
-    counts as a reason a valid session could still show up.
+    An uninstalled browser is neither blocked nor a reason to keep polling, so
+    only an installed Chromium/Firefox root that isn't blocked counts as a
+    reason a valid session could still show up. Safari isn't directory-checked
+    at all, so a detected Safari default (or an explicit --browser safari)
+    always counts as a live candidate — this check otherwise has no way to
+    see it.
     """
+    if browser == "safari" or (browser is None and _default_https_browser() == "safari"):
+        return False
     selected = SUPPORTED_BROWSERS if browser is None else (browser,)
     for name in selected:
         if name in _CHROMIUM_PROFILE_ROOTS:
