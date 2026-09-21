@@ -5,7 +5,6 @@ use tracing::info;
 
 use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
-use crate::scheduler::SchedulerKind;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
 /// Configuration for the ingestion consumer.
@@ -155,19 +154,16 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
-    /// No-progress bound on flushing a batch's deferred messages
-    /// (milliseconds): the deadline resets whenever any of the batch's
-    /// messages are accepted, so a slow drain keeps going and the batch only
-    /// fails (exiting the process) after a full window with nothing landed —
-    /// e.g. no worker routable at all. Bounds how long a genuine wedge holds
-    /// offsets before the process exits and restarts.
+    /// No-progress bound on the key table's queued work (milliseconds): the
+    /// deadline resets whenever any message is accepted, so a slow drain
+    /// keeps going and the process fails only after a full window in which
+    /// queued work saw no acceptance — e.g. no worker routable at all. Bounds
+    /// how long a genuine wedge holds offsets before the process exits and
+    /// restarts.
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
-    /// How often the key-table scheduler retries its parked keys
-    /// (milliseconds). Matches the flush driver's retry cadence, so the
-    /// scheduler switch does not regress recovery latency. Only read under
-    /// `INGESTION_SCHEDULER=key_table`.
+    /// How often the scheduler retries its parked keys (milliseconds).
     #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
     pub parked_retry_interval_ms: u64,
 
@@ -275,17 +271,11 @@ pub struct Config {
     #[envconfig(from = "WORKER_DRAIN_TIMEOUT_MS", default = "30000")]
     pub worker_drain_timeout_ms: u64,
 
-    /// How unpinned routing keys are assigned to workers: `binpack` (default,
+    /// How routing keys are assigned to workers: `binpack` (default,
     /// least-loaded — accurate for the co-located sidecar) or `p2c`
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
-
-    /// Which scheduler orders and places runs: `pin_stash` (default, sticky
-    /// pins with a per-batch stash) or `key_table` (at most one in-flight
-    /// request per key). The switch back is the rollback.
-    #[envconfig(from = "INGESTION_SCHEDULER", default = "pin_stash")]
-    pub scheduler: SchedulerKind,
 
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width
@@ -315,8 +305,8 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub worker_probe_interval_ms: u64,
 
-    /// Time a worker must spend in Unhealthy before it is declared dead and
-    /// sticky pins are dropped (milliseconds).
+    /// Time a worker must spend in Unhealthy before it is declared dead
+    /// (milliseconds).
     #[envconfig(default = "15000")]
     pub worker_dead_declaration_ms: u64,
 

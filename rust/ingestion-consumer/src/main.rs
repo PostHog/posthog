@@ -227,11 +227,7 @@ async fn async_main(config: Config) -> Result<()> {
             None
         };
 
-    let mut dispatcher = Dispatcher::with_scheduler(
-        Arc::clone(&registry),
-        config.routing_strategy,
-        config.scheduler,
-    );
+    let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
     if let Some(recorder) = &debug_recorder {
         dispatcher.set_debug_recorder(Arc::clone(recorder));
     }
@@ -303,7 +299,7 @@ async fn async_main(config: Config) -> Result<()> {
                     _ = tokio::time::sleep(Duration::from_secs(1)) => {}
                 }
                 // A worker that left the pool while idle has no in-flight to
-                // resolve, so `on_sub_batch_resolved` never completes its drain.
+                // resolve, so settlement never completes its drain.
                 // Complete it here so it's reaped now rather than at the timeout.
                 for worker in registry.draining_workers() {
                     if !dispatcher.has_in_flight(&worker) {
@@ -505,7 +501,6 @@ async fn async_main(config: Config) -> Result<()> {
     let (batcher, batcher_outputs) = Batcher::new(
         Arc::clone(&dispatcher),
         Arc::clone(&transport),
-        consumer_handle.clone(),
         Duration::from_millis(config.consumer_deferred_flush_timeout_ms),
         Duration::from_millis(config.parked_retry_interval_ms),
     );

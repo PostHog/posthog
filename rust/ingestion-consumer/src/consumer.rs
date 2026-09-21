@@ -25,7 +25,6 @@ use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{OffsetSpan, SentinelContext};
-use crate::scheduler::SchedulerKind;
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
@@ -274,21 +273,21 @@ pub struct IngestionConsumerOptions {
     pub batch_timeout: Duration,
     pub max_in_flight_batches: usize,
     pub group_id: String,
-    /// No-progress bound on flushing a batch's deferred groups, enforced by
-    /// the batcher's flush driver: the deadline resets whenever any of the
-    /// batch's messages land, and the batch fails only after a full window
-    /// with zero progress. Production takes it from
+    /// No-progress bound on the key table's queued work, enforced by the
+    /// batcher's parked-retry pump: the deadline resets whenever any message
+    /// is accepted, and the process fails only after a full window in which
+    /// queued work saw no acceptance. Production takes it from
     /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
-    /// The key-table scheduler's parked-retry cadence. Production takes it
-    /// from `INGESTION_PARKED_RETRY_INTERVAL_MS` (default 200ms).
+    /// The scheduler's parked-retry cadence. Production takes it from
+    /// `INGESTION_PARKED_RETRY_INTERVAL_MS` (default 200ms).
     pub parked_retry_interval: Duration,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
-/// submits them to the [`Batcher`] (which routes, dispatches, and flushes),
+/// submits them to the [`Batcher`] (which routes, dispatches, and retries),
 /// and commits offsets once the batcher's completions cover a poll.
 pub struct IngestionConsumer {
     consumer: Arc<StreamConsumer<SentinelContext>>,
@@ -315,7 +314,7 @@ pub struct IngestionConsumer {
     /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
-    /// callback. Only populated under the key-table scheduler.
+    /// callback.
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 }
 
@@ -340,30 +339,27 @@ impl IngestionConsumer {
         let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
             Arc::new(Mutex::new(Vec::new()));
         let purge_dispatcher = Arc::clone(&dispatcher);
-        let hook_revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
-            .then(|| Arc::clone(&revoked_partitions));
+        let hook_revoked = Arc::clone(&revoked_partitions);
         consumer
             .context()
             .set_revoke_hook(Box::new(move |partitions| {
                 purge_dispatcher.purge_revoked(partitions);
-                if let Some(list) = &hook_revoked {
-                    list.lock()
-                        .unwrap()
-                        .extend(partitions.iter().map(|(topic, partition)| {
-                            let topic_partition = TopicPartition::new(topic, *partition);
-                            let generation = revoke_ledger.generation(&topic_partition);
-                            RevokedPartition {
-                                topic_partition,
-                                generation,
-                            }
-                        }));
-                }
+                hook_revoked
+                    .lock()
+                    .unwrap()
+                    .extend(partitions.iter().map(|(topic, partition)| {
+                        let topic_partition = TopicPartition::new(topic, *partition);
+                        let generation = revoke_ledger.generation(&topic_partition);
+                        RevokedPartition {
+                            topic_partition,
+                            generation,
+                        }
+                    }));
             }));
         let consumer = Arc::new(consumer);
         let (batcher, outputs) = Batcher::new(
             dispatcher,
             Arc::clone(&transport),
-            handle.clone(),
             options.deferred_flush_timeout,
             options.parked_retry_interval,
         );
@@ -428,22 +424,20 @@ impl IngestionConsumer {
         let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
             Arc::new(Mutex::new(Vec::new()));
         let purge_dispatcher = batcher.dispatcher();
-        let hook_revoked = (purge_dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
-            .then(|| Arc::clone(&revoked_partitions));
+        let hook_revoked = Arc::clone(&revoked_partitions);
         context.set_revoke_hook(Box::new(move |partitions| {
             purge_dispatcher.purge_revoked(partitions);
-            if let Some(list) = &hook_revoked {
-                list.lock()
-                    .unwrap()
-                    .extend(partitions.iter().map(|(topic, partition)| {
-                        let topic_partition = TopicPartition::new(topic, *partition);
-                        let generation = revoke_ledger.generation(&topic_partition);
-                        RevokedPartition {
-                            topic_partition,
-                            generation,
-                        }
-                    }));
-            }
+            hook_revoked
+                .lock()
+                .unwrap()
+                .extend(partitions.iter().map(|(topic, partition)| {
+                    let topic_partition = TopicPartition::new(topic, *partition);
+                    let generation = revoke_ledger.generation(&topic_partition);
+                    RevokedPartition {
+                        topic_partition,
+                        generation,
+                    }
+                }));
         }));
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;

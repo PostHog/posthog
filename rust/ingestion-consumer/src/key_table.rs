@@ -7,15 +7,12 @@
 //! clears the flag and dispatches the key's next run. A failed settlement
 //! returns the run to the front of its queue, then clears the flag — requeue
 //! before release, in one seam call — and parks the key. The parked-retry
-//! deadline ([`Deadline::ParkedRetry`]) covers the keys no settlement can
+//! deadline ([`Scheduler::on_parked_retry`]) covers the keys no settlement can
 //! release: unroutable groups, and keys behind a failed send.
 //!
 //! At most one outstanding request per key preserves per-key order. Nothing
 //! else does, and nothing else must: placement is stateless — the configured
 //! router picks a worker per dispatch, with no pins and no stash.
-//!
-//! Not selected by any production caller yet; the scheduler switch is the
-//! next change.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -25,7 +22,7 @@ use metrics::{counter, gauge, histogram};
 use crate::order_sentinel::SendKind;
 use crate::routing::{Router, WorkerLoad};
 use crate::scheduler::{
-    bump_load, working_load, Deadline, Dispatch, KeyRun, Scheduler, SchedulerEffects, Settlement,
+    bump_load, working_load, Dispatch, KeyRun, Scheduler, SchedulerEffects, Settlement,
     SettlementOutcome, WorkerSnapshot,
 };
 use crate::types::SerializedKafkaMessage;
@@ -409,7 +406,7 @@ impl KeyTableScheduler {
             routing_key: key.to_string(),
             messages: run.messages,
             kind,
-            assignment_epoch: Some(run.epoch),
+            assignment_epoch: run.epoch,
         });
     }
 
@@ -457,8 +454,7 @@ impl Scheduler for KeyTableScheduler {
             touched.sort_by_key(|key| std::cmp::Reverse(self.table.queued_len(key)));
         }
 
-        // Fresh work routes within the aperture slice, like an unpinned key
-        // in the pin-stash scheduler.
+        // Fresh work routes within the aperture slice.
         for key in touched {
             if !self.table.is_runnable(&key) {
                 continue;
@@ -536,25 +532,16 @@ impl Scheduler for KeyTableScheduler {
     }
 
     /// Retry every parked key: dispatch the ones that can route now, keep the
-    /// rest parked for the next deadline. The per-batch arm belongs to the
-    /// pin-stash scheduler and is a no-op here.
-    fn on_deadline(
-        &mut self,
-        snapshot: &WorkerSnapshot,
-        deadline: Deadline<'_>,
-    ) -> SchedulerEffects {
-        let Deadline::ParkedRetry = deadline else {
-            return SchedulerEffects::default();
-        };
-
+    /// rest parked for the next deadline.
+    fn on_parked_retry(&mut self, snapshot: &WorkerSnapshot) -> SchedulerEffects {
         let parked = self.table.take_parked();
         let mut effects = SchedulerEffects::with_dispatch_capacity(parked.len());
         let mut load = working_load(snapshot);
 
         for key in parked {
             // A retry escapes the aperture slice and routes over the whole
-            // healthy pool, like a deferred flush: the slice may be exactly
-            // what the key could not route into.
+            // healthy pool: the slice may be exactly what the key could not
+            // route into.
             let Some(worker) = self.router.select(&snapshot.healthy, &load) else {
                 self.table.repark(key);
                 continue;
@@ -577,7 +564,7 @@ impl Scheduler for KeyTableScheduler {
                 routing_key: key,
                 messages: run.messages,
                 kind,
-                assignment_epoch: Some(run.epoch),
+                assignment_epoch: run.epoch,
             });
         }
 
@@ -670,7 +657,6 @@ mod tests {
             worker: wid(worker),
             message_count: keys.len(),
             routing_keys: keys.iter().map(|k| k.to_string()).collect(),
-            from_flush: false,
             outcome: SettlementOutcome::Delivered,
         }
     }
@@ -680,7 +666,6 @@ mod tests {
             worker: wid(worker),
             message_count: runs.iter().map(|r| r.messages.len()).sum(),
             routing_keys: runs.iter().map(|r| r.routing_key.clone()).collect(),
-            from_flush: false,
             outcome: SettlementOutcome::Failed {
                 batch_id: "b".to_string(),
                 runs,
@@ -901,7 +886,7 @@ mod tests {
         assert_eq!(sched.table().outstanding_keys(), 0);
 
         // The retry redelivers the failed run ahead of the later arrival.
-        let effects = sched.on_deadline(&snapshot(&[A, B], &[]), Deadline::ParkedRetry);
+        let effects = sched.on_parked_retry(&snapshot(&[A, B], &[]));
         assert_eq!(effects.dispatches.len(), 1);
         assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2, 3]);
@@ -913,7 +898,7 @@ mod tests {
         let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1, 2])]);
         let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[3])]);
         let _ = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1, 2])]));
-        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        let effects = sched.on_parked_retry(&snapshot(&[A], &[]));
         assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2, 3]);
 
@@ -929,7 +914,7 @@ mod tests {
         assert_eq!(sched.table().queued_messages(), 3);
 
         // The second retry is still a resend, in the same order.
-        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        let effects = sched.on_parked_retry(&snapshot(&[A], &[]));
         assert_eq!(effects.dispatches.len(), 1);
         assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2, 3]);
@@ -956,7 +941,7 @@ mod tests {
             "must not overtake the failed run"
         );
         assert_eq!(effects.deferred.queued_behind_deferral, 1);
-        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        let effects = sched.on_parked_retry(&snapshot(&[A], &[]));
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2]);
     }
 
@@ -971,11 +956,11 @@ mod tests {
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
         assert_eq!(effects.dispatches.len(), 1);
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![2]);
-        assert_eq!(effects.dispatches[0].assignment_epoch, Some(5));
+        assert_eq!(effects.dispatches[0].assignment_epoch, 5);
 
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![3]);
-        assert_eq!(effects.dispatches[0].assignment_epoch, Some(6));
+        assert_eq!(effects.dispatches[0].assignment_epoch, 6);
     }
 
     #[test]
@@ -988,7 +973,6 @@ mod tests {
             worker: wid(A),
             message_count: 0,
             routing_keys: vec!["t:ghost".to_string()],
-            from_flush: false,
             outcome: SettlementOutcome::Failed {
                 batch_id: "b".to_string(),
                 runs: vec![],
@@ -1000,7 +984,7 @@ mod tests {
         assert_eq!(sched.table().key_count(), 0);
         assert_eq!(sched.table().parked_keys(), 0);
 
-        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        let effects = sched.on_parked_retry(&snapshot(&[A], &[]));
         assert!(
             effects.dispatches.is_empty(),
             "a stale key must not become a parked entry"
@@ -1008,18 +992,7 @@ mod tests {
         assert_eq!(sched.table().outstanding_keys(), 0);
     }
 
-    // ---- on_deadline ----
-
-    #[test]
-    fn test_batch_deadline_is_a_noop_for_the_key_table() {
-        let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
-
-        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::Batch("b1"));
-
-        assert!(effects.dispatches.is_empty());
-        assert_eq!(sched.table().parked_keys(), 1, "still parked");
-    }
+    // ---- on_parked_retry ----
 
     #[test]
     fn test_parked_retry_dispatches_in_park_order_and_unparks() {
@@ -1032,7 +1005,7 @@ mod tests {
         );
         assert_eq!(sched.table().parked_keys(), 2);
 
-        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        let effects = sched.on_parked_retry(&snapshot(&[A], &[]));
 
         assert_eq!(effects.dispatches.len(), 2);
         assert_eq!(effects.dispatches[0].routing_key, "t:a");
@@ -1051,7 +1024,7 @@ mod tests {
         let mut sched = scheduler();
         let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
 
-        let effects = sched.on_deadline(&snapshot(&[], &[]), Deadline::ParkedRetry);
+        let effects = sched.on_parked_retry(&snapshot(&[], &[]));
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(sched.table().parked_keys(), 1, "kept for a later deadline");
@@ -1059,7 +1032,7 @@ mod tests {
         // Arrivals in the meantime still queue behind the parked work.
         let effects = sched.on_groups(&snapshot(&[], &[]), "b2", 0, vec![run("t:a", &[2])]);
         assert!(effects.dispatches.is_empty());
-        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        let effects = sched.on_parked_retry(&snapshot(&[A], &[]));
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2]);
     }
 
@@ -1069,8 +1042,8 @@ mod tests {
         let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
 
         // The aperture slice is empty but a worker is healthy: the retry must
-        // escape the slice, like a deferred flush.
-        let effects = sched.on_deadline(&snapshot_narrowed(&[B], &[], &[]), Deadline::ParkedRetry);
+        // escape the slice.
+        let effects = sched.on_parked_retry(&snapshot_narrowed(&[B], &[], &[]));
 
         assert_eq!(effects.dispatches.len(), 1);
         assert_eq!(effects.dispatches[0].worker, wid(B));
@@ -1119,7 +1092,7 @@ mod tests {
         let settled = sched.on_settled(&live, failed(A, vec![run("t:a", &[1])]));
         assert!(settled.dispatches.is_empty());
 
-        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        let retry = sched.on_parked_retry(&live);
         assert!(
             retry.dispatches.is_empty(),
             "a failed send must not resurrect revoked work"
@@ -1149,14 +1122,14 @@ mod tests {
         let _ = sched.on_partitions_revoked(&[("test".to_string(), 2)]);
         let _ = sched.on_settled(&live, failed(A, vec![mixed_run()]));
 
-        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        let retry = sched.on_parked_retry(&live);
         assert_eq!(retry.dispatches.len(), 1);
         assert_eq!(
             offsets_of(&retry.dispatches[0]),
             vec![2, 3],
             "only revoked topic-partitions may be discarded"
         );
-        assert_eq!(retry.dispatches[0].assignment_epoch, Some(5));
+        assert_eq!(retry.dispatches[0].assignment_epoch, 5);
         let _ = sched.on_settled(&live, delivered(A, &["t:a"]));
         assert_eq!(sched.table().key_count(), 0);
         assert_eq!(sched.table().queued_bytes(), 0);
@@ -1175,18 +1148,18 @@ mod tests {
         assert!(queued.dispatches.is_empty());
         let _ = sched.on_settled(&live, failed(A, vec![run("t:a", &[1])]));
 
-        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        let retry = sched.on_parked_retry(&live);
         assert_eq!(retry.dispatches.len(), 1);
         assert_eq!(offsets_of(&retry.dispatches[0]), vec![1, 2]);
-        assert_eq!(retry.dispatches[0].assignment_epoch, Some(6));
+        assert_eq!(retry.dispatches[0].assignment_epoch, 6);
         assert_eq!(retry.dispatches[0].kind, SendKind::Fresh);
 
         // Revocation of the old assignment must not suppress this run's retries.
         let _ = sched.on_settled(&live, failed(A, vec![run("t:a", &[1, 2])]));
-        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        let retry = sched.on_parked_retry(&live);
         assert_eq!(retry.dispatches.len(), 1);
         assert_eq!(offsets_of(&retry.dispatches[0]), vec![1, 2]);
-        assert_eq!(retry.dispatches[0].assignment_epoch, Some(6));
+        assert_eq!(retry.dispatches[0].assignment_epoch, 6);
         assert_eq!(retry.dispatches[0].kind, SendKind::Resend);
         let _ = sched.on_settled(&live, delivered(A, &["t:a"]));
         assert_eq!(sched.table().key_count(), 0);
@@ -1214,7 +1187,7 @@ mod tests {
         assert_eq!(record(&effects), 0);
         let effects = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1, 2])]));
         assert_eq!(record(&effects), 0);
-        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        let effects = sched.on_parked_retry(&snapshot(&[A], &[]));
         assert_eq!(record(&effects), 1);
         let effects = sched.on_groups(&snapshot(&[A], &[]), "b3", 0, vec![run("t:a", &[4])]);
         assert_eq!(record(&effects), 0);
