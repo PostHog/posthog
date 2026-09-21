@@ -1,10 +1,16 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import AggregatingMergeTree, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import (
+    AggregatingMergeTree,
+    MergeTreeEngine,
+    ReplacingMergeTree,
+    ReplicationScheme,
+)
 
 from .metrics2 import METRICS2_INPUT_TABLE_NAME
 
 METRIC_SERIES3_TABLE_NAME = "metric_series3"
+METRIC_SERIES4_TABLE_NAME = "metric_series4"
 METRIC_ATTRIBUTES3_TABLE_NAME = "metric_attributes3"
 METRIC_NAMES3_TABLE_NAME = "metric_names3"
 
@@ -38,6 +44,38 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES3_TABLE_NAME}
     INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
 )
 ENGINE = {ReplacingMergeTree(METRIC_SERIES3_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED, ver="last_seen")}
+PARTITION BY toDate(original_expiry_timestamp)
+ORDER BY (team_id, metric_name, series_fingerprint)
+TTL original_expiry_timestamp
+SETTINGS index_granularity = 8192
+"""
+
+
+def METRIC_SERIES4_TABLE_SQL() -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES4_TABLE_NAME}
+(
+    `team_id` Int32,
+    `metric_name` LowCardinality(String),
+    `series_fingerprint` UInt64 CODEC(Delta(8), Default),
+    `metric_type` LowCardinality(String),
+    `unit` LowCardinality(String),
+    `aggregation_temporality` LowCardinality(String),
+    `is_monotonic` Bool DEFAULT false,
+    `service_name` LowCardinality(String),
+    `instrumentation_scope` String,
+    `resource_attributes` Map(LowCardinality(String), String),
+    `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+    `attributes` Map(LowCardinality(String), String),
+    `timestamp` DateTime64(6),
+    `original_expiry_timestamp` DateTime64(6),
+    INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
+    INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1
+)
+ENGINE = {MergeTreeEngine(METRIC_SERIES4_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(original_expiry_timestamp)
 ORDER BY (team_id, metric_name, series_fingerprint)
 TTL original_expiry_timestamp
@@ -131,6 +169,29 @@ AS SELECT
     resource_attributes,
     attributes,
     timestamp AS last_seen,
+    original_expiry_timestamp
+FROM {db}.{METRICS2_INPUT_TABLE_NAME}
+WHERE has_labels
+"""
+
+
+def METRICS2_INPUT_TO_METRIC_SERIES4_MV() -> str:
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_metric_series4 TO {db}.{METRIC_SERIES4_TABLE_NAME}
+AS SELECT
+    team_id,
+    metric_name,
+    series_fingerprint,
+    metric_type,
+    unit,
+    aggregation_temporality,
+    is_monotonic,
+    service_name,
+    instrumentation_scope,
+    resource_attributes,
+    attributes,
+    timestamp,
     original_expiry_timestamp
 FROM {db}.{METRICS2_INPUT_TABLE_NAME}
 WHERE has_labels
