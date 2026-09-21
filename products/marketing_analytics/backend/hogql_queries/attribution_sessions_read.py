@@ -172,7 +172,7 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
             query_type="marketing_attribution_session_coverage",
             context=runner._shared_hogql_context,
         )
-        if coverage.results is None or coverage.results:
+        if coverage.error or coverage.results:
             return None
     except Exception:
         logger.exception("attribution_sessions_precompute_failed", team_id=runner.team.pk)

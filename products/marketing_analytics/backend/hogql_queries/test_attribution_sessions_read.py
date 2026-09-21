@@ -50,7 +50,9 @@ class TestAttributionSessionsRead(SimpleTestCase):
             )
         )
         self.coverage = self.enterContext(
-            patch.object(attribution_sessions_read, "execute_hogql_query", return_value=SimpleNamespace(results=[]))
+            patch.object(
+                attribution_sessions_read, "execute_hogql_query", return_value=SimpleNamespace(results=[], error=None)
+            )
         )
         self.enterContext(patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False))
         self.team = Team(id=1, organization=Organization(id=UUID(int=1)))
@@ -152,7 +154,9 @@ class TestAttributionSessionsRead(SimpleTestCase):
         with (
             tags_context(trigger=REVALIDATION_TRIGGER if refreshing else "test", feature=Feature.QUERY),
             patch.object(
-                marketing_sessions_precompute, "execute_hogql_query", return_value=SimpleNamespace(results=[])
+                marketing_sessions_precompute,
+                "execute_hogql_query",
+                return_value=SimpleNamespace(results=[], error=None),
             ),
             patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=flag),
             patch.object(attribution_sessions_read, "handle_stale_served") as revalidate,
@@ -173,8 +177,8 @@ class TestAttributionSessionsRead(SimpleTestCase):
             assert revalidate.call_count == int(stale)
             assert self.coverage.call_count == int(ready)
 
-    @parameterized.expand([("older_session", [[1]]), ("unproven", None)])
-    def test_unproven_session_coverage_falls_back(self, _name: str, rows: list[list[int]] | None) -> None:
+    @parameterized.expand([("older_session", [[1]], None), ("unproven", [], "Coverage query failed")])
+    def test_unproven_session_coverage_falls_back(self, _name: str, rows: list[list[int]], error: str | None) -> None:
         runner = MarketingAnalyticsAttributionQueryRunner(
             team=self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
@@ -186,6 +190,7 @@ class TestAttributionSessionsRead(SimpleTestCase):
             ),
         )
         self.coverage.return_value.results = rows
+        self.coverage.return_value.error = error
         with patch.object(
             attribution_sessions_read,
             "ensure_marketing_sessions_precomputed",
