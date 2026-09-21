@@ -8,9 +8,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.comment import Comment
 from posthog.models.team.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.ai.suggest import (
     _build_ticket_context,
     _format_enhanced_context,
@@ -418,6 +420,34 @@ class TestBuildTicketContext(BaseTest):
         assert "- Plan: Enterprise" in context
         assert "Seats" not in context
         assert "Deleted" not in context
+
+    def test_account_properties_need_account_access_for_every_member(self) -> None:
+        # The rendered section lands in a ticket artifact that every agent with ticket access can
+        # read, so a team that gave Customer analytics to only some members must not receive
+        # account data through an AI reply instead.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        account = create_account(team_id=self.team.id, name="Acme", external_id="acct-1")
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
+        create_custom_property_value(team_id=self.team.id, account=account, definition=plan, value_str="Enterprise")
+        self.team.conversations_settings = {"ai_context_account_property_ids": [str(plan.id)]}
+        self.team.save(update_fields=["conversations_settings"])
+        ticket = self._create_ticket(organization_id="acct-1", identity_verified=True)
+
+        # Control: with no rule the team default grants every member account access.
+        assert "- Plan: Enterprise" in self._context(ticket)
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="none",
+        )
+        restricted = self._context(ticket)
+        assert "Account properties:" not in restricted
+        assert "Enterprise" not in restricted
 
     def test_skips_account_section_when_account_missing_or_ca_errors(self) -> None:
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")

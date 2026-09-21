@@ -17,7 +17,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import OrganizationIdSource, TicketStatus
 from products.conversations.backend.playbook import is_posthog_docs_source
@@ -307,9 +307,18 @@ def format_account_properties(pairs: Iterable[tuple[str, object]]) -> str:
     return _capped_section("Account properties:", lines, MAX_ACCOUNT_SECTION_CHARS)
 
 
-def _team_member_access_control(team: Team) -> UserAccessControl | None:
-    # Definition name reads require a user UAC. The reply run has none, so use any
-    # active org member — names aren't object-scoped, only workflow refs are.
+def _default_subject_access_control(team: Team) -> SubjectAccessControl | None:
+    """The access the team's default rules give every member, with no member or role of their own.
+
+    The reply run has no request user, so there is nobody to resolve access for. The section this
+    gates also becomes part of a ticket artifact that every agent with ticket access can read, so
+    the question is not what one person may read, it is what the least privileged reader may read.
+    A subject with no member and no role resolves default rules only, and it drops the org-admin
+    bypass, so the answer no longer changes with which membership row the database returns first.
+
+    Definition names still resolve under it, because names are not object-scoped. Only workflow
+    references are, and this path does not read them.
+    """
     membership = (
         OrganizationMembership.objects.filter(organization_id=team.organization_id, user__is_active=True)
         .select_related("user")
@@ -317,7 +326,7 @@ def _team_member_access_control(team: Team) -> UserAccessControl | None:
     )
     if membership is None:
         return None
-    return UserAccessControl(membership.user, team=team)
+    return SubjectAccessControl(membership.user, team=team, org_membership=membership)
 
 
 def load_account_context(team: Team, organization_id: str | None) -> str:
@@ -325,11 +334,15 @@ def load_account_context(team: Team, organization_id: str | None) -> str:
     if not selected or not organization_id:
         return ""
     try:
+        # The account and value reads below are team-scoped only, and what they render is readable
+        # by every agent who can open the ticket. So render it only when the team gives account
+        # access to all of its members. A team that limited Customer analytics to some members
+        # keeps that limit instead of losing it to an AI reply.
+        uac = _default_subject_access_control(team)
+        if uac is None or not uac.check_access_level_for_resource("account", "viewer"):
+            return ""
         account = get_account(team.id, external_id=organization_id)
         if account is None:
-            return ""
-        uac = _team_member_access_control(team)
-        if uac is None:
             return ""
         values = list_active_custom_property_values(team.id, account.id)
         value_by_definition = {str(row.definition_id): row.value for row in values}
