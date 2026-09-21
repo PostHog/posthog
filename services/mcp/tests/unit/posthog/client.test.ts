@@ -1,3 +1,4 @@
+import { gunzipSync } from 'node:zlib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { getPostHogClient } from '@/lib/posthog/client'
@@ -24,7 +25,9 @@ describe('PostHog client', () => {
         vi.stubGlobal(
             'fetch',
             vi.fn(async (_url: string, options: RequestInit) => {
-                events.push(...JSON.parse(options.body as string).batch)
+                const body =
+                    typeof options.body === 'string' ? options.body : gunzipSync(options.body as Uint8Array).toString()
+                events.push(...JSON.parse(body).batch)
                 return new Response('{}', { status: 200 })
             })
         )
@@ -52,8 +55,19 @@ describe('PostHog client', () => {
         client.capture({ distinctId: 'user-123', event: '$mcp_tool_call' })
         await client.flush()
 
-        expect(events.map(({ event }) => event)).toEqual(['$mcp_tool_call', 'mcp feedback submitted', '$mcp_tool_call'])
-        expect(events[0]?.properties).toMatchObject({ is_impersonated: false, $mcp_is_error: isError })
-        expect(events[1]?.properties).toMatchObject({ is_impersonated: true })
+        expect(events.filter(({ event }) => event === '$mcp_tool_call')).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    properties: expect.objectContaining({ is_impersonated: false, $mcp_is_error: isError }),
+                }),
+                expect.objectContaining({
+                    properties: expect.not.objectContaining({ is_impersonated: expect.anything() }),
+                }),
+            ])
+        )
+        expect(events.find(({ event }) => event === 'mcp feedback submitted')?.properties).toMatchObject({
+            is_impersonated: true,
+        })
+        expect(events).toHaveLength(3)
     })
 })
