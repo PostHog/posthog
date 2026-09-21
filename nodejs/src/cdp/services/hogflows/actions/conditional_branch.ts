@@ -254,7 +254,6 @@ export async function checkConditions(
         // and is never replayed, so a wait cannot rely on the matcher alone.
         const scheduledAt = calculatedScheduledAt(
             repark.maxWaitDuration,
-            invocation.state.currentAction?.startedAtTimestamp,
             invocation.state.currentAction?.startedAtTimestamp
         )
 
