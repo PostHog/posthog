@@ -53,6 +53,7 @@ from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
 from ee.hogai.context.experiment import ExperimentContext
 from ee.hogai.context.feature_flag import FeatureFlagContext
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
@@ -439,6 +440,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         # Create insight context
         context = InsightContext(
+            max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
             team=self._team,
             user=self._user,
             query=result.content.query,
@@ -798,6 +800,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         match content:
             case VisualizationArtifactContent():
                 context = InsightContext(
+                    max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
                     team=self._team,
                     user=self._user,
                     query=content.query,
