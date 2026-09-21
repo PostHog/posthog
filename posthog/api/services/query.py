@@ -32,15 +32,17 @@ from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import resolve_database_for_connection
-from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS
+from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS, EDITOR_ASSIST_RESPONSES_TOTAL
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.language_service import (
+    WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX,
     CatalogMissing,
     LanguageServiceClient,
     LanguageServiceError,
     LanguageServiceResult,
     MalformedLanguageServiceResponse,
     build_catalog,
+    coordinate_catalog_publication,
     is_language_service_enabled,
 )
 from posthog.hogql.metadata import get_hogql_metadata
@@ -72,8 +74,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX = "warehouse-aliases-v1:"
-
 
 @frozen
 class _DatabaseSchemaCatalog:
@@ -95,7 +95,7 @@ class _EditorAssistRoute:
 
 
 def _is_alias_capable_catalog_revision(revision: object) -> bool:
-    return isinstance(revision, str) and revision.startswith(_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX)
+    return isinstance(revision, str) and revision.startswith(WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX)
 
 
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
@@ -133,9 +133,12 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
         if _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
             return _EditorAssistRoute(enabled=True, result=result, reason="served")
 
-    try:
+    publication_succeeded = False
+
+    def publish_catalog() -> None:
+        nonlocal publication_succeeded
         schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
-        revision = f"{_WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}{time.time_ns()}"
+        revision = f"{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}{time.time_ns()}"
         client.publish(
             team.pk,
             user.pk,
@@ -147,14 +150,28 @@ def _language_service_call(team: Team, user: User, query: HogQLAutocomplete | Ho
                 database=schema_catalog.database,
             ),
         )
-        result = call()
-        if not _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
-            raise MalformedLanguageServiceResponse("language service returned an incompatible catalog revision")
-        return _EditorAssistRoute(enabled=True, result=result, reason="served")
+        publication_succeeded = True
+
+    def check_catalog() -> LanguageServiceResult | None:
+        try:
+            current = call()
+        except CatalogMissing:
+            return None
+        if not _is_alias_capable_catalog_revision(current.body.get("catalogRevision")):
+            if publication_succeeded:
+                raise MalformedLanguageServiceResponse("language service returned an incompatible catalog revision")
+            return None
+        return current
+
+    try:
+        result = coordinate_catalog_publication(team.pk, user.pk, client.base_url, check_catalog, publish_catalog)
     except MalformedLanguageServiceResponse:
         return _EditorAssistRoute(enabled=True, result=None, reason="invalid_response", malformed_stage="http_response")
     except (DatabaseSchemaUnavailable, LanguageServiceError):
         return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
+    if result is None:
+        return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
+    return _EditorAssistRoute(enabled=True, result=result, reason="served")
 
 
 def _route_editor_assist(team: Team, user: User | None, query: HogQLAutocomplete | HogQLMetadata) -> _EditorAssistRoute:
@@ -192,13 +209,7 @@ def _record_editor_assist_backend(
     if not route.enabled:
         return
     try:
-        client = posthoganalytics.default_client
-        if client is not None:
-            client.metrics.count(
-                "hogql.editor_assist.responses",
-                1,
-                attributes={"operation": operation, "backend": backend, "reason": reason},
-            )
+        EDITOR_ASSIST_RESPONSES_TOTAL.labels(operation=operation, backend=backend, reason=reason).inc()
     except Exception:
         logger.warning("hogql_editor_assist_metric_failed")
 

@@ -291,18 +291,48 @@ Local and debug environments may use the service directly. Production integratio
 feature flag and should progress through shadow comparison before serving editor results.
 The Go consumer accepts alias metadata, and Django always publishes resolver-confirmed warehouse aliases.
 Django refreshes cached catalogs with numeric or `legacy-v1` revisions before it uses their responses.
-Each request attempts at most one publication and one retry.
+Each request attempts at most one publication and one post-publication retry; marker and lease paths add only bounded Go rechecks.
 The retry must return an alias-capable revision, but a concurrent publication for the same team and user can supersede the requested revision.
 If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
 Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
 Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.
 
-For authenticated requests that have the service configured and the feature flag enabled, `hogql.editor_assist.responses` counts the backend that produced the final successful editor response.
+For authenticated requests that have the service configured and the feature flag enabled, the Prometheus counter `hogql_editor_assist_responses_total` counts the backend that produced the final successful editor response.
 Its bounded attributes are the operation, backend, and routing reason.
 The operation is `autocomplete` or `metadata`, the backend is `language_service` or `python`, and the reason is `served`, `ineligible`, `service_error`, or `invalid_response`.
 The denominator includes enabled requests that are ineligible for the Go service and use Python.
 It excludes disabled requests, requests without a user, and requests that fail before either backend constructs a response.
-The existing PostHog SDK configuration exports this metric in deployed environments; local and test environments can leave the SDK disabled.
+The existing Django Prometheus scrape exports the counter for Grafana without another setting.
+It aggregates enabled teams and users because it has no tenant labels.
+Use this query to compare response rates by backend:
+
+```promql
+sum by (operation, backend) (rate(hogql_editor_assist_responses_total[5m]))
+```
+
+Use this query for the Python share of successful enabled responses in each operation:
+
+```promql
+(
+  sum by (operation) (rate(hogql_editor_assist_responses_total{backend="python"}[5m]))
+  or on (operation)
+  0 * sum by (operation) (rate(hogql_editor_assist_responses_total[5m]))
+)
+/
+sum by (operation) (rate(hogql_editor_assist_responses_total[5m]))
+```
+
+An absent series can mean no observations or a missing scrape.
+The share is undefined when an operation has no successful enabled responses in the selected interval.
+
+After a missing or legacy catalog response, Django coordinates publication in Redis by language-service target, catalog contract, team, and user.
+A publisher holds a 10-second token-owned lease while it rechecks Go, builds the permission-filtered catalog, and publishes it.
+Contenders wait for the lease for at most 250 milliseconds, then recheck Go and use the Python path if the catalog is still unavailable.
+Redis socket operations and Go requests have their own bounds; the 250-millisecond contention budget is not a total refresh deadline.
+A five-second success marker lets a request recheck Go before acquiring a newly released lease.
+The marker is advisory: a missing or legacy Go response overrides it, and neither schemas nor authorization results are stored in Redis.
+Redis outages use the existing direct publication path.
+If catalog construction outlives the lease, a second publisher can duplicate the Go catalog build and publication.
 
 The initial rollout keeps ClickHouse execution in Django:
 

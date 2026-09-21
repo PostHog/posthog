@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+import redis
 import requests
 from parameterized import parameterized
 
@@ -14,8 +15,10 @@ from posthog.hogql.language_service import (
     CatalogMissing,
     LanguageServiceClient,
     LanguageServiceError,
+    LanguageServiceResult,
     MalformedLanguageServiceResponse,
     build_catalog,
+    coordinate_catalog_publication,
     is_language_service_enabled,
 )
 
@@ -137,6 +140,173 @@ class TestLanguageServiceFeatureFlag(SimpleTestCase):
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
+
+
+class TestCatalogPublicationCoordination(SimpleTestCase):
+    result = LanguageServiceResult(
+        body={"valid": True, "catalogRevision": "warehouse-aliases-v1:ready"},
+        duration_seconds=0,
+        response_size_bytes=0,
+    )
+
+    @patch("posthog.hogql.language_service.get_client")
+    def test_success_marker_reuses_compatible_catalog(self, get_client: MagicMock) -> None:
+        redis_client = get_client.return_value
+        redis_client.get.return_value = b"1"
+        check_catalog = MagicMock(return_value=self.result)
+        publish_catalog = MagicMock()
+
+        result = coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
+
+        assert result is self.result
+        redis_client.lock.assert_not_called()
+        publish_catalog.assert_not_called()
+
+    @patch("posthog.hogql.language_service.get_client")
+    def test_missing_catalog_overrides_success_marker(self, get_client: MagicMock) -> None:
+        redis_client = get_client.return_value
+        redis_client.get.return_value = b"1"
+        redis_client.lock.return_value.acquire.return_value = True
+        check_catalog = MagicMock(side_effect=[None, None, self.result])
+        publish_catalog = MagicMock()
+
+        result = coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
+
+        assert result is self.result
+        publish_catalog.assert_called_once()
+        redis_client.lock.assert_called_once_with(
+            redis_client.lock.call_args.args[0], timeout=10, blocking_timeout=0.25
+        )
+        redis_client.set.assert_called_once_with(redis_client.set.call_args.args[0], "1", ex=5)
+        redis_client.lock.return_value.release.assert_called_once()
+
+    @patch("posthog.hogql.language_service.get_client")
+    def test_winner_rechecks_before_publishing(self, get_client: MagicMock) -> None:
+        redis_client = get_client.return_value
+        redis_client.get.return_value = None
+        redis_client.lock.return_value.acquire.return_value = True
+        publish_catalog = MagicMock()
+
+        result = coordinate_catalog_publication(
+            12, 34, "http://language-service:8091", MagicMock(return_value=self.result), publish_catalog
+        )
+
+        assert result is self.result
+        publish_catalog.assert_not_called()
+        redis_client.set.assert_not_called()
+        redis_client.lock.return_value.release.assert_called_once()
+
+    @parameterized.expand([(True,), (False,)])
+    @patch("posthog.hogql.language_service.get_client")
+    def test_contender_rechecks_without_publishing(self, expected_success: bool, get_client: MagicMock) -> None:
+        redis_client = get_client.return_value
+        redis_client.get.return_value = None
+        redis_client.lock.return_value.acquire.return_value = False
+        publish_catalog = MagicMock()
+
+        result = coordinate_catalog_publication(
+            12,
+            34,
+            "http://language-service:8091",
+            MagicMock(return_value=self.result if expected_success else None),
+            publish_catalog,
+        )
+
+        assert (result is not None) is expected_success
+        publish_catalog.assert_not_called()
+        redis_client.lock.return_value.release.assert_not_called()
+
+    @patch("posthog.hogql.language_service.get_client")
+    def test_next_request_recovers_after_unavailable_lease(self, get_client: MagicMock) -> None:
+        first_lock = MagicMock()
+        first_lock.acquire.return_value = False
+        second_lock = MagicMock()
+        second_lock.acquire.return_value = True
+        redis_client = get_client.return_value
+        redis_client.get.return_value = None
+        redis_client.lock.side_effect = [first_lock, second_lock]
+        check_catalog = MagicMock(side_effect=[None, None, self.result])
+        publish_catalog = MagicMock()
+
+        first = coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
+        second = coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
+
+        assert first is None
+        assert second is self.result
+        publish_catalog.assert_called_once()
+        second_lock.release.assert_called_once()
+
+    @patch("posthog.hogql.language_service.get_client")
+    def test_publication_failure_does_not_write_marker(self, get_client: MagicMock) -> None:
+        redis_client = get_client.return_value
+        redis_client.get.return_value = None
+        redis_client.lock.return_value.acquire.return_value = True
+        publish_catalog = MagicMock(side_effect=LanguageServiceError("publish failed"))
+
+        with self.assertRaises(LanguageServiceError):
+            coordinate_catalog_publication(
+                12, 34, "http://language-service:8091", MagicMock(return_value=None), publish_catalog
+            )
+
+        redis_client.set.assert_not_called()
+        redis_client.lock.return_value.release.assert_called_once()
+
+    @parameterized.expand([("get",), ("acquire",)])
+    @patch("posthog.hogql.language_service.get_client")
+    def test_redis_outage_uses_direct_publication(self, failure_stage: str, get_client: MagicMock) -> None:
+        if failure_stage == "get":
+            get_client.side_effect = redis.exceptions.ConnectionError("unavailable")
+        else:
+            get_client.return_value.get.return_value = None
+            get_client.return_value.lock.return_value.acquire.side_effect = redis.exceptions.ConnectionError(
+                "unavailable"
+            )
+        publish_catalog = MagicMock()
+
+        result = coordinate_catalog_publication(
+            12, 34, "http://language-service:8091", MagicMock(return_value=self.result), publish_catalog
+        )
+
+        assert result is self.result
+        publish_catalog.assert_called_once()
+
+    @patch("posthog.hogql.language_service.get_client")
+    def test_late_redis_errors_preserve_successful_publication(self, get_client: MagicMock) -> None:
+        redis_client = get_client.return_value
+        redis_client.get.return_value = None
+        lock = redis_client.lock.return_value
+        lock.acquire.return_value = True
+        lock.release.side_effect = redis.exceptions.LockNotOwnedError("expired")
+        redis_client.set.side_effect = redis.exceptions.ConnectionError("unavailable")
+        publish_catalog = MagicMock()
+
+        result = coordinate_catalog_publication(
+            12,
+            34,
+            "http://language-service:8091",
+            MagicMock(side_effect=[None, self.result]),
+            publish_catalog,
+        )
+
+        assert result is self.result
+        publish_catalog.assert_called_once()
+
+    @patch("posthog.hogql.language_service.get_client")
+    def test_coordination_keys_isolate_principals_and_service_targets(self, get_client: MagicMock) -> None:
+        redis_client = get_client.return_value
+        redis_client.get.return_value = None
+        redis_client.lock.return_value.acquire.return_value = False
+
+        for team_id, user_id, target in (
+            (12, 34, "http://language-service-a:8091"),
+            (13, 34, "http://language-service-a:8091"),
+            (12, 35, "http://language-service-a:8091"),
+            (12, 34, "http://language-service-b:8091"),
+        ):
+            coordinate_catalog_publication(team_id, user_id, target, MagicMock(return_value=None), MagicMock())
+
+        lock_keys = {call.args[0] for call in redis_client.lock.call_args_list}
+        assert len(lock_keys) == 4
 
 
 class TestLanguageServiceCatalog(SimpleTestCase):
