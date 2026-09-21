@@ -307,8 +307,6 @@ RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev â€
 # Replay Vision observation media (thumbnails, clips). Kept off the shared rasterization
 # queue so media never competes with customer exports and session video summaries.
 RASTERIZATION_MEDIA_TASK_QUEUE = "rasterization-media-task-queue"
-# Off by default: the media turn costs an LLM call on every scan.
-REPLAY_VISION_MEDIA_ENABLED: bool = get_from_env("REPLAY_VISION_MEDIA_ENABLED", False, type_cast=str_to_bool)
 
 # Error tracking
 # Global on/off switch for auto-merging close fingerprints into their nearest issue.

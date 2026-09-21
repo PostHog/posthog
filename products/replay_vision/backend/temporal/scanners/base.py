@@ -5,8 +5,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Any, ClassVar, Literal
 
-from django.conf import settings
-
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.dataclasses import frozen
@@ -298,8 +296,7 @@ class BaseScanner(BaseModel, frozen=True):
         steps = self.core_steps()
         if self.emits_signals:
             steps.append(self._signals_step())
-        if settings.REPLAY_VISION_MEDIA_ENABLED:
-            steps.append(self._media_step())
+        steps.append(self._media_step())
         return steps
 
     def _media_step(self) -> MissionStep:

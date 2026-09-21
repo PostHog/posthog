@@ -564,8 +564,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         call_output: ScannerCallOutput,
     ) -> None:
         """Render the observation's thumbnail. Fail-soft: a missing poster must never fail a paid-for scan."""
-        if not settings.REPLAY_VISION_MEDIA_ENABLED:
-            return
         if not wf.patched("replay-vision-media-2026-09"):
             return
         try:
