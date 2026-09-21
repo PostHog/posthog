@@ -311,6 +311,7 @@ describe('heatmapLogic', () => {
                     enabled: () => boolean
                 }>
             )
+            expect(interceptors.some((interceptor) => interceptor.enabled())).toBe(true)
             logic.unmount()
             expect(interceptors.some((interceptor) => interceptor.enabled())).toBe(false)
         })
