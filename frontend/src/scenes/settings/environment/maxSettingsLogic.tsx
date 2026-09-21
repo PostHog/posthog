@@ -176,7 +176,7 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
                 // empty textarea that reads as "my memory is gone" and that a save would write over.
                 // An empty result list is a genuine "no memory yet" state and still resolves to null.
                 const response = await api.coreMemory.list()
-                if (!response?.results) {
+                if (!Array.isArray(response?.results)) {
                     throw new ApiError('The server sent an empty response.')
                 }
                 return response.results[0] || null

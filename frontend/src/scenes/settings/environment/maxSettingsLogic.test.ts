@@ -56,17 +56,21 @@ describe('maxSettingsLogic', () => {
         }
     )
 
-    it('surfaces a load error when the load responds 200 with no body', async () => {
+    it.each([
+        ['no body', [200]],
+        ['a body whose results is not a list', [200, { results: {} }]],
+    ])('surfaces a load error when the load responds 200 with %s', async (_label, response) => {
         silenceKeaLoadersErrors()
         useMocks({
             get: {
-                '/api/environments/:team_id/core_memory/': () => [200],
+                '/api/environments/:team_id/core_memory/': () => response,
             },
         })
         logic = maxSettingsLogic()
         logic.mount()
 
-        // An empty body must reach the retry banner, not print a raw TypeError from `results`.
+        // Neither shape carries memory, so both must reach the retry banner. Reading `results` off
+        // them instead prints a raw TypeError, or reads as "no memory yet" and gets saved over.
         await expectLogic(logic)
             .toDispatchActions(['loadCoreMemoryFailure'])
             .toMatchValues({ coreMemory: null, isLoading: false })
