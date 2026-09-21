@@ -49,11 +49,15 @@ from posthog.models.oauth import (
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.scopes import get_oauth_scopes_supported
+from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.models.access_control import AccessControl
+
+# A cut-off `scope` parameter only reads as truncated once enough real scopes come through
+# before the fragment, so a fixture standing in for one has to be that long.
+TRUNCATED_SCOPE_REQUEST = " ".join([*sorted(ALL_SCOPES)[:MIN_SCOPES_BEFORE_TRUNCATION], "can"])
 
 
 def jwks_entry_to_public_key(key_data: dict):
@@ -271,6 +275,49 @@ class TestOAuthAPI(APIBaseTest):
                 "scopes": ["openid", "notebook:read", "notebook:write", "query:read"],
             },
         )
+
+    @parameterized.expand(
+        [
+            ("truncated", TRUNCATED_SCOPE_REQUEST, ["canvas:read", "insight:read", "notebook:read"], True),
+            ("complete", "insight:read canvas:read", ["canvas:read", "insight:read"], False),
+            ("short_request_with_a_fragment_tail", "insight:read can", ["insight:read"], False),
+        ]
+    )
+    @patch("posthog.api.oauth.views.render_template")
+    def test_authorize_resolves_scopes_for_the_consent_screen(
+        self, _name, requested_scope, expected_resource_scopes, expected_was_defaulted, mock_render
+    ):
+        mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
+        self.confidential_application.scopes = ["insight:read", "canvas:read", "notebook:read"]
+        self.confidential_application.save()
+
+        response = self.client.get(f"{self.base_authorization_url}&scope={quote(requested_scope)}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        template_context = mock_render.call_args.kwargs["context"]
+        self.assertEqual(
+            template_context["oauth_scope_resolution"],
+            {
+                "scopes": sorted(set(expected_resource_scopes) | ALWAYS_ALLOWED_SCOPES)
+                if expected_was_defaulted
+                else expected_resource_scopes,
+                "was_defaulted": expected_was_defaulted,
+            },
+        )
+
+    def test_authorize_bootstraps_the_resolved_scopes_into_the_app_context(self):
+        self.confidential_application.scopes = ["insight:read", "canvas:read"]
+        self.confidential_application.save()
+
+        response = self.client.get(f"{self.base_authorization_url}&scope={quote(TRUNCATED_SCOPE_REQUEST)}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The serialized bootstrap, not the view's own template context: `_build_template_context`
+        # forwards only an allowlist of caller-provided keys, and a key it omits never reaches the
+        # frontend.
+        resolution = json.loads(response.context["posthog_app_context"])["oauth_scope_resolution"]
+        self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
+        self.assertTrue(resolution["was_defaulted"])
 
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):
