@@ -312,9 +312,7 @@ describe('heatmapLogic', () => {
                 }>
             )
             logic.unmount()
-            for (const interceptor of interceptors) {
-                expect(interceptor.enabled()).toBe(false)
-            }
+            expect(interceptors.some((interceptor) => interceptor.enabled())).toBe(false)
         })
 
         it.each(['viewer', 'toolbar'] as const)('disables unsupported edits for %s', (restriction) => {
