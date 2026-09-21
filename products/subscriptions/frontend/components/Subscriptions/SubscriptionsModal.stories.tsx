@@ -286,7 +286,7 @@ export default meta
 type Story = StoryObj<StoryArgs>
 
 export const SubscriptionsNew: Story = {
-    args: { isCreating: true, formScenario: 'default' },
+    args: { formScenario: 'default' },
 }
 
 export const LongAiPrompt: Story = {

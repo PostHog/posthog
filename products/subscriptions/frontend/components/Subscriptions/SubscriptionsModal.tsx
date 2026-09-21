@@ -24,7 +24,6 @@ export interface SubscriptionsModalProps {
     isOpen: boolean
     closeModal: () => void
     subscriptionId?: number | null
-    isCreating?: boolean
     inline?: boolean
     insightShortId?: InsightShortId
     insightName?: string
@@ -38,7 +37,6 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         dashboard,
         insightShortId,
         insightName,
-        isCreating = false,
         subscriptionId,
         isOpen,
         inline,
@@ -51,7 +49,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
     const dashboardId = dashboard?.id
     const isAiPrompt = searchParams.resource_type === SubscriptionResourceTypes.AiPrompt
     const baseProps: SubscriptionBaseProps = { insightShortId, dashboardId }
-    const isWizard = isCreating || subscriptionId === undefined
+    const isWizard = subscriptionId === undefined
     const modalWasOpen = useRef(false)
     useEffect(() => {
         if (!isOpen) {
