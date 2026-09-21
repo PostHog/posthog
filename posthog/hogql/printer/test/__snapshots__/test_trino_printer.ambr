@@ -280,6 +280,7 @@
       'theilsU',
       'theilsUIf',
       'uniqCombined',
+      'uniqCombined64',
       'uniqExactMerge',
       'uniqExactState',
       'uniqHLL12',
