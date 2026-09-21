@@ -1213,7 +1213,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 listResponseState: AccountListResponseState | null,
                 sortOrder: AccountSortOrder
             ): AccountSortOrder =>
-                listDataCompleteness === 'complete' && listResponseState
+                listDataCompleteness === 'complete' && listResponseState && sortOrder
                     ? listResponseState.serverSortOrder
                     : sortOrder,
         ],

@@ -748,6 +748,10 @@ describe('accountsLogic', () => {
                 direction: 'asc',
             })
             expect(logic.values.sortedRowsTransformer?.(rows)).toEqual([rows[1], rows[0]])
+
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.accountsQuerySource?.sort).toBeUndefined()
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
         })
 
         it('tracks completeness per filter set and ignores stale responses', () => {
