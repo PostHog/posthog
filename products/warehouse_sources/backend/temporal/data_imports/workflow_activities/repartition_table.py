@@ -440,8 +440,23 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # the only intact copy, and `_give_up` clears the marker that points at it. A ready swap has to be
     # completed however many attempts it took to get here.
     if swap is None and _exhausted_attempts(pending, inputs.job_id):
-        _give_up(inputs, schema, pending, trigger_reason, logger)
-        return
+        # A killed attempt that still moved the checkpoint on is forward progress, not evidence the
+        # rewrite is doomed, which is the distinction `_handle_budget_exceeded` already draws for an
+        # attempt that ran out of budget. The checkpoint is the only signal available here, because a
+        # killed attempt records no outcome of its own. Otherwise a large table that converges one
+        # worker death per sync is abandoned at the cap, and `_give_up` discards its progress too.
+        if _last_attempt_advanced_rewrite(schema, pending):
+            logger.warning(
+                f"repartition: attempts are spent but the rewrite advanced to "
+                f"{_rewrite_rows_written(schema)} rows, resetting the count and resuming "
+                f"schema_id={schema.id}",
+                schema_id=str(schema.id),
+                rewrite_rows=_rewrite_rows_written(schema),
+            )
+            pending = _clear_attempts_after_progress(schema, pending, logger)
+        else:
+            _give_up(inputs, schema, pending, trigger_reason, logger)
+            return
 
     # Never while a swap is staged: that recovery runs no rewrite, so the checkpoint says nothing
     # about it, and temp is the only intact copy until it completes.
@@ -788,6 +803,42 @@ def _exhausted_attempts(pending: dict[str, Any] | None, job_id: str) -> bool:
 def _rewrite_rows_written(schema: ExternalDataSchema) -> int:
     """Rows the rewrite checkpoint says temp already holds, or 0 when there is no checkpoint."""
     return int((schema.repartition_rewrite or {}).get("rows_written") or 0)
+
+
+def _last_attempt_advanced_rewrite(schema: ExternalDataSchema, pending: dict[str, Any] | None) -> bool:
+    """Whether the last attempt left the rewrite checkpoint further along than it found it.
+
+    Every attempt stamps `attempt_rows` with the checkpoint it is about to run from (see
+    `_charge_attempt`), so a checkpoint reading past that stamp is the only trace an attempt killed
+    outright can leave of the rows it committed. Strictly past: a checkpoint standing exactly where
+    the attempt began is the stalled rewrite the cap exists to stop. A marker written before that
+    stamp existed carries no `attempt_rows` and claims no progress.
+    """
+    if pending is None:
+        return False
+    started_from = pending.get("attempt_rows")
+    return started_from is not None and _rewrite_rows_written(schema) > int(started_from)
+
+
+def _clear_attempts_after_progress(
+    schema: ExternalDataSchema, pending: dict[str, Any] | None, logger: FilteringBoundLogger
+) -> dict[str, Any] | None:
+    """Reset the failure count for a rewrite that is still advancing; return the marker now in force.
+
+    Resets rather than refunds, the same way `_handle_budget_exceeded` treats an attempt that
+    advanced: the count records consecutive attempts that got nowhere. A failed write leaves the
+    spent count in place, so the rewrite still runs this time and the next run re-reads the cap,
+    because bookkeeping must never block it.
+    """
+    if pending is None:
+        return None
+    marker = {**pending, "attempts": 0}
+    try:
+        schema.set_repartition_pending(marker)
+    except Exception:
+        logger.warning("repartition: could not reset the attempt count, proceeding on the spent one", exc_info=True)
+        return pending
+    return marker
 
 
 def _retrying_a_killed_attempt(schema: ExternalDataSchema, pending: dict[str, Any] | None, job_id: str) -> bool:
