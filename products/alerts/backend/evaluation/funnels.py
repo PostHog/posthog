@@ -94,14 +94,11 @@ class FunnelsExtractor:
                 analytics_props={"source": EventSource.ALERT},
             )
         except ClickHouseBytesLimitExceeded:
-            # A DRF ValidationError subclass, but it reports a query too big to run, not a broken
-            # insight. Let it keep the generic failure path — disabling the alert would silence a
-            # sound configuration.
+            # Also a ValidationError, but the insight is sound: disabling would silence a working alert.
             raise
         except DRFValidationError as err:
-            # The query runner rejects the insight itself — e.g. the owner deleted a step and left a
-            # one-step funnel. The alert can no longer be evaluated as configured, so take the
-            # auto-disable path instead of raising on every scheduled check.
+            # The runner rejects the insight itself, so the alert can never evaluate as configured.
+            # Auto-disable and email the owner instead of raising on every scheduled check.
             raise AlertExtractionError(_validation_message(err)) from err
 
         # A None result means the query layer swallowed an error — surface it as RuntimeError (not

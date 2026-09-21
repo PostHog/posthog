@@ -109,8 +109,7 @@ def test_extract_raises_extraction_error(result, config, viz, condition_type, ma
 
 
 def test_query_validation_error_becomes_extraction_error():
-    # The owner deleted a step, so the query runner rejects the insight. That is a config problem:
-    # it must auto-disable the alert, not be captured as an exception on every scheduled check.
+    # A rejected insight is a config problem: auto-disable, don't capture on every check.
     with patch(CALC_PATH) as calc:
         calc.side_effect = DRFValidationError("Funnels require at least two steps.")
         with pytest.raises(AlertExtractionError, match="Funnels require at least two steps."):
@@ -118,8 +117,7 @@ def test_query_validation_error_becomes_extraction_error():
 
 
 def test_byte_limit_error_is_not_an_extraction_error():
-    # A byte-limit hit is a DRF ValidationError subclass, but the insight is sound — auto-disabling
-    # would silence a working alert, so it keeps the generic failure path.
+    # Same exception family, opposite handling: the insight is sound, so the alert stays enabled.
     with patch(CALC_PATH) as calc:
         calc.side_effect = ClickHouseBytesLimitExceeded()
         with pytest.raises(ClickHouseBytesLimitExceeded):
