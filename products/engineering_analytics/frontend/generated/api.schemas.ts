@@ -1982,12 +1982,12 @@ export interface WorkflowHealthItemApi {
      */
     success_rate: number | null
     /**
-     * Median duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs that finished in under 10 seconds without doing work are left out. Null if no run succeeded in the window.
+     * Median duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if no run succeeded in the window.
      * @nullable
      */
     p50_seconds: number | null
     /**
-     * 95th-percentile duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs that finished in under 10 seconds without doing work are left out. Null if no run succeeded in the window.
+     * 95th-percentile duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if no run succeeded in the window.
      * @nullable
      */
     p95_seconds: number | null
@@ -2029,7 +2029,7 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     success_rate_prev?: number | null
-    /** Successful runs that did real CI work. This is the p50/p95 sample count. */
+    /** Successful runs in the p50/p95 sample. Fast no-work runs are excluded when longer successful runs exist; an all-fast workflow uses every successful run. */
     percentile_run_count?: number
     /** Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest available proxy for a required check. */
     merge_queue_run_count?: number

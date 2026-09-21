@@ -205,14 +205,16 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             },
             "p50_seconds": {
                 "help_text": "Median duration in seconds over successful runs only: cancelled (superseded) and "
-                "failed runs end early and would bias the percentile. Runs that finished in under 10 seconds without "
-                "doing work are left out. Null if no run succeeded in the window.",
+                "failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are "
+                "excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if "
+                "no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
                 "help_text": "95th-percentile duration in seconds over successful runs only: cancelled "
-                "(superseded) and failed runs end early and would bias the percentile. Runs that finished in under "
-                "10 seconds without doing work are left out. Null if no run succeeded in the window.",
+                "(superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did "
+                "no work are excluded when longer successful runs exist. An all-fast workflow uses every successful "
+                "run. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {
@@ -251,7 +253,8 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "percentile_run_count": {
-                "help_text": "Successful runs that did real CI work. This is the p50/p95 sample count."
+                "help_text": "Successful runs in the p50/p95 sample. Fast no-work runs are excluded when longer "
+                "successful runs exist; an all-fast workflow uses every successful run."
             },
             "merge_queue_run_count": {
                 "help_text": "Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless "

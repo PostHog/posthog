@@ -350,7 +350,7 @@ export function WorkflowRunsScene(): JSX.Element {
                     />
                     <MetricTile
                         label="Duration p50"
-                        tooltip="Median wall-clock duration over successful runs, excluding runs that settled in under 10 seconds without doing work."
+                        tooltip="Median duration over successful runs. Runs under 10 seconds with no work are excluded when longer samples exist. All-fast workflows use every successful run."
                         value={
                             healthSummary.medianSeconds != null
                                 ? humanFriendlyDuration(healthSummary.medianSeconds)

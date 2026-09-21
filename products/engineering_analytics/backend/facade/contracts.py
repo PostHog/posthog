@@ -1080,9 +1080,9 @@ class WorkflowHealthItem:
     rerun_cycles: int = 0
     # Success rate over the equal-length window before date_from; None when it had no conclusive runs.
     success_rate_prev: float | None = None
-    # Successful runs that did real work; the exact population p50/p95 are computed over (no-op gate
-    # runs excluded). Distinct from `successful_run_count`, which counts those no-op successes too, so
-    # a duration comparison should size its min-sample gate on this, not on `successful_run_count`.
+    # Successful runs in the p50/p95 population. Fast no-op runs are excluded when longer successes
+    # exist; an all-fast workflow uses every successful run. A duration comparison should size its
+    # minimum-sample gate on this, not on `successful_run_count`.
     percentile_run_count: int = 0
     # Runs on merge-queue gate branches in the window, counted regardless of the branch/run_scope
     # filter, so the list can rank queue-gating workflows (the closest proxy for a required check)
