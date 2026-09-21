@@ -159,10 +159,16 @@ the `content` block and a structuredContent-only client misses it." Failing clos
 has not landed. So under exactly the per-request-instance deployments this revision encourages,
 the recovery channel is the one most likely to be absent.
 
-Worse on the **low-level `Server` path**: `instrument-lowlevel.ts::handleToolCallRequest` passes
-no ownership override, so `conversationId` collapses to `listed?.conversationId` too. A cold
-per-request low-level instance resolves no handle at all — step 1 of the resolution order never
-fires. The high-level path is saved by an explicit override; the low-level path is not.
+Worse on the **low-level `Server` path**, and this one is version-dependent.
+`instrument-lowlevel.ts::handleToolCallRequest` passes no ownership override on an ordinary
+tool call, so ownership falls to whatever the `tools/list` handler cached. Before 0.17.0 that
+meant a cold per-request low-level instance resolved no handle at all — step 1 of the
+resolution order never fired. Since 0.17.0 reading and stripping are separate decisions
+(ADR-0011, ADR-0013): unknown ownership now **reads** an echoed handle, so step 1 does fire on
+a cold instance. Writing is unchanged — `outputInstructions` still requires a listing this
+instance served, so the `structuredContent` mirror stays absent and delivery falls back to the
+`content` block. The high-level path resolves ownership from its live registry and is
+unaffected either way.
 
 Shape under the `_mcp_instructions` key: `{ conversation_id: string }`. The `instructions`
 sentence that used to ride along was dropped in 0.11.7, for the same prompt-injection reason as
@@ -258,12 +264,13 @@ that look diagnostic are not:
 
 What you _can_ read off the events:
 
-| Signal                                              | Reading                                                                                                                 |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `$mcp_protocol_version` = `2026-07-28`              | the request came in on the stateless dialect                                                                            |
-| `$mcp_conversation_id` populated                    | `enableConversationId` is on **and** the handle reached the agent and came back — this session is conversation-anchored |
-| `$mcp_conversation_id` empty on a stateless request | the server predates TS 0.17.0 / Python 7.56.0, or the flag was turned off, or the handle never completed the round trip |
-| one `$session_id` per `$mcp_tool_call`, repeatedly  | fragmentation — the symptom that sends people here                                                                      |
+| Signal                                                  | Reading                                                                                                                                                                                                                     |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$mcp_protocol_version` = `2026-07-28`                  | the request came in on the stateless dialect                                                                                                                                                                                |
+| `$mcp_conversation_id` populated, `instrument()` server | `enableConversationId` is on **and** the handle reached the agent and came back — this session is conversation-anchored                                                                                                     |
+| `$mcp_conversation_id` empty on a stateless request     | the server predates TS 0.17.0 / Python 7.56.0, or the flag was turned off, or the handle never completed the round trip — or the server is a custom dispatcher that supplies the id out of band and did not on this request |
+| `$mcp_conversation_id` populated, custom dispatcher     | a host-supplied id, not an SDK handle — `$session_id` is not derived from it. PostHog's own data is this case                                                                                                               |
+| one `$session_id` per `$mcp_tool_call`, repeatedly      | fragmentation — the symptom that sends people here                                                                                                                                                                          |
 
 So the useful first query on a suspect project is a count of distinct `$session_id` against
 distinct `$mcp_conversation_id` and calls, sliced by `$mcp_protocol_version`. Sessions roughly
@@ -282,7 +289,10 @@ agent was never told about.
 - **Fragmented or one-call sessions** on a stateless client almost always means
   `enableConversationId` is off (or the agent isn't echoing the handle). Check the SDK version
   and the flag before suspecting ingestion: the default flipped on in TS 0.17.0 / Python
-  7.56.0, so an un-upgraded server fragments even though nobody turned anything off.
+  7.56.0, so an un-upgraded server fragments even though nobody turned anything off. This
+  holds for `instrument()` servers only. A custom dispatcher on `PostHogMCP` has no handle to
+  echo whatever the version and flag say, so neither explains its sessions — read its own
+  correlation path instead.
 - **`$mcp_initialize` is not a session-start anchor, and whether it fires at all depends on whose
   server you're looking at.** A customer server on the SDK's `instrument()` path emits nothing for
   a stateless client — that path patches the `initialize` handler and knows nothing of
