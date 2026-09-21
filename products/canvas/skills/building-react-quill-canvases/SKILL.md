@@ -84,6 +84,10 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
   `platform_token_redeclared`.
 - recharts strokes/fills use token CSS variables (`stroke="var(--primary)"`, grid/axes in
   `var(--border)`/`var(--muted-foreground)`).
+- Some recharts defaults are hardcoded for a light theme and go wrong on a dark canvas. The
+  platform stylesheet retokenizes them, so do not work around one in canvas code. Pie slice
+  outlines are one: recharts strokes every sector white, and the stylesheet makes that
+  `var(--card)`.
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —
   `\uXXXX` escapes render verbatim in JSX text.
 

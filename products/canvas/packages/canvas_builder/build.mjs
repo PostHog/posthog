@@ -238,6 +238,13 @@ const platformStylesheet = `
 @import "@posthog/quill/primitives.css";
 @import "@posthog/quill/tailwind.css";
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Recharts hardcodes a white outline on every pie sector. It disappears into a light card and
+   draws a white ring around every slice on a dark one. The card color keeps the separation the
+   outline is there for, in both themes. */
+.recharts-pie .recharts-sector {
+  stroke: var(--card);
+}
 `
 
 // Entry references (module scripts, stylesheets) parsed attribute-order-
