@@ -194,7 +194,7 @@ class ReplayScannerBackfillViewSet(
                 ineligible_count=Count("observations", filter=Q(observations__status=ObservationStatus.INELIGIBLE)),
                 in_flight_count=Count("observations", filter=Q(observations__status__in=IN_FLIGHT_STATUSES)),
             )
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
 
     def _clamped_window(self, data: dict[str, Any]) -> tuple[datetime, datetime]:
