@@ -55,31 +55,27 @@ export function FailureLogGroups({
     loading,
     onRetry,
     jobNames,
+    errorDescription = 'Retry, or open the run on GitHub to read its logs.',
+    emptyText = 'No failure logs. Nothing failed, or the logs have aged out of retention.',
 }: {
     logs: { jobs: CIJobFailureLogApi[]; logs_available: boolean } | 'unavailable' | null | undefined
     loading: boolean
     onRetry: () => void
     /** job_id → display name, when the caller has the run's jobs loaded, because logs only carry ids. */
     jobNames?: Record<number, string>
+    errorDescription?: string
+    emptyText?: string
 }): JSX.Element {
     if (loading) {
         return <LemonSkeleton className="h-24 w-full" />
     }
     if (logs === 'unavailable') {
         return (
-            <CIAnalyticsLoadError
-                title="Couldn't load failure logs"
-                description="Retry, or open the run on GitHub to read its logs."
-                onRetry={onRetry}
-            />
+            <CIAnalyticsLoadError title="Couldn't load failure logs" description={errorDescription} onRetry={onRetry} />
         )
     }
     if (logs == null || !logs.logs_available || logs.jobs.length === 0) {
-        return (
-            <div className="px-1 py-2 text-xs text-secondary">
-                No failure logs. Nothing failed, or the logs have aged out of retention.
-            </div>
-        )
+        return <div className="px-1 py-2 text-xs text-secondary">{emptyText}</div>
     }
     return (
         <div className="flex flex-col gap-2">

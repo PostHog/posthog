@@ -397,6 +397,7 @@ export function PullRequestDetailScene(): JSX.Element {
         prRunsLoading,
         prRunsFailed,
         prCost,
+        prCostFailed,
         prCostLoading,
         pushes,
         rerunCycles,
@@ -417,7 +418,7 @@ export function PullRequestDetailScene(): JSX.Element {
         timelinesFailed,
         timeline,
     } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle, loadPrRuns, loadTimelines, loadFailureLogs, setWorkflowFilter, setRunExpanded } =
+    const { loadLifecycle, loadPrCost, loadPrRuns, loadTimelines, loadFailureLogs, setWorkflowFilter, setRunExpanded } =
         useActions(pullRequestDetailLogic)
 
     const pullRequest = lifecycle?.pull_request
@@ -428,6 +429,7 @@ export function PullRequestDetailScene(): JSX.Element {
     const passed = runs.filter((run) => run.conclusion !== null && isPassingConclusion(run.conclusion)).length
     const failed = runs.filter((run) => run.conclusion !== null && !isPassingConclusion(run.conclusion)).length
     const running = runs.filter((run) => run.conclusion === null).length
+    const visiblePrCost = prCostFailed || prCostLoading ? null : prCost
     const latestRound = commitGroups[0] ? pushRoundOf(commitGroups[0].headSha, commitGroups[0].runs) : null
     const tilesLoading = prRunsLoading && commitGroups.length === 0
 
@@ -569,24 +571,34 @@ export function PullRequestDetailScene(): JSX.Element {
                         <MetricTile
                             label="CI cost"
                             tooltip={
-                                prCost?.jobs_available
+                                visiblePrCost?.jobs_available
                                     ? `${compactUsd(
-                                          (prCost.estimated_cost_usd ?? 0) / Math.max(1, pushes)
-                                      )} per push${prCost.unsettled_jobs > 0 ? ` · ${pluralize(prCost.unsettled_jobs, 'unsettled job')} excluded` : ''}.`
-                                    : 'Available once the job-level source is synced.'
+                                          (visiblePrCost.estimated_cost_usd ?? 0) / Math.max(1, pushes)
+                                      )} per push${visiblePrCost.unsettled_jobs > 0 ? ` · ${pluralize(visiblePrCost.unsettled_jobs, 'unsettled job')} excluded` : ''}.`
+                                    : prCostFailed
+                                      ? 'Loading CI cost failed.'
+                                      : 'Available once the job-level source is synced.'
                             }
-                            value={prCost?.jobs_available ? compactUsd(prCost.estimated_cost_usd) : '—'}
-                            sub={prCost?.jobs_available ? undefined : 'Job-level source not synced'}
-                            loading={prCostLoading && !prCost}
+                            value={visiblePrCost?.jobs_available ? compactUsd(visiblePrCost.estimated_cost_usd) : '—'}
+                            sub={
+                                prCostFailed ? (
+                                    <LemonButton size="xsmall" onClick={loadPrCost} loading={prCostLoading}>
+                                        Retry
+                                    </LemonButton>
+                                ) : visiblePrCost?.jobs_available ? undefined : (
+                                    'Job-level source not synced'
+                                )
+                            }
+                            loading={prCostLoading}
                         />
-                        {prCost?.llm_spend && (
+                        {visiblePrCost?.llm_spend && (
                             <MetricTile
                                 label="LLM spend"
                                 tooltip="Token spend from AI coding/review sessions on this PR's branch, including spend from the same session before the branch was created."
-                                value={compactUsd(prCost.llm_spend.cost_usd)}
+                                value={compactUsd(visiblePrCost.llm_spend.cost_usd)}
                                 sub={`${compactCount(
-                                    prCost.llm_spend.input_tokens + prCost.llm_spend.output_tokens
-                                )} tokens · ${pluralize(prCost.llm_spend.generations, 'generation')}`}
+                                    visiblePrCost.llm_spend.input_tokens + visiblePrCost.llm_spend.output_tokens
+                                )} tokens · ${pluralize(visiblePrCost.llm_spend.generations, 'generation')}`}
                             />
                         )}
                     </div>
@@ -664,7 +676,7 @@ export function PullRequestDetailScene(): JSX.Element {
                         filteredRuns={filteredRuns}
                         failingJobLabelByWorkflow={failingJobLabelByWorkflow}
                         runCostByKey={runCostByKey}
-                        showCost={prCost?.jobs_available ?? false}
+                        showCost={visiblePrCost?.jobs_available ?? false}
                         loading={prRunsLoading}
                         repoOwner={repoOwner}
                         repoName={repoName}
@@ -679,7 +691,13 @@ export function PullRequestDetailScene(): JSX.Element {
 
             {failed > 0 && (
                 <Section id="pr-failures" title="Failures">
-                    <FailureLogGroups logs={failureLogs} loading={failureLogsLoading} onRetry={loadFailureLogs} />
+                    <FailureLogGroups
+                        logs={failureLogs}
+                        loading={failureLogsLoading}
+                        onRetry={loadFailureLogs}
+                        errorDescription="Retry, or open one of the failed runs on GitHub to read its logs."
+                        emptyText="No failure logs. Fork runs may not be linked to this pull request, nothing failed, or the logs have aged out of retention."
+                    />
                 </Section>
             )}
         </SceneContent>
