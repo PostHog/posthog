@@ -224,7 +224,8 @@ export async function checkConditions(
         // Loaded only when evaluation actually reaches a cohort condition, so a run whose earlier
         // condition matches never touches the behavioral cohorts DB. A lookup failure throws here
         // on purpose (following the action's on_error) instead of guessing non-membership; the
-        // inCohort/notInCohort STL functions read the resulting cohort_ids global.
+        // inCohort/notInCohort STL functions read the resulting cohort_ids global. The matcher does
+        // not watch cohort membership, so a wait gated on a cohort advances at its deadline.
         const cohortGlobals =
             loadMemberCohortIds && conditionReferencesCohorts(condition)
                 ? { cohort_ids: await loadMemberCohortIds() }
@@ -250,8 +251,8 @@ export async function checkConditions(
     }
 
     if (repark) {
-        // A wake arriving between this evaluation and the job being persisted finds no available row
-        // and is never replayed, so a wait cannot rely on the matcher alone.
+        // Park to the ceiling rather than a re-check interval: the matcher wakes the job when
+        // something relevant changes, so the deadline is the only timer left.
         const scheduledAt = calculatedScheduledAt(
             repark.maxWaitDuration,
             invocation.state.currentAction?.startedAtTimestamp
