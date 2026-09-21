@@ -24,6 +24,10 @@ class InsightResult:
     resolved_date_range: Optional[dict] = None
     # A QueryScanSummary dict. The insight serializer puts the stored analysis on it.
     query_scan: Optional[dict] = None
+    # Set when the query layer returned a message instead of raising. On a response that also has
+    # results it is debug output (explain / modifiers.debug); only `result is None` beside it means
+    # the query failed.
+    error: Optional[str] = None
 
 
 @dataclass(frozen=True)

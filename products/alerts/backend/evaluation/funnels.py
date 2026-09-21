@@ -101,10 +101,14 @@ class FunnelsExtractor:
             # Auto-disable and email the owner instead of raising on every scheduled check.
             raise AlertExtractionError(_validation_message(err)) from err
 
-        # A None result means the query layer swallowed an error — surface it as RuntimeError (not
-        # AlertExtractionError) so it routes to the harder failure path, matching the trends extractor
-        # (and the shared error message the alert-failure dashboards bucket on).
         if calculation_result.result is None:
+            # process_query_dict returns the schema-validation failure as a message rather than
+            # raising it, so this is the same broken-insight case as the except above.
+            if calculation_result.error:
+                raise AlertExtractionError(calculation_result.error)
+            # Any other empty result means the query layer swallowed an error — surface it as
+            # RuntimeError (not AlertExtractionError) so it routes to the harder failure path,
+            # matching the trends extractor (and the message the alert-failure dashboards bucket on).
             raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
         series = strategy.to_series(calculation_result.result, config, already_complete=already_complete)

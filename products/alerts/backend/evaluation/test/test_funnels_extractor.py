@@ -47,7 +47,7 @@ def _extract(
     exclude_incomplete: bool = False,
 ):
     with patch(CALC_PATH) as calc:
-        calc.return_value = MagicMock(result=result)
+        calc.return_value = MagicMock(result=result, error=None)
         return FunnelsExtractor().extract(
             _alert(config, condition_type), MagicMock(), _query(viz, exclude_incomplete), IF_STALE
         )
@@ -121,6 +121,15 @@ def test_byte_limit_error_is_not_an_extraction_error():
     with patch(CALC_PATH) as calc:
         calc.side_effect = ClickHouseBytesLimitExceeded()
         with pytest.raises(ClickHouseBytesLimitExceeded):
+            FunnelsExtractor().extract(_alert(), MagicMock(), _query(), IF_STALE)
+
+
+def test_swallowed_validation_error_becomes_extraction_error():
+    # process_query_dict returns a schema failure as a message instead of raising, so without the
+    # error check this reaches the alert as a bare result-less run and never auto-disables.
+    with patch(CALC_PATH) as calc:
+        calc.return_value = MagicMock(result=None, error="Funnels require at least two steps.")
+        with pytest.raises(AlertExtractionError, match="Funnels require at least two steps."):
             FunnelsExtractor().extract(_alert(), MagicMock(), _query(), IF_STALE)
 
 
