@@ -29,8 +29,12 @@ def non_product_consumers() -> list[WebhookConsumer]:
     for module_name in NON_PRODUCT_CONSUMER_MODULES:
         try:
             module = importlib.import_module(module_name)
-        except ImportError:
-            continue
+        except ModuleNotFoundError as error:
+            # Only the tree being absent is a reason to skip. A broken import inside the module
+            # raises the same class, and swallowing it would deregister the consumer in silence.
+            if error.name is not None and (module_name == error.name or module_name.startswith(f"{error.name}.")):
+                continue
+            raise
         declared: Sequence[WebhookConsumer] = getattr(module, PRODUCT_CONSUMER_ATTRIBUTE, ())
         consumers.extend(declared)
     return consumers
