@@ -169,7 +169,9 @@ def _read_repo_routing(repo_config: StamphogRepoConfig, fetcher: GitHubFilesFetc
     owners.yaml inherits one, and a repo declaring no channel has no repo audience to route.
     """
     try:
-        files = AuthenticatedRepoFiles(repo_config.repository, fetcher)
+        # Routing is derived every run and never stored, so a head SHA another read cached up to
+        # two minutes ago could route a merged owners.yaml change to yesterday's channel.
+        files = AuthenticatedRepoFiles(repo_config.repository, fetcher, fresh_head=True)
         raw = files.read(_OWNERS_FILE_PATH)
         digest_config = load_repo_digest_config(repo_config) if repo_config.digest_enabled else None
     except Exception as e:

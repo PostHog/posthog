@@ -13,8 +13,9 @@ from django.conf import settings
 import requests
 import structlog
 
-from posthog.egress.github.transport import github_request
+from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -326,13 +327,27 @@ class GitHubIntegration(GitHubIntegrationBase):
         check below interpolates it into an authenticated ``GET /repos/{repository}``. Reject anything
         that isn't a plain ``owner/repo`` first, so a crafted value (``owner/repo/contents/x?ref=y``)
         can't steer that authenticated request to a different GitHub endpoint as a probe.
+
+        An installation whose probe runs out of egress budget or hits GitHub's rate limit is
+        skipped. When no other installation covers the repository, that first error is raised.
         """
         if not _is_safe_github_repo_path(repository):
             return None
+        exhausted: Exception | None = None
         for integration in model.Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
             github = cls(integration, source=source, priority=priority)
-            if github.installation_can_access_repository(repository):
+            try:
+                covers = github.installation_can_access_repository(repository)
+            except (EgressBudgetExhausted, GitHubRateLimitError) as e:
+                # A team's first installation being out of budget must not hide a later one that
+                # covers the repository. The first error is kept and raised only when none does,
+                # so a caller that has no reader still sees why.
+                exhausted = exhausted or e
+                continue
+            if covers:
                 return github
+        if exhausted is not None:
+            raise exhausted
         return None
 
     def __init__(

@@ -46,6 +46,7 @@ The authenticated reader caches per commit.
 The content at a commit never changes, so a blob is held for days; the head lookup is held for about two minutes, and that is the whole staleness window of an ownership change.
 The cache key names the credential's audience, an installation or a digest of a token, because a private repository one installation can read is not readable by the next caller that names the same repository.
 A token never reaches a cache key or a log line.
+Pass `fresh_head=True` when the run derives a decision it never stores and so cannot correct later, such as digest routing, and the reader asks GitHub for the head instead of reading that shared entry.
 
 ## How a caller gets a source
 

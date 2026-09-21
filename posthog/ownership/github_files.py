@@ -355,17 +355,22 @@ class AuthenticatedRepoFiles(CachedRepoFiles):
     """A repository's ownership files read with a credential, cached per commit.
 
     Build one per batch: it holds the batch's memo, its head commit, and its time budget.
+
+    ``fresh_head`` asks GitHub for the head on this run rather than reading the shared head cache,
+    for a caller that derives a decision it never stores and so cannot correct later. It still
+    writes the head cache, and blob reads stay cached because content at a commit never changes.
     """
 
-    def __init__(self, repository: str, fetcher: GitHubFilesFetcher) -> None:
+    def __init__(self, repository: str, fetcher: GitHubFilesFetcher, *, fresh_head: bool = False) -> None:
         super().__init__(repository)
         self._fetcher = fetcher
+        self._fresh_head = fresh_head
         self._sha: str | None = None
 
     def _head_commit_sha(self) -> str | None:
         if self._sha is None:
             key = f"{_CACHE_PREFIX}:head:{self._fetcher.audience}:{self.repository}"
-            cached = cache.get(key)
+            cached = None if self._fresh_head else cache.get(key)
             if isinstance(cached, str) and cached:
                 self._sha = cached
             else:

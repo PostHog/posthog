@@ -27,6 +27,7 @@ from posthog.ownership.repo_files import GitHubRepoFiles, OwnershipUnavailable
 
 _REPOSITORY = "PostHog/posthog"
 _SHA = "a" * 40
+_NEW_SHA = "b" * 40
 _ROOT_OWNERS = "version: 1\nowners: [team-root]\n"
 
 
@@ -56,6 +57,7 @@ class _FakeGitHub:
         self.sha = sha
         self.file_calls = 0
         self.head_calls = 0
+        self.file_shas: list[str] = []
 
     def __call__(self, _method: str, _url: str, **kwargs: Any) -> _Response:
         payload = kwargs["json"]
@@ -70,7 +72,8 @@ class _FakeGitHub:
         for name, expression in variables.items():
             if name in ("owner", "name"):
                 continue
-            path = expression.split(":", 1)[1]
+            sha, path = expression.split(":", 1)
+            self.file_shas.append(sha)
             body = self.blobs.get(path)
             if body is None:
                 field[f"f{name[1:]}"] = None
@@ -264,6 +267,22 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
         github.sha, github.blobs = _SHA, {"owners.yaml": _ROOT_OWNERS}
         with patch("posthog.ownership.github_files.github_request", side_effect=github):
             assert self._files().read("owners.yaml") == _ROOT_OWNERS
+
+    @parameterized.expand([("cached_head", False, _SHA), ("fresh_head", True, _NEW_SHA)])
+    def test_a_fresh_head_run_reads_at_the_head_of_this_run(
+        self, _name: str, fresh_head: bool, expected_sha: str
+    ) -> None:
+        # A caller that derives a decision it never stores cannot correct a head another caller
+        # cached two minutes ago, so it has to be able to skip that entry. The entry is still
+        # written, because every other caller is happy with it.
+        github = _FakeGitHub({"owners.yaml": _ROOT_OWNERS}, sha=_NEW_SHA)
+        key = f"{_CACHE_PREFIX}:head:{_fetcher().audience}:{_REPOSITORY}"
+        cache.set(key, _SHA, 120)
+        with patch("posthog.ownership.github_files.github_request", side_effect=github):
+            files = AuthenticatedRepoFiles(_REPOSITORY, _fetcher(), fresh_head=fresh_head)
+            assert files.read("owners.yaml") == _ROOT_OWNERS
+        assert github.file_shas == [expected_sha]
+        assert cache.get(key) == expected_sha
 
     @parameterized.expand([("present", _ROOT_OWNERS), ("absent", None)])
     def test_a_commit_is_read_once_and_a_new_commit_is_read_again(self, _name: str, body: str | None) -> None:
