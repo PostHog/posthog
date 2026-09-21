@@ -118,6 +118,44 @@ class TestUrls(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("signup", "/signup"),
+            ("signup_trailing_slash", "/signup/"),
+            ("login", "/login"),
+            ("login_trailing_slash", "/login/"),
+        ]
+    )
+    def test_signed_in_user_is_redirected_off_only_unauthenticated_routes(self, _name, request_path):
+        response = self.client.get(request_path, follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "/")
+
+    @parameterized.expand(
+        [
+            ("relative", "/project/123/insights", "/project/123/insights"),
+            ("with_query", "/oauth/authorize?client_id=abc", "/oauth/authorize?client_id=abc"),
+            ("absolute_other_host", "https://evil.example.com/steal", "/"),
+            ("protocol_relative", "//evil.example.com/steal", "/"),
+            ("back_to_signup", "/signup", "/"),
+        ]
+    )
+    def test_signed_in_signup_redirect_honors_only_safe_next(self, _name, next_param, expected_location):
+        response = self.client.get("/signup", {"next": next_param}, follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], expected_location)
+
+    @parameterized.expand(
+        [
+            ("invite_signup", f"/signup/{uuid.uuid4()}"),
+            ("login_2fa", "/login/2fa"),
+            ("login_2fa_setup", "/login/2fa_setup"),
+        ]
+    )
+    def test_signed_in_user_still_gets_nested_auth_routes(self, _name, request_path):
+        response = self.client.get(request_path, follow=False)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
             ("no_slash_no_qs", "/sign-up", "/signup"),
             ("trailing_slash_no_qs", "/sign-up/", "/signup"),
             ("no_slash_with_qs", "/sign-up?email=foo%40bar.com", "/signup?email=foo%40bar.com"),

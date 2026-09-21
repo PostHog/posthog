@@ -1,5 +1,5 @@
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -52,6 +52,40 @@ def app_region_redirect(request: HttpRequest) -> HttpResponseRedirect | None:
     return None
 
 
+# Frontend routes that only make sense signed out, matched on the exact path so
+# `/signup/<invite_id>`, `/login/2fa` and `/login/2fa_setup` are left alone.
+ONLY_UNAUTHENTICATED_PATHS = frozenset({"/login", "/signup"})
+
+
+def post_auth_destination(request: HttpRequest) -> str:
+    """Where a signed-in visitor to an only-unauthenticated route belongs. Mirrors the
+    frontend `loginRedirectTarget`: the `?next=` an OAuth partner or the `login_required`
+    decorator put there, otherwise the app root. Always a same-origin relative path."""
+    next_path = request.GET.get("next")
+    if not next_path or not url_has_allowed_host_and_scheme(next_path, allowed_hosts=None):
+        return "/"
+    parsed = urlparse(next_path)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return "/"
+    if parsed.path.rstrip("/") in ONLY_UNAUTHENTICATED_PATHS:
+        return "/"
+    return urlunparse(("", "", parsed.path, parsed.params, parsed.query, ""))
+
+
+def only_unauthenticated_redirect(request: HttpRequest) -> HttpResponseRedirect | None:
+    """Send a signed-in browser away from `/login` and `/signup` before the document is
+    rendered. Without this the SPA boots the auth screen, sees the session in its app
+    context, and replaces the URL itself, which the person reads as a surprise logout.
+    Returns None when no redirect applies so callers render normally."""
+    if request.method not in ("GET", "HEAD"):
+        return None
+    if request.path.rstrip("/") not in ONLY_UNAUTHENTICATED_PATHS:
+        return None
+    if not request.user.is_authenticated:
+        return None
+    return HttpResponseRedirect(post_auth_destination(request))
+
+
 @ensure_csrf_cookie
 def _render_home(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
     return render_template("index.html", request)
@@ -65,10 +99,14 @@ _login_required_render_home = login_required(_render_home)
 def home(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
     """Entrypoint for the unauthenticated frontend routes (login, signup, …). Runs the
     cross-region redirect before rendering so `app.posthog.com` visitors land on their
-    logged-in region (see `app_region_redirect`)."""
+    logged-in region (see `app_region_redirect`), then sends an already signed-in visitor
+    on to the app (see `only_unauthenticated_redirect`)."""
     region_redirect = app_region_redirect(request)
     if region_redirect is not None:
         return region_redirect
+    signed_in_redirect = only_unauthenticated_redirect(request)
+    if signed_in_redirect is not None:
+        return signed_in_redirect
     return _render_home(request, *args, **kwargs)
 
 
