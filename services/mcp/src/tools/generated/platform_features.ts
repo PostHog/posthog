@@ -627,6 +627,7 @@ const OrganizationEnforce2faSchema = () => {
             members_can_see_org_members: true,
             allow_publicly_shared_resources: true,
             read_only_mcp_access: true,
+            sdk_diagnostics_opt_out: true,
             is_ai_data_processing_approved: true,
             is_ai_training_opted_in: true,
             default_experiment_stats_method: true,

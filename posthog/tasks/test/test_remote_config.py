@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from kombu.exceptions import OperationalError
 from parameterized import parameterized
 
 from posthog.models.project import Project
@@ -14,6 +15,7 @@ from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
     refresh_expiring_remote_config_cache_entries,
     sync_all_remote_configs,
+    update_organization_remote_configs,
     update_team_remote_config,
 )
 
@@ -74,6 +76,23 @@ class TestRemoteConfig(BaseTest):
         assert RemoteConfig.objects.get(team=self.other_team_1).synced_at > remote_config_1_synced_at  # type: ignore
         # This one is unchanged so should not be synced
         assert RemoteConfig.objects.get(team=self.other_team_2).synced_at == remote_config_2_synced_at
+
+    def test_organization_refresh_retries_after_partial_dispatch(self) -> None:
+        dispatched_team_ids: list[int] = []
+        failed = False
+
+        def dispatch(team_id: int) -> None:
+            nonlocal failed
+            if len(dispatched_team_ids) == 1 and not failed:
+                failed = True
+                raise OperationalError("Broker unavailable")
+            dispatched_team_ids.append(team_id)
+
+        with patch("posthog.tasks.remote_config.update_team_remote_config.delay", side_effect=dispatch):
+            update_organization_remote_configs.apply(args=(str(self.organization.id),), throw=False).get()
+
+        assert failed
+        assert set(dispatched_team_ids) == {self.team.id, self.other_team_1.id, self.other_team_2.id}
 
     @patch.object(RemoteConfig, "sync")
     def test_update_team_remote_config_forwards_bypass_recordings_quota_cache(self, mock_sync: MagicMock) -> None:

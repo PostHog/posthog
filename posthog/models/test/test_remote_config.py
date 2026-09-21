@@ -12,8 +12,10 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
+from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
+from posthog.tasks.remote_config import update_organization_remote_configs
 
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -75,6 +77,54 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.updated_at
         assert self.remote_config.synced_at
         assert self.remote_config.config == self.snapshot
+        assert self.remote_config.config["sdkDiagnosticsEnabled"] is False
+
+    @parameterized.expand(
+        [
+            (False, False, False, False),
+            (False, False, True, False),
+            (False, True, False, False),
+            (False, True, True, False),
+            (True, False, False, True),
+            (True, False, True, False),
+            (True, True, False, False),
+            (True, True, True, False),
+        ]
+    )
+    def test_sdk_diagnostics_veto_chain(
+        self, globally_enabled: bool, organization_opt_out: bool, project_opt_out: bool, expected: bool
+    ) -> None:
+        self.organization.sdk_diagnostics_opt_out = organization_opt_out
+        self.organization.save(update_fields=["sdk_diagnostics_opt_out"])
+        self.team.sdk_diagnostics_opt_out = project_opt_out
+        self.team.save(update_fields=["sdk_diagnostics_opt_out"])
+
+        with override_settings(SDK_DIAGNOSTICS_ENABLED=globally_enabled):
+            self.sync_remote_config()
+
+        assert self.remote_config.config["sdkDiagnosticsEnabled"] is expected
+
+    def test_organization_sdk_diagnostics_refreshes_only_its_projects(self) -> None:
+        other_organization = Organization.objects.create(name="Other organization")
+        Project.objects.create_with_team(
+            organization=other_organization, name="Other project", initiating_user=self.user
+        )
+
+        with patch("posthog.tasks.remote_config.update_organization_remote_configs.delay") as enqueue_refresh:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.organization.sdk_diagnostics_opt_out = True
+                self.organization.save(update_fields=["sdk_diagnostics_opt_out"])
+            enqueue_refresh.assert_called_once_with(str(self.organization.id))
+
+            enqueue_refresh.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                self.organization.save(update_fields=["sdk_diagnostics_opt_out"])
+            enqueue_refresh.assert_not_called()
+
+        expected_team_ids = set(self.organization.teams.values_list("id", flat=True))
+        with patch("posthog.tasks.remote_config.update_team_remote_config.delay") as enqueue_team:
+            update_organization_remote_configs(str(self.organization.id))
+        assert {call.args[0] for call in enqueue_team.call_args_list} == expected_team_ids
 
     def test_indicates_if_feature_flags_exist(self):
         assert not self.remote_config.config["hasFeatureFlags"]

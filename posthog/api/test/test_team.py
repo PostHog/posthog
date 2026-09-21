@@ -3720,6 +3720,7 @@ _ADMIN_GATED_TEAM_CONFIG_FIELDS: list[tuple[str, Any, str]] = [
     ("timezone", "Europe/Lisbon", "timezone"),
     ("anonymize_ips", True, "anonymize_ips"),
     ("autocapture_opt_out", True, "autocapture_opt_out"),
+    ("sdk_diagnostics_opt_out", True, "sdk_diagnostics_opt_out"),
     ("data_attributes", ["data-cy"], "data_attributes"),
     ("week_start_day", 1, "week_start_day"),
     ("path_cleaning_filters", [{"alias": "x", "regex": "/x/.*"}], "path_cleaning_filters"),

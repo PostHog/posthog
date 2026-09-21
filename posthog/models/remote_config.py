@@ -4,7 +4,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
@@ -17,6 +17,7 @@ from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
 from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
+from posthog.models.organization import Organization
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
@@ -225,6 +226,11 @@ class RemoteConfig(UUIDTModel):
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
             "supportedCompression": ["gzip", "gzip-js"],
+            "sdkDiagnosticsEnabled": (
+                settings.SDK_DIAGNOSTICS_ENABLED
+                and not team.sdk_diagnostics_opt_out
+                and not team.organization.sdk_diagnostics_opt_out
+            ),
             "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).exists(),
             "captureDeadClicks": bool(team.capture_dead_clicks),
             "capturePerformance": (
@@ -516,6 +522,43 @@ def _update_team_remote_config(team_id: int):
     from posthog.tasks.remote_config import update_team_remote_config
 
     update_team_remote_config.delay(team_id)
+
+
+@receiver(pre_save, sender=Organization)
+def remember_organization_sdk_diagnostics_change(
+    sender: type[Organization],
+    instance: Organization,
+    raw: bool,
+    using: str,
+    update_fields: frozenset[str] | None,
+    **kwargs: object,
+) -> None:
+    instance._sdk_diagnostics_opt_out_changed = False
+    if instance._state.adding or raw:
+        return
+    if update_fields is not None and "sdk_diagnostics_opt_out" not in update_fields:
+        return
+    previous = (
+        sender.objects.using(using).filter(pk=instance.pk).values_list("sdk_diagnostics_opt_out", flat=True).first()
+    )
+    instance._sdk_diagnostics_opt_out_changed = previous != instance.sdk_diagnostics_opt_out
+
+
+@receiver(post_save, sender=Organization)
+def update_remote_config_for_organization(
+    instance: Organization, created: bool, raw: bool, using: str, **kwargs: object
+) -> None:
+    if created or raw or not instance._sdk_diagnostics_opt_out_changed:
+        return
+
+    organization_id = str(instance.pk)
+
+    def enqueue_refresh() -> None:
+        from posthog.tasks.remote_config import update_organization_remote_configs
+
+        update_organization_remote_configs.delay(organization_id)
+
+    transaction.on_commit(enqueue_refresh, using=using)
 
 
 @receiver(post_save, sender=Team)

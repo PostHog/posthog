@@ -202,6 +202,7 @@ class OrganizationSerializer(
             "allow_publicly_shared_resources",
             "read_only_mcp_access",
             "member_count",
+            "sdk_diagnostics_opt_out",
             "is_ai_data_processing_approved",
             "is_ai_training_opted_in",
             "is_ai_training_locked",

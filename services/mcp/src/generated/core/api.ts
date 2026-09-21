@@ -136,6 +136,10 @@ export const OrganizationsProjectsCreateBody = () => zod
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
         correlation_config: zod.unknown().optional(),
+        sdk_diagnostics_opt_out: zod
+            .boolean()
+            .optional()
+            .describe('Disables SDK diagnostics for this project when true.'),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -2822,6 +2826,10 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
         correlation_config: zod.unknown().optional(),
+        sdk_diagnostics_opt_out: zod
+            .boolean()
+            .optional()
+            .describe('Disables SDK diagnostics for this project when true.'),
         autocapture_opt_out: zod
             .boolean()
             .nullish()

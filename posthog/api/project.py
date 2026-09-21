@@ -691,6 +691,7 @@ class ProjectBackwardCompatSerializer(
             "data_attributes",  # Compat with TeamSerializer
             "person_display_name_properties",  # Compat with TeamSerializer
             "correlation_config",  # Compat with TeamSerializer
+            "sdk_diagnostics_opt_out",
             "autocapture_opt_out",  # Compat with TeamSerializer
             "autocapture_exceptions_opt_in",  # Compat with TeamSerializer
             "autocapture_web_vitals_opt_in",  # Compat with TeamSerializer
@@ -801,6 +802,7 @@ class ProjectBackwardCompatSerializer(
             "data_attributes",
             "person_display_name_properties",
             "correlation_config",
+            "sdk_diagnostics_opt_out",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
             "autocapture_web_vitals_opt_in",
