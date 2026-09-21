@@ -4,20 +4,33 @@ import hashlib
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.ingress.dispatch.loading import reset_consumer_registry
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.vercel.test.base import VercelTestBase
 
+US_HOST = "us.posthog.com"
+EU_HOST = "eu.posthog.com"
 
+
+@override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret", ALLOWED_HOSTS=["*"])
 class TestVercelWebhooks(VercelTestBase):
     def setUp(self):
         super().setUp()
         self.url = "/webhooks/vercel"
         self.secret = "test_webhook_secret"
+        reset_consumer_registry()
+        cache.clear()
+
+    def tearDown(self):
+        reset_consumer_registry()
+        super().tearDown()
 
     def _sign_payload(self, payload: dict) -> str:
         body = json.dumps(payload).encode("utf-8")
@@ -27,21 +40,19 @@ class TestVercelWebhooks(VercelTestBase):
             hashlib.sha1,
         ).hexdigest()
 
-    def _post_webhook(self, payload: dict, signature: str | None = None):
-        if signature is not None:
-            return self.client.post(
-                self.url,
-                data=json.dumps(payload),
-                content_type="application/json",
-                headers={"x-vercel-signature": signature},
-            )
+    def _post_webhook(self, payload: dict, signature: str | None = None, host: str = US_HOST):
+        headers = {} if signature is None else {"x-vercel-signature": signature}
         return self.client.post(
             self.url,
             data=json.dumps(payload),
             content_type="application/json",
+            headers=headers,
+            SERVER_NAME=host,
         )
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
+    def _post_signed(self, payload: dict, host: str = US_HOST):
+        return self._post_webhook(payload, signature=self._sign_payload(payload), host=host)
+
     def test_invalid_signature_returns_401(self):
         payload = {
             "type": "marketplace.invoice.paid",
@@ -51,9 +62,8 @@ class TestVercelWebhooks(VercelTestBase):
         response = self._post_webhook(payload, signature="invalid_signature")
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert response.json()["error"] == "Invalid signature"
+        assert response.content == b"Invalid signature"
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     def test_missing_signature_returns_401(self):
         payload = {
             "type": "marketplace.invoice.paid",
@@ -64,51 +74,36 @@ class TestVercelWebhooks(VercelTestBase):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_missing_config_id_returns_400(self):
-        payload = {
-            "type": "marketplace.invoice.paid",
-            "payload": {"invoiceId": "mi_123"},  # Missing installationId
-        }
-        signature = self._sign_payload(payload)
+    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="")
+    def test_missing_secret_returns_500(self):
+        payload = {"type": "marketplace.invoice.paid", "payload": {"installationId": self.installation_id}}
 
-        response = self._post_webhook(payload, signature=signature)
+        response = self._post_webhook(payload, signature="anything")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "configurationId" in response.json()["error"]  # Error message still says configurationId
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_unknown_config_returns_404(self):
-        payload = {
-            "type": "marketplace.invoice.paid",
-            "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
-        }
-        signature = self._sign_payload(payload)
+    @parameterized.expand(
+        [
+            ("missing_config_id", {"type": "marketplace.invoice.paid", "payload": {"invoiceId": "mi_123"}}),
+            (
+                "unknown_config",
+                {
+                    "type": "marketplace.invoice.paid",
+                    "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
+                },
+            ),
+            ("non_billing_event", {"type": "deployment.created", "payload": {"installationId": "icfg_1"}}),
+            ("no_event_type", {"type": None, "payload": {"installationId": "icfg_1"}}),
+            ("deauthorize_without_a_config_id", {"type": "integration-configuration.removed", "payload": {}}),
+        ]
+    )
+    @patch("ee.api.vercel.webhook_events.BillingManager")
+    def test_a_delivery_with_nothing_to_do_is_receipted(self, _name, payload, mock_billing_manager_class):
+        response = self._post_signed(payload)
 
-        response = self._post_webhook(payload, signature=signature)
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_billing_manager_class.assert_not_called()
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert "Unknown configuration" in response.json()["error"]
-
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_non_billing_events_ignored(self):
-        for event_type in [
-            "deployment.created",
-            "marketplace.member.created",
-            None,
-        ]:
-            payload = {
-                "type": event_type,
-                "payload": {"installationId": self.installation_id},
-            }
-            signature = self._sign_payload(payload)
-
-            response = self._post_webhook(payload, signature=signature)
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json()["status"] == "ignored"
-
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     @patch("ee.api.vercel.webhook_events.VercelIntegration")
     def test_deauthorization_native_calls_delete_installation(self, mock_vercel_integration):
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
@@ -117,178 +112,72 @@ class TestVercelWebhooks(VercelTestBase):
             "type": "integration-configuration.removed",
             "payload": {"installationId": self.installation_id},
         }
-        signature = self._sign_payload(payload)
 
-        response = self._post_webhook(payload, signature=signature)
+        response = self._post_signed(payload)
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"] == "ok"
+        assert response.status_code == status.HTTP_202_ACCEPTED
         mock_vercel_integration.delete_installation.assert_called_once_with(self.installation_id)
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_deauthorization_connectable_deletes_directly(self):
+    @parameterized.expand(
+        [
+            ("installation_id", "installationId"),
+            ("configuration_id", "configuration"),
+        ]
+    )
+    def test_deauthorization_connectable_deletes_directly(self, _name, field):
         self.installation.config["type"] = "connectable"
         self.installation.save()
+        event_payload = (
+            {"installationId": self.installation_id}
+            if field == "installationId"
+            else {"configuration": {"id": self.installation_id}}
+        )
 
-        payload = {
-            "type": "integration-configuration.removed",
-            "payload": {"installationId": self.installation_id},
-        }
-        signature = self._sign_payload(payload)
+        response = self._post_signed({"type": "integration-configuration.removed", "payload": event_payload})
 
-        response = self._post_webhook(payload, signature=signature)
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"] == "ok"
+        assert response.status_code == status.HTTP_202_ACCEPTED
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_deauthorization_with_configuration_id_payload(self):
-        self.installation.config["type"] = "connectable"
-        self.installation.save()
-
-        payload = {
-            "type": "integration-configuration.removed",
-            "payload": {
-                "configuration": {"id": self.installation_id},
-            },
-        }
-        signature = self._sign_payload(payload)
-
-        response = self._post_webhook(payload, signature=signature)
-
-        assert response.status_code == status.HTTP_200_OK
-        assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
-
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_deauthorization_with_empty_configuration_returns_400(self):
-        payload = {
-            "type": "integration-configuration.removed",
-            "payload": {"configuration": {}},
-        }
-        signature = self._sign_payload(payload)
-
-        response = self._post_webhook(payload, signature=signature)
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_deauthorization_with_no_config_fields_returns_400(self):
-        payload = {
-            "type": "integration-configuration.removed",
-            "payload": {"user": {"id": "usr_123"}},
-        }
-        signature = self._sign_payload(payload)
-
-        response = self._post_webhook(payload, signature=signature)
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_deauthorization_unknown_config_succeeds(self):
+    @parameterized.expand(
+        [
+            ("the_region_vercel_delivers_to_forwards", US_HOST, True),
+            ("the_region_that_receives_forwards_does_not", EU_HOST, False),
+            ("anywhere_else_does_not", "testserver", False),
+        ]
+    )
+    @patch("posthog.ingress.dispatch.forward.requests.request")
+    def test_a_deauthorization_this_region_does_not_hold_is_forwarded(self, _name, host, expect_forward, mock_request):
+        mock_request.return_value = MagicMock(ok=True, status_code=200)
         payload = {
             "type": "integration-configuration.removed",
             "payload": {"installationId": "icfg_unknown"},
         }
-        signature = self._sign_payload(payload)
 
-        response = self._post_webhook(payload, signature=signature)
+        response = self._post_signed(payload, host=host)
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"] == "ok"
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        if not expect_forward:
+            mock_request.assert_not_called()
+            return
+        assert mock_request.call_args.kwargs["url"] == f"https://{EU_HOST}/webhooks/vercel"
+        assert mock_request.call_args.kwargs["headers"]["x-vercel-signature"] == self._sign_payload(payload)
 
-    @override_settings(
-        VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret",
-        SITE_URL="https://us.posthog.com",
-        REGION_US_DOMAIN="us.posthog.com",
-        REGION_EU_DOMAIN="eu.posthog.com",
-    )
-    @patch("ee.api.vercel.webhook_events.outbound_requests.post")
-    def test_deauthorization_unknown_config_on_us_proxies_to_eu(self, mock_post):
-        mock_eu_response = MagicMock()
-        mock_eu_response.status_code = 200
-        mock_post.return_value = mock_eu_response
-
-        payload = {
-            "type": "integration-configuration.removed",
-            "payload": {"installationId": "icfg_unknown"},
-        }
-        signature = self._sign_payload(payload)
-
-        response = self._post_webhook(payload, signature=signature)
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"] == "ok"
-
-        mock_post.assert_called_once()
-        call_kwargs = mock_post.call_args
-        assert call_kwargs.kwargs["url"] == "https://eu.posthog.com/webhooks/vercel"
-        assert call_kwargs.kwargs["headers"]["x-vercel-signature"] == signature
-
-    @override_settings(
-        VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret",
-        SITE_URL="https://eu.posthog.com",
-        REGION_US_DOMAIN="us.posthog.com",
-        REGION_EU_DOMAIN="eu.posthog.com",
-    )
-    @patch("ee.api.vercel.webhook_events.outbound_requests.post")
-    def test_deauthorization_unknown_config_on_eu_does_not_proxy(self, mock_post):
-        payload = {
-            "type": "integration-configuration.removed",
-            "payload": {"installationId": "icfg_unknown"},
-        }
-        signature = self._sign_payload(payload)
-
-        response = self._post_webhook(payload, signature=signature)
-
-        assert response.status_code == status.HTTP_200_OK
-        mock_post.assert_not_called()
-
-    @override_settings(
-        VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret",
-        SITE_URL="http://localhost:8000",
-        REGION_US_DOMAIN="us.posthog.com",
-        REGION_EU_DOMAIN="eu.posthog.com",
-    )
-    @patch("ee.api.vercel.webhook_events.outbound_requests.post")
-    def test_deauthorization_unknown_config_on_dev_does_not_proxy(self, mock_post):
-        payload = {
-            "type": "integration-configuration.removed",
-            "payload": {"installationId": "icfg_unknown"},
-        }
-        signature = self._sign_payload(payload)
-
-        response = self._post_webhook(payload, signature=signature)
-
-        assert response.status_code == status.HTTP_200_OK
-        mock_post.assert_not_called()
-
-    @override_settings(
-        VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret",
-        SITE_URL="https://us.posthog.com",
-        REGION_US_DOMAIN="us.posthog.com",
-        REGION_EU_DOMAIN="eu.posthog.com",
-    )
-    @patch("ee.api.vercel.webhook_events.outbound_requests.post")
-    def test_billing_event_unknown_config_does_not_proxy(self, mock_post):
+    @patch("posthog.ingress.dispatch.forward.requests.request")
+    def test_a_billing_event_is_never_forwarded(self, mock_request):
         payload = {
             "type": "marketplace.invoice.paid",
             "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
         }
-        signature = self._sign_payload(payload)
 
-        response = self._post_webhook(payload, signature=signature)
+        response = self._post_signed(payload)
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        mock_post.assert_not_called()
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_request.assert_not_called()
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     @patch("ee.api.vercel.webhook_events.BillingManager")
     @patch("ee.api.vercel.webhook_events.License")
     def test_billing_event_forwarded_to_billing_service(self, mock_license_model, mock_billing_manager_class):
-        mock_license = MagicMock()
-        mock_license_model.objects.first.return_value = mock_license
-
+        mock_license_model.objects.first.return_value = MagicMock()
         mock_billing_manager = MagicMock()
         mock_billing_manager_class.return_value = mock_billing_manager
 
@@ -296,13 +185,10 @@ class TestVercelWebhooks(VercelTestBase):
             "type": "marketplace.invoice.paid",
             "payload": {"installationId": self.installation_id, "invoiceId": "mi_123"},
         }
-        signature = self._sign_payload(payload)
 
-        response = self._post_webhook(payload, signature=signature)
+        response = self._post_signed(payload)
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"] == "ok"
-
+        assert response.status_code == status.HTTP_202_ACCEPTED
         mock_billing_manager.handle_billing_provider_webhook.assert_called_once_with(
             event_type="marketplace.invoice.paid",
             event_data=payload["payload"],
@@ -310,13 +196,10 @@ class TestVercelWebhooks(VercelTestBase):
             billing_provider="vercel",
         )
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     @patch("ee.api.vercel.webhook_events.BillingManager")
     @patch("ee.api.vercel.webhook_events.License")
     def test_billing_error_returns_500(self, mock_license_model, mock_billing_manager_class):
-        mock_license = MagicMock()
-        mock_license_model.objects.first.return_value = mock_license
-
+        mock_license_model.objects.first.return_value = MagicMock()
         mock_billing_manager = MagicMock()
         mock_billing_manager_class.return_value = mock_billing_manager
         mock_billing_manager.handle_billing_provider_webhook.side_effect = Exception("Billing service error")
@@ -325,14 +208,11 @@ class TestVercelWebhooks(VercelTestBase):
             "type": "marketplace.invoice.paid",
             "payload": {"installationId": self.installation_id, "invoiceId": "mi_123"},
         }
-        signature = self._sign_payload(payload)
 
-        response = self._post_webhook(payload, signature=signature)
+        response = self._post_signed(payload)
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "Processing failed" in response.json()["error"]
 
-    @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     @patch("ee.api.vercel.webhook_events.License")
     def test_no_license_returns_500(self, mock_license_model):
         mock_license_model.objects.first.return_value = None
@@ -341,9 +221,7 @@ class TestVercelWebhooks(VercelTestBase):
             "type": "marketplace.invoice.paid",
             "payload": {"installationId": self.installation_id, "invoiceId": "mi_123"},
         }
-        signature = self._sign_payload(payload)
 
-        response = self._post_webhook(payload, signature=signature)
+        response = self._post_signed(payload)
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "Processing failed" in response.json()["error"]

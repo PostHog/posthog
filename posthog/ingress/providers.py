@@ -16,6 +16,7 @@ from django.http import HttpRequest, HttpResponse
 
 from rest_framework.throttling import BaseThrottle
 
+from posthog import regions
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.verify.schemes import SignatureScheme, Verification, VerificationOutcome
 
@@ -28,6 +29,7 @@ _INCARNATION_MODULES = (
     "posthog.ingress.mailgun.provider",
     "posthog.ingress.vapi.provider",
     "posthog.ingress.sns.provider",
+    "posthog.ingress.vercel.provider",
 )
 
 
@@ -96,6 +98,15 @@ class WebhookProvider(ABC):
         `facts` is what the signature scheme proved on the way, such as a signed token's
         verified claims. It is empty for a scheme that only checks an HMAC.
         """
+
+    def receiving_region_domain(self) -> str:
+        """The region whose URL this App is registered against.
+
+        That region receives every delivery and forwards the ones another region owns. Almost
+        every third party holds the primary region's URL; one that registered the secondary
+        region's URL overrides this, and the forward then runs the other way.
+        """
+        return regions.PRIMARY_REGION_DOMAIN
 
     def verify(self, request: HttpRequest) -> Verification:
         scheme = self.scheme()

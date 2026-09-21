@@ -11,6 +11,8 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.admin import register_all_admin
+from posthog.ingress.vercel.provider import build_vercel_provider
+from posthog.ingress.views import build_webhook_view
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
@@ -19,7 +21,7 @@ from products.cdp.backend.api import hooks
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
-from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
+from ee.api.vercel import vercel_connect, vercel_sso
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
@@ -244,7 +246,7 @@ urlpatterns: list[Any] = [
         r"^api/vercel/connect/session/?$",
         vercel_connect.VercelConnectLinkViewSet.as_view({"get": "session_info"}),
     ),
-    path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
+    path("webhooks/vercel", build_webhook_view(build_vercel_provider()), name="vercel_webhooks"),
     path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(
         "scim/v2/<str:scim_slug>/Users/<int:user_id>",

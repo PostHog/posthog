@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from posthog.ingress.verify.jwt import _JWKS_CLIENTS, BearerJwt, _jwks_client
-from posthog.ingress.verify.schemes import HmacSha256, SnsSignature, Verification, VerificationOutcome
+from posthog.ingress.verify.schemes import HmacSignature, SnsSignature, Verification, VerificationOutcome
 
 SECRET = "s3cret"
 BODY = b'{"action":"opened"}'
@@ -34,7 +34,7 @@ class TestHmacSha256(SimpleTestCase):
     def test_accepts_its_own_encoding_and_prefix(self, _name: str, encoding: str, prefix: str) -> None:
         digest = _digest()
         encoded = base64.b64encode(digest).decode() if encoding == "base64" else digest.hex()
-        scheme = HmacSha256(
+        scheme = HmacSignature(
             secret_getter=lambda: SECRET,
             signature_header="X-Signature",
             prefix=prefix,
@@ -52,7 +52,7 @@ class TestHmacSha256(SimpleTestCase):
         )
 
     def test_header_lookup_is_case_insensitive(self) -> None:
-        scheme = HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Hub-Signature-256", prefix="sha256=")
+        scheme = HmacSignature(secret_getter=lambda: SECRET, signature_header="X-Hub-Signature-256", prefix="sha256=")
         self.assertEqual(
             scheme.verify(body=BODY, headers={"x-hub-signature-256": "sha256=" + _digest().hex()}).outcome,
             VerificationOutcome.VERIFIED,
@@ -69,7 +69,7 @@ class TestHmacSha256(SimpleTestCase):
     def test_rejects_unsigned_and_wrongly_signed_bodies(
         self, _name: str, headers: dict[str, str], expected: VerificationOutcome
     ) -> None:
-        scheme = HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature", prefix="sha256=")
+        scheme = HmacSignature(secret_getter=lambda: SECRET, signature_header="X-Signature", prefix="sha256=")
         self.assertEqual(scheme.verify(body=BODY, headers=headers).outcome, expected)
 
     @parameterized.expand(
@@ -90,7 +90,7 @@ class TestHmacSha256(SimpleTestCase):
         # An unconfigured endpoint keeps its NOT_CONFIGURED answer, so the operator signal survives.
         secret = "" if _name == "missing_header_but_no_secret" else SECRET
         headers = {k: str(int(time.time())) if v == "now" else v for k, v in headers.items()}
-        scheme = HmacSha256(
+        scheme = HmacSignature(
             secret_getter=lambda: secret,
             signature_header="X-Signature",
             signature_pattern=re.compile(r"^[0-9a-f]{64}$"),
@@ -106,7 +106,7 @@ class TestHmacSha256(SimpleTestCase):
             )
 
     def test_missing_secret_is_not_configured_rather_than_invalid(self) -> None:
-        scheme = HmacSha256(secret_getter=lambda: None, signature_header="X-Signature")
+        scheme = HmacSignature(secret_getter=lambda: None, signature_header="X-Signature")
         self.assertEqual(
             scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()}).outcome,
             VerificationOutcome.NOT_CONFIGURED,
@@ -114,7 +114,7 @@ class TestHmacSha256(SimpleTestCase):
 
     def test_v0_timestamp_input_signs_timestamp_with_body(self) -> None:
         timestamp = str(int(time.time()))
-        scheme = HmacSha256(
+        scheme = HmacSignature(
             secret_getter=lambda: SECRET,
             signature_header="X-Slack-Signature",
             prefix="v0=",
@@ -143,7 +143,7 @@ class TestHmacSha256(SimpleTestCase):
     )
     def test_rejects_a_replayed_timestamp(self, _name: str, offset_seconds: int | None) -> None:
         timestamp = "not-a-time" if offset_seconds is None else str(int(time.time()) + offset_seconds)
-        scheme = HmacSha256(
+        scheme = HmacSignature(
             secret_getter=lambda: SECRET,
             signature_header="X-Signature",
             signed_input="v0_timestamp_body",
@@ -157,7 +157,7 @@ class TestHmacSha256(SimpleTestCase):
         self.assertEqual(scheme.verify(body=BODY, headers=headers).outcome, VerificationOutcome.INVALID)
 
     def test_signature_pattern_rejects_before_the_digest_runs(self) -> None:
-        scheme = HmacSha256(
+        scheme = HmacSignature(
             secret_getter=lambda: SECRET,
             signature_header="X-Vapi-Signature",
             signature_pattern=re.compile(r"^[0-9a-f]{64}$"),
@@ -170,7 +170,7 @@ class TestHmacSha256(SimpleTestCase):
         digest.assert_not_called()
 
     def test_compares_in_constant_time(self) -> None:
-        scheme = HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature")
+        scheme = HmacSignature(secret_getter=lambda: SECRET, signature_header="X-Signature")
         with patch("hmac.compare_digest", wraps=hmac.compare_digest) as compare:
             scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()})
         compare.assert_called_once()

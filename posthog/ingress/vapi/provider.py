@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
 from posthog.ingress.providers import WebhookProvider
-from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
+from posthog.ingress.verify.schemes import HmacSignature, SignatureScheme
 
 VAPI_EVENT_TYPES = frozenset({"status-update", "end-of-call-report"})
 
@@ -40,7 +40,7 @@ class VapiProvider(WebhookProvider):
     retry_status = 500
 
     def __init__(self) -> None:
-        self._scheme = HmacSha256(
+        self._scheme = HmacSignature(
             secret_getter=_vapi_secret,
             signature_header="X-Vapi-Signature",
             signature_pattern=VAPI_SIGNATURE_PATTERN,

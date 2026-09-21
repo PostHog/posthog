@@ -44,10 +44,11 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 
 ## Schemes
 
-`verify/schemes.py` holds `HmacSha256` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
+`verify/schemes.py` holds `HmacSignature` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
 Each class docstring carries its own reasoning.
+`HmacSignature` defaults to SHA-256 and takes a `digest` for the one provider that does not use it, which is Vercel with SHA-1. A new provider has no business setting it.
 
-A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSha256` refuses a missing or malformed signature header and a missing, malformed or stale timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does, and so does an HMAC scheme whose secret is unset, so an unconfigured endpoint still answers NOT_CONFIGURED.
+A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSignature` refuses a missing or malformed signature header and a missing, malformed or stale timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does, and so does an HMAC scheme whose secret is unset, so an unconfigured endpoint still answers NOT_CONFIGURED.
 
 Three duties fall on the incarnation rather than on `BearerJwt`, and none is enforced:
 
@@ -69,11 +70,13 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 | `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/services/mailgun_events.py`             |
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
+| `vercel`     | `/webhooks/vercel`                                      | `marketplace`              | `vercel_marketplace`                                                                                                                        | `ee/api/vercel/webhook_consumers.py`                                    |
 
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
 The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
+The Vercel Marketplace App is registered by `ee/`, which is not a product, so its route is declared in `ee/urls.py` and its consumer module is named in `posthog/ingress/dispatch/loading.py` rather than discovered.
 
 The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
 It moves onto `throttle_class` next.
@@ -174,7 +177,9 @@ Ingress carries both as general controls, so the next endpoint gets them without
 
 ## Regional forwarding
 
-A third party holds one callback URL, which points at the primary region (EU), so a delivery about a resource the other region (US) owns still arrives here first.
+A third party holds one callback URL, which points at one region, so a delivery about a resource the other region owns still arrives there first.
+For almost every App that URL is the primary region (EU) and the forward runs to the secondary one (US).
+A provider whose App was registered the other way round names its own receiving region in `receiving_region_domain`, and the forward runs the other way; Vercel is the only one today.
 Ingress owns the forward, because what is replayed is the signed body — a consumer only ever sees the parsed mapping.
 
 A consumer whose resources are split by region declares `ownership`, a callable that takes the delivery and answers a `DeliveryOwnership`:
@@ -188,7 +193,7 @@ A fourth value, `FAILED`, is the dispatcher's own: a consumer never answers it, 
 Every delivery in the request is assessed first, and the request is then forwarded **once**, when any consumer answered `ELSEWHERE`.
 One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
 Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
-Only the primary region forwards; on the secondary region an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
+Only the receiving region forwards; on the region that receives forwards an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
 The replay carries the signed bytes and the provider's own headers, but never the headers that name the host this region answered on: `Host`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Proto` and `Forwarded`.
 The receiving region reads which region it is off the connection it receives, so a forwarded host would make it forward the delivery on again.
 
@@ -247,9 +252,9 @@ Last, write `<provider>/README.md` with the fixed sections every provider README
 Two shapes that already exist and are worth copying rather than re-deriving:
 
 - **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case. An app is one endpoint's consumer surface rather than one registration with the third party: Slack's events and interactivity endpoints are two apps on one Slack app registration, sharing a secret, so each endpoint validates its consumers against only the types it receives.
-- **A provider that signs the form rather than the body.** The incarnation overrides both `verify()` and `parse()` to read `request.POST`, assembles the signed input from the form fields, and hands it to `HmacSha256` as if it came from headers. `mailgun/` is the case.
+- **A provider that signs the form rather than the body.** The incarnation overrides both `verify()` and `parse()` to read `request.POST`, assembles the signed input from the form fields, and hands it to `HmacSignature` as if it came from headers. `mailgun/` is the case.
 - **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`.
-  That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
+  That base class computes its digest with `hmac_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
   It backs three endpoints rather than Customer.io alone, because the tasks cross-region usage lookup and the AI observability cross-region spend lookup subclass it too, each with its own header names, signed-input format, and secret.
 
 ## Dedup

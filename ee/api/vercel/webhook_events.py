@@ -1,18 +1,17 @@
 """What PostHog does with one verified Vercel webhook event.
 
-Separate from the view, because the transport around this endpoint is being replaced and the
-handling is not. The caller decides what an outcome answers on the wire; nothing here does.
+The transport around it is `posthog/ingress/`, which verifies the signature, forwards a delivery
+the other region owns and answers Vercel. Nothing here decides a status code.
 """
 
 from enum import StrEnum
 from typing import Any
 
-from django.conf import settings
-
-import requests as outbound_requests
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.ingress.dispatch.database import bounded_statement_timeout
+from posthog.ingress.vercel.provider import VERCEL_BILLING_EVENT, VERCEL_DEAUTHORIZATION_EVENT
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.billing.billing_manager import BillingManager, BillingServiceOpenInvoicesError
@@ -21,12 +20,10 @@ from ee.vercel.integration import VercelIntegration
 
 logger = structlog.get_logger(__name__)
 
-BILLING_EVENT_PREFIX = "marketplace.invoice."
-DEAUTHORIZATION_EVENT = "integration-configuration.removed"
+BILLING_EVENT_PREFIX = f"{VERCEL_BILLING_EVENT}."
 
-CROSS_REGION_PROXY_TIMEOUT = 10
-DEFAULT_US_DOMAIN = "us.posthog.com"
-DEFAULT_EU_DOMAIN = "eu.posthog.com"
+# The lookup is one indexed row and runs inside the request, before dispatch.
+OWNERSHIP_LOOKUP_TIMEOUT_MS = 1000
 
 
 class VercelEventOutcome(StrEnum):
@@ -45,37 +42,6 @@ class VercelEventProcessingError(Exception):
     """Handling failed on our side, so the event was not processed."""
 
 
-def _is_us_region() -> bool:
-    us_domain = getattr(settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN)
-    return settings.SITE_URL == f"https://{us_domain}"
-
-
-def _proxy_deauthorization_to_eu(raw_body: bytes, signature: str | None) -> int | None:
-    """Forward a deauthorization webhook to EU. Returns the EU status code, or None on failure."""
-    eu_domain = getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN)
-    target_url = f"https://{eu_domain}/webhooks/vercel"
-
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    if signature:
-        headers["x-vercel-signature"] = signature
-
-    try:
-        response = outbound_requests.post(
-            url=target_url,
-            data=raw_body,
-            headers=headers,
-            timeout=CROSS_REGION_PROXY_TIMEOUT,
-        )
-        logger.info(
-            "vercel_webhook_proxied_to_eu",
-            status_code=response.status_code,
-        )
-        return response.status_code
-    except outbound_requests.RequestException as e:
-        logger.warning("vercel_webhook_proxy_to_eu_failed", error=str(e))
-        return None
-
-
 def extract_config_id(payload: dict[str, Any]) -> str | None:
     # Billing events use "installationId". Deauthorization events use "configuration.id".
     return payload.get("installationId") or payload.get("configuration", {}).get("id")
@@ -86,7 +52,16 @@ def is_billing_event(event_type: str | None) -> bool:
 
 
 def is_deauthorization_event(event_type: str | None) -> bool:
-    return event_type == DEAUTHORIZATION_EVENT
+    return event_type == VERCEL_DEAUTHORIZATION_EVENT
+
+
+def installation_is_local(config_id: str) -> bool:
+    """Whether this region holds the installation, for the ingress ownership lookup."""
+    with bounded_statement_timeout(OWNERSHIP_LOOKUP_TIMEOUT_MS, models=[OrganizationIntegration]):
+        return OrganizationIntegration.objects.filter(
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id=config_id,
+        ).exists()
 
 
 def _get_integration(config_id: str) -> OrganizationIntegration | None:
@@ -113,11 +88,7 @@ def _forward_to_billing_service(event_type: str, payload: dict[str, Any], integr
     )
 
 
-def _handle_deauthorization(
-    config_id: str,
-    raw_body: bytes,
-    signature: str | None,
-) -> VercelEventOutcome:
+def _handle_deauthorization(config_id: str) -> VercelEventOutcome:
     integration = _get_integration(config_id)
     if integration:
         is_connectable = integration.config.get("type") == "connectable"
@@ -147,19 +118,8 @@ def _handle_deauthorization(
             raise VercelEventProcessingError(str(e)) from e
         return VercelEventOutcome.ACCEPTED
 
-    if _is_us_region():
-        logger.info("vercel_webhook_deauthorize_proxying_to_eu", config_id=config_id)
-        eu_status = _proxy_deauthorization_to_eu(raw_body, signature)
-        if eu_status is None or eu_status >= 300:
-            logger.warning(
-                "vercel_webhook_deauthorize_eu_proxy_non_ok",
-                config_id=config_id,
-                eu_status=eu_status,
-            )
-    else:
-        logger.warning("vercel_webhook_deauthorize_unknown_config", config_id=config_id)
-
-    # A deauthorization for an installation this region never held is still done with.
+    # The other region holds it, and ingress has already forwarded the signed request there.
+    logger.warning("vercel_webhook_deauthorize_unknown_config", config_id=config_id)
     return VercelEventOutcome.ACCEPTED
 
 
@@ -184,13 +144,7 @@ def _handle_billing(event_type: str, payload: dict[str, Any], config_id: str) ->
     return VercelEventOutcome.ACCEPTED
 
 
-def handle_vercel_event(
-    *,
-    event_type: str | None,
-    payload: dict[str, Any],
-    raw_body: bytes,
-    signature: str | None,
-) -> VercelEventOutcome:
+def handle_vercel_event(*, event_type: str | None, payload: dict[str, Any]) -> VercelEventOutcome:
     """Route one verified event. Raises `VercelEventProcessingError` when handling failed."""
     config_id = extract_config_id(payload)
     logger.info("vercel_webhook_received", event_type=event_type, config_id=config_id)
@@ -199,7 +153,7 @@ def handle_vercel_event(
         if not config_id:
             logger.error("vercel_webhook_deauthorize_missing_config_id")
             return VercelEventOutcome.MISSING_CONFIG_ID
-        return _handle_deauthorization(config_id, raw_body, signature)
+        return _handle_deauthorization(config_id)
 
     if not is_billing_event(event_type):
         logger.info("vercel_webhook_non_billing_event", event_type=event_type)

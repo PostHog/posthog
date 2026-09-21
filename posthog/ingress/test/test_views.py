@@ -27,7 +27,7 @@ from posthog.ingress.contracts import (
     WebhookDelivery,
 )
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
-from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_secondary_region
+from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_other_region
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.github.provider import GitHubProvider, build_github_provider
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
@@ -773,7 +773,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
             patch("posthog.ingress.dispatch.forward.requests.request", side_effect=error, return_value=response),
             patch("posthog.ingress.dispatch.forward.observe_forward") as observe,
         ):
-            result = forward_to_secondary_region(self.request, provider="github", app="posthog")
+            result = forward_to_other_region(
+                self.request, target_domain=SECONDARY_REGION_DOMAIN, provider="github", app="posthog"
+            )
 
         self.assertEqual(result, forwarded)
         self.assertEqual(observe.call_args.kwargs["outcome"], outcome)
@@ -781,7 +783,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
     def test_the_replay_carries_the_signed_bytes_unchanged(self) -> None:
         with patch("posthog.ingress.dispatch.forward.requests.request") as request:
             request.return_value = Mock(ok=True, status_code=202)
-            forward_to_secondary_region(self.request, provider="github", app="posthog")
+            forward_to_other_region(
+                self.request, target_domain=SECONDARY_REGION_DOMAIN, provider="github", app="posthog"
+            )
 
         kwargs = request.call_args.kwargs
         self.assertEqual(kwargs["data"], self.body)
@@ -807,7 +811,7 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
 
         with patch("posthog.ingress.dispatch.forward.requests.request") as request:
             request.return_value = Mock(ok=True, status_code=202)
-            forward_to_secondary_region(multipart, provider="mailgun", app="inbound")
+            forward_to_other_region(multipart, target_domain=SECONDARY_REGION_DOMAIN, provider="mailgun", app="inbound")
 
         kwargs = request.call_args.kwargs
         self.assertIn(("token", "delivery-token"), kwargs["data"])
@@ -826,7 +830,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
 
         with patch("posthog.ingress.dispatch.forward.requests.request") as request:
             request.return_value = Mock(ok=True, status_code=202)
-            forward_to_secondary_region(urlencoded, provider="mailgun", app="inbound")
+            forward_to_other_region(
+                urlencoded, target_domain=SECONDARY_REGION_DOMAIN, provider="mailgun", app="inbound"
+            )
 
         kwargs = request.call_args.kwargs
         self.assertEqual(kwargs["data"], body)

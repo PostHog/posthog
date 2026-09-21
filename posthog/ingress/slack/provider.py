@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
 from posthog.ingress.providers import InvalidPayload, WebhookProvider, decode_json
-from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
+from posthog.ingress.verify.schemes import HmacSignature, SignatureScheme
 
 SLACK_EVENT_TYPES = frozenset(
     {
@@ -68,7 +68,7 @@ class SlackProvider(WebhookProvider):
 
     def __init__(self, *, app: str = "supporthog", secret_getter: Callable[[], str | None]) -> None:
         self.app = app
-        self._scheme = HmacSha256(
+        self._scheme = HmacSignature(
             secret_getter=secret_getter,
             signature_header="X-Slack-Signature",
             prefix="v0=",

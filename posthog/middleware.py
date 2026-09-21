@@ -48,7 +48,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
+from posthog.ingress.verify.schemes import hmac_signature, signatures_match
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER, activity_storage, client_from_header
 from posthog.models.utils import generate_random_token
@@ -188,7 +188,7 @@ def verify_managed_proxy_client_ip(
     message = f"{ip}:{timestamp}".encode()
     provided = signature.lower()
     for key in keys:
-        if signatures_match(hmac_sha256_signature(key, message), provided):
+        if signatures_match(hmac_signature(key, message), provided):
             return ManagedProxyClientIPOutcome.VALID
     return ManagedProxyClientIPOutcome.BAD_SIGNATURE
 

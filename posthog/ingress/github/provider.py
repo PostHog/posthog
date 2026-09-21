@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.providers import WebhookProvider
-from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
+from posthog.ingress.verify.schemes import HmacSignature, SignatureScheme
 from posthog.models.instance_setting import get_instance_setting
 
 # What each App is subscribed to. A consumer for an event type outside its App's set fails
@@ -76,7 +76,7 @@ class GitHubProvider(WebhookProvider):
         if secret_getter is None:
             raise ValueError(f"Unknown GitHub app {app!r}, expected one of {sorted(_SECRET_GETTERS)}")
         self.app = app
-        self._scheme = HmacSha256(
+        self._scheme = HmacSignature(
             secret_getter=secret_getter,
             signature_header="X-Hub-Signature-256",
             prefix="sha256=",

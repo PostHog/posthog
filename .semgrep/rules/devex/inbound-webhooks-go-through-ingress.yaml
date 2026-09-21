@@ -114,7 +114,6 @@ rules:
               # Ratchet. Each entry is a verifier that predates ingress, and the PR that
               # migrates that endpoint removes its line. The paths are the ones on master,
               # so the rule holds whether or not the migrations land with it.
-              - /ee/api/vercel/vercel_webhooks.py
               - /ee/partners/stripe/api/provisioning/signature.py
               - /posthog/models/integration/slack.py
               - /products/conversations/backend/mailgun.py

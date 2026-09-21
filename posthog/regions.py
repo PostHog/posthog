@@ -22,3 +22,12 @@ if settings.DEBUG:
 
 def is_primary_region(request: HttpRequest) -> bool:
     return request.get_host() == PRIMARY_REGION_DOMAIN
+
+
+def other_region_domain(domain: str) -> str:
+    """The region that is not this one.
+
+    Most third parties hold the primary region's URL, but not all of them: a marketplace that
+    registered the secondary region's URL sends there and is forwarded the other way.
+    """
+    return SECONDARY_REGION_DOMAIN if domain == PRIMARY_REGION_DOMAIN else PRIMARY_REGION_DOMAIN

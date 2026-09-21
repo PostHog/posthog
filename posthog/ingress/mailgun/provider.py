@@ -16,7 +16,7 @@ from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
 from posthog.ingress.providers import InvalidPayload, WebhookProvider
-from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme, Verification, VerificationOutcome
+from posthog.ingress.verify.schemes import HmacSignature, SignatureScheme, Verification, VerificationOutcome
 
 # These go to the HMAC scheme as header names, because the scheme reads a mapping and does not
 # care where the caller found it.
@@ -63,7 +63,7 @@ class MailgunProvider(WebhookProvider):
             raise ValueError(f"Unknown Mailgun app {app!r}, expected one of {sorted(_APP_EVENT_TYPES)}")
         self.app = app
         self.event_type = event_type
-        self._scheme = HmacSha256(
+        self._scheme = HmacSignature(
             secret_getter=signing_key_getter,
             signature_header=SIGNATURE_FIELD,
             timestamp_header=TIMESTAMP_FIELD,

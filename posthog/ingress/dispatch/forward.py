@@ -21,7 +21,6 @@ import structlog
 from requests import RequestException
 
 from posthog.ingress.observability.metrics import observe_forward
-from posthog.regions import SECONDARY_REGION_DOMAIN
 
 logger = structlog.get_logger(__name__)
 
@@ -65,13 +64,15 @@ def _replay_kwargs(request: HttpRequest, headers: Mapping[str, str]) -> dict[str
 HOST_IDENTIFYING_HEADERS = frozenset({"host", "x-forwarded-host", "x-forwarded-port", "x-forwarded-proto", "forwarded"})
 
 
-def forward_to_secondary_region(request: HttpRequest, *, provider: str, app: str, timeout: float = 3.0) -> bool:
-    """Send this request on to the secondary region once. True only when it answered 2xx.
+def forward_to_other_region(
+    request: HttpRequest, *, target_domain: str, provider: str, app: str, timeout: float = 3.0
+) -> bool:
+    """Send this request on to the region that owns it, once. True only when it answered 2xx.
 
     Forwarding once per request rather than once per delivery: the unit being replayed is the HTTP
     request, so a batched body that carries several unowned deliveries still crosses once.
     """
-    target_url = urlunparse(urlparse(request.build_absolute_uri())._replace(netloc=SECONDARY_REGION_DOMAIN))
+    target_url = urlunparse(urlparse(request.build_absolute_uri())._replace(netloc=target_domain))
     headers = {key: value for key, value in request.headers.items() if key.lower() not in HOST_IDENTIFYING_HEADERS}
 
     try:

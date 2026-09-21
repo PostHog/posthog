@@ -23,6 +23,9 @@ logger = structlog.get_logger(__name__)
 
 SignedInput = Literal["body", "v0_timestamp_body"]
 SignatureEncoding = Literal["hex", "base64"]
+# SHA-1 is here because Vercel signs with it, not because it is a choice worth making for a new
+# provider. Everything else on this list uses the default.
+HmacDigest = Literal["sha256", "sha1"]
 
 
 class VerificationOutcome(StrEnum):
@@ -62,15 +65,16 @@ def header_value(headers: Mapping[str, str], name: str) -> str | None:
     return None
 
 
-def hmac_sha256_signature(
+def hmac_signature(
     secret: str,
     signed: bytes,
     *,
+    digest: HmacDigest = "sha256",
     encoding: SignatureEncoding = "hex",
     prefix: str = "",
 ) -> str:
-    digest = hmac.digest(secret.encode("utf-8"), signed, "sha256")
-    encoded = base64.b64encode(digest).decode("ascii") if encoding == "base64" else digest.hex()
+    computed = hmac.digest(secret.encode("utf-8"), signed, digest)
+    encoded = base64.b64encode(computed).decode("ascii") if encoding == "base64" else computed.hex()
     return prefix + encoded
 
 
@@ -94,16 +98,18 @@ class SignatureScheme(Protocol):
 
 
 @frozen
-class HmacSha256:
-    """HMAC-SHA256 over the raw body, in the shapes the providers here actually send.
+class HmacSignature:
+    """A keyed HMAC over the raw body, in the shapes the providers here actually send.
 
     GitHub sends ``sha256=<hex>``; Slack and Customer.io sign ``v0:{timestamp}:{body}``
     and pair the signature with a timestamp header they expect to be checked for replay.
+    Vercel is the one provider that signs with SHA-1, which `digest` carries.
     """
 
     secret_getter: Callable[[], str | None]
     signature_header: str
     prefix: str = ""
+    digest: HmacDigest = "sha256"
     encoding: SignatureEncoding = "hex"
     signed_input: SignedInput = "body"
     timestamp_header: str | None = None
@@ -127,7 +133,7 @@ class HmacSha256:
         return body
 
     def _expected_signature(self, secret: str, signed: bytes) -> str:
-        return hmac_sha256_signature(secret, signed, encoding=self.encoding, prefix=self.prefix)
+        return hmac_signature(secret, signed, digest=self.digest, encoding=self.encoding, prefix=self.prefix)
 
     def _headers_fail(self, headers: Mapping[str, str]) -> bool:
         provided = header_value(headers, self.signature_header)

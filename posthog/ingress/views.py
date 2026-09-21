@@ -11,12 +11,12 @@ from rest_framework.request import Request as DRFRequest
 from rest_framework.throttling import ScopedRateThrottle
 
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
-from posthog.ingress.dispatch.forward import forward_to_secondary_region
+from posthog.ingress.dispatch.forward import forward_to_other_region
 from posthog.ingress.dispatch.loading import get_dispatcher
 from posthog.ingress.observability.metrics import observe_delivery
 from posthog.ingress.providers import InvalidPayload, WebhookProvider
 from posthog.ingress.verify.schemes import VerificationOutcome
-from posthog.regions import is_primary_region
+from posthog.regions import other_region_domain
 
 logger = structlog.get_logger(__name__)
 
@@ -151,10 +151,11 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             return _retry_refusal(provider, list(unanswered))
 
         if elsewhere:
-            if is_primary_region(request):
+            if request.get_host() == provider.receiving_region_domain():
                 # Once for the request, not once per delivery: what is replayed is the signed body.
-                forwarded = forward_to_secondary_region(
+                forwarded = forward_to_other_region(
                     request,
+                    target_domain=other_region_domain(provider.receiving_region_domain()),
                     provider=provider.provider,
                     app=provider.app,
                     timeout=provider.forward_timeout_seconds,
@@ -163,8 +164,8 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
                     observe_delivery(provider=provider.provider, app=provider.app, outcome="forward_failed")
                     return HttpResponse(status=provider.retry_status)
             else:
-                # A local miss on the secondary region is that consumer's unresolved routing, not
-                # proof that no region owns the delivery.
+                # This region is the one deliveries are forwarded to, so a local miss here is that
+                # consumer's unresolved routing, not proof that no region owns the delivery.
                 logger.warning(
                     "ingress_delivery_unowned_here",
                     provider=provider.provider,
