@@ -1,31 +1,9 @@
 import { LiquidRenderer } from 'lib/utils/liquid'
 
-const OUTPUT_REGEX = /\{\{(.*?)\}\}/g
-
 /** The person values a preview renders against, shaped like the worker's `person` global. */
 export interface EmailPreviewPerson {
     id: string
     properties: Record<string, any>
-}
-
-/**
- * Wrap every output tag that this person has no value for in `{% raw %}`, so it survives the render
- * as its own source text instead of collapsing to the empty string the real send would produce.
- * A reader can then see which variables are missing rather than reading a blank space.
- *
- * Expressions carrying a filter are left alone: the filter may supply the fallback (`| default:`),
- * so an undefined value there is not necessarily a gap. A variable that only exists inside a
- * `{% for %}` body is out of scope at this point and is marked, which reads as a false gap; email
- * built in the editor uses merge tags rather than loops, so accept that over walking the AST.
- */
-function markUnresolved(template: string, context: Record<string, any>): string {
-    return template.replace(OUTPUT_REGEX, (match, inner) => {
-        const expression = String(inner).trim()
-        if (!expression || expression.includes('|')) {
-            return match
-        }
-        return LiquidRenderer.resolves(expression, context) ? match : `{% raw %}${match}{% endraw %}`
-    })
 }
 
 /**
@@ -49,7 +27,7 @@ export function renderEmailPreview(template: string, person: EmailPreviewPerson 
         now: new Date(),
     }
     try {
-        return LiquidRenderer.render(markUnresolved(template, context), context)
+        return LiquidRenderer.renderKeepingUnresolved(template, context)
     } catch {
         return template
     }
