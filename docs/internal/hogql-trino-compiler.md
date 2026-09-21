@@ -98,6 +98,7 @@ Scalar CTE substitution preserves resolved column bindings, including columns th
 
 Arithmetic operators render each operand once and reuse its SQL after applying Trino's type conversions.
 This keeps long arithmetic chains from repeatedly registering unused bind parameters, including JSON extraction paths.
+Integer conversions also render their input only in the selected conversion path, so nested casts do not retain discarded parameters.
 
 `numbers()` uses Trino's scalar `sequence`, which supports at most 10,000 entries.
 Constant counts above this limit fail during compilation; dynamic counts are clamped to the range from zero to 10,000.
@@ -199,6 +200,8 @@ expressions and numeric conditions in `if`/`multiIf` use native Trino conditiona
 Aliases inside expressions are omitted from SQL; projection aliases are retained.
 String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
 represent an integer. Numeric aggregate-filter conditions are cast to BOOLEAN.
+This includes conditional argument, array, and quantile aggregates and conditional window functions.
+Window quantiles use a conditional NULL input because Trino does not support `FILTER` on window functions.
 
 Additional mappings cover common mathematical functions, array transforms,
 base64 strings, maps, URLs, date arithmetic, vector operations, and statistical
@@ -263,6 +266,7 @@ Dynamic arrays receive an equal-length guard instead of Trino's NULL padding.
 The regex group functions support constant patterns with 1–20 capture groups.
 They support one-match, vertical, and horizontal result shapes.
 `regexpExtract` supports a constant pattern and an optional constant group index.
+`extractAll` returns the first capture group when present and the entire match otherwise, for both constant and dynamic patterns.
 `replaceRegexpOne` supports constant
 patterns and replacements, including numbered replacement captures. Lookarounds,
 inline flags, and pattern backreferences remain rejected for first-only replacement.
