@@ -25,13 +25,22 @@ def _cursor_paginator() -> JSONResponseCursorPaginator:
     return JSONResponseCursorPaginator(cursor_path="nextPageToken", cursor_param="pageToken")
 
 
-def _rename(renames: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    # include_from_parent names carried fields `_<parent>_<field>`; rename them back to the flat
-    # `_doc_id` / `_table_id` keys the composite primary keys and downstream schema expect.
+def _map_row(
+    renames: dict[str, str] | None = None,
+    lift_ids: dict[str, str] | None = None,
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # `renames`: include_from_parent carries fields as `_<parent>_<field>`; rename them back to the
+    # flat `_doc_id` / `_table_id` keys the composite primary keys and downstream schema expect.
+    # `lift_ids`: analytics items nest their subject under `doc` / `page`; lift that object's id to a
+    # top-level column so it can serve as a merge primary key.
     def _mapper(row: dict[str, Any]) -> dict[str, Any]:
-        for src, dst in renames.items():
+        for src, dst in (renames or {}).items():
             if src in row:
                 row[dst] = row.pop(src)
+        for nested_key, dst in (lift_ids or {}).items():
+            nested = row.get(nested_key)
+            if isinstance(nested, dict) and "id" in nested:
+                row[dst] = nested["id"]
         return row
 
     return _mapper
@@ -64,7 +73,7 @@ def _tables_resource() -> EndpointResource:
         # Carry the parent doc id into every table row so ids that are only unique within a doc
         # get a composite primary key.
         "include_from_parent": ["id"],
-        "data_map": _rename({"_docs_id": "_doc_id"}),
+        "data_map": _map_row(renames={"_docs_id": "_doc_id"}),
     }
 
 
@@ -86,19 +95,92 @@ def _rows_resource() -> EndpointResource:
             "paginator": _cursor_paginator(),
         },
         "include_from_parent": ["_doc_id", "id"],
-        "data_map": _rename({"_tables__doc_id": "_doc_id", "_tables_id": "_table_id"}),
+        "data_map": _map_row(renames={"_tables__doc_id": "_doc_id", "_tables_id": "_table_id"}),
+    }
+
+
+def _columns_resource() -> EndpointResource:
+    return {
+        "name": "columns",
+        "endpoint": {
+            "path": "/docs/{doc_id}/tables/{table_id}/columns",
+            "params": {
+                # Both path params bind fields of the same parent table row (doc_id is carried in
+                # from the tables resource via include_from_parent above).
+                "doc_id": {"type": "resolve", "resource": "tables", "field": "_doc_id"},
+                "table_id": {"type": "resolve", "resource": "tables", "field": "id"},
+                "limit": PAGE_SIZE,
+            },
+            "data_selector": "items",
+            "paginator": _cursor_paginator(),
+        },
+        "include_from_parent": ["_doc_id", "id"],
+        "data_map": _map_row(renames={"_tables__doc_id": "_doc_id", "_tables_id": "_table_id"}),
+    }
+
+
+def _doc_analytics_resource() -> EndpointResource:
+    return {
+        "name": "doc_analytics",
+        "endpoint": {
+            "path": "/analytics/docs",
+            "params": {"limit": PAGE_SIZE},
+            "data_selector": "items",
+            "paginator": _cursor_paginator(),
+        },
+        # Each item nests the doc under `doc`; lift its id so it can key the merge.
+        "data_map": _map_row(lift_ids={"doc": "doc_id"}),
+    }
+
+
+def _page_analytics_resource() -> EndpointResource:
+    return {
+        "name": "page_analytics",
+        "endpoint": {
+            "path": "/analytics/docs/{doc_id}/pages",
+            "params": {
+                "doc_id": {"type": "resolve", "resource": "docs", "field": "id"},
+                "limit": PAGE_SIZE,
+            },
+            "data_selector": "items",
+            "paginator": _cursor_paginator(),
+        },
+        # Carry the parent doc id, and lift the nested page id, so each row has a composite key.
+        "include_from_parent": ["id"],
+        "data_map": _map_row(renames={"_docs_id": "_doc_id"}, lift_ids={"page": "page_id"}),
+    }
+
+
+def _folders_resource() -> EndpointResource:
+    return {
+        "name": "folders",
+        "endpoint": {
+            "path": "/folders",
+            "params": {"limit": PAGE_SIZE},
+            "data_selector": "items",
+            "paginator": _cursor_paginator(),
+        },
     }
 
 
 def _resource_chain(endpoint: str) -> list[EndpointResource]:
-    # Rows fan out docs → tables → rows; each endpoint's chain is the resources up to and including
-    # it, so iterating the leaf drives its parents lazily. Fresh dicts per call — config setup mutates.
+    # Rows and columns fan out docs → tables → …; page analytics fans out docs → pages. Each
+    # endpoint's chain is the resources up to and including it, so iterating the leaf drives its
+    # parents lazily. Fresh dicts per call — config setup mutates.
     if endpoint == "docs":
         return [_docs_resource()]
     if endpoint == "tables":
         return [_docs_resource(), _tables_resource()]
     if endpoint == "rows":
         return [_docs_resource(), _tables_resource(), _rows_resource()]
+    if endpoint == "columns":
+        return [_docs_resource(), _tables_resource(), _columns_resource()]
+    if endpoint == "doc_analytics":
+        return [_doc_analytics_resource()]
+    if endpoint == "page_analytics":
+        return [_docs_resource(), _page_analytics_resource()]
+    if endpoint == "folders":
+        return [_folders_resource()]
     raise ValueError(f"Unknown Coda endpoint: {endpoint!r}")
 
 

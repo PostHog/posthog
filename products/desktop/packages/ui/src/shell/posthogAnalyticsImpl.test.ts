@@ -222,32 +222,29 @@ describe("track", () => {
 });
 
 describe("networkMetricPath", () => {
-  const apiHost = "https://internal-c.posthog.com";
-
-  it("leaves the path undefined for the app's own API host", async () => {
+  it.each([
+    "https://us.posthog.com",
+    "https://eu.posthog.com",
+    "http://localhost:8010",
+    "https://app.dev.posthog.dev",
+  ])("keeps API paths for %s without authentication", async (origin) => {
     const { networkMetricPath } = await loadAnalytics();
 
-    const path = networkMetricPath(
-      {
-        url: "https://internal-c.posthog.com/api/projects/1/tasks/",
+    expect(
+      networkMetricPath({
+        url: `${origin}/api/projects/1/tasks/`,
         method: "GET",
-      },
-      apiHost,
-    );
-
-    expect(path).toBeUndefined();
+      }),
+    ).toBeUndefined();
   });
 
   it("collapses the path for a presigned artifact URL on another host", async () => {
     const { networkMetricPath } = await loadAnalytics();
 
-    const path = networkMetricPath(
-      {
-        url: "https://s3.example.com/bucket/artifacts/ab12cd34_customer-roadmap.pdf?X-Amz-Signature=abc",
-        method: "GET",
-      },
-      apiHost,
-    );
+    const path = networkMetricPath({
+      url: "https://s3.example.com/bucket/artifacts/ab12cd34_customer-roadmap.pdf?X-Amz-Signature=abc",
+      method: "GET",
+    });
 
     expect(path).toBe("external");
   });
@@ -255,30 +252,95 @@ describe("networkMetricPath", () => {
   it("collapses the path for an unparseable URL", async () => {
     const { networkMetricPath } = await loadAnalytics();
 
-    const path = networkMetricPath(
-      { url: "not a url", method: "GET" },
-      apiHost,
-    );
+    const path = networkMetricPath({ url: "not a url", method: "GET" });
 
     expect(path).toBe("external");
+  });
+
+  it.each([
+    "https://us.posthog.com.example.com/api/projects/1/tasks/",
+    "https://us.posthog.com:8443/api/projects/1/tasks/",
+    "https://internal-c.posthog.com/api/projects/1/tasks/",
+    "https://posthog.example.com/api/projects/1/tasks/",
+  ])("redacts an unknown backend: %s", async (url) => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    expect(networkMetricPath({ url, method: "GET" })).toBe("external");
+  });
+
+  it("uses the existing custom cloud configuration", async () => {
+    const { networkMetricPath } = await loadAnalytics();
+    const { configureCustomCloud } = await import("@posthog/shared");
+    const request = {
+      url: "https://posthog.example.com/api/projects/1/tasks/",
+      method: "GET",
+    };
+
+    expect(networkMetricPath(request)).toBe("external");
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      oauthClientId: "test-client",
+    });
+    expect(networkMetricPath(request)).toBeUndefined();
+    configureCustomCloud(null);
+    expect(networkMetricPath(request)).toBe("external");
+  });
+
+  it.each([
+    {
+      case: "a skill name",
+      url: "https://us.posthog.com/api/environments/1/llm_skills/name/incident-runbook",
+      expected: "/api/environments/:id/llm_skills/name/:id",
+    },
+    {
+      case: "a nested skill file path",
+      url: "https://us.posthog.com/api/environments/1/llm_skills/name/incident-runbook/files/docs/readme.md",
+      expected: "/api/environments/:id/llm_skills/name/:id/files/:id",
+    },
+    {
+      case: "an MCP tool name",
+      url: "https://us.posthog.com/api/environments/1/mcp_server_installations/0f8c2b1e-1111-4222-8333-444455556666/tools/lookup_customer_record/",
+      expected: "/api/environments/:id/mcp_server_installations/:id/tools/:id/",
+    },
+  ])("templates $case on the app's own backend", async ({ url, expected }) => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    const path = networkMetricPath({ url, method: "GET" });
+
+    expect(path).toBe(expected);
+  });
+
+  it("leaves the fixed MCP tools refresh action untemplated", async () => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    const path = networkMetricPath({
+      url: "https://us.posthog.com/api/environments/1/mcp_server_installations/0f8c2b1e-1111-4222-8333-444455556666/tools/refresh/",
+      method: "POST",
+    });
+
+    expect(path).toBeUndefined();
   });
 });
 
 describe("metrics.network.attributes callback", () => {
-  it("returns undefined for requests to the app's own API host", async () => {
-    const { initializePostHog } = await loadAnalytics();
+  it.each(["https://us.posthog.com", "https://eu.posthog.com"])(
+    "keeps API paths for %s with a separate analytics host",
+    async (origin) => {
+      vi.stubEnv("VITE_POSTHOG_API_HOST", "https://internal-c.posthog.com");
+      const { initializePostHog } = await loadAnalytics();
 
-    initializePostHog();
+      initializePostHog();
+      const attributesCallback =
+        mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
 
-    const attributesCallback =
-      mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
-    const result = attributesCallback({
-      url: "https://internal-c.posthog.com/api/projects/1/tasks/",
-      method: "GET",
-    });
-
-    expect(result).toBeUndefined();
-  });
+      expect(
+        attributesCallback({
+          url: `${origin}/api/projects/1/tasks/`,
+          method: "GET",
+        }),
+      ).toBeUndefined();
+    },
+  );
 
   it("returns { path: 'external' } for requests to other hosts", async () => {
     const { initializePostHog } = await loadAnalytics();

@@ -135,4 +135,49 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             expectedDelivery="Date and time when restocked items are expected to arrive.",
         ),
     },
+    "stores": {
+        "description": "A store, modelling the physical or digital context a customer shops in. Orders and carts reference the store they belong to.",
+        "docs_url": "https://docs.commercetools.com/api/projects/stores",
+        "columns": _columns(
+            name="Localized name of the store.",
+            languages="Languages configured for the store, as IETF language tags.",
+            countries="Countries the store ships to or operates in.",
+            distributionChannels="References to the channels the store distributes products through.",
+            supplyChannels="References to the channels the store sources inventory from.",
+            productSelections="Product selections that control which products the store offers.",
+            storefront="Storefront configuration for the store, such as its URLs.",
+        ),
+    },
+    "channels": {
+        "description": "A channel, representing a source or destination such as a warehouse or a physical store. Inventory entries and orders reference channels as supply and distribution channels.",
+        "docs_url": "https://docs.commercetools.com/api/projects/channels",
+        "columns": _columns(
+            name="Localized name of the channel.",
+            description="Localized description of the channel.",
+            roles="Roles the channel can take (InventorySupply, ProductDistribution, OrderExport, OrderImport, Primary).",
+            address="Physical address of the channel.",
+            geoLocation="Geographic location of the channel, as a GeoJSON point.",
+            reviewRatingStatistics="Aggregated review ratings for the channel.",
+        ),
+    },
+    "customer_groups": {
+        "description": "A customer group used to segment customers, for example for group-specific prices. Customers, carts and orders reference the group they belong to.",
+        "docs_url": "https://docs.commercetools.com/api/projects/customerGroups",
+        "columns": _columns(
+            name="Unique name of the customer group.",
+        ),
+    },
+    "states": {
+        "description": "A state in a custom state machine, used to model the lifecycle of orders, line items, products, reviews and payments.",
+        "docs_url": "https://docs.commercetools.com/api/projects/states",
+        "columns": _columns(
+            type="Resource the state applies to (OrderState, LineItemState, ProductState, ReviewState, PaymentState, QuoteState and others).",
+            name="Localized name of the state.",
+            description="Localized description of the state.",
+            initial="Whether the state is the initial state of its state machine.",
+            builtIn="Whether the state is a built-in state that cannot be deleted.",
+            roles="Roles the state carries (ReviewIncludedInStatistics, Return).",
+            transitions="References to the states this state can transition to. An empty list means no transitions are allowed; absent means all are.",
+        ),
+    },
 }

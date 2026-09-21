@@ -10,6 +10,8 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.security.url_validation import PinnedUrlVerdict
+
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPServerInstallation,
@@ -37,8 +39,11 @@ class TestCallMCPServerTool(BaseTest):
         self.context_manager = AssistantContextManager(self.team, self.user, {})
         self.node_path = (NodePath(name="test_node", tool_call_id="test_call", message_id="test"),)
         # Bypass SSRF DNS resolution for fake test domains
-        patcher = patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-        self.mock_is_url_allowed = patcher.start()
+        patcher = patch(
+            "products.mcp_store.backend.url_policy.validate_url_and_pin_ips",
+            return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
+        )
+        self.mock_validate_url = patcher.start()
         self.addCleanup(patcher.stop)
 
     def _install_server(
@@ -566,7 +571,9 @@ class TestIsTokenExpiring(TestCallMCPServerTool):
 
 class TestSSRFProtection(TestCallMCPServerTool):
     async def test_ssrf_blocked_url_raises_fatal_error(self):
-        self.mock_is_url_allowed.return_value = (False, "Local/metadata host")
+        self.mock_validate_url.return_value = PinnedUrlVerdict(
+            allowed=False, reason="Local/metadata host", pinned_ips=set()
+        )
         inst = {
             "id": str(uuid.uuid4()),
             "display_name": "Evil",

@@ -4734,7 +4734,15 @@ export const ExperimentsCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -4920,6 +4928,12 @@ export const ExperimentsCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -5756,7 +5770,15 @@ export const ExperimentsCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -5942,6 +5964,12 @@ export const ExperimentsCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -10657,7 +10685,15 @@ export const ExperimentsPartialUpdateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -10843,6 +10879,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -11679,7 +11721,15 @@ export const ExperimentsPartialUpdateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -11865,6 +11915,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -16559,7 +16615,15 @@ export const ExperimentsDuplicateCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -16745,6 +16809,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -17581,7 +17651,15 @@ export const ExperimentsDuplicateCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -17767,6 +17845,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -18584,7 +18668,7 @@ export const ExperimentsEndCreateBody = () => zod.object({
         .boolean()
         .default(experimentsEndCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved."
         ),
     repository: zod
         .string()
@@ -18856,7 +18940,7 @@ export const ExperimentsShipVariantCreateBody = () => zod.object({
         .boolean()
         .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved."
         ),
     repository: zod
         .string()

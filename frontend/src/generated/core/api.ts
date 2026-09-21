@@ -73,6 +73,7 @@ import type {
     PatchedUserApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
+    ProjectApi,
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
@@ -80,6 +81,7 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    ToolbarEntitlementsApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -957,6 +959,24 @@ export const organizationsProjectsAddProductIntentPartialUpdate = async (
     )
 }
 
+export const getOrganizationsProjectsCancelDeletionCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/cancel-deletion/`
+}
+
+/**
+ * Cancel a scheduled project deletion and restore access to the project.
+ */
+export const organizationsProjectsCancelDeletionCreate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectApi> => {
+    return apiMutator<ProjectApi>(getOrganizationsProjectsCancelDeletionCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getOrganizationsProjectsChangeOrganizationCreateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/change_organization/`
 }
@@ -1296,6 +1316,30 @@ export const organizationsProjectsResetTokenPartialUpdate = async (
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(patchedProjectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl = (
+    organizationId: string,
+    id: number
+) => {
+    return `/api/organizations/${organizationId}/projects/${id}/rotate_heatmaps_screenshot_secret/`
+}
+
+/**
+ * Projects for the current organization.
+ */
+export const organizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PATCH',
         }
     )
 }
@@ -2492,6 +2536,17 @@ export const revokeLeakedKeyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(leakedKeyReportApi),
+    })
+}
+
+export const getUserToolbarEntitlementsRetrieveUrl = () => {
+    return `/api/user/toolbar_entitlements/`
+}
+
+export const userToolbarEntitlementsRetrieve = async (options?: RequestInit): Promise<ToolbarEntitlementsApi> => {
+    return apiMutator<ToolbarEntitlementsApi>(getUserToolbarEntitlementsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
     })
 }
 

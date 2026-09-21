@@ -1,5 +1,6 @@
 ---
 name: signals-scout-csp-violations
+scout-display-name: CSP violations
 description: >
   Signals scout for Content Security Policy violations. Watches `$csp_violation` events for
   blocked-URL clusters, per-directive bursts, post-deploy regressions, and suspicious third-
@@ -15,7 +16,6 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: csp_violations
-  credits: pauldambra (PR #58596 — push-based CSP signal emission, encoded here as pull)
 ---
 
 # Signals scout: CSP violations

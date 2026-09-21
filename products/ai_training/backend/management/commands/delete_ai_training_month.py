@@ -4,7 +4,6 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from products.ai_training.backend.config import key_table_name
-from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 from products.ai_training.backend.privacy.store import AITrainingPrivacyStore
 
 
@@ -21,6 +20,4 @@ class Command(BaseCommand):
             count = AITrainingPrivacyStore.from_settings().delete_month(options["session_month"])
         except ValueError as error:
             raise CommandError(str(error)) from error
-        self.stdout.write(
-            f"Removed {count} indexed keys. Existing read leases expire within {KEY_READ_LEASE_SECONDS} seconds."
-        )
+        self.stdout.write(f"Removed {count} indexed keys. A reader that already cached a key can still use it.")

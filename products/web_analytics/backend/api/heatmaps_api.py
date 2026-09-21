@@ -1548,6 +1548,10 @@ class SavedHeatmapViewSet(
     # opt out of the project-global LimitOffsetPagination to avoid a double-wrapped schema.
     pagination_class = None
 
+    # `updated_at` is auto_now and not unique, so a row can move between page requests and tied rows
+    # have no order of their own. `id` closes both, in the direction of the sort field.
+    DEFAULT_ORDER = "-updated_at"
+
     def get_throttles(self):
         if self.action in ("create", "prewarm", "capture"):
             # More restrictive rate limiting for expensive screenshot generation
@@ -1592,7 +1596,6 @@ class SavedHeatmapViewSet(
             self.safely_get_queryset(self.get_queryset())
             .filter(deleted=False, is_prewarm=False)
             .select_related("created_by")
-            .order_by("-updated_at")
         )
 
         if params.get("type"):
@@ -1603,13 +1606,11 @@ class SavedHeatmapViewSet(
             qs = qs.filter(Q(url__icontains=params["search"]) | Q(name__icontains=params["search"]))
         if params.get("created_by"):
             qs = qs.filter(created_by_id=params["created_by"])
-        if params.get("order"):
-            try:
-                qs = qs.order_by(params["order"])
-            except FieldError:
-                return response.Response(
-                    {"error": f"Invalid order field: {params['order']}"}, status=status.HTTP_400_BAD_REQUEST
-                )
+        order = params.get("order") or self.DEFAULT_ORDER
+        try:
+            qs = qs.order_by(order, "-id" if order.startswith("-") else "id")
+        except FieldError:
+            return response.Response({"error": f"Invalid order field: {order}"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Clamp at the boundary rather than via serializer min/max so the OpenAPI
         # contract (and generated clients) stay unchanged while the page stays bounded.

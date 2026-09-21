@@ -1525,6 +1525,7 @@ export const ReferenceTypeEnumApi = {
  * * `experiment` - experiment
  * * `survey` - survey
  * * `ticket` - ticket
+ * * `report` - report
  * * `trace` - trace
  * * `eval` - eval
  * * `event` - event
@@ -1544,6 +1545,7 @@ export const ObjectKindEnumApi = {
     Experiment: 'experiment',
     Survey: 'survey',
     Ticket: 'ticket',
+    Report: 'report',
     Trace: 'trace',
     Eval: 'eval',
     Event: 'event',
@@ -1568,6 +1570,7 @@ export interface TaskRunPostHogReferenceMetadataApi {
      * * `experiment` - experiment
      * * `survey` - survey
      * * `ticket` - ticket
+     * * `report` - report
      * * `trace` - trace
      * * `eval` - eval
      * * `event` - event
@@ -1698,6 +1701,11 @@ export interface TaskRunDetailDTOApi {
     error_message: string | null
     /** @nullable */
     output: TaskRunDetailDTOApiOutput
+    /**
+     * Latest summary for this task, including a summary inherited from an earlier run.
+     * @nullable
+     */
+    task_summary: string | null
     state: TaskRunDetailDTOApiState
     readonly artifacts: readonly TaskRunArtifactResponseApi[]
     /** @nullable */
@@ -3905,6 +3913,7 @@ export interface TaskRunPostHogReferenceApi {
      * * `experiment` - experiment
      * * `survey` - survey
      * * `ticket` - ticket
+     * * `report` - report
      * * `trace` - trace
      * * `eval` - eval
      * * `event` - event
@@ -4172,6 +4181,14 @@ export interface TaskRunRelayMessageResponseApi {
 export interface PatchedTaskRunSetOutputRequestApi {
     /** Output data from the run. Validated against the task's json_schema if one is set. */
     output?: unknown
+}
+
+export interface PatchedTaskRunSetSummaryRequestApi {
+    /**
+     * Complete running summary that replaces the prior summary.
+     * @maxLength 1500
+     */
+    summary?: string
 }
 
 export interface TaskRunStartRequestApi {
@@ -4536,32 +4553,40 @@ export interface TaskThreadMessageWriteApi {
 }
 
 /**
- * The default AI run triple stored at team or user level.
+ * The default AI run selection stored at team or user level.
  *
  * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
- * their responses. `runtime_adapter` and `model` must be set together; send all three
- * as null to clear a stored preference.
+ * their responses. What a complete selection is depends on the harness: an ACP default
+ * sets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send
+ * every field as null to clear a stored preference.
  */
 export interface TasksAIRunPreferencesApi {
-    /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+    /** Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: TaskRuntimeEnumApi | null
+    /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.
      *
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
-     * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+     * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.
      * @nullable
      */
     model?: string | null
-    /** Default reasoning effort for models that expose an effort control.
+    /** Default reasoning effort for models that expose an effort control. A Pi default stores a Pi thinking level here, which also allows 'off' and 'minimal'.
      *
+     * * `off` - off
+     * * `minimal` - minimal
      * * `low` - low
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: ReasoningEffortEnumApi | null
+    reasoning_effort?: TaskRunReasoningEffortEnumApi | null
 }
 
 /**
@@ -4579,12 +4604,14 @@ export const TasksResolvedAIRunDefaultsSourceEnumApi = {
 } as const
 
 /**
- * The AI run triple a new run will effectively use when the caller pins nothing,
+ * The AI run selection a new run will effectively use when the caller pins nothing,
  * plus which preference level supplied it.
  */
 export interface TasksResolvedAIRunDefaultsApi {
+    /** Harness the effective default runs on: 'acp' or 'pi'. 'acp' when no preference is stored. */
+    runtime: string
     /**
-     * Effective default runtime adapter, or null when no preference is stored.
+     * Effective default runtime adapter, or null when no preference is stored or the harness is Pi.
      * @nullable
      */
     runtime_adapter: string | null
@@ -4659,6 +4686,11 @@ export interface ModelChoiceApi {
     display_name: string
     /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
     supported_efforts: ReasoningEffortEnumApi[]
+    /**
+     * Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or '~0.55x'. Prefixed when the input and output rates diverge enough that one number flatters either. Null for a model the catalogue quotes no rate for.
+     * @nullable
+     */
+    cost_multiplier?: string | null
 }
 
 export interface ModelCatalogueResponseApi {
@@ -4942,6 +4974,11 @@ export interface TaskRunSummaryApi {
      * * `closed` - closed
      * * `unknown` - unknown */
     pr_state: PrStateEnumApi | null
+    /**
+     * Latest summary for this task, including a summary inherited from an earlier run.
+     * @nullable
+     */
+    task_summary?: string | null
 }
 
 export interface TaskSearchResultApi {
@@ -5320,7 +5357,30 @@ export type LoopsRunsRetrieveParams = {
      * @maximum 100
      */
     limit?: number
+    /**
+     * Only return runs with this status. Use failed to read errors even when canvas state is unavailable.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     * @minLength 1
+     */
+    status?: LoopsRunsRetrieveStatus
 }
+
+export type LoopsRunsRetrieveStatus = (typeof LoopsRunsRetrieveStatus)[keyof typeof LoopsRunsRetrieveStatus]
+
+export const LoopsRunsRetrieveStatus = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
 
 export type LoopsTriggerCreateBodyOne = { [key: string]: unknown }
 
@@ -5749,6 +5809,13 @@ export type TasksRunsStreamRetrieveParams = {
      * Set to `latest` to skip the event backlog and only receive events published after connecting.
      */
     start?: string
+}
+
+export type TasksRunsStreamTokenRetrieveParams = {
+    /**
+     * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
+     */
+    resync?: boolean
 }
 
 export type TasksThreadMessagesListParams = {

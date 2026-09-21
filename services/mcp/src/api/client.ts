@@ -163,6 +163,19 @@ export interface ApiConfig {
      * the agent's task; the API validates it against the token's team.
      */
     taskId?: string | undefined
+    /** One tool call's stated intent, forwarded as `x-posthog-intent`. Set it through `withIntent`. */
+    intent?: string | undefined
+}
+
+// Matches ACTIVITY_LOG_INTENT_MAX_LENGTH in posthog/models/activity_logging/utils.py.
+const MAX_INTENT_HEADER_LENGTH = 500
+
+// The intent rides along on every API call, so a bad value must cost the header, never the call.
+function intentHeaderValue(intent: unknown): string | undefined {
+    if (typeof intent !== 'string') {
+        return undefined
+    }
+    return sanitizeHeaderValue(intent)?.slice(0, MAX_INTENT_HEADER_LENGTH)
 }
 
 type Endpoint = Record<string, any>
@@ -178,6 +191,20 @@ export class ApiClient {
         // `||` (not `??`) so an empty string — e.g. the Workers vitest config sets
         // env vars to '' — falls back to baseUrl instead of yielding relative links.
         this.publicBaseUrl = config.publicBaseUrl || config.baseUrl
+    }
+
+    /**
+     * A copy of this client that carries one tool call's intent.
+     *
+     * The calls in a JSON-RPC batch run concurrently over one cached client, so writing the
+     * intent onto that client would let a later call overwrite an earlier call's intent.
+     * The copy keeps the prototype, so a `ForwardingApiClient` copy still forwards.
+     */
+    withIntent(intent: string): this {
+        const scoped = Object.create(Object.getPrototypeOf(this) as object) as this
+        Object.assign(scoped, this)
+        scoped.config = { ...this.config, intent }
+        return scoped
     }
 
     getProjectBaseUrl(projectId: string): string {
@@ -224,6 +251,8 @@ export class ApiClient {
                 'x-posthog-mcp-conversation-id': this.config.mcpConversationId,
                 // Forward the sandbox task id so API writes are attributed to the agent's task.
                 'X-PostHog-Task-Id': this.config.taskId,
+                // Forward the agent's stated intent so the activity log records why, not just who.
+                'x-posthog-intent': intentHeaderValue(this.config.intent),
             }),
             'X-PostHog-Client': 'mcp',
         }
