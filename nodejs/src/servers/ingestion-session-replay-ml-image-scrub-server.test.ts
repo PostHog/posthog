@@ -25,9 +25,10 @@ describe('image scrub server startup', () => {
 
     it.each([
         // A batch is ceil(size / concurrency) waves of at most one scrub timeout, and every image must
-        // be able to time out once with the batch still inside Kafka's 300s max.poll.interval.ms.
-        { batchSize: 150, concurrency: 14, timeoutMs: 45_000, expected: 84 },
-        { batchSize: 150, concurrency: 8, timeoutMs: 45_000, expected: 48 },
+        // be able to time out once inside the 240s of Kafka's 300s max.poll.interval.ms that scrub
+        // timeouts may use.
+        { batchSize: 150, concurrency: 14, timeoutMs: 45_000, expected: 70 },
+        { batchSize: 150, concurrency: 8, timeoutMs: 45_000, expected: 40 },
         { batchSize: 50, concurrency: 14, timeoutMs: 45_000, expected: 50 },
         { batchSize: 150, concurrency: 14, timeoutMs: 15_000, expected: 150 },
     ])(

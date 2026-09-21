@@ -23,6 +23,9 @@ const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
 
 // librdkafka's max.poll.interval.ms as consumer-v1 sets it; a batch that outlives it gets the pod evicted mid-batch.
 const KAFKA_MAX_POLL_INTERVAL_MS = 300_000
+// The share of the poll interval that scrub timeouts may use. The rest covers the key read at the
+// start of a batch, the window drain at its end and a wait for the write lane to have room.
+const SCRUB_TIMEOUT_BUDGET_MS = 0.8 * KAFKA_MAX_POLL_INTERVAL_MS
 
 /**
  * The most messages a poll may hold so that every image can time out once at the sidecar and the
@@ -31,11 +34,11 @@ const KAFKA_MAX_POLL_INTERVAL_MS = 300_000
  * size is what a healthy sidecar gets; this cap is what a degraded one is held to.
  */
 export function boundedImageScrubBatchSize(config: IngestionSessionReplayMlMirrorServerConfig): number {
-    const timeoutWavesInPollInterval = Math.floor(
-        KAFKA_MAX_POLL_INTERVAL_MS / config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS
+    const timeoutWavesInBudget = Math.floor(
+        SCRUB_TIMEOUT_BUDGET_MS / config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS
     )
     const imagesThatCanEachTimeOutOnce =
-        timeoutWavesInPollInterval * config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY
+        timeoutWavesInBudget * config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY
     return Math.max(1, Math.min(config.SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE, imagesThatCanEachTimeOutOnce))
 }
 
