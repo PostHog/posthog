@@ -157,8 +157,9 @@ class TestRefreshHogFunctions(BaseTest):
         call_command("refresh_hog_functions", hog_function_id=str(self.hog_function1.id), stdout=out)
 
         self.hog_function1.refresh_from_db()
-        assert self.hog_function1.filters["bytecode"] == stored_bytecode
-        assert "bytecode_error" not in self.hog_function1.filters
+        filters = self.hog_function1.filters or {}
+        assert filters["bytecode"] == stored_bytecode
+        assert "bytecode_error" not in filters
         assert mock_reload.call_count == 0
 
         output = out.getvalue()
