@@ -183,37 +183,39 @@ const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 
-function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
+const WEB_ANALYTICS_SCENES: Scene[] = [
+    Scene.WebAnalytics,
+    Scene.WebAnalyticsWebVitals,
+    Scene.WebAnalyticsPageReports,
+    Scene.WebAnalyticsHealth,
+    Scene.WebAnalyticsLive,
+]
+
+const WEB_ANALYTICS_PRE_AGGREGATED_QUERY_KINDS: NodeKind[] = [
+    NodeKind.WebOverviewQuery,
+    NodeKind.WebStatsTableQuery,
+    NodeKind.InsightVizNode,
+    NodeKind.WebVitalsQuery,
+    NodeKind.WebVitalsPathBreakdownQuery,
+]
+
+export function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     const mountedSceneLogic = sceneLogic.findMounted()
     const activeScene = mountedSceneLogic?.values.activeSceneId
+    const usesPreAggregatedTables = !!currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
 
     if (activeScene === Scene.MarketingAnalytics) {
         return marketingAnalyticsConcurrencyController
     }
 
-    if (
-        [
-            Scene.WebAnalytics,
-            Scene.WebAnalyticsWebVitals,
-            Scene.WebAnalyticsPageReports,
-            Scene.WebAnalyticsHealth,
-            Scene.WebAnalyticsLive,
-        ].includes(activeScene as Scene) &&
-        !currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
-    ) {
-        return webAnalyticsConcurrencyController
+    // Every tile on a web analytics scene belongs in a web analytics pool. Sorting on the query
+    // kind alone sends the kinds outside the pre-aggregated set to the app-wide pool, which runs
+    // one query at a time, so those tiles wait behind each other and behind unrelated queries.
+    if (WEB_ANALYTICS_SCENES.includes(activeScene as Scene)) {
+        return usesPreAggregatedTables ? webAnalyticsPreAggConcurrencyController : webAnalyticsConcurrencyController
     }
 
-    if (
-        currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables &&
-        [
-            NodeKind.WebOverviewQuery,
-            NodeKind.WebStatsTableQuery,
-            NodeKind.InsightVizNode,
-            NodeKind.WebVitalsQuery,
-            NodeKind.WebVitalsPathBreakdownQuery,
-        ].includes(query.kind)
-    ) {
+    if (usesPreAggregatedTables && WEB_ANALYTICS_PRE_AGGREGATED_QUERY_KINDS.includes(query.kind)) {
         return webAnalyticsPreAggConcurrencyController
     }
     return concurrencyController
