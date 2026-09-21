@@ -354,6 +354,54 @@ The delete, bulk delete, publish, discard, restore and invocation actions refuse
 A write made with the key has no user behind it: `created_by` is null on the workflow and on its revisions, and the activity log records a system row whose trigger names the key by label.
 A workflow the key creates cannot contain a "Create AI task" step, because that step runs as the workflow's creator.
 
+## Code-managed workflows (read-only)
+
+A workflow can be owned by a file in a repository instead of by this app.
+`HogFlow.managed_by` holds that: `code` means a repository owns the content, and `gui` (which is also what `NULL` means) means this API does.
+
+Four more columns record where the file is and how the workflow first appeared.
+`created_via` is stamped from the request in `HogFlowSerializer.create`, never taken from the payload.
+`source_repository`, `source_path` and `source_ref` hold the source in parts rather than as a URL, because the backend cannot know whether a host is GitHub, GitLab or self-hosted.
+Nothing writes the three source columns yet; the CLI that pushes workflows does.
+
+### What the API allows on a code-managed workflow
+
+`HogFlowViewSet.check_object_permissions` refuses writes, and `bulk_delete` carries the same check because it is `detail=False` and never calls `get_object()`.
+The rule is an allow-list over the action and the whole payload, not over a set of field names: half the write actions carry bodies that name no workflow field at all, so a field-based check would let `publish` and `restore_revision` replace the definition between them.
+
+A request whose `get_event_source` is `api` or `cli`, and which does not authenticate with a session cookie, may write anything.
+That is the client that pushes the file.
+Every other caller, including the editor and every MCP surface, may do exactly two things:
+
+- `PATCH` `status` on its own. Enable, disable and archive keep working, so a person can stop a workflow without a deploy.
+- `PATCH` `managed_by` on its own, which hands the workflow back to the UI. A payload that would move the lock while carrying other fields is refused with `code="immutable"`, so a form body spread into a `PATCH` cannot release it by accident. A payload that re-sends the stored value passes: the editor spreads the whole loaded workflow into every save, and a value that does not move releases nothing.
+
+Everything else is refused with a 403 whose body names the recorded file and the way out.
+The refusal carries the status in the HTTP status, the message in `detail`, and `why` and `fix` in `extra`.
+
+Operating a workflow is not defining it, so the operational actions stay open: `rerun`, `run`, `invocations`, `cancel_invocations`, `batch_jobs`, `cancel_batch_job` and `resume_email_sending`.
+The file says what the workflow is, not what is running right now, and a deliverability pause is PostHog's to place and the customer's to lift.
+`schedules` and `schedule_detail` are refused, because a schedule is part of the trigger and the trigger is in the file.
+
+Three costs of that rule, all deliberate:
+
+- **A push can re-enable what a person disabled.** `status` lives in the source file, so the next push resolves any disagreement between the file and the UI.
+- **Archiving is allowed.** It is a `status` write, and the file cannot express "unarchive" without a push.
+- **The lock is a rule of the REST API.** A management command, a Celery task or the Django admin writes a code-managed row like any other. The admin shows `managed_by` read-only so a staff editor can at least see it.
+
+### What the editor does
+
+`workflowLogic` derives `workflowEditDisabledReason` and `canEditWorkflow` from the loaded workflow.
+Code ownership shadows the access level, because naming the file is more useful than telling someone their access is too low.
+A missing `user_access_level` is treated as no opinion rather than as no access, so a response without it does not lock the editor.
+
+`canEditWorkflow` guards the canvas mutation listeners (`setWorkflowInfo`, `setWorkflowActionConfig`, `partialSetWorkflowActionConfig`, `setWorkflowAction`, `setWorkflowActionEdges`, `setWorkflowValue`) and the auto-save, rather than the save loader.
+The guard has to sit there because the enable button used to save the whole graph, so a guard on the loader would have blocked the status control as well.
+That control now sends only the status.
+The canvas itself stays interactive, because per-step metrics and logs are only reachable by selecting a node.
+
+`CodeManagedTag` renders the badge on the workflow scene and in the list, and returns nothing for a workflow this app owns.
+
 ## Common pitfalls
 
 - **Forgot the side-effect import**: triggers/actions must be imported by their `index.ts`, and async functions must be imported by nodejs/src/cdp/async-functions/index.ts.

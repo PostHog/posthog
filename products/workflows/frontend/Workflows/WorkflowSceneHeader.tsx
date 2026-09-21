@@ -23,6 +23,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { CodeManagedTag } from './CodeManagedTag'
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
 import { WorkflowSuggestionsMenuItem } from './suggestions/WorkflowSuggestionsMenuItem'
 import { WorkflowSuggestionsPanelToggle } from './suggestions/WorkflowSuggestionsPanelToggle'
@@ -34,6 +35,9 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const {
         workflow,
+        originalWorkflow,
+        canEditWorkflow,
+        workflowEditDisabledReason,
         hasUnsavedChanges,
         hasStagedDraft,
         draftActionPending,
@@ -200,13 +204,14 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 name={workflow?.name}
                 description={workflow?.description}
                 resourceType={{ type: 'workflows' }}
-                canEdit
+                canEdit={canEditWorkflow}
                 onNameChange={(name) => setWorkflowValue('name', name)}
                 onDescriptionChange={(description) => setWorkflowValue('description', description)}
                 isLoading={workflowLoading && !workflow}
                 renameDebounceMs={200}
                 actions={
                     <>
+                        <CodeManagedTag workflow={originalWorkflow} />
                         {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
                         {isSavedWorkflow && (
                             <>
@@ -333,13 +338,17 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         onClick={submitWorkflow}
                                         loading={isWorkflowSubmitting}
                                         disabledReason={
-                                            workflowHasErrors
-                                                ? 'Some fields still need work'
-                                                : isCreatedFromTemplate
-                                                  ? undefined
-                                                  : hasUnsavedChanges
+                                            // Ownership first: naming the file is more useful than
+                                            // telling someone their unsaved changes cannot be saved.
+                                            workflowEditDisabledReason
+                                                ? workflowEditDisabledReason
+                                                : workflowHasErrors
+                                                  ? 'Some fields still need work'
+                                                  : isCreatedFromTemplate
                                                     ? undefined
-                                                    : 'No changes to save'
+                                                    : hasUnsavedChanges
+                                                      ? undefined
+                                                      : 'No changes to save'
                                         }
                                     >
                                         {props.id === 'new'
