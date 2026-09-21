@@ -17,6 +17,7 @@ const TRANSCRIPT_NEUTRAL_NOTIFICATION_METHODS = [
   "_posthog/usage_update",
   "_posthog/resources_used",
   "_posthog/rtk_savings",
+  "_posthog/budget_steer",
   "_posthog/codex_goal",
 ];
 
