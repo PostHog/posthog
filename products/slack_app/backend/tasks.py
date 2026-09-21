@@ -9,7 +9,7 @@ from products.slack_app.backend.api import (
     does_other_region_claim_workspace,
     send_region_proxy_request,
 )
-from products.slack_app.backend.services.slack_welcome_messages import send_install_welcome
+from products.slack_app.backend.onboarding import run_install_onboarding
 
 
 @shared_task(ignore_result=True)
@@ -36,13 +36,14 @@ def mirror_slack_message_event(
 
 @shared_task(ignore_result=True)
 def send_slack_install_welcome(*, integration_id: int) -> None:
-    """DM whoever installed the Slack app a welcome, dispatched from the install signal.
+    """DM whoever installed the Slack app their onboarding, dispatched from the install signal.
 
-    Off the OAuth callback's request path because the installer is waiting on a redirect.
-    No retries: a welcome that arrives late is worth less than a duplicate would cost, and
-    the post is already best-effort inside ``send_install_welcome``.
+    The same onboarding the Temporal workflow runs, and the route for an install that has no
+    channel to open, or whose workflow the server refused. Off the OAuth callback's request path
+    because the installer is waiting on a redirect. No retries: a greeting that arrives late is
+    worth less than a duplicate would cost, and the post is already best-effort.
     """
     integration = Integration.objects.filter(id=integration_id, kind=SLACK_INTEGRATION_KIND).first()
     if integration is None:
         return
-    send_install_welcome(integration)
+    run_install_onboarding(integration)

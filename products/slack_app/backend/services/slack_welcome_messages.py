@@ -1,32 +1,26 @@
 """What PostHog says the first time someone meets it in Slack.
 
-Three moments, one product to describe: the app is added to a channel, someone joins the
-workspace, someone installs the app. Keeping the three in one module is what stops the
-list of things worth knowing from drifting apart per surface.
+Two moments: the app is added to a channel, or someone joins a workspace that already has
+it. Keeping both in one module is what stops the list of things worth knowing from
+drifting apart per surface. A fresh install is the third moment, and it gets the
+onboarding DM in ``onboarding.py`` instead, which carries the same material around its
+setup steps.
 
 A builder takes the integration and returns the ``(fallback_text, blocks)`` pair
 ``chat_postMessage`` wants. The fallback text is what a notification and a screen reader
 get, so it says the one thing the message is for rather than repeating the whole of it.
-
-The install DM is sent from here too, because nothing else owns it: it answers an OAuth
-callback rather than a Slack event, so it has no dedupe key and no region to route to. The
-channel and workspace-join messages are welded to both, and their delivery stays in
-``api.py`` with the event router.
+Delivery stays in ``api.py`` with the event router, welded to region routing and the
+dedupe claim.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import structlog
-
 from posthog.helpers.slack_subscription_explore import BOT_SETUP_DOCS_URL
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import Integration
 
-from products.slack_app.backend.feature_flags import is_slack_app_assistant_enabled
 from products.slack_app.backend.services.slack_messages import app_home_url, context_block, section_block
-
-logger = structlog.get_logger(__name__)
 
 
 def _bullets(title: str, lines: tuple[str, ...]) -> dict[str, Any]:
@@ -147,59 +141,3 @@ def build_team_join_welcome(integration: Integration) -> tuple[str, list[dict[st
         _docs_button_block(),
     ]
     return "Hey, welcome! I'm PostHog. Message me to get started.", blocks
-
-
-def build_install_welcome(integration: Integration) -> tuple[str, list[dict[str, Any]]]:
-    """DM'd to whoever installed the app, right after the install lands.
-
-    The one reader set up to act for the whole workspace, so this is the only welcome that
-    covers routing other people's mentions and connecting a GitHub account.
-    """
-    blocks: list[dict[str, Any]] = [
-        section_block(
-            ":tada: Thanks for installing PostHog! I'm an AI agent. I dig into your product data, poke "
-            "around your codebase, and open pull requests in your connected repos."
-        ),
-        _bullets(
-            "Start here",
-            (
-                "Invite me to a channel with `/invite @PostHog`, then tag me with whatever you need.",
-                "Or just message me right here.",
-            ),
-        ),
-        _bullets(
-            "Set it up for the team",
-            (
-                "Name a project in your question and I'll answer from it: `@PostHog give me DAU for Staging please`.",
-                "`/posthog project` lists the projects you can reach and their ids. Slack admins can set "
-                "the default for everyone with `/posthog project workspace <id>`.",
-                "`/posthog` lists every command, including the rules that decide which repo I open pull requests in.",
-                f"{_home_tab(integration, 'My Home tab')} has the default AI model, thread follow-ups and "
-                "the tasks you've started. Connect your GitHub there so pull requests open under your "
-                "own account.",
-            ),
-        ),
-        _feedback_block(),
-        _docs_button_block(),
-    ]
-    return "Thanks for installing PostHog! Tag me with @PostHog, or message me here.", blocks
-
-
-def send_install_welcome(integration: Integration) -> None:
-    """DM the installing user, when the assistant surface is available to their workspace.
-
-    Called from the install signal's Celery task, which fires once per first install, so
-    this needs no dedupe of its own.
-    """
-    if not is_slack_app_assistant_enabled(integration):
-        return
-    slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
-    if not slack_user_id:
-        return
-    text, blocks = build_install_welcome(integration)
-    try:
-        SlackIntegration(integration).client.chat_postMessage(
-            channel=slack_user_id, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False
-        )
-    except Exception:
-        logger.warning("slack_app_install_welcome_failed", integration_id=integration.id, exc_info=True)

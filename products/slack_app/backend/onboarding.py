@@ -31,6 +31,7 @@ from products.slack_app.backend.inbox_channel import (
     has_inbox_scopes,
     invite_user_to_inbox,
 )
+from products.slack_app.backend.services.slack_messages import app_home_url
 
 logger = structlog.get_logger(__name__)
 
@@ -266,10 +267,17 @@ def build_onboarding_dm(
     Every step is always shown with its state (done steps render a '✅' line). AI approval is the one
     exception: omitted once approved. Always returns a full message — the DM is posted unconditionally.
     """
+    # Only an install that can open the reporting channel is set up to run unattended, so the
+    # autopilot claim is made where it holds and the rest of the message is the same either way.
+    autopilot = not slack.missing_scopes(INBOX_CHANNEL_REQUIRED_SCOPES)
     intro = _section(
         "👋 *Hi, I'm PostHog - self-driving for your product*\nI'm an AI agent on autopilot: I watch your product "
         "for problems, investigate them myself, and open pull requests to fix them - so issues get handled before "
         "they reach your backlog."
+        if autopilot
+        else "👋 *Hi, I'm PostHog - self-driving for your product*\nI'm an AI agent: once you set me up below I'll "
+        "watch your product for problems, investigate them myself, and open pull requests to fix them - so issues "
+        "get handled before they reach your backlog."
     )
     blocks: list[dict] = [intro, {"type": "divider"}]
     blocks += _github_blocks(integration, done=not needs_github)
@@ -288,16 +296,30 @@ def build_onboarding_dm(
             ],
         }
     )
-    # This DM replaces the plain welcome, and the steps above cover the autopilot only, so the
-    # interactive half reaches the reader here or not at all.
+    # The only DM a fresh install gets, so the interactive half of the product reaches the reader
+    # here or not at all. Small print: the numbered steps are what they came for.
+    home_tab = app_home_url(integration)
     blocks.append(
         {
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "💬 You can also just talk to me. Tag `@PostHog` in any channel, or message me here, "
-                    "to dig into your product data or open a pull request. `/posthog` lists my commands.",
+                    "text": "💬 You can also just talk to me. Tag `@PostHog` in any channel, or message me here. "
+                    "Name a project to route one question: `@PostHog give me DAU for Staging please`. "
+                    "`/posthog` lists my commands.",
+                }
+            ],
+        }
+    )
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "👍 Hit the thumbs under my replies when I get something wrong. Your default model "
+                    f"and linked accounts live in {f'<{home_tab}|my Home tab>' if home_tab else 'my Home tab'}.",
                 }
             ],
         }
@@ -488,14 +510,16 @@ def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> 
 
 
 def run_install_onboarding(integration: Integration) -> None:
-    """On a fresh install: create the inbox channel, invite the installer, and DM them the onboarding.
-    Gated on the install having ``channels:manage``; best-effort."""
-    if not has_inbox_scopes(integration):
-        return
-    channel = ensure_inbox_channel(integration)
+    """On a fresh install: DM the installer the onboarding, and open the inbox channel for them first
+    where the install granted the scopes to. Best-effort.
+
+    Every install gets the DM. The scopes only decide whether we can do the channel step for them, and
+    the DM says how to do it by hand when we cannot."""
     installer = ((integration.config or {}).get("authed_user") or {}).get("id")
     if not installer:
         return
-    if channel is not None:
-        invite_user_to_inbox(integration, channel[0], installer)
+    if has_inbox_scopes(integration):
+        channel = ensure_inbox_channel(integration)
+        if channel is not None:
+            invite_user_to_inbox(integration, channel[0], installer)
     send_onboarding_dm(integration, installer)

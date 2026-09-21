@@ -138,16 +138,16 @@ class TestOnboarding:
         assert get_default_slack_notification_channel(self.team.id) == "C_NEW|#posthog-inbox"
 
     @patch("posthog.models.integration.slack.WebClient")
-    def test_run_install_onboarding_noop_when_missing_scope(self, mock_webclient_class):
+    def test_run_install_onboarding_dms_without_channel_scope(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
-        # No channels:manage scope -> onboarding is gated off for this install.
         self.integration.config = {"scope": "chat:write", "authed_user": {"id": "U_INSTALL"}}
         self.integration.save()
 
         onboarding.run_install_onboarding(self.integration)
 
+        # No channels:manage, so the channel step is the reader's to do; the DM still arrives.
         client.conversations_create.assert_not_called()
-        client.chat_postMessage.assert_not_called()
+        assert client.chat_postMessage.call_args.kwargs["channel"] == "U_INSTALL"
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_send_onboarding_dm_returns_false_on_post_failure(self, mock_webclient_class):
@@ -218,12 +218,14 @@ class TestOnboarding:
         assert onboarding.send_onboarding_dm(self.integration, "U1") is True
         client.chat_postMessage.assert_called_once()
 
+    @pytest.mark.parametrize("scope", ["channels:manage,chat:write", "chat:write"])
     @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=123)
     @patch("products.slack_app.backend.onboarding._has_personal_github", return_value=False)
     @patch("products.slack_app.backend.onboarding._has_team_github", return_value=False)
     @patch("posthog.models.integration.slack.WebClient")
-    def test_onboarding_dm_copy(self, mock_webclient_class, _mock_team, _mock_personal, _mock_resolve, snapshot):
+    def test_onboarding_dm_copy(self, mock_webclient_class, _mock_team, _mock_personal, _mock_resolve, scope, snapshot):
         self._client(mock_webclient_class)
+        self.integration.config = {"scope": scope}
 
         text, blocks = onboarding.build_onboarding_dm(
             self.integration, SlackIntegration(self.integration), needs_github=True

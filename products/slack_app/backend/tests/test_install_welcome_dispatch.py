@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
@@ -8,12 +8,11 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.slack_app.backend.inbox_channel import INBOX_ONBOARDING_REQUIRED_SCOPES
-from products.slack_app.backend.services.slack_welcome_messages import send_install_welcome
+from products.slack_app.backend.onboarding import run_install_onboarding
 from products.slack_app.backend.tasks import send_slack_install_welcome
 
 WELCOME_ONLY_SCOPES = set(REQUIRED_SLACK_SCOPES) - set(INBOX_ONBOARDING_REQUIRED_SCOPES)
 INBOX_SCOPES = set(REQUIRED_SLACK_SCOPES) | set(INBOX_ONBOARDING_REQUIRED_SCOPES)
-WELCOME_MODULE = "products.slack_app.backend.services.slack_welcome_messages"
 
 
 class _InstallTestBase(TestCase):
@@ -89,56 +88,55 @@ class TestInstallWelcomeDispatch(_InstallTestBase):
 class TestSendInstallWelcomeTask(_InstallTestBase):
     """What the task does once it reaches a worker."""
 
-    @patch("products.slack_app.backend.tasks.send_install_welcome")
-    def test_a_deleted_integration_is_a_no_op(self, mock_send):
+    @patch("products.slack_app.backend.tasks.run_install_onboarding")
+    def test_a_deleted_integration_is_a_no_op(self, mock_onboard):
         send_slack_install_welcome(integration_id=987654321)
 
-        mock_send.assert_not_called()
+        mock_onboard.assert_not_called()
 
-    @patch("products.slack_app.backend.tasks.send_install_welcome")
-    def test_a_non_slack_integration_is_a_no_op(self, mock_send):
+    @patch("products.slack_app.backend.tasks.run_install_onboarding")
+    def test_a_non_slack_integration_is_a_no_op(self, mock_onboard):
         github = Integration.objects.create(team=self.team, kind="github", integration_id="G1")
 
         send_slack_install_welcome(integration_id=github.id)
 
-        mock_send.assert_not_called()
+        mock_onboard.assert_not_called()
 
-
-class TestSendInstallWelcome(SimpleTestCase):
-    """The DM itself: who gets it, and what it carries."""
-
-    def setUp(self):
-        # Unsaved: the DM reads `config` and `integration_id` only.
-        self.integration = Integration(
-            kind="slack",
-            integration_id="T_WELCOME",
-            config={"authed_user": {"id": "U_INSTALLER"}, "app_id": "A_WELCOME"},
+    @patch("products.slack_app.backend.tasks.run_install_onboarding")
+    def test_a_slack_install_runs_the_same_onboarding_the_workflow_does(self, mock_onboard):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_TASK", config={"authed_user": {"id": "U1"}}
         )
 
-    def _send(self, *, enabled: bool = True, side_effect: Exception | None = None):
-        with (
-            patch(f"{WELCOME_MODULE}.is_slack_app_assistant_enabled", return_value=enabled),
-            patch(f"{WELCOME_MODULE}.SlackIntegration") as slack_cls,
-        ):
-            post = slack_cls.return_value.client.chat_postMessage
-            post.side_effect = side_effect
-            send_install_welcome(self.integration)
-        return post
+        send_slack_install_welcome(integration_id=integration.id)
 
-    def test_dms_the_installer(self):
-        post = self._send()
+        assert mock_onboard.call_args.args[0].id == integration.id
 
-        assert post.call_args.kwargs["channel"] == "U_INSTALLER"
-        assert post.call_args.kwargs["text"]
-        assert any(block.get("type") == "actions" for block in post.call_args.kwargs["blocks"])
 
-    def test_silent_without_the_assistant_scopes(self):
-        assert self._send(enabled=False).call_count == 0
+class TestInstallOnboardingWithoutChannelScopes(_InstallTestBase):
+    """An install that cannot open the channel still gets onboarded, minus the channel work."""
 
-    def test_silent_without_an_authed_user(self):
-        self.integration.config = {}
+    def setUp(self):
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_WELCOME",
+            config={"scope": ",".join(sorted(WELCOME_ONLY_SCOPES)), "authed_user": {"id": "U_INSTALLER"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
 
-        assert self._send().call_count == 0
+    @patch("products.slack_app.backend.onboarding.ensure_inbox_channel")
+    @patch("products.slack_app.backend.onboarding.send_onboarding_dm")
+    def test_dms_the_installer_without_touching_the_channel(self, mock_dm, mock_channel):
+        run_install_onboarding(self.integration)
 
-    def test_a_slack_failure_does_not_raise(self):
-        self._send(side_effect=Exception("slack down"))
+        mock_dm.assert_called_once_with(self.integration, "U_INSTALLER")
+        mock_channel.assert_not_called()
+
+    @patch("products.slack_app.backend.onboarding.send_onboarding_dm")
+    def test_silent_without_an_authed_user(self, mock_dm):
+        self.integration.config = {"scope": "chat:write"}
+
+        run_install_onboarding(self.integration)
+
+        mock_dm.assert_not_called()
