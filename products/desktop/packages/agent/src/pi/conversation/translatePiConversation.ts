@@ -1,6 +1,9 @@
 import type { AssistantMessage, Message, Usage } from "@earendil-works/pi-ai";
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { AgentConversationEvent, AgentTurnUsage } from "@posthog/shared";
+import type {
+  AgentConversationEvent,
+  AgentTurnUsage,
+} from "@posthog/agent-contracts";
 import { createPiMessageTranslator } from "./translatePiMessage";
 
 type AgentMessage = Extract<

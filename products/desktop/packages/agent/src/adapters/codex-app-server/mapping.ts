@@ -7,7 +7,7 @@ import {
   boundPersistedMcpResult,
   mcpToolKey,
   posthogToolMeta,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 import { APP_SERVER_NOTIFICATIONS } from "./protocol";
 import { readTokenUsage } from "./token-usage";
 

@@ -3,7 +3,7 @@ import { createReadStream, readFileSync, statSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import { isBinaryFile } from "@posthog/shared";
+import { isBinaryFile } from "@posthog/agent-contracts";
 import type { CreateGitClientOptions } from "./client";
 import { mapWithConcurrency } from "./concurrency";
 import { getGitOperationManager } from "./operation-manager";

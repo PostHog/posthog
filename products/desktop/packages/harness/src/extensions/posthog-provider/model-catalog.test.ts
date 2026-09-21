@@ -148,7 +148,7 @@ describe("resolvePosthogPiModelCatalog", () => {
   });
 
   // One retired model and one the catalog never listed. `isOfferedModel` owns the full table,
-  // in packages/shared/src/model-catalog.test.ts; these two prove the filter is wired up here.
+  // in packages/agent-contracts/src/model-catalog.test.ts; these two prove the filter is wired up here.
   it.each(["claude-opus-4-7", "gpt-5.4"])(
     "excludes %s from the Pi catalog",
     (id) => {

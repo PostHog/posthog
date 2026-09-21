@@ -1,4 +1,4 @@
-import type { SagaLogger } from "@posthog/shared";
+import type { SagaLogger } from "@posthog/agent-contracts";
 import { afterEach, beforeEach, describe, expect, it, type vi } from "vitest";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import type { PostHogAPIClient } from "../posthog-api";

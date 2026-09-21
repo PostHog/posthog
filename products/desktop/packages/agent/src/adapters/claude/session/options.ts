@@ -13,6 +13,14 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import {
+  BEDROCK_LLM_GATEWAY_FLAG,
+  type BedrockGatewayVariant,
+} from "@posthog/agent-contracts";
+import {
+  buildPosthogProjectHeaderLines,
+  buildPosthogPropertyHeaderLines,
+} from "@posthog/agent-contracts/posthog-property-headers";
 import { buildAppendedInstructions } from "@posthog/harness/extensions/agent-instructions";
 import {
   applyContextWikiEnv,
@@ -21,14 +29,6 @@ import {
 } from "@posthog/harness/extensions/context-wiki";
 import type { FileEnrichmentDeps } from "@posthog/harness/extensions/enrichment";
 import { resolveRtkPrefix } from "@posthog/harness/extensions/rtk";
-import {
-  BEDROCK_LLM_GATEWAY_FLAG,
-  type BedrockGatewayVariant,
-} from "@posthog/shared";
-import {
-  buildPosthogProjectHeaderLines,
-  buildPosthogPropertyHeaderLines,
-} from "@posthog/shared/posthog-property-headers";
 import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
 import type { TaskState } from "../conversion/task-state";

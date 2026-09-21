@@ -2,7 +2,7 @@ import type { LsToolInput } from "@earendil-works/pi-coding-agent";
 import type {
   AgentToolCallContent,
   AgentToolCallLocation,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 import type { PiToolTranslator } from "../toolTranslator";
 
 export const lsTranslator: PiToolTranslator = ({
