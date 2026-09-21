@@ -36,6 +36,8 @@ Older servers that omit either field use cached task details instead. The cache 
 The triage count includes only loaded reports that need a decision. Load more reports to check the next page.
 A callback error after task startup does not change a successful start into a failed start. Older servers without task assignments keep their existing queue behavior.
 Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
+Select Self-driving in the navigation rail during triage to return to the report list and open its sidebar.
+From an open report, the same control opens the sidebar and focuses its search without closing the report.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 
 To filter reports for a user, open Filter reports, then hover over Scope.
