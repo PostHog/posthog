@@ -68,8 +68,7 @@ def latest_issue_state_watermark(team_id: int) -> datetime.datetime | None:
 
 def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | None = None) -> list[RecentIssueState]:
     threshold = (current_time or timezone.now()) - RECENT_ISSUE_STATE_WINDOW
-    # One bounded read on the (team, state_updated_at) index. The assignment columns come from the
-    # same row, so the overlay never pays a second round trip to hydrate what the index scan found.
+    # The filter matches the partial (team, state_updated_at) index, which this read depends on.
     rows = list(
         ErrorTrackingIssue.objects.using(DEFAULT_DB_ALIAS)
         .filter(team_id=team_id, state_updated_at__gte=threshold)
