@@ -8,6 +8,7 @@ import { SessionPlayerState } from '~/types'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
 import { PlayerFrame } from './PlayerFrame'
+import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
 describe('PlayerFrame', () => {
@@ -15,6 +16,7 @@ describe('PlayerFrame', () => {
 
     beforeEach(() => {
         setupSessionRecordingTest()
+        playerSettingsLogic.mount()
     })
 
     function renderPlayerFrame(): HTMLIFrameElement {
@@ -33,6 +35,32 @@ describe('PlayerFrame', () => {
         Object.defineProperty(iframe.contentDocument!, 'readyState', { value: 'complete', configurable: true })
         return iframe
     }
+
+    // Dividing the indicator duration by playback speed alone left 21ms at 16x, about one rendered
+    // frame, so a click was gone before a viewer could see it.
+    it.each([
+        // The floor binds from 3x up; below that the duration still tracks the playback speed.
+        [1, '0.3333333333333333s'],
+        [4, '0.15s'],
+        [16, '0.15s'],
+        // An exporter URL can carry any playerSpeed value, and an unusable one must not leave the
+        // player with an invalid animation duration and no indicator.
+        [0, '0.3333333333333333s'],
+        [NaN, '0.3333333333333333s'],
+    ])('holds the click indicator above the floor at %sx speed', (speed, expectedDuration) => {
+        playerSettingsLogic.actions.setSpeed(speed)
+
+        const iframe = renderPlayerFrame()
+        const frameDocument = iframe.contentDocument!
+        frameDocument.open()
+        frameDocument.write('<div id="player-frame-content"></div>')
+        frameDocument.close()
+        fireEvent.load(iframe)
+
+        expect(frameDocument.documentElement.style.getPropertyValue('--player-frame-click-duration')).toEqual(
+            expectedDuration
+        )
+    })
 
     it('mounts the player on the frame document once the frame loads', () => {
         const iframe = renderPlayerFrame()

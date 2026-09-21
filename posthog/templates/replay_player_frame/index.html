@@ -107,7 +107,7 @@
         }
 
         .PlayerFrame__content .replayer-mouse.active::after {
-            /* Duration scales with playback speed; the app sets the property on this document. */
+            /* PlayerFrame.tsx sets the duration from the playback speed, with a floor. */
             animation: PlayerFrame__click--llm-highlight var(--player-frame-click-duration, 0.333s) ease-in-out 1;
         }
 
