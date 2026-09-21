@@ -12,6 +12,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.dashboards.backend.access import DashboardAccessMethod
+from products.dashboards.backend.api.dashboard import DashboardsViewSet
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
@@ -169,6 +170,26 @@ class TestDashboardRunInsights(APIBaseTest):
             set(body["results"][1]["insight"].keys()),
             {"id", "short_id", "name", "derived_name", "result"},
         )
+
+    def test_json_format_ignores_max_result_chars(self) -> None:
+        # The parameter is documented as optimized-only, so a bad value must not fail a json read.
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+
+        body = self._run(dashboard_id, output_format="json", refresh="blocking", max_result_chars="-1")
+
+        self.assertIsInstance(body["results"][0]["insight"]["result"], list)
+
+    def test_bounds_a_result_no_formatter_covers(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+
+        with patch.object(DashboardsViewSet, "_format_insight_for_llm", return_value=None):
+            body = self._run(dashboard_id, refresh="blocking", max_result_chars="60")
+
+        result = body["results"][0]["insight"]["result"]
+        self.assertIsInstance(result, str)
+        self.assertIn("Truncated to 60 characters", result)
 
     def test_skips_text_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

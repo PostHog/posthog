@@ -138,6 +138,7 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.run_insights_output import (
     parse_max_result_chars,
     parse_tile_ids,
+    render_unsupported_result,
     truncate_formatted_result,
     unrun_tile_result,
 )
@@ -3291,7 +3292,9 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         output_format = request.query_params.get("output_format", "optimized")
         tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
-        max_result_chars = parse_max_result_chars(request.query_params.get("max_result_chars"))
+        max_result_chars = (
+            parse_max_result_chars(request.query_params.get("max_result_chars")) if output_format == "optimized" else 0
+        )
 
         access_method = dashboard_access_method(request)
         record_dashboard_access(access_method)
@@ -3333,8 +3336,12 @@ class DashboardsViewSet(
 
             if output_format == "optimized":
                 insight_data = tile_data.get("insight") or {}
-                formatted = self._format_insight_for_llm(tile.insight, insight_data)
-                if formatted is not None and insight_data:
+                raw_result = insight_data.get("result")
+                if insight_data and raw_result is not None:
+                    formatted = self._format_insight_for_llm(tile.insight, insight_data)
+                    if formatted is None:
+                        # No formatter covers this query type, so the raw result still has to be bounded.
+                        formatted = render_unsupported_result(raw_result)
                     formatted = truncate_formatted_result(formatted, tile_id=tile.id, max_chars=max_result_chars)
                     insight_data["result"] = formatted
                     used_chars += len(formatted)

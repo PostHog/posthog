@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from rest_framework import exceptions
@@ -52,10 +53,17 @@ def truncate_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -
     used = 0
     for line in formatted.splitlines():
         used += len(line) + 1
-        if used > max_chars and kept:
+        if used > max_chars:
             break
         kept.append(line)
-    return "\n".join(kept) + "\n" + TRUNCATION_NOTE.format(max_chars=max_chars, tile_id=tile_id)
+    # A single row wider than the budget still has to be cut, or it defeats the bound.
+    body = "\n".join(kept) if kept else formatted[:max_chars]
+    return body + "\n" + TRUNCATION_NOTE.format(max_chars=max_chars, tile_id=tile_id)
+
+
+def render_unsupported_result(result: Any) -> str:
+    """Text for a result no LLM formatter covers, so `optimized` output stays bounded anyway."""
+    return json.dumps(result, default=str)
 
 
 def unrun_tile_result(tile: DashboardTile, insight: Insight, order: int) -> dict[str, Any]:
