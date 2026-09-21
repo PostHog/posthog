@@ -291,8 +291,8 @@ export interface dataQualityOverviewLogicActions {
 export interface dataQualityOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         checks: (overview: OverviewSnapshot | null) => DataQualityOverviewCheckApi[]
-        checksStatus: (checks: DataQualityOverviewCheckApi[]) => OverviewChecksStatus
         subjectHealth: (overview: OverviewSnapshot | null) => DataQualitySubjectHealthApi[]
+        checksStatus: (checks: DataQualityOverviewCheckApi[]) => OverviewChecksStatus
         scheduleBySubjectKey: (
             subjectSchedules: DataQualitySubjectScheduleApi[]
         ) => Record<string, DataQualitySubjectScheduleApi>
