@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from posthog.models import Team
+
+if TYPE_CHECKING:
+    from products.approvals.backend.models import ChangeRequest
 
 
 class BaseAction(ABC):
@@ -164,6 +167,24 @@ class BaseAction(ABC):
             }
         else:
             return intent
+
+    @classmethod
+    def redact_for_read(cls, data: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
+        """Strip values that must not leave the API from a change request's serialized form.
+
+        `intent` holds the endpoint serializer's validated change, which can carry a secret the
+        resource itself keeps encrypted at rest. ChangeRequestViewSet serves both `intent` and
+        `intent_display` to every member with approvals read scope, so an action that gates such
+        a resource has to remove those values here.
+
+        A stored change does not always say that its resource keeps the value encrypted, so the
+        change request is passed in to let an implementation ask the resource itself. Both fields
+        arrive in one call so that an implementation which has to ask only asks once.
+
+        Only the read path calls this. It must not be used to decide what to store; the apply
+        path reads the stored fields directly and is unaffected.
+        """
+        return data
 
     @staticmethod
     def _compute_diff(before: dict, after: dict) -> list:

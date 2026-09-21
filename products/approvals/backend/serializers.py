@@ -1,3 +1,5 @@
+from typing import Any
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -92,6 +94,21 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
             "apply_error",
             "result_data",
         ]
+
+    def to_representation(self, instance: ChangeRequest) -> dict[str, Any]:
+        """Route the serialized change request through the gating action's read-path redaction.
+
+        `intent` holds the endpoint serializer's validated change, which can carry a value the
+        resource keeps encrypted at rest, and this viewset serves it to every member with
+        approvals read scope. The gate now withholds such a value before it stores a change
+        request, so this covers the rows written before that and anything else an action strips.
+        Redacting here rather than per field lets an action resolve the resource once.
+        """
+        data = super().to_representation(instance)
+        action_class = instance.get_action_class()
+        if action_class is None:
+            return data
+        return action_class.redact_for_read(data, instance)
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_approvals(self, obj):
