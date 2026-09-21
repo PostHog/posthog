@@ -22,9 +22,8 @@
 # - permissions: read-only in every job, so the ambient token never writes. Each ported CI
 #   report poster mints a posthog-tests token scoped to pull-requests:write (see
 #   check-migrations, backend-coverage-report and .depot/actions/commit-snapshots).
-# - backend-coverage-report: the comment's patch-coverage link is built from GITHUB_RUN_ID,
-#   which on Depot is not a GitHub run id, so that link and its `gh run download` hint do
-#   not resolve for a Depot run.
+# - backend-coverage-report links to its Depot job and gives Depot CLI artifact instructions.
+#   It sets up Node from .nvmrc, which canonical takes from the GitHub-hosted image.
 # - Trunk uploads and quarantine verdicts match canonical only when side effects
 #   are enabled. Disabled test steps retain their direct failure verdict.
 # - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
@@ -4084,7 +4083,6 @@ jobs:
         # the comment write uses the App token minted below.
         permissions:
             contents: read
-            actions: read
             pull-requests: read
         # In-repo PRs only — fork PRs get a read-only token that can't comment. Runs when either
         # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
@@ -4142,6 +4140,8 @@ jobs:
             - name: Build coverage report
               # diff-cover is declared inline (PEP 723) in coverage_report.py; uv provisions it.
               if: steps.reporter.outputs.available == 'true'
+              env:
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   mkdir -p cov-artifacts core-artifacts
                   git fetch --no-tags --filter=blob:none --quiet origin master

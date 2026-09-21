@@ -351,7 +351,18 @@ def build_agent_hint() -> str:
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
-    if repo and run_id:
+    depot_job_url = os.environ.get("DEPOT_JOB_URL", "")
+    pr_number = os.environ.get("PR_NUMBER", "")
+    if depot_job_url.startswith("https://depot.dev/") and repo and pr_number.isdecimal():
+        list_workflow = (
+            f"depot ci workflow list --repo {repo} --pr {pr_number} --name 'Backend CI on Depot' -n 1 -o json"
+        )
+        payload = (
+            f"the **patch-coverage** artifact from [this Depot job]({depot_job_url}) "
+            f"(`depot ci artifacts list \"$({list_workflow} | jq -r '.[0].run_id')\" -o json`, "
+            "then `depot ci artifacts download <artifact-id>`)"
+        )
+    elif repo and run_id:
         payload = f"the **patch-coverage** artifact on [this run]({server}/{repo}/actions/runs/{run_id}) (`gh run download {run_id} -n patch-coverage`)"
     else:
         payload = "the **patch-coverage** artifact"
