@@ -121,6 +121,16 @@ export const DefaultScopes: Story = {
     },
 }
 
+// The logo is a third-party icon this repo already serves, so the snapshot never reaches out to a
+// host we do not control.
+export const WithApplicationLogo: Story = {
+    decorators: [withOAuthApplication({ name: 'Zapier', logo_uri: '/static/services/zapier.png' })],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize())
+        return <App />
+    },
+}
+
 // Explicit request where every requested scope is required: rows render as a plain locked
 // checkmark list (no access selectors) and the bulk actions are hidden, since there is nothing
 // to choose.
@@ -189,6 +199,37 @@ export const ManyOptionalScopes: Story = {
                     'feature_flag:read feature_flag:write experiment:read experiment:write insight:read ' +
                     'insight:write dashboard:read dashboard:write query:read survey:read survey:write ' +
                     'event_definition:read event_definition:write error_tracking:read logs:read tracing:read'
+            )
+        )
+        return <App />
+    },
+}
+
+// Sets the server flag that says one of the user's organizations has access-control rules.
+// The story below shows the notice this flag adds under the permission list. The decorator
+// restores the original flag on unmount so it cannot leak into other stories.
+const withAccessControls: Decorator = function AccessControlsDecorator(Story): JSX.Element {
+    const appContext = (window as any).POSTHOG_APP_CONTEXT
+    const original = useRef<{ value: unknown } | null>(null)
+    if (!original.current) {
+        original.current = { value: appContext.oauth_consent_access_controls_apply }
+        appContext.oauth_consent_access_controls_apply = true
+    }
+    useEffect(
+        () => () => {
+            appContext.oauth_consent_access_controls_apply = original.current?.value
+        },
+        [appContext]
+    )
+    return <Story />
+}
+
+export const AccessControlsApply: Story = {
+    decorators: [withAccessControls, withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() =>
+            pushAuthorize(
+                'openid profile email project:read feature_flag:read feature_flag:write insight:write query:read'
             )
         )
         return <App />

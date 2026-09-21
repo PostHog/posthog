@@ -11,7 +11,7 @@ import { FilterPill } from '../../components/FilterPill'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { SCANNER_TYPE_OPTIONS, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
-import { WatchFeedCard, observationClipRange } from './WatchFeedCard'
+import { WatchFeedCard } from './WatchFeedCard'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
@@ -63,22 +63,13 @@ export function WatchFeedTab(): JSX.Element {
     // Only the scanner picker narrows *which* scanners are in scope; the others narrow within them.
     const narrowedToScanners = scannerIdsFilter.length
     const scannerCount = new Set(items.map((item) => item.observation.scanner_id)).size
-    // Only observations that actually cite a moment contribute to the total; a non-cited card has no clip.
-    const citedMinutes = Math.round(
-        items.reduce((total, item) => {
-            const clip = observationClipRange(item.observation)
-            return total + (clip ? Math.max(clip.endMs - clip.startMs, 30_000) : 0)
-        }, 0) / 60_000
-    )
 
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
                 <div className="flex flex-col gap-1">
                     <h2 className="text-xl font-semibold m-0">
-                        {items.length > 0
-                            ? `${pluralize(items.length, 'clip')}, about ${pluralize(Math.max(citedMinutes, 1), 'minute')}`
-                            : 'What to watch'}
+                        {items.length > 0 ? pluralize(items.length, 'clip') : 'What to watch'}
                     </h2>
                     <p className="text-muted text-sm m-0">
                         {narrowedToScanners > 0

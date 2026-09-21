@@ -4,7 +4,7 @@ from django.db.models import Q
 
 from rest_framework import request, serializers
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Edge, Node
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Edge, Node, NodeType
 
 
 class SavedQueryLineageRequestSerializer(serializers.Serializer):
@@ -76,10 +76,12 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
     reached = _reachable_node_ids(saved_query.team_id, start_node_ids, upstream=upstream, max_depth=max_depth)
 
     identifiers: set[str] = set()
-    for saved_query_id, name, properties in Node.objects.filter(team=saved_query.team, id__in=reached).values_list(
-        "saved_query_id", "name", "properties"
-    ):
+    for node_type, saved_query_id, name, properties in Node.objects.filter(
+        team=saved_query.team, id__in=reached
+    ).values_list("type", "saved_query_id", "name", "properties"):
         properties = properties or {}
+        if node_type == NodeType.METRIC:
+            continue
         if saved_query_id is not None:
             identifiers.add(str(saved_query_id))
         elif properties.get("saved_query_id"):

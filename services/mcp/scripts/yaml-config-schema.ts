@@ -212,6 +212,15 @@ export const ToolConfigSchema = z
                  * fields dominate the payload.
                  */
                 strip_nulls: z.boolean().optional(),
+                /**
+                 * Dot-path allowlist for the compact text projection the model reads, applied to each item in
+                 * `results`. The structured payload stays whole, so a UI app still renders every field. Use it
+                 * on a list tool whose rows are far larger than what a reader needs to choose between them —
+                 * without it such a tool either floods the context or, on a host that reads the text channel
+                 * only, reaches the model as a pointer with no rows in it. Callers that need every field ask
+                 * for JSON output.
+                 */
+                text_include: z.array(z.string()).optional(),
                 /** Wrap user-authored response data in an explicit informational-only tag boundary. */
                 informational_wrapper: z
                     .object({
@@ -227,6 +236,10 @@ export const ToolConfigSchema = z
             })
             .refine((data) => !(data.selectable && !data.include?.length), {
                 message: 'response.selectable requires response.include (the allowlist to select from)',
+            })
+            .refine((data) => !(data.text_include?.length && data.informational_wrapper), {
+                message:
+                    'response.text_include and response.informational_wrapper both own the text channel — pick one',
             })
             .optional(),
         /**

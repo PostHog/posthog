@@ -12,7 +12,6 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
-import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -21,7 +20,10 @@ import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsi
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -855,7 +857,7 @@ describe('dashboardLogic', () => {
         })
 
         it('cancelling layout editing keeps unapplied filter changes', async () => {
-            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
+            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 1)
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.canAutoPreview).toBe(false)
@@ -881,7 +883,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
             expect(logic.values.filtersDirty).toBe(true)
 
-            payloadSpy.mockRestore()
+            autoPreviewLimit.restore()
         })
 
         it('saving current filters does not refresh tiles again', async () => {
@@ -898,23 +900,50 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
         })
 
-        it('saving unapplied dashboard settings refreshes tiles above the auto-preview limit', async () => {
-            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
-
+        it.each([
+            [21, true],
+            [22, false],
+        ])('previews filter changes automatically with %i insights: %s', async (insightCount, autoPreview) => {
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.canAutoPreview).toBe(false)
+            const dashboard = {
+                ...dashboards[5],
+                tiles: [
+                    ...Array.from({ length: insightCount }, (_, index) => ({
+                        ...dashboards[5].tiles[0],
+                        id: index + 100,
+                        layouts: {},
+                    })),
+                    TEXT_TILE,
+                    WIDGET_TILE,
+                ],
+            }
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const refresh = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
 
-            await expectLogic(logic, () => {
-                logic.actions.setDates('-7d', null)
-            }).toFinishAllListeners()
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-7d', null)
+                }).toFinishAllListeners()
 
-            await expectLogic(logic, () => {
-                logic.actions.saveDashboardChanges()
-            })
-                .toDispatchActions(['saveDashboardChanges', 'saveDashboardChangesSuccess', 'refreshDashboardItems'])
-                .toFinishAllListeners()
+                expect(refresh.mock.calls.length > 0).toBe(autoPreview)
+                expect(logic.values.showApplyFiltersBanner).toBe(!autoPreview)
+                if (!autoPreview) {
+                    refresh.mockClear()
 
-            payloadSpy.mockRestore()
+                    await expectLogic(logic, () => {
+                        logic.actions.saveDashboardChanges()
+                    }).toFinishAllListeners()
+
+                    expect(refresh).toHaveBeenCalled()
+                }
+            } finally {
+                refresh.mockRestore()
+            }
         })
 
         it('keeps combined auto-preview filters after a page reload, then clears and saves them', async () => {
@@ -1000,7 +1029,7 @@ describe('dashboardLogic', () => {
         })
 
         it('keeps unapplied filters separate from layout cancellation and layout saving', async () => {
-            const autoPreviewLimitSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(8)
+            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 8)
             const nineTileDashboard: DashboardType<QueryBasedInsightModel> = {
                 ...dashboards[5],
                 tiles: Array.from({ length: 9 }, (_, index) => ({
@@ -1155,7 +1184,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.urlFilters).toEqual({})
             expect(logic.values.dashboardSettingsDraft).toBeNull()
 
-            autoPreviewLimitSpy.mockRestore()
+            autoPreviewLimit.restore()
         })
 
         it('saving after breakdown color change calls api', async () => {
@@ -2292,6 +2321,30 @@ describe('dashboardLogic', () => {
                 expect(logic.values.dashboardFailedToLoad).toBe(false)
                 expect(logic.values.error404).toBe(true)
             })
+
+            // Logging in lands a person on their configured home. When that home is this dashboard and
+            // it was deleted, this screen is all they ever see, so the stale setting must go.
+            it('clears a configured homepage that points at this dashboard', async () => {
+                const scene = sceneLogic({ scenes: {} })
+                scene.mount()
+                scene.actions.setHomepage({
+                    id: 'homepage-dashboard',
+                    pathname: urls.dashboard(13),
+                    search: '',
+                    hash: '',
+                    title: 'Home dashboard',
+                    iconType: 'dashboard',
+                    sceneId: Scene.Dashboard,
+                    sceneParams: { params: {}, searchParams: {}, hashParams: {} },
+                })
+                router.actions.push(urls.dashboard(13))
+
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(scene).toFinishAllListeners()
+
+                expect(scene.values.homepage).toBeNull()
+                scene.unmount()
+            })
         })
     })
 
@@ -3351,7 +3404,7 @@ describe('dashboardLogic', () => {
         })
 
         it('waits for Preview before refreshing SQL variable changes on a large dashboard', async () => {
-            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
             await mountDashboardWithVariable({})
             const getInsightWithRetrySpy = jest
                 .spyOn(dashboardUtils, 'getInsightWithRetry')
@@ -3371,11 +3424,11 @@ describe('dashboardLogic', () => {
 
             expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
             getInsightWithRetrySpy.mockRestore()
-            payloadSpy.mockRestore()
+            autoPreviewLimit.restore()
         })
 
         it('uses visible SQL variable values when refreshing one tile before Preview', async () => {
-            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
             await mountDashboardWithVariable({})
             const getInsightWithRetrySpy = jest
                 .spyOn(dashboardUtils, 'getInsightWithRetry')
@@ -3394,12 +3447,12 @@ describe('dashboardLogic', () => {
                 expect(getInsightWithRetrySpy.mock.calls[0][7]).toEqual({})
             } finally {
                 getInsightWithRetrySpy.mockRestore()
-                payloadSpy.mockRestore()
+                autoPreviewLimit.restore()
             }
         })
 
         it('makes Preview available when a SQL variable changes during an older preview', async () => {
-            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
             await mountDashboardWithVariable({})
             let finishPreview: (insight: QueryBasedInsightModel) => void = () => {
                 throw new Error('Preview resolver is unavailable')
@@ -3422,7 +3475,7 @@ describe('dashboardLogic', () => {
                 expect.objectContaining({ value: 'newer value' })
             )
             getInsightWithRetrySpy.mockRestore()
-            payloadSpy.mockRestore()
+            autoPreviewLimit.restore()
         })
 
         it('applying a variable value refreshes every tile with the new value attached to the request', async () => {

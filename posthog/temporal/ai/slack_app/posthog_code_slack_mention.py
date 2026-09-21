@@ -1,5 +1,6 @@
 # Workflows in this module run on the max-ai temporal task queue.
 import json
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
@@ -11,9 +12,11 @@ from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
     SlackAppModelOverrideInput,
+    SlackAppProjectRouteInput,
     cascade_posthog_code_repository_activity,
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override_activity,
+    classify_slack_app_project_route_activity,
     classify_untagged_followup_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_task_for_repo_activity,
@@ -30,19 +33,20 @@ from posthog.temporal.common.base import PostHogWorkflow
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 
-# Temporal patch IDs — arbitrary strings recorded in workflow history. The
-# pre-patch histories behind the first three have drained: this workflow's
-# longest wait is the 15-minute repo picker, and it is bounded at an hour as a
-# child of the queue workflow. Their gates are gone and only `deprecate_patch`
-# remains, keeping the recorded marker compatible for executions in flight
-# across the deploy that removes them. Standard two-step Temporal patch
-# lifecycle: those calls come out once the histories that recorded a plain
-# marker have drained in turn. The last two are younger and still gated, so they
-# stay full `workflow.patched` branches until they drain too.
+# Temporal patch IDs — arbitrary strings recorded in workflow history. The pre-patch
+# histories behind the older ones have drained: this workflow's longest wait is the
+# 15-minute repo picker, and it is bounded at an hour as a child of the queue workflow.
+# Their gates are gone and only `deprecate_patch` remains, keeping the recorded marker
+# compatible for executions in flight across the deploy that removes them. Standard
+# two-step Temporal patch lifecycle: those calls come out once the histories that
+# recorded a plain marker have drained in turn. The younger ones stay full
+# `workflow.patched` branches until they drain too — grep a name to see which it is.
 _PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS = "slack-file-only-followup-bypass-v1"
 _PATCH_ID_FOLLOWUP_MODEL_CLASSIFIER = "slack-app-followup-model-classifier-v1"
 _PATCH_ID_MODEL_CLASSIFIER = "slack-app-model-classifier-v1"
 _PATCH_ID_NO_PERSONAL_GITHUB_GATE = "slack-no-personal-github-gate-v1"
+_PATCH_ID_PROJECT_ROUTE_CLASSIFIER = "slack-app-project-route-classifier-v1"
+_PATCH_ID_PROJECT_ROUTE_QUOTA = "slack-app-project-route-quota-v1"
 _PATCH_ID_UNTAGGED_FOLLOWUP_CONFIRMATION = "slack-untagged-followup-confirmation-v1"
 
 
@@ -194,6 +198,42 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # got here, the right behaviour is to do nothing.
             if inputs.untagged_followup:
                 return
+
+            # Past both returns above the message opens a thread: explicit @mention, and
+            # the forward activity found no task mapped to it. Only such a message may
+            # pick its own project, because a task, its mapping and its run all belong to
+            # one. Everything below reads the integration from `inputs`, so the switch
+            # lands above the repo cascade. Eligibility and the flag are decided inside
+            # the activity, since branching the workflow on a flag would break replay.
+            if workflow.patched(_PATCH_ID_PROJECT_ROUTE_CLASSIFIER):
+                project_route = await _execute_posthog_code_activity(
+                    classify_slack_app_project_route_activity,
+                    SlackAppProjectRouteInput(
+                        integration_id=inputs.integration_id,
+                        slack_team_id=inputs.slack_team_id,
+                        event_text=event.get("text", ""),
+                        user_id=inputs.user_id,
+                        slack_user_id=slack_user_id,
+                    ),
+                )
+                if project_route is not None:
+                    inputs = replace(inputs, integration_id=project_route.integration_id)
+                    # The gate at the top of the run checked the project routing had
+                    # resolved, not the one the message named. Without this the run
+                    # spends the thread fetch, the needs-repo classifier and possibly a
+                    # discovery sandbox before task creation refuses on the same quota.
+                    # Its own patch: a history that recorded the classifier marker above
+                    # would not have recorded this activity.
+                    if workflow.patched(_PATCH_ID_PROJECT_ROUTE_QUOTA):
+                        blocked = await _execute_posthog_code_activity(
+                            enforce_posthog_code_billing_quota_activity,
+                            inputs,
+                            channel,
+                            thread_ts,
+                            slack_user_id,
+                        )
+                        if blocked:
+                            return
 
             user_id = inputs.user_id
 

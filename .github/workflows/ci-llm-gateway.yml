@@ -24,7 +24,7 @@ permissions:
 
 jobs:
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run LLM Services checks
         outputs:
@@ -56,7 +56,7 @@ jobs:
         name: LLM Gateway Tests
         needs: changes
         if: needs.changes.outputs.llm_gateway == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 15
         defaults:
             run:
@@ -103,7 +103,7 @@ jobs:
     llm_services_tests:
         needs: [changes, llm-gateway]
         name: LLM Services Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # !cancelled(): a superseded run records cancelled (which branch protection
         # does not treat as a pass) instead of running on to report failure. A cancelled
