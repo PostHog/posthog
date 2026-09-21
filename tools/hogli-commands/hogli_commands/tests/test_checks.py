@@ -1248,8 +1248,8 @@ class TestImportSurfaceCheck:
                 1,
                 id="webhook_consumers_from_facade_lookalike",
             ),
-            # Relative imports name the same modules as absolute ones, so each surface has to
-            # read them the same way. Before they were resolved, every one of these passed.
+            # A relative import names the same module as the absolute one, so every surface
+            # has to read both shapes alike.
             pytest.param(
                 {
                     "webhook_consumers.py": "from .services.handlers import h\n",
@@ -1283,8 +1283,8 @@ class TestImportSurfaceCheck:
                 0,
                 id="routes_from_presentation_relatively",
             ),
-            # Climbing out of backend/ leaves this check's tree; tach owns what happens there,
-            # and the resolver must not report a module it invented out of the leftover parts.
+            # Climbing out of backend/ leaves this check's tree, so the resolver must not
+            # report a module built from the leftover parts.
             pytest.param(
                 {"presentation/views.py": "from ....other.backend.models import M\n"},
                 0,
@@ -1307,8 +1307,8 @@ class TestImportSurfaceCheck:
     @pytest.mark.parametrize(
         "files, should_run, expected",
         [
-            # The ingress contract holds for any product that registers a consumer, so an
-            # unsealed product's consumer reaching its own internals must still fail.
+            # The ingress contract holds for any product that registers a consumer, sealed
+            # or not.
             pytest.param(
                 {
                     "webhook_consumers.py": "from .services.handlers import h\n",
@@ -1324,8 +1324,8 @@ class TestImportSurfaceCheck:
                 0,
                 id="unsealed_consumer_reaching_facade",
             ),
-            # An unsealed product has no routes/presentation contract yet, so widening the
-            # check must not start failing the layout it is allowed to have.
+            # An unsealed product has no routes/presentation contract, so that layout stays
+            # its own business.
             pytest.param(
                 {
                     "webhook_consumers.py": "from .facade.api import f\n",
