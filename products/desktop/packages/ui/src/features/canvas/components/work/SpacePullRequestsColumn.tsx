@@ -106,6 +106,8 @@ function PullRequestLine({
   );
 }
 
+const MAX_PULL_REQUESTS = 30;
+
 export function SpacePullRequestsColumn({
   tasks,
   isLoading = false,
@@ -123,6 +125,7 @@ export function SpacePullRequestsColumn({
     );
     for (const task of byActivity) {
       for (const raw of readPrUrls(task.latest_run?.output)) {
+        if (out.length >= MAX_PULL_REQUESTS) return out;
         const parsed = parseHttpsUrl(raw);
         const url =
           parsed?.origin === "https://github.com" ? parsed.href : null;
