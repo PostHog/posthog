@@ -194,6 +194,7 @@ SupersessionOutcome = Literal[
     "applied",
     "already_superseded",
     "source_has_other_documents",
+    "source_not_generated",
     "nothing_to_supersede",
 ]
 
@@ -720,7 +721,7 @@ def supersede_knowledge_source(
     superseded_by_ticket_number: int,
     superseded_by_source_id: UUID | None = None,
 ) -> KnowledgeSourceSupersession:
-    """Soft-disable one source so search stops returning it. Content stays so the change can be reversed."""
+    """Soft-disable one learned source so search stops returning it. Content stays so the change can be reversed."""
     if superseded_by_source_id is not None and superseded_by_source_id == source_id:
         return KnowledgeSourceSupersession(outcome="nothing_to_supersede")
 
@@ -730,6 +731,10 @@ def supersede_knowledge_source(
             source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
         except KnowledgeSource.DoesNotExist:
             return KnowledgeSourceSupersession(outcome="nothing_to_supersede")
+
+        if not source.is_generated:
+            # Learning may retire what it wrote. Only a person may retire what a person wrote.
+            return KnowledgeSourceSupersession(outcome="source_not_generated")
 
         documents = list(
             KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")[:2]

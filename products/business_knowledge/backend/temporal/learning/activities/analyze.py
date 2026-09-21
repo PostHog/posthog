@@ -109,7 +109,7 @@ class LearningAnalysisError(RuntimeError):
 
 
 class _SupersessionUnavailable(Exception):
-    """Another reply already replaced the conflicting source, or the source holds other documents."""
+    """The conflicting source is not one this job may replace, so the candidate must not be published."""
 
 
 def _metric_meter() -> MetricMeter:
@@ -545,7 +545,11 @@ def _publish_candidate(
                         superseded_by_ticket_number=evidence.ticket_number,
                         superseded_by_source_id=published.source_id,
                     )
-                if supersession.outcome in {"already_superseded", "source_has_other_documents"}:
+                if supersession.outcome in {
+                    "already_superseded",
+                    "source_has_other_documents",
+                    "source_not_generated",
+                }:
                     raise _SupersessionUnavailable
                 did_supersede = supersession.applied
                 superseded_ticket_number = supersession.previous_ticket_number
@@ -648,6 +652,9 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
     if conflicting is not None:
         confirmation = _confirm_contradiction(run.team, user, extracted, conflicting)
         if _is_confirmed_contradiction(confirmation):
+            if not conflicting.is_generated:
+                # Learning may retire what it wrote. A source a person wrote stays until a person changes it.
+                return _finish_without_knowledge(run, rejection_code="already_known")
             recorded_at = logic.get_knowledge_fact_recorded_at(team_id=run.team_id, document_id=conflicting.document_id)
             if recorded_at is None:
                 return _finish_without_knowledge(run, rejection_code="already_known")

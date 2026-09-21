@@ -41,6 +41,8 @@ from products.business_knowledge.backend.temporal.learning.schemas import (
 _TICKET_ID = UUID("10000000-0000-4000-8000-000000000001")
 _COMMENT_ID = UUID("20000000-0000-4000-8000-000000000002")
 _MODULE = "products.business_knowledge.backend.temporal.learning.activities.analyze"
+_OLD_TICKET_ID = UUID("10000000-0000-4000-8000-000000000007")
+_OLD_COMMENT_ID = UUID("20000000-0000-4000-8000-000000000008")
 _REVISION_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -149,6 +151,7 @@ def _existing_result(source: KnowledgeSource, content: str) -> logic.KnowledgeSe
         source_name=source.name,
         source_type=source.source_type,
         document_id=document.id if document is not None else UUID("50000000-0000-4000-8000-000000000005"),
+        is_generated=source.is_generated,
         document_title=source.name,
         heading_path="",
         ordinal=0,
@@ -549,7 +552,9 @@ class TestLearningAnalyzer:
             ("stale", True, "no_knowledge", "stale_candidate"),
             ("denied", False, "no_knowledge", "already_known"),
             ("backfilled_row", True, "superseded", "none"),
+            ("row_without_recorded_reply_time", True, "superseded", "none"),
             ("already_superseded", True, "no_knowledge", "already_known"),
+            ("written_by_a_person", True, "no_knowledge", "already_known"),
         ],
     )
     def test_confirmed_contradiction_keeps_the_newest_fact(
@@ -563,22 +568,43 @@ class TestLearningAnalyzer:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Refunds are now available within 7 days.",)))
         old_content = "Refunds are available within 15 days."
-        old_source = logic.create_text_source(
-            team_id=team.id,
-            created_by_id=None,
-            name="Refund policy",
-            text=old_content,
-        )
+        recorded_at = _REVISION_AT + timedelta(days=30) if case == "stale" else _REVISION_AT - timedelta(days=30)
+        if case == "written_by_a_person":
+            old_source = logic.create_text_source(
+                team_id=team.id,
+                created_by_id=None,
+                name="Refund policy",
+                text=old_content,
+            )
+        else:
+            learned = logic.create_generated_knowledge_document(
+                logic.CreateGeneratedKnowledgeDocument(
+                    team_id=team.id,
+                    provider="conversations",
+                    ticket_id=_OLD_TICKET_ID,
+                    ticket_number=7,
+                    source_team_id=team.id,
+                    resolution_comment_id=_OLD_COMMENT_ID,
+                    analysis_version=ANALYSIS_VERSION,
+                    title="Refund policy",
+                    content=old_content,
+                    evidence_revision_at=recorded_at,
+                )
+            )
+            old_source = KnowledgeSource.objects.unscoped().get(id=learned.source_id)
         old_source_id = old_source.id
         old_document = KnowledgeDocument.objects.unscoped().get(source_id=old_source_id)
-        recorded_at = _REVISION_AT + timedelta(days=30) if case == "stale" else _REVISION_AT - timedelta(days=30)
         KnowledgeDocument.objects.unscoped().filter(id=old_document.id).update(created_at=recorded_at)
         if case == "backfilled_row":
             # The row was written after the incoming reply, but the answer in it is older.
             KnowledgeDocument.objects.unscoped().filter(id=old_document.id).update(
-                created_at=_REVISION_AT + timedelta(days=30),
-                metadata={logic.EVIDENCE_REVISION_AT_KEY: recorded_at.isoformat()},
+                created_at=_REVISION_AT + timedelta(days=30)
             )
+        if case == "row_without_recorded_reply_time":
+            # A learned row from before the reply time was recorded falls back to the row time.
+            metadata = dict(old_document.metadata or {})
+            metadata.pop(logic.EVIDENCE_REVISION_AT_KEY, None)
+            KnowledgeDocument.objects.unscoped().filter(id=old_document.id).update(metadata=metadata)
         if case == "already_superseded":
             logic.supersede_knowledge_source(
                 team_id=team.id,
@@ -588,6 +614,7 @@ class TestLearningAnalyzer:
                 superseded_by_ticket_number=7,
             )
         search_result = _existing_result(old_source, old_content)
+        generated_before = KnowledgeSource.objects.unscoped().filter(team_id=team.id, is_generated=True).count()
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
@@ -612,6 +639,7 @@ class TestLearningAnalyzer:
         assert result.rejection_code == expected_code
         assert invoke.call_args_list[3].kwargs["stage"] == "contradiction"
         outcomes = [call.args[0] for call in increment.call_args_list]
+        generated_now = KnowledgeSource.objects.unscoped().filter(team_id=team.id, is_generated=True).count()
         if expected_result == "superseded":
             assert result.knowledge_document_id is not None
             document = KnowledgeDocument.objects.unscoped().get(id=result.knowledge_document_id)
@@ -627,14 +655,14 @@ class TestLearningAnalyzer:
             # Another reply won the race, so this one must not leave a second answer in search.
             assert run.result == LearningRunResult.NO_KNOWLEDGE
             assert result.knowledge_document_id is None
-            assert KnowledgeSource.objects.unscoped().filter(team_id=team.id, is_generated=True).count() == 0
+            assert generated_now == generated_before
             assert "rejected_already_known" in outcomes
         else:
             assert run.result == LearningRunResult.NO_KNOWLEDGE
             assert result.knowledge_document_id is None
             assert old_source.status != "error"
             assert old_source.error_message == ""
-            assert KnowledgeSource.objects.unscoped().filter(team_id=team.id, is_generated=True).count() == 0
+            assert generated_now == generated_before
             assert ("rejected_stale_candidate" if case == "stale" else "rejected_already_known") in outcomes
 
     def test_missing_run_raises_bounded_error(self, team: Team) -> None:
