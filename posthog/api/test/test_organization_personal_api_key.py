@@ -112,13 +112,11 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
             results = response.json()["results"]
             seen.extend(row["mask_value"] for row in results)
-            if not results:
+            if len(results) < page_size:
                 break
             # A key that the admin has already seen gets used. Ordering on last_used_at would move it
             # past the offset the walk has reached, so a later key drops out of the results.
             PersonalAPIKey.objects.filter(mask_value=results[0]["mask_value"]).update(last_used_at=timezone.now())
             offset += page_size
-            if len(results) < page_size:
-                break
 
         assert sorted(seen) == sorted(key.mask_value for key in keys)
