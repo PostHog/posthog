@@ -77,6 +77,21 @@ describe("ReportActivity", () => {
     expect(output).toContain("Report linked");
   });
 
+  it("falls back to the text preview on a degraded row", () => {
+    const output = visibleText(
+      render({
+        artefacts: [
+          {
+            ...reportLink,
+            degraded: true,
+            content: { content: "depends_on another report" },
+          } as AnySignalReportArtefact,
+        ],
+      }),
+    );
+    expect(output).toContain("depends_on another report");
+  });
+
   it.each([
     [1, "1 confirmation", "Corroborated 1 more time by a scout"],
     [3, "3 confirmations", "Corroborated 3 more times by a scout"],

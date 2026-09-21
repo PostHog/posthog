@@ -17,6 +17,15 @@ const ROW_LABELS: Record<ActivityArtefact["type"], string> = {
   report_link: "Report linked",
 };
 
+/** The plain text a degraded row carries in place of its type's content shape. */
+function degradedPreview(content: unknown): string {
+  if (content && typeof content === "object" && "content" in content) {
+    const preview = (content as { content: unknown }).content;
+    if (typeof preview === "string") return preview;
+  }
+  return "";
+}
+
 function ArtefactBody({
   reportId,
   artefact,
@@ -24,6 +33,14 @@ function ArtefactBody({
   reportId: string;
   artefact: ActivityArtefact;
 }) {
+  // A typed body would read fields a degraded row does not carry.
+  if (artefact.degraded) {
+    return (
+      <Text className="text-[13px] text-gray-10">
+        {degradedPreview(artefact.content) || "No preview available."}
+      </Text>
+    );
+  }
   switch (artefact.type) {
     case "commit":
       return (

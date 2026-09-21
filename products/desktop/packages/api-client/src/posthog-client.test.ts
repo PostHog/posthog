@@ -2553,6 +2553,16 @@ describe("PostHogAPIClient", () => {
         task_id: "t1",
         created_by: null,
       },
+      {
+        id: "a15",
+        type: "report_link",
+        content: {
+          kind: "depends_on",
+          report_id: "00000000-0000-4000-8000-000000000001",
+          reason: "Needs the schema first",
+        },
+        created_at: "2026-06-01T00:00:14Z",
+      },
     ];
 
     it("normalizes every backend artefact type without dropping rows", async () => {

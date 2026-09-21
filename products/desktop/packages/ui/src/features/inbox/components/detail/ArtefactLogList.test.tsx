@@ -1,4 +1,7 @@
-import type { AnySignalReportArtefact } from "@posthog/shared/types";
+import type {
+  AnySignalReportArtefact,
+  ReportLinkContent,
+} from "@posthog/shared/types";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -16,16 +19,14 @@ vi.mock("@tanstack/react-router", () => ({
 
 import { ArtefactLogList } from "./ArtefactLogList";
 
-function reportLink(
-  content: Record<string, unknown>,
-): AnySignalReportArtefact[] {
+function reportLink(content: ReportLinkContent): AnySignalReportArtefact[] {
   return [
     {
       id: "a1",
       type: "report_link",
       created_at: "2026-01-01T00:00:00Z",
       content,
-    } as AnySignalReportArtefact,
+    },
   ];
 }
 
