@@ -3,7 +3,6 @@ from typing import Literal, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -12,8 +11,6 @@ from posthog.schema import ProductKey
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import FeatureFlagRequestUsageBurstRateThrottle, FeatureFlagRequestUsageSustainedRateThrottle
 
 from products.feature_flags.backend.facade.api import (
@@ -22,7 +19,6 @@ from products.feature_flags.backend.facade.api import (
     get_feature_flag_request_usage,
 )
 
-FEATURE_FLAG_REQUEST_USAGE_FLAG = "feature-flag-request-usage"
 # The shared "Last 7 days" preset starts at midnight seven days ago and ends now,
 # so it can span almost eight elapsed days. Keep this aligned with the frontend limit.
 MAX_HOURLY_RANGE_DAYS = 8
@@ -90,19 +86,6 @@ class FeatureFlagRequestUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: OpenApiResponse(response=FeatureFlagRequestUsageResponseSerializer)},
     )
     def list(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
-        user = cast(User, request.user)
-        if not feature_enabled_or_false(
-            FEATURE_FLAG_REQUEST_USAGE_FLAG,
-            user.distinct_id or str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
-            send_feature_flag_events=False,
-        ):
-            raise NotFound("Feature flag request usage is not enabled for this project.")
-
         query = request.validated_query_data
         results = get_feature_flag_request_usage(
             team_id=self.team_id,

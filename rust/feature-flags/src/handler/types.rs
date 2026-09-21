@@ -282,6 +282,48 @@ impl Library {
         Library::Other
     }
 
+    /// Detect SDK type from headers, then from the query string if the headers
+    /// are inconclusive.
+    ///
+    /// A CDN or reverse proxy in front of a customer's site can rewrite the
+    /// User-Agent and drop the sec-fetch headers, which leaves
+    /// [`Library::from_headers`] with nothing to match and sends real
+    /// posthog-js traffic to [`Library::Other`]. Server SDKs put their version
+    /// in the User-Agent, so a `ver` query parameter on a request the headers
+    /// could not classify points to posthog-js. A User-Agent that names an
+    /// unrecognized `posthog-*` SDK is excluded: it did reach the server
+    /// intact, so it stays [`Library::Other`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use axum::http::HeaderMap;
+    /// use feature_flags::api::types::FlagsQueryParams;
+    /// use feature_flags::handler::types::Library;
+    ///
+    /// let mut headers = HeaderMap::new();
+    /// headers.insert("user-agent", "cdn-proxy".parse().unwrap());
+    /// let meta = FlagsQueryParams { lib_version: Some("1.2.3".to_string()), ..Default::default() };
+    /// assert_eq!(Library::from_request(&headers, &meta), Library::PosthogJs);
+    /// ```
+    pub fn from_request(headers: &HeaderMap, meta: &FlagsQueryParams) -> Self {
+        let from_headers = Self::from_headers(headers);
+        if from_headers != Library::Other || meta.lib_version.is_none() {
+            return from_headers;
+        }
+
+        let declares_posthog_sdk = headers
+            .get("user-agent")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|ua| ua.starts_with("posthog-"));
+
+        if declares_posthog_sdk {
+            Library::Other
+        } else {
+            Library::PosthogJs
+        }
+    }
+
     /// Convert SDK name string to Library enum variant.
     ///
     /// Uses `as_str()` as the source of truth to ensure consistency between
@@ -394,6 +436,30 @@ mod tests {
         headers.insert("user-agent", "some-custom-client".parse().unwrap());
         headers.insert("sec-fetch-site", "same-origin".parse().unwrap());
         assert_eq!(Library::from_headers(&headers), Library::PosthogJs);
+    }
+
+    #[rstest]
+    // A CDN that rewrites the User-Agent leaves posthog-js unrecognizable in the
+    // headers, so the `ver` query parameter is the only remaining signal.
+    #[case("cdn-proxy/1.0", Some("1.234.5"), Library::PosthogJs)]
+    #[case("", Some("1.234.5"), Library::PosthogJs)]
+    // Without `ver` there is nothing to fall back on.
+    #[case("cdn-proxy/1.0", None, Library::Other)]
+    // The headers already answer, so the query parameter must not override them.
+    #[case("posthog-node/3.1.0", Some("3.1.0"), Library::PosthogNode)]
+    // An unrecognized posthog-* SDK stays Other even when it sends `ver`.
+    #[case("posthog-custom/1.0", Some("1.0"), Library::Other)]
+    fn test_library_from_request_falls_back_to_lib_version(
+        #[case] user_agent: &str,
+        #[case] lib_version: Option<&str>,
+        #[case] expected: Library,
+    ) {
+        let headers = make_headers_with_user_agent(user_agent);
+        let meta = FlagsQueryParams {
+            lib_version: lib_version.map(str::to_string),
+            ..Default::default()
+        };
+        assert_eq!(Library::from_request(&headers, &meta), expected);
     }
 
     #[test]
