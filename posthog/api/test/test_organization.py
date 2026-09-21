@@ -223,7 +223,7 @@ class TestOrganizationAPI(APIBaseTest):
                 organization = Organization.objects.create(id=organization_id, name=f"Org {organization_id}")
                 OrganizationMembership.objects.create(organization=organization, user=self.user)
 
-        listed_ids = []
+        listed_ids: list[str] = []
         offset = 0
         while True:
             response = self.client.get(f"/api/organizations/?limit=1&offset={offset}")
