@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
@@ -8,6 +9,8 @@ from rest_framework import status
 
 from products.data_modeling.backend.logic.schedule_reconcile import DagScheduleTeardown
 from products.data_modeling.backend.models import DAG, Node, NodeType
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 VIEW = "products.data_modeling.backend.presentation.views.dag"
 
@@ -235,3 +238,40 @@ class TestDAGViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
 
         self.assertEqual(response.json()["node_count"], 2)
+
+
+@pytest.mark.ee
+class TestDAGNodeCountVisibility(WarehouseAccessControlTestMixin):
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.accounts_query = DataWarehouseSavedQuery.objects.create(
+            name="accounts", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        Node.objects.create(team=self.team, dag=self.dag, saved_query=self.accounts_query, type=NodeType.VIEW)
+        Node.objects.create(
+            team=self.team, dag=self.dag, name="events", type=NodeType.TABLE, properties={"origin": "posthog"}
+        )
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+    @parameterized.expand(
+        [
+            ("without_a_denial", False, 2),
+            ("with_the_view_denied", True, 1),
+        ]
+    )
+    def test_node_count_only_counts_nodes_the_reader_may_see(self, _name, deny, expected):
+        if deny:
+            self._create_access_control(
+                self.viewer_user,
+                resource="warehouse_view",
+                resource_id=str(self.accounts_query.id),
+                access_level="none",
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_dags/{self.dag.id}/")
+
+        self.assertEqual(response.json()["node_count"], expected)
