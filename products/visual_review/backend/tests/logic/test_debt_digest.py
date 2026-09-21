@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.utils import timezone
 
-from posthog_owners.schema import TeamEntry
+from owners_yaml.schema import TeamEntry
 
 from posthog.models.team.team import Team
 from posthog.team_notifications.slack import (

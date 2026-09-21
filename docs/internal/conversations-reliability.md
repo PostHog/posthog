@@ -30,6 +30,14 @@ Until then, scale indexed sweepers.
 If Kafka is added later, it is a wake-up relay from the Postgres outbox, not a second source of truth.
 Widget writes stay synchronous in Postgres because the API must return ticket and message ids.
 
+## Unread ticket count
+
+The app fetches the unread ticket count when support is enabled and polls every 5 seconds while the browser tab is visible.
+Ticket actions can trigger an immediate refresh.
+Unrelated updates to the current team do not reset the count or trigger another request.
+Changing teams or toggling support resets the count and restarts polling when support is enabled.
+Failed requests retain the previous count and increase the polling interval.
+
 ## Inbound receipts (`ConversationInboundEvent`)
 
 One row per accepted provider callback, keyed by `(team, source, source_id)`.
@@ -80,6 +88,39 @@ Slack thread backfill paginates `conversations.replies`, up to 25 pages (5,000 r
 Workers call `renew_inbound_lease` between pages, once more before comment writes, and every 25 replies during comment construction.
 A failed renewal (fencing miss or database error) is logged. The worker finishes the backfill anyway: the replacement worker skips backfill once the ticket exists, so aborting would drop the rest of the thread.
 Fencing still stops the stale worker settling the receipt.
+
+## Slack outbound bodies (`ConversationDelivery` / `ConversationDeliveryPart`)
+
+One delivery per `(team, channel, comment_id)`.
+The body is a part with stable `part_key=body`.
+`team` is the canonical root team.
+The part's `team_id` must match the delivery; the composite FK rejects a mismatch.
+
+Enqueue the delivery and body part in the same transaction as the comment.
+`Comment` is project-scoped; `Ticket` is environment-scoped. Match them on the canonical root team.
+Snapshot destination and body at enqueue so a later comment edit cannot change what we post.
+An oversized snapshot fails the part without payload and must not roll back the comment.
+Generate one `client_msg_id` per body and keep it across retries.
+Celery `on_commit` dispatch is a wake-up hint with `apply_async(..., retry=False)`.
+`sweep_delivery_parts` (every minute) re-drives due and expired-lease parts, then drains snapshot cleanup.
+Cleanup nulls payload and route on accepted or delivered parts only.
+Failed parts keep their snapshots so manual redrive can still post.
+
+Workers claim the part, not the parent delivery, with a fencing token and a 5-minute lease.
+The claim transaction releases before `chat.postMessage`.
+Accept and fail update the part and parent in one transaction.
+A 2xx (or a Slack error that still returns the original `ts`) marks the body `accepted`.
+That is provider acceptance, not customer delivery.
+Timeouts after a possible accept retry with the same `client_msg_id`.
+Honor `Retry-After` on 429s, cap at one hour, and treat 5xx plus Slack timeout codes as transient.
+Permanent Slack application errors (revoked token, missing channel, invalid blocks) fail the part.
+Keep `post_reply_to_slack` registered for in-flight Celery messages.
+New work uses `process_slack_delivery_part`.
+
+Image uploads after an accepted body stay best-effort in this layer.
+A failed image must not retry or fail the accepted body.
+Manual redrive is allowed only for `failed` parts, and only after route and Slack workspace config still match the delivery's canonical team.
+Redrive keeps `client_msg_id` and stamps `redriven_at`, which restarts the max-age window so an operator can still recover a failure older than 24 hours.
 
 ## Outbound email (already in Postgres)
 
