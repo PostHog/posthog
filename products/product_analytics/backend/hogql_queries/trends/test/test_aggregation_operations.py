@@ -237,6 +237,78 @@ def test_math_multiplier_with_datawarehouse_node():
 
 
 @pytest.mark.parametrize(
+    "series,expected_chain",
+    [
+        (EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$time"), ["properties", "$time"]),
+        (
+            DataWarehouseNode(
+                id="test_table",
+                name="test_table",
+                table_name="test_table",
+                timestamp_field="created_at",
+                distinct_id_field="distinct_id",
+                id_field="id",
+                math=PropertyMathType.AVG,
+                math_property="$time",
+            ),
+            ["timestamp"],
+        ),
+    ],
+)
+def test_time_math_property_chain_per_series_type(
+    series: Union[EventsNode, DataWarehouseNode], expected_chain: list[str]
+):
+    team = Team()
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    result = agg_ops.select_aggregation()
+
+    assert isinstance(result, ast.Call)
+    assert result.name == "avg"
+
+    timestamp_call = result.args[0]
+    assert isinstance(timestamp_call, ast.Call)
+    assert timestamp_call.name == "toUnixTimestamp"
+
+    field_arg = timestamp_call.args[0]
+    assert isinstance(field_arg, ast.Field)
+    assert field_arg.chain == expected_chain
+
+
+def test_time_math_property_quantile_on_datawarehouse_node():
+    team = Team()
+    series = DataWarehouseNode(
+        id="test_table",
+        name="test_table",
+        table_name="test_table",
+        timestamp_field="created_at",
+        distinct_id_field="distinct_id",
+        id_field="id",
+        math=PropertyMathType.MEDIAN,
+        math_property="$time",
+    )
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    result = agg_ops.select_aggregation()
+
+    assert isinstance(result, ast.Call)
+    assert result.name == "ifNull"
+
+    quantile_call = result.args[0]
+    assert isinstance(quantile_call, ast.Call)
+
+    to_float_call = quantile_call.args[0]
+    assert isinstance(to_float_call, ast.Call)
+    assert to_float_call.name == "toFloat"
+
+    field_arg = to_float_call.args[0]
+    assert isinstance(field_arg, ast.Field)
+    assert field_arg.chain == ["timestamp"]
+
+
+@pytest.mark.parametrize(
     "math,math_property,math_group_type_index,expected_actor_field",
     [
         # Person-based math types
