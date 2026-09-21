@@ -56,6 +56,7 @@ import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { IssueDetailErrorState } from './IssueDetailErrorState'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
@@ -323,8 +324,17 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
-        useValues(errorTrackingIssueSceneLogic)
+    const {
+        issue,
+        issueLoading,
+        selectedEvent,
+        initialEvent,
+        initialEventLoading,
+        initialEventFailed,
+        initialEventTimestamp,
+        summary,
+    } = useValues(errorTrackingIssueSceneLogic)
+    const { loadInitialEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
 
@@ -349,21 +359,32 @@ const RightHandColumn = ({
             <PostHogSDKIssueBanner event={detailEvent} />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">
-                <ExceptionCard
-                    issueId={issue?.id ?? 'no-issue'}
-                    issueName={issue?.name ?? null}
-                    loading={issueLoading || initialEventLoading}
-                    event={detailEvent ?? undefined}
-                    eventMarkerColor={
-                        detailEvent
-                            ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)
-                            : undefined
-                    }
-                    label={tagRenderer(detailEvent)}
-                    renderStackTraceActions={() => {
-                        return issue ? <StackTraceActions issue={issue} /> : null
-                    }}
-                />
+                {initialEventFailed && !detailEvent ? (
+                    <IssueDetailErrorState
+                        loading={initialEventLoading}
+                        onRetry={() => initialEventTimestamp && loadInitialEvent(initialEventTimestamp)}
+                    />
+                ) : (
+                    <ExceptionCard
+                        issueId={issue?.id ?? 'no-issue'}
+                        issueName={issue?.name ?? null}
+                        loading={issueLoading || initialEventLoading}
+                        event={detailEvent ?? undefined}
+                        eventMarkerColor={
+                            detailEvent
+                                ? getEventMarkerColor(
+                                      detailEvent.uuid,
+                                      summary?.first_event_uuid,
+                                      summary?.last_event_uuid
+                                  )
+                                : undefined
+                        }
+                        label={tagRenderer(detailEvent)}
+                        renderStackTraceActions={() => {
+                            return issue ? <StackTraceActions issue={issue} /> : null
+                        }}
+                    />
+                )}
             </div>
         </div>
     )

@@ -109,6 +109,32 @@ describe('errorTrackingIssueSceneLogic', () => {
             .toMatchValues({ initialEvent: null })
     })
 
+    // The loader returns null for an empty result too, so without this flag a failed query is
+    // indistinguishable from an issue with no exception in the window and the detail pane silently
+    // shows nothing to retry.
+    it('marks the initial event as failed when its query errors, and clears it on retry', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/ErrorTrackingQuery/': () => [
+                    500,
+                    { detail: 'ClickHouse is unhappy' },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadInitialEvent('2026-01-01T00:00:00Z')
+        }).toDispatchActions(['loadInitialEventFailure'])
+        expect(logic.values.initialEventFailed).toBe(true)
+
+        useMocks({ post: { '/api/environments/:team_id/query/ErrorTrackingQuery/': { results: [] } } })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadInitialEvent('2026-01-01T00:00:00Z')
+        }).toDispatchActions(['loadInitialEventSuccess'])
+        expect(logic.values.initialEventFailed).toBe(false)
+    })
+
     it('allows the event selection to close', () => {
         const event = { uuid: 'event-1' } as ErrorEventType
         logic.actions.selectEvent(event)
