@@ -37,6 +37,7 @@ class ReviewRequestQueue:
                 and request.requested_head_sha == self.active.requested_head_sha
                 and request.publish == self.active.publish
                 and request.acting_user_id == self.active.acting_user_id
+                and request.resolve_comments == self.active.resolve_comments
                 and (request.trigger_source == TRIGGER_AUTOMATIC) == (self.active.trigger_source == TRIGGER_AUTOMATIC)
             ):
                 return

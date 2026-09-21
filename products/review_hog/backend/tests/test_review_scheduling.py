@@ -11,7 +11,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow
+from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
 from products.review_hog.backend.temporal.types import ReviewPRQueueInputs, ReviewPRWorkflowInputs
 
 
@@ -139,3 +139,28 @@ async def test_automatic_review_waits_for_resolution_before_starting() -> None:
             )
     assert reviewed
     assert probes == 2
+
+
+@pytest.mark.parametrize("resolve_comments,expect_pending", [(False, False), (None, True)])
+def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
+    resolve_comments: bool | None, expect_pending: bool
+) -> None:
+    active = ReviewPRWorkflowInputs(
+        team_id=1,
+        user_id=1,
+        owner="PostHog",
+        repo="posthog",
+        pr_number=7,
+        review_mode="full",
+        trigger_source="ui",
+        requested_head_sha="a",
+        publish=True,
+        acting_user_id=1,
+        resolve_comments=False,
+    )
+    request = replace(active, resolve_comments=resolve_comments)
+    queue = ReviewRequestQueue(active=active)
+
+    queue.add(request)
+
+    assert queue.pending == ({"full": request} if expect_pending else {})
