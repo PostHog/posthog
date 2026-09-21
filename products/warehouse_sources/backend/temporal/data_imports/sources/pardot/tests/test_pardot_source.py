@@ -102,11 +102,16 @@ class TestPardotSource:
             "HTTPSConnectionPool(host='pi.demo.pardot.com', port=443): Max retries exceeded with url: "
             '/api/v5/objects/prospects (Caused by ReadTimeoutError("HTTPSConnectionPool('
             "host='pi.demo.pardot.com', port=443): Read timed out. (read timeout=60)\"))",
+            # A drop mid-request names no host at all, so a host-scoped pattern would miss it.
+            "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+            "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))",
+            "Connection broken: IncompleteRead(3 bytes read)",
         ],
     )
-    def test_slow_host_failures_are_retryable(self, observed_error: str) -> None:
+    def test_transient_network_failures_are_retryable(self, observed_error: str) -> None:
         # `get_rows` already backs off on these, and Temporal retries the activity after that,
-        # so an exhausted timeout is self-recovering and must not become a tracked exception.
+        # so an exhausted timeout or drop is self-recovering and must not become a tracked
+        # exception.
         assert error_message_matches(observed_error, self.source.get_retryable_errors())
 
     def test_get_schemas_needs_no_credentials(self) -> None:

@@ -68,7 +68,7 @@ def _response(payload: Any, status_code: int = 200) -> Response:
     return response
 
 
-def _session(get_responses: list[Response]) -> mock.MagicMock:
+def _session(get_responses: list[Response | Exception]) -> mock.MagicMock:
     session = mock.MagicMock()
     session.get.side_effect = get_responses
     return session
