@@ -93,6 +93,7 @@ type _ErrorTrackingReason = _CatalogTelemetryReason | Literal["malformed_respons
 _EDITOR_ASSIST_ERROR_TRACKING_TTL_SECONDS = 300
 _EDITOR_ASSIST_ERROR_TRACKING_REDIS_TIMEOUT_SECONDS = 0.1
 _EDITOR_ASSIST_ERROR_TRACKING_KEY_PREFIX = "hogql:editor-assist:error-tracking:v1"
+_CATALOG_OMISSION_LOG_LIMIT = 25
 
 
 @frozen
@@ -322,7 +323,7 @@ def _capture_catalog_telemetry(
     events: tuple[_CatalogTelemetryEvent, ...],
 ) -> None:
     for event in events:
-        for omission in event.omissions:
+        for omission in event.omissions[:_CATALOG_OMISSION_LOG_LIMIT]:
             _safe_editor_assist_error(
                 "hogql_catalog_entry_omitted",
                 team_id=team.pk,
@@ -333,6 +334,15 @@ def _capture_catalog_telemetry(
                 alias_name=omission.alias_name[:256] if omission.alias_name is not None else None,
                 schema_table_id=omission.schema_table_id[:256] if omission.schema_table_id is not None else None,
                 resolver_table_id=omission.resolver_table_id[:256] if omission.resolver_table_id is not None else None,
+            )
+        if len(event.omissions) > _CATALOG_OMISSION_LOG_LIMIT:
+            _safe_editor_assist_error(
+                "hogql_catalog_entry_omissions_truncated",
+                team_id=team.pk,
+                user_id=user.pk,
+                logged_count=_CATALOG_OMISSION_LOG_LIMIT,
+                total_count=len(event.omissions),
+                suppressed_count=len(event.omissions) - _CATALOG_OMISSION_LOG_LIMIT,
             )
         if not _claim_editor_assist_error_tracking(event.stage, event.reason):
             continue

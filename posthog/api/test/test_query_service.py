@@ -3,7 +3,7 @@ from typing import cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase
 
@@ -325,28 +325,40 @@ class TestLanguageServiceRouting(SimpleTestCase):
     def test_error_tracking_is_suppressed_when_the_throttle_is_unavailable(
         self, _get_redis_client: MagicMock, error_log: MagicMock, capture_exception: MagicMock
     ) -> None:
-        omission = CatalogValidationOmission(
-            entry_type="table", reason="canonical_id_mismatch", table_name="postgres.demo.orders"
+        omissions = tuple(
+            CatalogValidationOmission(
+                entry_type="table", reason="canonical_id_mismatch", table_name=f"postgres.demo.table_{index}"
+            )
+            for index in range(27)
         )
         _capture_malformed_language_service_response("metadata", "response_mapping")
         _capture_catalog_telemetry(
             cast(Team, SimpleNamespace(pk=12)),
             cast(User, SimpleNamespace(pk=34)),
             "metadata",
-            (_CatalogTelemetryEvent(stage="catalog_validation", reason="partial_catalog", omissions=(omission,)),),
+            (_CatalogTelemetryEvent(stage="catalog_validation", reason="partial_catalog", omissions=omissions),),
         )
 
         capture_exception.assert_not_called()
-        error_log.assert_called_once_with(
+        assert error_log.call_count == 26
+        assert error_log.call_args_list[0] == call(
             "hogql_catalog_entry_omitted",
             team_id=12,
             user_id=34,
             entry_type="table",
             reason="canonical_id_mismatch",
-            table_name="postgres.demo.orders",
+            table_name="postgres.demo.table_0",
             alias_name=None,
             schema_table_id=None,
             resolver_table_id=None,
+        )
+        assert error_log.call_args_list[-1] == call(
+            "hogql_catalog_entry_omissions_truncated",
+            team_id=12,
+            user_id=34,
+            logged_count=25,
+            total_count=27,
+            suppressed_count=2,
         )
 
     @patch("posthog.api.services.query.posthoganalytics.capture_exception")

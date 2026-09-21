@@ -379,14 +379,18 @@ class TestLanguageServiceCatalog(SimpleTestCase):
         broken = S3Table(name="broken", fields={}, url="", table_id="resolver-id")
         schema = self._warehouse_schema(
             {
-                "postgres.demo.orders": ("orders-id", ["demo_postgres_orders"]),
-                "postgres.demo.broken": ("serialized-id", ["demo_postgres_broken"]),
+                "postgres.demo.broken": ("serialized-id", ["demo_shared", "demo_postgres_broken"]),
+                "postgres.demo.orders": (
+                    "orders-id",
+                    ["demo_postgres_orders", "demo_shared", "postgres.demo.broken"],
+                ),
             }
         )
         database = self._database(
             {
                 "postgres.demo.orders": orders,
                 "demo_postgres_orders": orders,
+                "demo_shared": orders,
                 "postgres.demo.broken": broken,
                 "demo_postgres_broken": broken,
             }
@@ -395,12 +399,19 @@ class TestLanguageServiceCatalog(SimpleTestCase):
         result = build_catalog(MagicMock(), MagicMock(), schema, database=database)
 
         assert set(result.catalog["tables"]) == {"postgres.demo.orders"}
-        assert result.catalog["tableAliases"] == {"demo_postgres_orders": "postgres.demo.orders"}
+        assert result.catalog["tableAliases"] == {
+            "demo_postgres_orders": "postgres.demo.orders",
+            "demo_shared": "postgres.demo.orders",
+        }
         assert result.catalog["properties"]["event"] == []
         assert result.validation is not None
-        assert result.validation.reasons == ("alias_dependency_omitted", "canonical_id_mismatch")
+        assert result.validation.reasons == (
+            "alias_ambiguous",
+            "alias_dependency_omitted",
+            "canonical_id_mismatch",
+        )
         assert result.validation.omitted_tables == 1
-        assert result.validation.omitted_aliases == 1
+        assert result.validation.omitted_aliases == 2
         assert {
             (
                 omission.entry_type,
@@ -425,6 +436,14 @@ class TestLanguageServiceCatalog(SimpleTestCase):
                 "alias_dependency_omitted",
                 "postgres.demo.broken",
                 "demo_postgres_broken",
+                None,
+                None,
+            ),
+            (
+                "alias",
+                "alias_ambiguous",
+                "postgres.demo.orders",
+                "postgres.demo.broken",
                 None,
                 None,
             ),

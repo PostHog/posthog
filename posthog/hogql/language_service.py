@@ -253,6 +253,7 @@ def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Data
     valid_warehouse_tables: list[tuple[str, DatabaseSchemaDataWarehouseTable]] = []
     omitted_canonical_names: set[str] = set()
     omitted_alias_names: set[str] = set()
+    aliases_from_omitted_tables: dict[str, set[str]] = {}
     failures: set[CatalogValidationReason] = set()
     omissions: set[CatalogValidationOmission] = set()
 
@@ -279,16 +280,7 @@ def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Data
             )
             for alias in schema_table.search_aliases or []:
                 if alias != canonical_name:
-                    failures.add("alias_dependency_omitted")
-                    omitted_alias_names.add(alias)
-                    omissions.add(
-                        CatalogValidationOmission(
-                            entry_type="alias",
-                            reason="alias_dependency_omitted",
-                            table_name=canonical_name,
-                            alias_name=alias,
-                        )
-                    )
+                    aliases_from_omitted_tables.setdefault(alias, set()).add(canonical_name)
             continue
         assert resolved is not None
         valid_warehouse_tables.append((canonical_name, schema_table))
@@ -355,6 +347,21 @@ def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Data
                 )
                 continue
             aliases[alias] = target
+
+    for alias, declaring_tables in aliases_from_omitted_tables.items():
+        if alias in aliases or alias in omitted_alias_names:
+            continue
+        failures.add("alias_dependency_omitted")
+        omitted_alias_names.add(alias)
+        omissions.update(
+            CatalogValidationOmission(
+                entry_type="alias",
+                reason="alias_dependency_omitted",
+                table_name=canonical_name,
+                alias_name=alias,
+            )
+            for canonical_name in declaring_tables
+        )
 
     validation = None
     if failures:
