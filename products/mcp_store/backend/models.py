@@ -183,6 +183,9 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             templates = templates.exclude(oauth_credentials_source="slack_dev_app")
         return templates
 
+    def oauth_credentials_source_is_allowed_for_team(self, team_id: int) -> bool:
+        return oauth_credentials_source_is_allowed(self.oauth_credentials_source, team_id)
+
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
         if update_fields is None or "icon_key" in update_fields:
