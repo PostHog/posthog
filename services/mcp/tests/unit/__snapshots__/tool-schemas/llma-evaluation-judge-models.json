@@ -16,6 +16,7 @@
                 "openai",
                 "openrouter",
                 "together_ai",
+                "typesafe",
                 "zeabur"
             ],
             "type": "string"
