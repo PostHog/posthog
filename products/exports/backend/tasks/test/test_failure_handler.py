@@ -13,6 +13,7 @@ from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_UNKNOWN,
     FAILURE_TYPE_USER,
     SLO_FAILURE_CATEGORY_APPLICATION,
+    SLO_FAILURE_CATEGORY_QUERY,
     SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
     SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED,
     SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT,
@@ -49,6 +50,7 @@ class TestIsUserQueryErrorType(TestCase):
             ("TimeoutError", False),
             ("ValueError", False),
             ("CHQueryErrorS3Error", False),
+            ("CHQueryErrorS3AccessDenied", True),
             ("ClickHouseAtCapacity", False),
             ("ConcurrencyLimitExceeded", False),
             ("ReadTimeoutError", False),
@@ -79,6 +81,7 @@ class TestClassifyFailureType(TestCase):
             ("ValidationError", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
             ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),
+            ("CHQueryErrorS3AccessDenied", FAILURE_TYPE_USER),
             ("OperationalError", FAILURE_TYPE_SYSTEM),
             ("ClickHouseAtCapacity", FAILURE_TYPE_SYSTEM),
             ("ReadTimeoutError", FAILURE_TYPE_SYSTEM),
@@ -153,6 +156,15 @@ class TestExportSloFailureDetails(TestCase):
                 True,
             ),
             ("storage", "CHQueryErrorS3Error", SLO_FAILURE_CATEGORY_STORAGE, "object_storage", True),
+            # Same storage component, but the query category: the customer has to fix their own
+            # credentials, so this is not an SLO breach and not retryable.
+            (
+                "storage_access_denied",
+                "CHQueryErrorS3AccessDenied",
+                SLO_FAILURE_CATEGORY_QUERY,
+                "object_storage",
+                False,
+            ),
             ("unknown", "RuntimeError", SLO_FAILURE_CATEGORY_APPLICATION, "exporter", False),
         ]
     )

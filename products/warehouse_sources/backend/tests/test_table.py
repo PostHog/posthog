@@ -18,7 +18,12 @@ from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UU
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.escape_sql import escape_param_clickhouse
 
-from posthog.errors import RAGGED_ROWS_MESSAGE, wrap_clickhouse_query_error
+from posthog.errors import (
+    RAGGED_ROWS_MESSAGE,
+    STORAGE_ACCESS_DENIED_MESSAGE,
+    CHQueryErrorS3AccessDenied,
+    wrap_clickhouse_query_error,
+)
 from posthog.exceptions import ClickHouseAtCapacity
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
@@ -204,23 +209,38 @@ class TestSafeExposeChError:
         with pytest.raises(TransientObjectStoreError):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
-    def test_wrapped_ragged_csv_error_keeps_the_ragged_row_message(self) -> None:
-        # sync_execute wraps the exception before get_columns/get_count catch it, so this function
-        # receives CHQueryErrorRaggedFileRows, whose message is already RAGGED_ROWS_MESSAGE. Matching
-        # ExtractErrors on that rewritten message misses and dead-ends on the generic bucket blame,
-        # so recognizing the wrapped class is what keeps the ragged-row guidance on this surface.
-        wrapped = wrap_clickhouse_query_error(
-            ServerException(
+    @parameterized.expand(
+        [
+            (
+                "ragged_csv_rows",
                 "DB::Exception: Cannot extract table structure from CSV format file. "
                 "Error: Code: 117. DB::Exception: Rows have different amount of values: "
                 "expected 5, got 6. (INCORRECT_DATA) (in file/uri https://example.com/bucket/orders.csv)",
-                code=636,
-            )
-        )
+                636,
+                RAGGED_ROWS_MESSAGE,
+            ),
+            (
+                "access_denied",
+                "DB::Exception: Failed to get object info: No response body.. HTTP response code: 403. "
+                "Please check your AWS credentials and permissions: while reading 'orders.csv' in bucket "
+                "'example-bucket' on disk 'StorageS3': While executing ReadFromObjectStorage",
+                499,
+                STORAGE_ACCESS_DENIED_MESSAGE,
+            ),
+        ]
+    )
+    def test_pre_wrapped_errors_keep_their_actionable_message(
+        self, _name: str, message: str, code: int, expected: str
+    ) -> None:
+        # sync_execute wraps the exception before get_columns/get_count catch it, so this function
+        # receives a class whose message is already the user-facing copy. Matching ExtractErrors on
+        # that rewritten message misses and dead-ends on the generic bucket blame, so recognizing the
+        # wrapped class is what keeps the guidance on this surface.
+        wrapped = wrap_clickhouse_query_error(ServerException(message, code=code))
 
         with pytest.raises(Exception) as exc_info:
             DataWarehouseTable()._safe_expose_ch_error(wrapped)
-        assert str(exc_info.value) == RAGGED_ROWS_MESSAGE
+        assert str(exc_info.value) == expected
 
 
 class TestRunChdbQuery:
@@ -360,19 +380,31 @@ class TestSchemaInferenceMode(BaseTest):
         # widened pass carries a server-side time limit and the narrow pass keeps its old behavior.
         assert ("max_execution_time" in settings) is expects_union
 
-    def test_a_failed_describe_raises_instead_of_storing_a_narrower_schema(self) -> None:
+    @parameterized.expand(
+        [
+            # An intermittent cluster failure is what the retries exist for, so it spends them all.
+            ("intermittent_cluster_failure", ServerException("DB::Exception: Unexpected", code=1002), 5, 4),
+            # A refused read cannot succeed on a retry. The remaining attempts would only cost the
+            # person four more denied reads and 15 seconds of sleep inside their own request.
+            ("refused_read", CHQueryErrorS3AccessDenied(STORAGE_ACCESS_DENIED_MESSAGE, code=499), 1, 0),
+        ]
+    )
+    def test_a_failed_describe_raises_instead_of_storing_a_narrower_schema(
+        self, _name: str, error: Exception, expected_attempts: int, expected_sleeps: int
+    ) -> None:
         # A degraded schema that persists silently is indistinguishable from the bug being fixed:
         # the person refreshes, nothing changes, and no signal exists anywhere. The retries belong
         # on this pass, because the cluster fails intermittently.
-        with patch("products.warehouse_sources.backend.models.table.time.sleep"):
+        with patch("products.warehouse_sources.backend.models.table.time.sleep") as mock_sleep:
             with patch(
                 "products.warehouse_sources.backend.models.table.sync_execute",
-                side_effect=ServerException("DB::Exception: Unexpected", code=1002),
+                side_effect=error,
             ) as mock_sync_execute:
                 with pytest.raises(Exception):
                     self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
 
-        assert mock_sync_execute.call_count == 5
+        assert mock_sync_execute.call_count == expected_attempts
+        assert mock_sleep.call_count == expected_sleeps
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):
