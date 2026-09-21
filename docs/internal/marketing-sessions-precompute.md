@@ -10,7 +10,9 @@ A failed coverage query also returns `ready=False`; an empty result accompanied 
 Sessions lasting more than one day, including 49-hour sessions, remain supported by the cache.
 
 Results are snapshots subject to the configured freshness schedule.
-The one-day settling period controls cache freshness separately from the three-day scan budget.
+A start-day window settles three days after it ends, matching the maximum supported session duration.
+Snapshots computed before that point expire at the settling boundary even when their stored TTL is longer, so a later first pageview cannot leave the window empty for 90 days.
+Before settlement, the normal freshness schedule still applies; session dimensions are not updated on every event.
 The writer respects the team's session table version: v3 when configured, otherwise v2; v1 requests fall back to live attribution.
 Resolved query modifiers are part of the cache identity, so different source versions and channel rules cannot reuse the same jobs.
 

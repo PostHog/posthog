@@ -146,6 +146,50 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert not cached.ready
         assert not cached.job_ids
 
+    @parameterized.expand([(SessionTableVersion.V2,), (SessionTableVersion.V3,)])
+    def test_window_refreshes_after_a_long_sessions_first_pageview(self, version: SessionTableVersion) -> None:
+        self.team.modifiers = {"sessionTableVersion": version}
+        start = time_machine.escape_hatch.datetime.datetime.now(UTC).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ) - timedelta(days=4)
+        end = start + timedelta(days=1)
+        opened_at = start + timedelta(hours=23)
+        session_id = str(uuid7(int(opened_at.timestamp() * 1000)))
+        create_person(team=self.team, distinct_ids=["long-session-visitor"])
+        _create_event(
+            team=self.team,
+            distinct_id="long-session-visitor",
+            event="$autocapture",
+            timestamp=opened_at,
+            properties={"$session_id": session_id},
+        )
+        flush_persons_and_events()
+
+        with time_machine.travel(start + timedelta(days=3, minutes=35), tick=False):
+            initial = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert initial.ready, initial.errors
+
+        with time_machine.travel(start + timedelta(days=3, hours=1), tick=False):
+            _create_event(
+                team=self.team,
+                distinct_id="long-session-visitor",
+                event="$pageview",
+                timestamp=start + timedelta(days=3, hours=1),
+                properties={"$session_id": session_id, "utm_campaign": "late-pageview"},
+            )
+            flush_persons_and_events()
+
+        with time_machine.travel(start + timedelta(days=4, minutes=1), tick=False):
+            assert not ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False).ready
+            refreshed = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert refreshed.ready, refreshed.errors
+            assert set(refreshed.job_ids).isdisjoint(initial.job_ids)
+            assert sync_execute(
+                "SELECT session_id_v7, pageview_count FROM web_sessions_dimensional_preaggregated "
+                "WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s",
+                {"team_id": self.team.pk, "job_ids": refreshed.job_ids},
+            ) == [(uuid.UUID(session_id).int, 1)]
+
 
 class TestSessionPrecomputeCoverageFailure(SimpleTestCase):
     def test_query_error_does_not_prove_session_coverage(self) -> None:
