@@ -84,7 +84,7 @@
         "fsevents": "^2.3.3"
     },
     "lint-staged": {
-        ".claude/settings.json": "sh -c 'printf \"\\n\\033[31mDo not commit .claude/settings.json — personal permissions belong in .claude/settings.local.json (gitignored).\\nUnstage with: git restore --staged .claude/settings.json\\033[0m\\n\\n\" >&2 && exit 1'",
+        ".claude/settings.json": "sh -c '.github/scripts/check-claude-settings.sh'",
         "**/{AGENTS,CLAUDE}.md": "sh -c '.github/scripts/check-agents-md-symlinks.sh'",
         "frontend/public/services/*.{png,jpg,jpeg,gif}": "node frontend/bin/check-service-icon-size.mjs",
         "products/**/manifest.tsx": [
