@@ -1039,6 +1039,40 @@ describe('PushNotificationService', () => {
             expect(result.finished).toBe(false)
             expect(result.invocation.queueScheduledAt).toBeDefined()
         })
+
+        const throttled = () => ({
+            fetchError: null,
+            fetchResponse: {
+                status: 429,
+                headers: { 'retry-after': '30' },
+                text: () => Promise.resolve('{}'),
+                dump: () => Promise.resolve(),
+            },
+            fetchDuration: 10,
+        })
+
+        it.each([
+            [
+                'throttled device second',
+                () => mockTrackedFetch.mockResolvedValueOnce(serverError()).mockResolvedValueOnce(throttled()),
+            ],
+            [
+                'throttled device first',
+                () => mockTrackedFetch.mockResolvedValueOnce(throttled()).mockResolvedValueOnce(serverError()),
+            ],
+        ])('reschedules using the longest Retry-After across devices, %s', async (_name, arrange) => {
+            // Only one error per channel reaches the reschedule, so the loop has to hand up the device
+            // asking for the longest wait. Handing up the 500 instead drops the 30s window to a sub-2s
+            // backoff, and the retries then burn inside the window the provider asked us to sit out.
+            arrange()
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.finished).toBe(false)
+            const delayMs = result.invocation.queueScheduledAt!.toMillis() - Date.now()
+            expect(delayMs).toBeGreaterThan(20_000)
+            expect(delayMs).toBeLessThanOrEqual(30_000)
+        })
     })
 
     describe('multiple channels', () => {

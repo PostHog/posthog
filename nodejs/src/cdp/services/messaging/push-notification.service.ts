@@ -143,6 +143,20 @@ function pushCorrelationData(invocation: CyclotronJobInvocationHogFunction): Rec
     return { [PUSH_CORRELATION_KEY]: JSON.stringify(correlation) }
 }
 
+// The retriable failure that stands for a person's devices: the one asking for the longest wait. Only
+// one error per channel reaches the reschedule, so the delay every other device asked for is gone by
+// then — keeping the earliest would retry inside a window a later device's provider asked us to sit
+// out. A failure carrying no Retry-After counts as zero, which is what the backoff already assumes.
+function longestRetriableFailure(current: PushSendError | undefined, candidate: Error): PushSendError | undefined {
+    if (!(candidate instanceof PushSendError) || !candidate.retriable) {
+        return current
+    }
+    if (!current) {
+        return candidate
+    }
+    return (candidate.retryAfterMs ?? 0) > (current.retryAfterMs ?? 0) ? candidate : current
+}
+
 function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAfterMs?: number): PushSendError {
     // Append the raw provider code so the failure surfaced to the hog template stays debuggable, while
     // the human-readable sentence leads.
@@ -398,7 +412,7 @@ export class PushNotificationService {
         let delivered = 0
         // A terminal failure on one device must not mask a retriable one on another: whether the step
         // is worth re-running depends on any device being retriable, not on which failed last.
-        let retriableFailure: Error | undefined
+        let retriableFailure: PushSendError | undefined
         let lastFailure: Error | undefined
 
         for (const subscription of subscriptions) {
@@ -410,9 +424,7 @@ export class PushNotificationService {
                 addLog('warn', `FCM: ${outcome.message}`)
             } else if (outcome.error) {
                 lastFailure = outcome.error
-                if (!retriableFailure && outcome.error instanceof PushSendError && outcome.error.retriable) {
-                    retriableFailure = outcome.error
-                }
+                retriableFailure = longestRetriableFailure(retriableFailure, outcome.error)
             }
         }
 
@@ -534,7 +546,7 @@ export class PushNotificationService {
         let delivered = 0
         // A terminal failure on one device must not mask a retriable one on another: whether the step
         // is worth re-running depends on any device being retriable, not on which failed last.
-        let retriableFailure: Error | undefined
+        let retriableFailure: PushSendError | undefined
         let lastFailure: Error | undefined
 
         for (const subscription of subscriptions) {
@@ -552,9 +564,7 @@ export class PushNotificationService {
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
                 lastFailure = outcome.error
-                if (!retriableFailure && outcome.error instanceof PushSendError && outcome.error.retriable) {
-                    retriableFailure = outcome.error
-                }
+                retriableFailure = longestRetriableFailure(retriableFailure, outcome.error)
             }
         }
 
