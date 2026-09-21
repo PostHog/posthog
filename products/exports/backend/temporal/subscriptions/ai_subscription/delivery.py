@@ -1,11 +1,16 @@
 import uuid
-from datetime import UTC, datetime
+import dataclasses
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlencode
+
+from django.db.models import Q
 
 import nh3
 import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
+from slack_sdk.errors import SlackApiError
 
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
@@ -16,7 +21,13 @@ from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
+from products.exports.backend.facade.api import get_delivery_image_url
+from products.exports.backend.models.subscription import (
+    AIQueryPlanStatus,
+    Subscription,
+    SubscriptionDelivery,
+    get_unsubscribe_token,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
@@ -33,6 +44,15 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     SlackDeliveryResult,
     SlackMessage,
     deliver_slack_message_data,
+)
+from ee.tasks.subscriptions.teams_subscriptions import (
+    TEAMS_CARD_TEXT_BUDGET,
+    TEAMS_UTM_TAGS,
+    fit_to_teams_budget,
+    teams_byte_size,
+    teams_card_message,
+    teams_open_url_action,
+    teams_text_block,
 )
 
 logger = structlog.get_logger(__name__)
@@ -74,6 +94,15 @@ _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
+SLACK_IMAGE_TITLE_LIMIT = 2000
+
+TEAMS_TEXT_BLOCK_LIMIT = 3000
+# Upper bound on report blocks. It only stops the chunker from splitting an unbounded report into
+# thousands of pieces; TEAMS_CARD_TEXT_BUDGET is what keeps the payload inside what Teams accepts.
+TEAMS_REPORT_BLOCK_COUNT = 10
+# Chunking is quadratic in the number of chunks and nothing upstream bounds a report's length, so
+# the markdown is cut to what could fill the blocks above before it is chunked at all.
+_TEAMS_REPORT_CHUNKING_LIMIT = TEAMS_REPORT_BLOCK_COUNT * TEAMS_TEXT_BLOCK_LIMIT
 
 
 def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) -> list[str]:
@@ -165,11 +194,26 @@ def _resolve_subscription_context(
     return team, subscription.created_by, window, subscription.ai_query_plan
 
 
-def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> None:
+def _persist_ai_query_plan(
+    subscription_id: int,
+    team_id: int,
+    prompt: str | None,
+    plan: dict,
+    *,
+    expected_include_images: bool,
+) -> bool:
+    image_state = Q(delivery_config__include_images=expected_include_images)
+    if expected_include_images:
+        # Existing subscriptions omit this key and default to including images.
+        image_state |= ~Q(delivery_config__has_key="include_images")
+
     # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
-    # Filtering on the planning-time prompt closes a race: a prompt edited mid-generation clears the
-    # plan via Subscription.save(), and this no-ops instead of re-freezing a plan for the old prompt.
-    Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
+    # Matching both planning inputs prevents a concurrent edit from restoring an invalidated plan.
+    return bool(
+        Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt)
+        .filter(image_state)
+        .update(ai_query_plan=plan)
+    )
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
@@ -180,6 +224,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     if user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
+    include_images = subscription.includes_delivery_part("include_images")
     result = await generate_ai_report(
         team=team,
         user=user,
@@ -187,12 +232,19 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         window=window,
         ai_query_plan=ai_query_plan,
         trace_correlation_id=subscription.id,
+        include_charts=include_images,
+        include_manage_link=subscription.includes_delivery_part("include_manage_link"),
     )
 
     if result.plan_to_persist is not None:
+        plan_persisted = False
         try:
-            await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
-                subscription.id, subscription.team_id, subscription.prompt, result.plan_to_persist
+            plan_persisted = await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
+                subscription.id,
+                subscription.team_id,
+                subscription.prompt,
+                result.plan_to_persist,
+                expected_include_images=include_images,
             )
         except Exception as exc:
             # The frozen plan is an optimization — losing this write must not abort the delivery (the
@@ -204,8 +256,31 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
                 exc_info=True,
             )
             capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
+        if not plan_persisted:
+            # This delivery cannot claim the plan is frozen unless the conditional write succeeded.
+            # In particular, a mid-run prompt edit intentionally makes that write a no-op.
+            result = dataclasses.replace(result, query_plan_status=AIQueryPlanStatus.NOT_FROZEN)
 
     return result
+
+
+CHART_IMAGE_URL_TTL = timedelta(days=180)
+
+
+def build_chart_image_urls(charts: Any, *, team_id: int) -> list[dict]:
+    if not isinstance(charts, list):
+        return []
+    urls: list[dict] = []
+    for chart in charts:
+        if not isinstance(chart, dict):
+            continue
+        asset_id = chart.get("export_asset_id")
+        if not isinstance(asset_id, int) or isinstance(asset_id, bool):
+            continue
+        image_url = get_delivery_image_url(team_id=team_id, asset_id=asset_id, expiry_delta=CHART_IMAGE_URL_TTL)
+        if image_url:
+            urls.append({"title": str(chart.get("title") or ""), "image_url": image_url})
+    return urls
 
 
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:
@@ -227,6 +302,7 @@ def send_email_ai_subscription_report(
     markdown: str,
     delivery_run_id: str,
     delivery_id: uuid.UUID,
+    charts: list[dict] | None = None,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
     html = render_ai_email_html(markdown)
@@ -245,6 +321,9 @@ def send_email_ai_subscription_report(
         template_context={
             "title": title,
             "rendered_html": html,
+            "charts": (charts or []) if subscription.includes_delivery_part("include_images") else [],
+            "include_feedback": subscription.includes_delivery_part("include_feedback"),
+            "include_manage_link": subscription.includes_delivery_part("include_manage_link"),
             # `delivery` lets the frontend capture `ai_report_clicked` on landing — the
             # click-through signal for whether delivered reports actually get read.
             "subscription_url": f"{subscription_url}?{utm_tags}&delivery={delivery_id}",
@@ -297,6 +376,7 @@ def _build_ai_slack_message(
     *,
     delivery_id: uuid.UUID,
     integration: Integration | None = None,
+    charts: list[dict] | None = None,
 ) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
@@ -308,6 +388,16 @@ def _build_ai_slack_message(
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": first_section}},
     ]
+    for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
+        caption = chart.get("title") or "Chart"
+        image_block: dict = {
+            "type": "image",
+            "image_url": chart["image_url"],
+            "alt_text": caption[:SLACK_IMAGE_TITLE_LIMIT],
+        }
+        if chart.get("title"):
+            image_block["title"] = {"type": "plain_text", "text": caption[:SLACK_IMAGE_TITLE_LIMIT]}
+        blocks.append(image_block)
     if len(sections) > 1:
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"}}
@@ -316,20 +406,24 @@ def _build_ai_slack_message(
     subscription_url = subscription.url or absolute_uri(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )
-    feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "slack")
-    feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "slack")
-
-    action_elements: list[dict] = [
-        {
-            "type": "button",
-            "text": {"type": "plain_text", "text": "Manage subscription"},
-            "url": f"{subscription_url}?{utm_tags}",
-        }
-    ]
-    blocks.extend(
-        [
-            {"type": "divider"},
-            {"type": "actions", "elements": action_elements},
+    footer_blocks: list[dict] = []
+    if subscription.includes_delivery_part("include_manage_link"):
+        footer_blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Manage subscription"},
+                        "url": f"{subscription_url}?{utm_tags}",
+                    }
+                ],
+            }
+        )
+    if subscription.includes_delivery_part("include_feedback"):
+        feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "slack")
+        feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "slack")
+        footer_blocks.append(
             {
                 "type": "context",
                 "elements": [
@@ -341,12 +435,15 @@ def _build_ai_slack_message(
                         ),
                     }
                 ],
-            },
-        ]
-    )
-    # AI consent is enforced upstream before this report is built, so the hint always shows here.
-    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
-        blocks.append(explore_hint)
+            }
+        )
+    # AI consent is enforced before report generation, so this renderer only applies the delivery option.
+    if subscription.includes_delivery_part("include_posthog_hint"):
+        if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
+            footer_blocks.append(explore_hint)
+    if footer_blocks:
+        blocks.append({"type": "divider"})
+        blocks.extend(footer_blocks)
 
     thread_messages = [
         {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": section}}]} for section in sections[1:]
@@ -361,13 +458,112 @@ async def send_slack_ai_subscription_report(
     markdown: str,
     integration: Integration,
     delivery_id: uuid.UUID,
+    charts: list[dict] | None = None,
 ) -> SlackDeliveryResult:
-    message_data = _build_ai_slack_message(subscription, markdown, delivery_id=delivery_id, integration=integration)
-    return await deliver_slack_message_data(integration, subscription, message_data)
+    # Resolve the charts the message will really carry, so the retry-without-charts decision
+    # cannot promise a different payload than the first send: a report that hides its charts
+    # would otherwise resend an identical message and double the posts Slack rate-limits.
+    effective_charts = charts if subscription.includes_delivery_part("include_images") else None
+
+    def build(with_charts: list[dict] | None) -> SlackMessage:
+        return _build_ai_slack_message(
+            subscription, markdown, delivery_id=delivery_id, integration=integration, charts=with_charts
+        )
+
+    try:
+        return await deliver_slack_message_data(integration, subscription, build(effective_charts))
+    except SlackApiError as exc:
+        if not effective_charts or exc.response.get("error") != "invalid_blocks":
+            raise
+        logger.warning(
+            "ai_report.slack_charts_rejected_resending_without_them",
+            subscription_id=subscription.id,
+            chart_count=len(effective_charts),
+        )
+        return await deliver_slack_message_data(integration, subscription, build(None))
+
+
+def build_ai_teams_card(
+    subscription: Subscription,
+    markdown: str,
+    *,
+    delivery_id: uuid.UUID,
+    charts: list[dict] | None = None,
+) -> dict[str, Any]:
+    """Adaptive Card for an AI report. Adaptive Cards render a restricted markdown subset in a
+    TextBlock, so the report goes through mostly as written and a table degrades to plain text."""
+    title = strip_external_links_markdown(subscription.title or "Your PostHog AI report")
+    subscription_url = subscription.url or absolute_uri(
+        f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
+    )
+
+    report = strip_external_links_markdown(markdown)
+    sections = _split_text_into_chunks(report[:_TEAMS_REPORT_CHUNKING_LIMIT], TEAMS_TEXT_BLOCK_LIMIT)
+
+    heading = f"**{title}**"
+    include_manage_link = subscription.includes_delivery_part("include_manage_link")
+    include_feedback = subscription.includes_delivery_part("include_feedback")
+    shortened_notice = "This report was shortened to fit."
+    if include_manage_link:
+        shortened_notice += f" [Read all of it in PostHog]({subscription_url}?{TEAMS_UTM_TAGS})"
+    feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "teams")
+    feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "teams")
+    feedback = f"Was this report useful? [👍 Yes]({feedback_positive_url}) · [👎 No]({feedback_negative_url})"
+
+    # Chunking is by character and Teams measures the payload in UTF-8 bytes, so CJK or emoji text
+    # is several times the size the chunker accounted for. The report gets whatever the fixed blocks
+    # around it leave, which is what keeps such a report from being rejected on every scheduled run.
+    remaining = (
+        TEAMS_CARD_TEXT_BUDGET
+        - teams_byte_size(heading)
+        - teams_byte_size(shortened_notice)
+        - (teams_byte_size(feedback) if include_feedback else 0)
+    )
+
+    kept: list[str] = []
+    over_budget = False
+    for section in sections[:TEAMS_REPORT_BLOCK_COUNT]:
+        size = teams_byte_size(section)
+        if size > remaining:
+            fitted = fit_to_teams_budget(section, remaining)
+            if teams_byte_size(fitted) <= remaining:
+                kept.append(fitted)
+            over_budget = True
+            break
+        kept.append(section)
+        remaining -= size
+
+    body: list[dict[str, Any]] = [teams_text_block(heading)]
+    if kept:
+        body.extend(teams_text_block(section) for section in kept)
+    else:
+        body.append(teams_text_block("_No report content was generated._"))
+    for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
+        body.append(
+            {
+                "type": "Image",
+                "url": chart["image_url"],
+                "size": "Stretch",
+                "altText": chart.get("title") or "Chart",
+            }
+        )
+    if over_budget or len(kept) < len(sections) or len(report) > _TEAMS_REPORT_CHUNKING_LIMIT:
+        body.append(teams_text_block(shortened_notice, is_subtle=True))
+    if include_feedback:
+        body.append(teams_text_block(feedback, is_subtle=True))
+
+    actions = (
+        [teams_open_url_action("Manage subscription", f"{subscription_url}?{TEAMS_UTM_TAGS}")]
+        if include_manage_link
+        else []
+    )
+    return teams_card_message(body, actions)
 
 
 __all__ = [
     "build_ai_subscription_report",
+    "build_ai_teams_card",
+    "build_chart_image_urls",
     "render_ai_email_html",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",

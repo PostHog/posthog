@@ -46,10 +46,7 @@ function begin(identity: string, client: FirstRunClient): FirstRunEntry {
 /**
  * Start provisioning as soon as the user is through the access check.
  */
-export function beginProvisioning(
-  identity: string,
-  client: FirstRunClient,
-): void {
+function beginProvisioning(identity: string, client: FirstRunClient): void {
   if (started?.identity !== identity) begin(identity, client);
 }
 

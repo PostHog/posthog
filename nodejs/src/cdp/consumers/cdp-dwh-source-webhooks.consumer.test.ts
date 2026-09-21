@@ -16,7 +16,7 @@ import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { compileInputs } from '../templates/test/test-helpers'
@@ -160,9 +160,8 @@ describe('DWH source webhooks', () => {
     let team: Team
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub({})
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
         mockFetch.mockClear()
     })
 
@@ -175,6 +174,8 @@ describe('DWH source webhooks', () => {
         let app: express.Application
         let server: Server
         let hogFunction: HogFunctionType
+        let stripeTemplateId: string
+        let defaultTemplateId: string
 
         const invoiceSchemaId = 'test-schema-id-invoice'
         const chargeSchemaId = 'test-schema-id-charge'
@@ -199,9 +200,12 @@ describe('DWH source webhooks', () => {
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
             jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
+            stripeTemplateId = `${STRIPE_TEMPLATE_ID}-${team.id}`
+            defaultTemplateId = `template-warehouse-source-default-${team.id}`
+
             // Insert the warehouse source templates into the DB
             await insertHogFunctionTemplate(hub.postgres, {
-                id: STRIPE_TEMPLATE_ID,
+                id: stripeTemplateId,
                 name: 'Stripe warehouse source webhook',
                 type: 'warehouse_source_webhook',
                 code: STRIPE_HOG_CODE,
@@ -209,7 +213,7 @@ describe('DWH source webhooks', () => {
             })
 
             await insertHogFunctionTemplate(hub.postgres, {
-                id: 'template-warehouse-source-default',
+                id: defaultTemplateId,
                 name: 'Default warehouse source webhook',
                 type: 'warehouse_source_webhook',
                 code: 'produceToWarehouseWebhooks(request.body)',
@@ -218,7 +222,7 @@ describe('DWH source webhooks', () => {
 
             hogFunction = await insertHogFunction(hub.postgres, team.id, {
                 type: 'warehouse_source_webhook',
-                template_id: STRIPE_TEMPLATE_ID,
+                template_id: stripeTemplateId,
                 bytecode: [],
                 inputs: {
                     ...(await compileInputs(stripeTemplateForInputs, {
@@ -335,7 +339,7 @@ describe('DWH source webhooks', () => {
         it('should bypass signature check when configured', async () => {
             const bypassFunction = await insertHogFunction(hub.postgres, team.id, {
                 type: 'warehouse_source_webhook',
-                template_id: STRIPE_TEMPLATE_ID,
+                template_id: stripeTemplateId,
                 bytecode: [],
                 inputs: {
                     ...(await compileInputs(stripeTemplateForInputs, {

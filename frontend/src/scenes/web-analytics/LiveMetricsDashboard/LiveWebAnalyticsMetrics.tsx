@@ -287,7 +287,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         totalBotEligibleEvents,
         liveUserCount,
         hasActiveFilters,
+        hasBotQueryError,
         isLoading,
+        isBotLoading,
         recentEvents,
         unstreamableTestAccountFilterCount,
     } = useValues(liveWebAnalyticsMetricsLogic)
@@ -412,6 +414,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
                         isLoading={isLoading}
+                        contentClassName="h-64 md:h-80"
                     >
                         <UsersPerMinuteChart data={chartData} timezone={timezone} />
                     </LiveChartCard>
@@ -488,7 +491,10 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         title="Bot requests per minute"
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
-                        isLoading={isLoading}
+                        isLoading={isLoading || isBotLoading}
+                        errorMessage={
+                            hasBotQueryError ? "Couldn't load bot traffic. Refresh the page to try again." : undefined
+                        }
                         contentClassName="h-64 md:h-80"
                     >
                         <BotEventsPerMinuteChart data={chartData} timezone={timezone} />
@@ -503,7 +509,10 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         data={botBreakdown}
                         totalBotEvents={totalBotEvents}
                         totalEvents={totalBotEligibleEvents}
-                        isLoading={isLoading}
+                        isLoading={isLoading || isBotLoading}
+                        errorMessage={
+                            hasBotQueryError ? "Couldn't load bot traffic. Refresh the page to try again." : undefined
+                        }
                     />
                 )
             case 'countries':

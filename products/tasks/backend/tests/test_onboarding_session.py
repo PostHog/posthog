@@ -13,10 +13,17 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.user import User
+from posthog.temporal.oauth import MCP_READ_SCOPES
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
-from products.tasks.backend.facade.onboarding import _origin_key, _session_enabled, start_onboarding_session
+from products.tasks.backend.facade.onboarding import (
+    _origin_key,
+    _session_enabled,
+    onboarding_test_tools_enabled,
+    start_onboarding_session,
+    start_onboarding_test_session,
+)
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
 from products.tasks.backend.models import Task, TaskClientProvenance
 
@@ -51,6 +58,13 @@ class TestOnboardingSessionIdempotency(TestCase):
             [call.args[0] for call in feature_enabled.call_args_list],
             ["code-spaces-layout", "project-bluebird"],
         )
+
+    @override_settings(DEBUG=False)
+    def test_onboarding_test_tools_use_their_feature_flag(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+            self.assertTrue(onboarding_test_tools_enabled(self.team, self.user))
+
+        self.assertEqual(feature_enabled.call_args.args[0], "posthog-desktop-onboarding-test-tools")
 
     def _start(self, create_side_effect) -> tuple[UUID | None, int]:
         with (
@@ -116,12 +130,51 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
             self.assertEqual(kwargs["model"], expected_model)
             self.assertTrue(kwargs["title_manually_set"])
+            self.assertIn("Use the canonical `posthog:exec` tool", kwargs["description"])
+            self.assertIn("use `docs-search` before answering", kwargs["description"])
+            self.assertIn("without first running `docs-search`", kwargs["description"])
+            self.assertIn("info channel-instructions-retrieve", kwargs["description"])
+            self.assertIn("call channel-instructions-retrieve", kwargs["description"])
+            self.assertIn("info channel-instructions-update", kwargs["description"])
+            self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, "task:write"})
+            self.assertFalse(
+                any(scope.endswith(":write") and scope != "task:write" for scope in kwargs["posthog_mcp_scopes"])
+            )
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
         started, create_calls = self._start(create_side_effect=succeed)
 
         self.assertEqual(started, task_id)
         self.assertEqual(create_calls, 1)
+
+    @parameterized.expand(
+        [
+            ("claude", "claude-opus-4-8", "claude"),
+            ("codex", "gpt-5.5", "codex"),
+        ]
+    )
+    def test_test_session_uses_the_selected_model(self, _name: str, model: str, runtime_adapter: str) -> None:
+        task_id = uuid4()
+        created = contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with patch(f"{MODULE}.create_and_run_task", return_value=created) as create:
+            started = start_onboarding_test_session(
+                self.team,
+                self.user,
+                company_domain="",
+                joining_existing_organization=False,
+                has_events=False,
+                signal_reports_waiting=0,
+                other_members=[],
+                sources_enabled=[],
+                sources_watching=[],
+                sources_newly_enabled=False,
+                model=model,
+            )
+
+        self.assertEqual(started, task_id)
+        self.assertEqual(create.call_args.kwargs["model"], model)
+        self.assertEqual(create.call_args.kwargs["runtime_adapter"], runtime_adapter)
 
     def test_seeding_the_tour_failing_does_not_block_the_session(self) -> None:
         task_id = uuid4()

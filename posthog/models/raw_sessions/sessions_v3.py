@@ -161,8 +161,9 @@ CREATE TABLE IF NOT EXISTS {table_name}
     page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
     has_autocapture SimpleAggregateFunction(max, Boolean),
 
-    -- Flags - store every seen value for each flag
-    flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+    -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
+    -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+    flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
     flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
 
     -- Event names - store unique event names seen in this session
@@ -198,6 +199,7 @@ def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
 
     -- Indexes
     INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+    INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
     INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
     INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
     INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
@@ -379,7 +381,7 @@ SELECT
     event = '$autocapture' as has_autocapture,
 
     -- flags
-    initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+    arrayMap((k, v) -> concat(k, '=', v), mapKeys(properties_group_feature_flags), mapValues(properties_group_feature_flags)) as flag_key_values,
     mapKeys(properties_group_feature_flags) as flag_keys,
 
     -- event names
@@ -510,7 +512,7 @@ SELECT
     false as has_autocapture,
 
     -- flags
-    initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+    CAST([], 'Array(String)') as flag_key_values,
     CAST([], 'Array(String)') as flag_keys,
 
     -- event names
@@ -735,7 +737,7 @@ SELECT
     max(has_autocapture) as has_autocapture,
 
     -- flags
-    groupUniqArrayMapMerge(flag_values) as flag_values,
+    groupUniqArrayArray(10000)(flag_key_values) as flag_key_values,
     groupUniqArrayArray(flag_keys) as flag_keys,
 
     -- event names
@@ -753,49 +755,6 @@ FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
 GROUP BY session_id_v7, session_timestamp, team_id
 """
 )
-
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} IS NOT NULL AND
-        {property_expr} != ''
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
-
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} ILIKE %(value)s
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
 
 
 def GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(

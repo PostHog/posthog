@@ -6,9 +6,9 @@ from django.db import models
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
-from django_deprecate_fields import deprecate_field
 from prometheus_client import Counter
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import EncryptionModeType, generate_random_token, hash_key_value
 

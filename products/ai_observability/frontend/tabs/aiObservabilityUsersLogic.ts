@@ -100,7 +100,7 @@ export const aiObservabilityUsersLogic = kea<aiObservabilityUsersLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: `
                 SELECT
-                    argMax(user_tuple, timestamp) as __llm_person,
+                    distinct_id as __llm_person,
                     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
                     count() as generations,
                     countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
@@ -114,12 +114,7 @@ export const aiObservabilityUsersLogic = kea<aiObservabilityUsersLogicType>([
                         properties.$ai_trace_id as ai_trace_id,
                         properties.$ai_total_cost_usd as ai_total_cost_usd,
                         properties.$ai_error as ai_error,
-                        properties.$ai_is_error as ai_is_error,
-                        tuple(
-                            distinct_id,
-                            person.created_at,
-                            person.properties
-                        ) as user_tuple
+                        properties.$ai_is_error as ai_is_error
                     FROM events
                     WHERE event = '$ai_generation' AND {filters}
                 )

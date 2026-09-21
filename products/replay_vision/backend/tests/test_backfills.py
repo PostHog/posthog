@@ -84,7 +84,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -137,7 +137,7 @@ class TestBackfillQuotaCommitment:
             name="c",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         _make_backfill(cancelled_scanner, status=BackfillStatus.CANCELLED, total_count=100, credits_per_observation=5)
 
@@ -201,7 +201,7 @@ class TestCreateObservationForBackfill:
     def test_capped_retake_counts_as_in_flight_spend_for_the_next_admission(self) -> None:
         # The retake reserves fresh budget under the admission lock, so the next admission's budget
         # read must see it and refuse; missing it would overshoot the cap by the retaken row.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         backfill = _make_backfill(scanner)
         failed = ReplayObservation.objects.create(
@@ -606,7 +606,7 @@ class TestBackfillsApi(APIBaseTest):
             name="backfill-api-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         self.base_url = f"/api/projects/{self.team.id}/vision/scanners/{self.scanner.id}/backfills"
 
@@ -782,6 +782,26 @@ class TestBackfillsApi(APIBaseTest):
         assert response.status_code == 200
         row = response.json()["results"][0]
         assert (row["succeeded_count"], row["failed_count"], row["in_flight_count"]) == (1, 1, 1)
+
+    def test_list_pages_tied_created_at_rows_without_loss_or_repeats(self) -> None:
+        # Backfills created in the same instant tie on created_at, so only the id term keeps the pages
+        # from dropping or repeating a row.
+        ids = [uuid.UUID(f"0199000{n}-0000-7000-8000-000000000000") for n in range(8)]
+        for backfill_id in ids:
+            _make_backfill(self.scanner, id=backfill_id, status=BackfillStatus.COMPLETED)
+        # created_at is auto_now_add, so force the tie afterwards. One row at a time in descending id
+        # order, so the physical row order disagrees with the order the endpoint owes.
+        tied_at = timezone.now()
+        for backfill_id in sorted(ids, reverse=True):
+            ReplayScannerBackfill.objects.for_team(self.team.id).filter(id=backfill_id).update(created_at=tied_at)
+
+        paged_ids: list[uuid.UUID] = []
+        for offset in (0, 2, 4, 6):
+            response = self.client.get(f"{self.base_url}/?limit=2&offset={offset}")
+            assert response.status_code == 200
+            paged_ids += [uuid.UUID(row["id"]) for row in response.json()["results"]]
+
+        assert paged_ids == sorted(ids)
 
 
 # BackfillScannerWorkflow (mocked-Temporal)

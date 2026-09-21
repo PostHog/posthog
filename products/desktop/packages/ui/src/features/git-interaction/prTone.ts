@@ -21,7 +21,7 @@ export const PR_TONE_TEXT: Record<PrToneColor, string> = {
 };
 
 /** Filled badge, for a control that can be disabled. */
-export const PR_TONE_FILL: Record<PrToneColor, string> = {
+const PR_TONE_FILL: Record<PrToneColor, string> = {
   gray: "bg-(--gray-3) text-(--gray-11) not-disabled:hover:bg-(--gray-4) not-disabled:hover:text-(--gray-12)",
   green:
     "bg-(--green-3) text-(--green-11) not-disabled:hover:bg-(--green-4) not-disabled:hover:text-(--green-12)",

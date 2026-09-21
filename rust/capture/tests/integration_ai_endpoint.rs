@@ -8,9 +8,9 @@ use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::global_rate_limiter::GlobalRateLimiter;
+use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{OverflowReason, ProcessedEvent};
 use chrono::{DateTime, TimeZone, Utc};
@@ -44,12 +44,8 @@ impl TimeSource for FixedTime {
 struct TestSink;
 
 #[async_trait]
-impl Event for TestSink {
-    async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-        Ok(())
-    }
-
-    async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for TestSink {
+    async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         Ok(())
     }
 }
@@ -73,13 +69,8 @@ impl CapturingSink {
 }
 
 #[async_trait]
-impl Event for CapturingSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().await.push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for CapturingSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
     }
@@ -162,7 +153,7 @@ fn setup_ai_test_router() -> Router {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
@@ -219,7 +210,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         timesource,
         readiness,
         liveness,
-        Arc::new(TestSink),
+        Arc::new(OutputRegistry::single(TestSink)),
         redis,
         None,
         quota_limiter,
@@ -1289,7 +1280,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
@@ -1959,7 +1950,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
@@ -2026,7 +2017,7 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
@@ -2289,7 +2280,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
@@ -2448,7 +2439,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
@@ -2590,7 +2581,7 @@ fn ai_router(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,

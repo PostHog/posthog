@@ -11,10 +11,12 @@ import {
   useSpendTotals,
 } from "@posthog/ui/features/billing/useSpendTotals";
 import {
+  USER_SPEND_LIMIT_FLAG,
   USER_SPEND_LIMIT_QUERY_KEY,
   useSetUserSpendLimit,
   useUserSpendLimit,
 } from "@posthog/ui/features/billing/useUserSpendLimit";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
 import { SpendLimitCard } from "@posthog/ui/features/settings/sections/SpendLimitCard";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -30,6 +32,7 @@ import { useEffect } from "react";
 const MONTH_WINDOW_SECONDS = 30 * 24 * 60 * 60;
 
 export function SpendLimitsSettings() {
+  const enabled = useFeatureFlag(USER_SPEND_LIMIT_FLAG);
   const spendLimits = useSettingsStore((state) => state.spendLimits);
   const setSpendLimits = useSettingsStore((state) => state.setSpendLimits);
   const totals = useSpendTotals();
@@ -81,6 +84,10 @@ export function SpendLimitsSettings() {
     );
   };
 
+  if (!enabled) {
+    return null;
+  }
+
   return (
     <SpendLimitsSettingsView
       spendLimits={spendLimits}
@@ -118,14 +125,14 @@ export function SpendLimitsSettingsView({
       title="Spend limits"
       description={
         stopAvailable
-          ? "A warning line notifies you. A stop line pauses new agent messages until you raise or clear it, and a turn already running always plays out. Lines count model spend, not sandbox compute."
-          : "A warning line notifies you when spend passes it, and a turn already running always plays out. Lines count model spend, not sandbox compute."
+          ? "A warning line notifies you; a stop line pauses new agent messages until you raise or clear it, and a turn already running always plays out; lines count model spend, not sandbox compute"
+          : "A warning line notifies you when spend passes it, and a turn already running always plays out; lines count model spend, not sandbox compute"
       }
     >
       <SpendLimitCard
         scope="day"
         title="Per day"
-        description="Counts every task you run in a day, and resets at midnight UTC."
+        description="Counts every task you run in a day, and resets at midnight UTC"
         spentUsd={totals?.todayUsd ?? null}
         soFarLabel="today"
         markerUsd={avgUsd}
@@ -146,8 +153,8 @@ export function SpendLimitsSettingsView({
         title="Per month"
         description={
           stopAvailable
-            ? "Counts 30 days of model spend, and restarts once the window runs out."
-            : "Counts the whole calendar month, and resets on the first."
+            ? "Counts 30 days of model spend, and restarts once the window runs out"
+            : "Counts the whole calendar month, and resets on the first"
         }
         spentUsd={totals?.monthUsd ?? null}
         soFarLabel="this month"

@@ -341,7 +341,16 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
-        pa_table = evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        pa_table = evolve_pyarrow_schema(
+            pa_table,
+            delta_table.schema() if delta_table is not None else None,
+            merge_key_columns=[
+                *(self._resource.primary_keys or []),
+                *(self._schema.partitioning_keys_override or []),
+                *(self._schema.partitioning_keys or []),
+                *(self._resource.partition_keys or []),
+            ],
+        )
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"

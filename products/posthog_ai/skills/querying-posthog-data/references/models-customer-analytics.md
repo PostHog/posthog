@@ -27,7 +27,20 @@ Column | Type | Nullable | Description
 `created_at` | timestamptz | NOT NULL | When the account was created
 `updated_at` | timestamptz | NULL | When the account was last updated
 
-Lazy-joined fields: `tags` (tag names), `custom_properties` (see below), `relationships` (active assignments keyed by definition id), `notebooks`.
+Lazy-joined fields:
+
+- `tags.names`: tag names.
+- `notebooks.count`: number of linked internal notes.
+- `custom_properties.values`: current values keyed by immutable definition ID.
+- `custom_properties_history.values`: numeric value history keyed by immutable definition ID.
+- `relationships.values`: active user IDs keyed by immutable relationship-definition ID.
+- `meetings`: meeting count, latest start time, and the newest 10 meeting summaries.
+- `slack_summaries`: summary count, latest generation time, and the newest 10 Slack summaries.
+- `feature_requests`: active request count, latest update time, and the newest 10 linked requests.
+- `support_tickets`: ticket count, latest message time, and the newest 10 linked tickets. Requires ticket access.
+- `email_threads`: thread count, latest message time, and the newest 10 linked email threads. Requires ticket access.
+
+The `recent` fields are JSON arrays. They hold at most 10 records, newest first. Use the top-level tables when you need complete history.
 
 ## Account relationships (`system.account_relationship_definitions`, `system.account_relationships`)
 
@@ -216,7 +229,7 @@ There is no standalone values table. An account's current value for a definition
 accounts.custom_properties.values.`<definition_id>`
 ```
 
-The `<definition_id>` is a `system.custom_property_definitions.id` (backtick-quoted, since it is a UUID). Only the current value is returned — superseded (soft-deleted) values are excluded — and it is team-isolated via the accounts row.
+The `<definition_id>` is a `system.custom_property_definitions.id` (backtick-quoted, since it is a UUID). Only the current value is returned. Superseded values are excluded. The immutable ID keeps saved queries working when a property name changes.
 
 ## Common query patterns
 

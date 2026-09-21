@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * List all endpoints for the team.
  */
-export const EndpointsListParams = /* @__PURE__ */ zod.object({
+export const EndpointsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,7 +19,7 @@ export const EndpointsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EndpointsListQueryParams = /* @__PURE__ */ zod.object({
+export const EndpointsListQueryParams = () => zod.object({
     created_by: zod.number().optional(),
     is_active: zod.boolean().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -29,7 +29,7 @@ export const EndpointsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create a new endpoint.
  */
-export const EndpointsCreateParams = /* @__PURE__ */ zod.object({
+export const EndpointsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -37,7 +37,7 @@ export const EndpointsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EndpointsCreateBody = /* @__PURE__ */ zod
+export const EndpointsCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -89,7 +89,7 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
 /**
  * Retrieve an endpoint, or a specific version via ?version=N.
  */
-export const EndpointsRetrieveParams = /* @__PURE__ */ zod.object({
+export const EndpointsRetrieveParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -101,7 +101,7 @@ export const EndpointsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Update an existing endpoint.
  */
-export const EndpointsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const EndpointsPartialUpdateParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -110,7 +110,7 @@ export const EndpointsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
+export const EndpointsPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -162,7 +162,7 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Delete an endpoint and clean up materialized query.
  */
-export const EndpointsDestroyParams = /* @__PURE__ */ zod.object({
+export const EndpointsDestroyParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -171,7 +171,7 @@ export const EndpointsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EndpointsLogsRetrieveParams = /* @__PURE__ */ zod.object({
+export const EndpointsLogsRetrieveParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -183,7 +183,7 @@ export const EndpointsLogsRetrieveParams = /* @__PURE__ */ zod.object({
 export const endpointsLogsRetrieveQueryLimitDefault = 50
 export const endpointsLogsRetrieveQueryLimitMax = 500
 
-export const EndpointsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const EndpointsLogsRetrieveQueryParams = () => zod.object({
     after: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -214,7 +214,7 @@ export const EndpointsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
  */
-export const EndpointsMaterializationPreviewCreateParams = /* @__PURE__ */ zod.object({
+export const EndpointsMaterializationPreviewCreateParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -223,7 +223,7 @@ export const EndpointsMaterializationPreviewCreateParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.object({
+export const EndpointsMaterializationPreviewCreateBody = () => zod.object({
     version: zod.number().optional(),
     bucket_overrides: zod
         .record(zod.string(), zod.string())
@@ -234,7 +234,7 @@ export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.obj
 /**
  * Get materialization status for an endpoint. Supports ?version=N query param.
  */
-export const EndpointsMaterializationStatusRetrieveParams = /* @__PURE__ */ zod.object({
+export const EndpointsMaterializationStatusRetrieveParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -246,7 +246,7 @@ export const EndpointsMaterializationStatusRetrieveParams = /* @__PURE__ */ zod.
 /**
  * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
  */
-export const EndpointsMaterializationSuggestionCreateParams = /* @__PURE__ */ zod.object({
+export const EndpointsMaterializationSuggestionCreateParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -255,7 +255,7 @@ export const EndpointsMaterializationSuggestionCreateParams = /* @__PURE__ */ zo
         ),
 })
 
-export const EndpointsMaterializationSuggestionCreateBody = /* @__PURE__ */ zod
+export const EndpointsMaterializationSuggestionCreateBody = () => zod
     .object({
         version: zod
             .number()
@@ -267,7 +267,7 @@ export const EndpointsMaterializationSuggestionCreateBody = /* @__PURE__ */ zod
 /**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
  */
-export const EndpointsOpenapiSpecRetrieveParams = /* @__PURE__ */ zod.object({
+export const EndpointsOpenapiSpecRetrieveParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -276,7 +276,7 @@ export const EndpointsOpenapiSpecRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EndpointsOpenapiSpecRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const EndpointsOpenapiSpecRetrieveQueryParams = () => zod.object({
     version: zod
         .number()
         .optional()
@@ -286,7 +286,7 @@ export const EndpointsOpenapiSpecRetrieveQueryParams = /* @__PURE__ */ zod.objec
 /**
  * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.
  */
-export const EndpointsRunCreateParams = /* @__PURE__ */ zod.object({
+export const EndpointsRunCreateParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -333,7 +333,7 @@ export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwofourEve
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwofourTypeDefault = `behavioral`
 export const endpointsRunCreateBodyRefreshDefault = `cache`
 
-export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
+export const EndpointsRunCreateBody = () => zod.object({
     client_query_id: zod
         .union([zod.string(), zod.null()])
         .optional()
@@ -2083,7 +2083,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
 /**
  * List all versions for an endpoint.
  */
-export const EndpointsVersionsListParams = /* @__PURE__ */ zod.object({
+export const EndpointsVersionsListParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -2092,7 +2092,7 @@ export const EndpointsVersionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EndpointsVersionsListQueryParams = /* @__PURE__ */ zod.object({
+export const EndpointsVersionsListQueryParams = () => zod.object({
     created_by: zod.number().optional(),
     is_active: zod.boolean().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -2102,7 +2102,7 @@ export const EndpointsVersionsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Get the most recent execution time per endpoint (endpoint-level). Timestamps are recorded by the run path for personal-API-key calls. For per-version usage, query the query_log table directly.
  */
-export const EndpointsLastExecutionTimesCreateParams = /* @__PURE__ */ zod.object({
+export const EndpointsLastExecutionTimesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2110,14 +2110,14 @@ export const EndpointsLastExecutionTimesCreateParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const EndpointsLastExecutionTimesCreateBody = /* @__PURE__ */ zod.object({
+export const EndpointsLastExecutionTimesCreateBody = () => zod.object({
     names: zod.array(zod.string()),
 })
 
 /**
  * Get the source code of the live materialization checks, plus the rewrite contract. Lets an agent rewrite a rejected endpoint query itself: fetch these conditions, produce a semantically equivalent query that passes every check, update the endpoint with it, then confirm via materialization_status. The source is read from the running system, so it always matches the checks this instance enforces.
  */
-export const EndpointsMaterializationConditionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const EndpointsMaterializationConditionsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from anthropic import APIError
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from products.conversations.backend.temporal.ai_reply.constants import LLM_REQUEST_TIMEOUT_SECONDS
@@ -66,3 +67,11 @@ def strip_json_fence(text: str) -> str:
         if close != -1:
             s = s[:close]
     return s.strip()
+
+
+def llm_attempts() -> int:
+    """Temporal attempt number for this LLM activity, including retries already spent."""
+    try:
+        return max(1, int(activity.info().attempt))
+    except RuntimeError:
+        return 1

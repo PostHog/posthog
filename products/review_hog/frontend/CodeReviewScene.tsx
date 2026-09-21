@@ -54,7 +54,7 @@ import type {
     ReviewPerspectiveStatItemApi,
     ReviewRecentReviewApi,
     ReviewResolutionStatusApi,
-    UrgencyThresholdEnumApi,
+    ReviewUserSettingsUrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
     ReviewHogReviewsListScope,
@@ -132,7 +132,7 @@ const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; ti
     },
 ]
 
-const URGENCY_STOPS: { key: UrgencyThresholdEnumApi; label: string; description: string }[] = [
+const URGENCY_STOPS: { key: ReviewUserSettingsUrgencyThresholdEnumApi; label: string; description: string }[] = [
     {
         key: 'consider',
         label: 'All issues',
@@ -620,8 +620,8 @@ function RecentReviewsSection(): JSX.Element | null {
         <section className="flex flex-col gap-4">
             <SectionHeader icon={<IconPullRequest />} title={everyone ? 'Recent reviews' : 'Your recent reviews'}>
                 {everyone
-                    ? 'The latest ReviewHog runs on pull requests across this project. Expand a review for its details and findings.'
-                    : 'The latest ReviewHog runs on pull requests you authored. Expand a review for its details and findings.'}
+                    ? 'The latest PostHog Review runs on pull requests across this project. Expand a review for its details and findings.'
+                    : 'The latest PostHog Review runs on pull requests you authored. Expand a review for its details and findings.'}
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 {recentReviews === null || emptyAwaitingReload ? (
@@ -677,7 +677,7 @@ function RecentReviewsSection(): JSX.Element | null {
  * "Review a pull request": paste any PR URL the project's GitHub App installation can access and
  * start a publishing review, acting as the requesting user. A review resolves the PR's comment
  * threads afterwards when the user's resolve_comments setting is on; the split button's side
- * actions are the per-run variants (review without resolving / resolve only). Hidden unless the
+ * actions are the per-run variants (review without resolving / resolve only / flash). Hidden unless the
  * backend says this project can trigger reviews (limited to the designated ReviewHog team while
  * in alpha).
  */
@@ -741,6 +741,13 @@ function TriggerReviewSection(): JSX.Element | null {
                                         tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
                                     >
                                         Only resolve existing comments
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)}
+                                        tooltip="A faster, cheaper review that never resolves comments. Every message it posts is marked FLASH MODE."
+                                    >
+                                        Review in Flash mode
                                     </LemonButton>
                                 </>
                             ),
@@ -1140,7 +1147,7 @@ function TriggersSection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader icon={<IconFilter />} title="What gets reviewed">
-                Choose which pull requests ReviewHog picks up automatically, and whether reviews also resolve the
+                Choose which pull requests PostHog Review picks up automatically, and whether reviews also resolve the
                 comment threads on them.
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
@@ -1151,8 +1158,8 @@ function TriggersSection(): JSX.Element {
                     <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold">Review all your Inbox PRs</div>
                         <div className="text-xs text-secondary">
-                            When a self-driving implementation from your Inbox opens a pull request, ReviewHog reviews
-                            it and posts the review to the pull request automatically.
+                            When a self-driving implementation from your Inbox opens a pull request, PostHog Review
+                            reviews it and posts the review to the pull request automatically.
                         </div>
                     </div>
                     <LemonSwitch
@@ -1204,8 +1211,8 @@ function TriggersSection(): JSX.Element {
                             label
                         </div>
                         <div className="text-xs text-secondary">
-                            Add the reviewhog label to a pull request you author in a connected repository and ReviewHog
-                            reviews it.
+                            Add the reviewhog label to a pull request you author in a connected repository and PostHog
+                            Review reviews it.
                         </div>
                     </div>
                     <LemonSwitch
@@ -1222,8 +1229,8 @@ function TriggersSection(): JSX.Element {
                     <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold">Resolve comments on your PRs</div>
                         <div className="text-xs text-secondary">
-                            After a review of your pull request is published, ReviewHog works through its unresolved
-                            comment threads: safe fixes land on the branch, and every thread gets a reply.
+                            After a review of your pull request is published, PostHog Review works through its
+                            unresolved comment threads: safe fixes land on the branch, and every thread gets a reply.
                         </div>
                     </div>
                     <LemonSwitch
@@ -1250,7 +1257,7 @@ function UrgencySection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader icon={<IconBalance />} title="Urgency threshold">
-                Set how strict ReviewHog is. The further right, the fewer findings reach the pull request — but the
+                Set how strict PostHog Review is. The further right, the fewer findings reach the pull request, but the
                 higher their priority.
             </SectionHeader>
             <LemonCard hoverEffect={false} className="flex flex-col p-5">
@@ -1735,7 +1742,7 @@ export function CodeReviewScene(): JSX.Element {
                         </div>
                     </div>
                     <h2 className="m-0 text-3xl font-bold" style={{ textWrap: 'balance' }}>
-                        ReviewHog reviews pull requests before humans do
+                        PostHog Review reviews pull requests before humans do
                     </h2>
                     <p className="m-0 max-w-155 text-sm text-secondary">
                         Specialist review skills read your changed code in parallel each from their own perspective, a
@@ -1747,7 +1754,7 @@ export function CodeReviewScene(): JSX.Element {
 
                 {initialLoadFailed && (
                     <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadAll() }}>
-                        Some ReviewHog settings failed to load.
+                        Some PostHog Review settings failed to load.
                     </LemonBanner>
                 )}
 
@@ -1769,7 +1776,7 @@ export function CodeReviewScene(): JSX.Element {
                     <SingleActiveSection
                         icon={<IconSearch />}
                         title="Blind-spot check"
-                        intro="After the enabled perspectives finish, ReviewHog runs one more sweep over each chunk — it sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
+                        intro="After the enabled perspectives finish, PostHog Review runs one more sweep over each chunk. It sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
                         kind="blind_spots"
                         kindLabel="blind-spot check"
                         preamble={<EffectivenessCard kind="blind_spots" />}
@@ -1791,7 +1798,7 @@ export function CodeReviewScene(): JSX.Element {
                     <SingleActiveSection
                         icon={<IconWrench />}
                         title="Resolution criteria"
-                        intro="After a review is published, ReviewHog works through the pull request's unresolved comment threads: asks that are worth it and safe get implemented on the branch, and every thread gets a reply. These criteria set that bar. Keep several on hand, but only one is applied."
+                        intro="After a review is published, PostHog Review works through the pull request's unresolved comment threads: asks that are worth it and safe get implemented on the branch, and every thread gets a reply. These criteria set that bar. Keep several on hand, but only one is applied."
                         kind="resolution"
                         kindLabel="resolution criteria"
                         createLabel="Create your own resolution criteria"

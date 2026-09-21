@@ -19,9 +19,12 @@ def _ok_response() -> mock.Mock:
     response.status_code = 200
     response.ok = True
     response.text = ""
-    # The egress recorder reads response.request.{method,url}; a spec'd mock doesn't expose the
-    # instance attribute, so set it explicitly (None falls back to defaults in the recorder).
+    # The egress recorder reads response.request.{method,url} and, for a known installation,
+    # response.headers; a spec'd mock doesn't expose either instance attribute, so set them
+    # explicitly (None falls back to defaults in the recorder, and no headers means no rate-limit
+    # sample rather than a parse over a Mock).
     response.request = None
+    response.headers = {}
     return response
 
 
@@ -198,6 +201,73 @@ def test_fetch_page_gates_on_egress_budget_when_installation_known():
         "source": "warehouse",
         "resource": GitHubRateResource.CORE,
     }
+
+
+@pytest.mark.parametrize(
+    "installation_id,pace,expected_wait",
+    [
+        # Budget with room to spare, which is every sync short enough never to spend its share.
+        # Waiting here would add latency to all of them and prevent nothing.
+        ("123", 0.0, None),
+        ("123", 12.5, 12.5),
+        # Spreading a nearly spent budget can imply most of a window. A source that holds a worker
+        # slot that long is worse than being shed and resuming, so the wait stops at the ceiling.
+        ("123", 9_999.0, github.GITHUB_MAX_RETRY_AFTER_SECONDS),
+        # PAT path: no installation, so no budget to pace against. Asking anyway would key the
+        # lookup on a missing installation and wait on a budget that is not this caller's.
+        (None, 12.5, None),
+    ],
+)
+def test_fetch_page_waits_for_egress_budget_before_asking_for_it(installation_id, pace, expected_wait):
+    # Waiting first is what keeps a long walk inside the budget rather than recovering from it. Every
+    # way of breaking this is silent: no wait means the run drains its share and is shed for the rest
+    # of the window, and waiting when there is headroom slows every small sync instead.
+    session = mock.Mock()
+    session.request.return_value = _ok_response()
+    identity = github.GithubEgressIdentity(installation_id=installation_id)
+
+    with (
+        mock.patch.object(github, "github_installation_pace_seconds", return_value=pace) as pace_for,
+        mock.patch.object(github, "activity") as temporal_activity,
+        mock.patch.object(github, "make_tracked_session", return_value=session),
+    ):
+        temporal_activity.in_activity.return_value = True
+        github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
+
+    expected_waits = [] if expected_wait is None else [mock.call(timeout=expected_wait)]
+    assert temporal_activity.wait_for_worker_shutdown_sync.call_args_list == expected_waits
+    assert pace_for.called is (installation_id is not None)
+    assert session.request.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "in_activity,expect_drain_wait,expect_sleep",
+    [
+        (True, True, False),
+        # Outside an activity there is no worker to drain, so a plain sleep is the whole behavior.
+        (False, False, True),
+    ],
+)
+def test_fetch_page_budget_wait_yields_to_a_draining_worker(in_activity, expect_drain_wait, expect_sleep):
+    # The pipeline tests for worker shutdown only between the chunks a source yields, so a wait that
+    # slept would hold a draining pod for its full duration and delay the hand-off by that much.
+    # Waiting on the shutdown event returns the moment the pod starts draining. Nothing about the
+    # sync looks wrong when this regresses; drains just get slower.
+    session = mock.Mock()
+    session.request.return_value = _ok_response()
+    identity = github.GithubEgressIdentity(installation_id="123")
+
+    with (
+        mock.patch.object(github, "github_installation_pace_seconds", return_value=30.0),
+        mock.patch.object(github, "activity") as temporal_activity,
+        mock.patch.object(github.time, "sleep") as sleep,
+        mock.patch.object(github, "make_tracked_session", return_value=session),
+    ):
+        temporal_activity.in_activity.return_value = in_activity
+        github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
+
+    assert temporal_activity.wait_for_worker_shutdown_sync.called is expect_drain_wait
+    assert sleep.called is expect_sleep
 
 
 def _error_response(status_code: int, message: str, headers: dict[str, str] | None = None) -> mock.Mock:

@@ -486,3 +486,22 @@ def test_batching_should_yield_when_buffer_not_full_with_incomplete_chunk_set():
     expected_table = pa.table({"a": [1, 2, 3]})
 
     assert result_table.equals(expected_table)
+
+
+def test_batching_pa_table_converts_primary_key_binary_column_to_hex():
+    batcher = Batcher(logger=mock.MagicMock(), primary_keys=["sk_load"])
+
+    batcher.batch(
+        pa.table(
+            {
+                "sk_load": pa.array([b"\xbd\xd6\x40", None], type=pa.binary()),
+                "payload": pa.array([b"\x01", b"\x02"], type=pa.binary()),
+            }
+        )
+    )
+
+    result_table = batcher.get_table()
+
+    assert result_table.column("sk_load").to_pylist() == ["bdd640", None]
+    assert result_table.schema.field("sk_load").type == pa.string()
+    assert result_table.column("payload").to_pylist() == [b"\x01", b"\x02"]

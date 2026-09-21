@@ -1,6 +1,7 @@
 import datetime
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -202,7 +203,9 @@ class UUIDDatabaseField(DatabaseField):
         return UUIDType(nullable=self.is_nullable())
 
     def default_value(self) -> Any:
-        return "00000000-0000-0000-0000-000000000000"
+        # A `UUID` rather than its string form, so an empty `SelectQuery` prints a UUID-typed
+        # literal that still compares against a real UUID column.
+        return UUID("00000000-0000-0000-0000-000000000000")
 
 
 class ExpressionField(DatabaseField):
@@ -239,7 +242,12 @@ class Table(FieldOrTable):
     def to_printed_hogql(self) -> str:
         raise NotImplementedError("Table.to_printed_hogql not overridden")
 
-    def get_predicates(self) -> list[Expr]:
+    def get_predicates(self, context: Optional["HogQLContext"] = None) -> list[Expr]:
+        """Predicates the printer ANDs onto every scan of this table.
+
+        `context` lets a table shape them per query — a predicate referencing another table has to
+        know whether that table is in this caller's schema, since access control may have removed it.
+        """
         return []
 
     def avoid_asterisk_fields(self) -> list[str]:

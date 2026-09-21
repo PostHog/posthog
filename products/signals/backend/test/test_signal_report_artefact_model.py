@@ -4,6 +4,8 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     Dismissal,
@@ -11,13 +13,15 @@ from products.signals.backend.artefact_schemas import (
     Priority,
     PriorityAssessment,
     RelatedTo,
+    ReportLink,
     SignalFinding,
 )
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.agentic.report import _AGENTIC_ARTEFACT_TYPES
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 
 class TestSignalReportArtefactHelpers(BaseTest):
@@ -157,6 +161,127 @@ class TestSignalReportArtefactHelpers(BaseTest):
 
         assert links_of(report_a) == [str(report_b.id)]
         assert links_of(report_b) == [str(report_a.id)]
+
+    # --- report_link ---
+
+    def _link(
+        self,
+        source: SignalReport,
+        target: SignalReport,
+        kind: ReportLinkKind = ReportLinkKind.DEPENDS_ON,
+        *,
+        team_id: int | None = None,
+    ) -> SignalReportArtefact:
+        return SignalReportArtefact.add_log(
+            team_id=self.team.id if team_id is None else team_id,
+            report_id=str(source.id),
+            content=ReportLink(kind=kind, report_id=str(target.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    def _links_of(self, report: SignalReport) -> list[tuple[str, str]]:
+        return [
+            (link.kind.value, link.report_id)
+            for link in (
+                ReportLink.model_validate_json(a.content)
+                for a in SignalReportArtefact.objects.filter(
+                    report=report, type=SignalReportArtefact.ArtefactType.REPORT_LINK
+                ).order_by("created_at")
+            )
+        ]
+
+    @parameterized.expand([("add_log",), ("append",)])
+    def test_report_link_is_directed_and_writes_no_backlink(self, write_method):
+        # The direction is the payload, so unlike related_to the target must stay untouched from
+        # either write entry point. A mirror row would assert the opposite relationship.
+        report_a = self._report()
+        report_b = self._report()
+        getattr(SignalReportArtefact, write_method)(
+            team_id=self.team.id,
+            report_id=str(report_a.id),
+            content=ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=str(report_b.id), reason="stacked"),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        assert self._links_of(report_a) == [("depends_on", str(report_b.id))]
+        assert self._links_of(report_b) == []
+
+    def test_report_link_rejects_self_link(self):
+        report = self._report()
+        with self.assertRaises(ArtefactContentValidationError):
+            self._link(report, report)
+
+    def test_report_link_rejects_a_report_in_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = SignalReport.objects.create(
+            team=other_team,
+            status=SignalReport.Status.READY,
+            title="t",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+        with self.assertRaises(ArtefactContentValidationError):
+            self._link(self._report(), foreign)
+
+    def test_report_link_rejects_a_source_report_in_another_team(self):
+        # The write locks the source report row before the team's link lock, so a report_id the
+        # team does not own has to fail there rather than insert an artefact against it.
+        other_team = Team.objects.create(organization=self.organization, name="other source")
+        foreign_source = SignalReport.objects.create(
+            team=other_team,
+            status=SignalReport.Status.READY,
+            title="t",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+        with self.assertRaises(ArtefactContentValidationError):
+            self._link(foreign_source, self._report())
+
+    def test_report_link_rejects_a_deleted_report(self):
+        target = self._report()
+        target.status = SignalReport.Status.DELETED
+        target.save(update_fields=["status"])
+        with self.assertRaises(ArtefactContentValidationError):
+            self._link(self._report(), target)
+
+    @parameterized.expand([(2,), (3,)])
+    def test_report_link_rejects_a_cycle_of_one_kind(self, chain_length):
+        # A -> B -> ... -> A must be refused at the closing link, so a dependency chain always has
+        # a first report and the pipeline can order the stack.
+        chain = [self._report() for _ in range(chain_length)]
+        for source, target in zip(chain, chain[1:]):
+            self._link(source, target)
+
+        with self.assertRaises(ArtefactContentValidationError):
+            self._link(chain[-1], chain[0])
+
+    def test_report_link_allows_different_kinds_between_the_same_pair(self):
+        # Kinds are separate claims, so the cycle check must not treat a link of one kind as an
+        # edge of another. "A depends_on B" and "B follow_up_of A" are both true of a stack.
+        report_a = self._report()
+        report_b = self._report()
+        self._link(report_a, report_b, ReportLinkKind.DEPENDS_ON)
+        self._link(report_b, report_a, ReportLinkKind.FOLLOW_UP_OF)
+
+        assert self._links_of(report_a) == [("depends_on", str(report_b.id))]
+        assert self._links_of(report_b) == [("follow_up_of", str(report_a.id))]
+
+    def test_editing_a_report_link_cannot_install_a_rejected_link(self):
+        # update_content is a second way to write a link, so it answers to the same invariants.
+        # Otherwise a PATCH is the way around them.
+        report_a = self._report()
+        report_b = self._report()
+        report_c = self._report()
+        self._link(report_b, report_a)
+        link = self._link(report_a, report_c)
+
+        with self.assertRaises(ArtefactContentValidationError):
+            link.update_content({"kind": "depends_on", "report_id": str(report_b.id)})
+        with self.assertRaises(ArtefactContentValidationError):
+            link.update_content({"kind": "depends_on", "report_id": str(report_a.id)})
+        assert self._links_of(report_a) == [("depends_on", str(report_c.id))]
 
     # --- append_status ---
 

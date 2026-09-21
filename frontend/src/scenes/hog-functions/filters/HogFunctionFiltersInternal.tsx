@@ -40,6 +40,30 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     label: 'Error tracking issue spiking',
                     value: '$error_tracking_issue_spiking',
                 },
+                {
+                    label: 'Error tracking issue resolved',
+                    value: '$error_tracking_issue_resolved',
+                },
+                {
+                    label: 'Error tracking issue suppressed',
+                    value: '$error_tracking_issue_suppressed',
+                },
+                {
+                    label: 'Error tracking issue assigned',
+                    value: '$error_tracking_issue_assigned',
+                },
+                {
+                    label: 'Error tracking issue unassigned',
+                    value: '$error_tracking_issue_unassigned',
+                },
+                {
+                    label: 'Error tracking issue merged',
+                    value: '$error_tracking_issue_merged',
+                },
+                {
+                    label: 'Error tracking issue split',
+                    value: '$error_tracking_issue_split',
+                },
             ]
         case 'insight-alerts':
             return [
@@ -181,6 +205,7 @@ const setSimpleFilterValue = (
     contextId: HogFunctionConfigurationContextId
 ): CyclotronJobFiltersType => {
     const next: CyclotronJobFiltersType = {
+        source: 'internal-events',
         events: [
             {
                 name: options.find((option) => option.value === value)?.label,

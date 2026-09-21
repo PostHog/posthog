@@ -75,6 +75,10 @@ class TableConfig:
     - ``bool_fields`` / ``uuid_fields`` / ``array_fields``: per-table type adaptations the generic
       transform applies (booleans to 0/1, UUIDs to strings, array NULL-coalescing and
       None-filtering).
+    - ``json_dumps_fields``: columns psycopg2 hands over as a Python list or dict that the mirror
+      stores as a JSON String. Postgres ``jsonb`` columns take the ``jsonb_text_cast`` route
+      instead; this list is for ``ArrayField`` columns, where ``::text`` would render Postgres
+      array literal syntax that JSONExtract* cannot read.
     - ``ddl``: callable producing the ``CREATE TABLE IF NOT EXISTS`` SQL for the ClickHouse mirror.
     - ``post_transform``: table-specific row fixups applied after the generic type adaptations.
     - ``lookback_seconds``: how far below the mirror's high-watermark the hourly sync rewinds each
@@ -92,6 +96,7 @@ class TableConfig:
     bool_fields: list[str] = field(default_factory=list)
     uuid_fields: list[str] = field(default_factory=list)
     array_fields: list[str] = field(default_factory=list)
+    json_dumps_fields: list[str] = field(default_factory=list)
     watermark_expr: Optional[str] = None
     post_transform: Optional[Callable[[dict], dict]] = None
     lookback_seconds: int = 86400
@@ -168,7 +173,6 @@ _ORG_COLS = [
     "plugins_access_level",
     "for_internal_metrics",
     "default_experiment_stats_method",
-    "is_hipaa",
     "customer_id",
     "available_product_features",
     "usage",
@@ -188,7 +192,6 @@ _ORG_BOOL_FIELDS = [
     "members_can_use_personal_api_keys",
     "allow_publicly_shared_resources",
     "for_internal_metrics",
-    "is_hipaa",
     "never_drop_data",
     "setup_section_2_completed",
     "is_platform",
@@ -202,6 +205,8 @@ _ORG_JSONB_TEXT_CAST = {
     "customer_trust_scores",
     "personalization",
 }
+
+_ORG_JSON_DUMPS_FIELDS = ["available_product_features"]
 
 
 def _organization_ddl() -> str:
@@ -223,7 +228,6 @@ def _organization_ddl() -> str:
             plugins_access_level Int16,
             for_internal_metrics UInt8,
             default_experiment_stats_method Nullable(String),
-            is_hipaa Nullable(UInt8),
             customer_id Nullable(String),
             available_product_features Nullable(String),  -- JSON stored as String
             usage Nullable(String),  -- JSON stored as String
@@ -309,6 +313,7 @@ _TEAM_COLS = [
     "modifiers",
     "correlation_config",
     "session_recording_retention_period_days",
+    "event_retention_months",
     "plugins_opt_in",
     "opt_out_capture",
     "event_names",
@@ -380,6 +385,12 @@ _TEAM_JSONB_TEXT_CAST = {
 
 _TEAM_ARRAY_FIELDS = ["app_urls", "person_display_name_properties", "live_events_columns", "recording_domains"]
 
+_TEAM_JSON_DUMPS_FIELDS = [
+    "session_recording_url_trigger_config",
+    "session_recording_url_blocklist_config",
+    "session_recording_event_trigger_config",
+]
+
 
 def _team_ddl() -> str:
     return """
@@ -449,6 +460,7 @@ def _team_ddl() -> str:
             modifiers Nullable(String),  -- JSON stored as String
             correlation_config Nullable(String),  -- JSON stored as String
             session_recording_retention_period_days Nullable(Int32),
+            event_retention_months UInt16 DEFAULT 84,
             plugins_opt_in UInt8,
             opt_out_capture UInt8,
             event_names String,  -- JSON stored as String
@@ -582,6 +594,7 @@ TABLE_CONFIGS: dict[str, TableConfig] = {
         bool_fields=_ORG_BOOL_FIELDS,
         uuid_fields=["id", "logo_media_id"],
         array_fields=["domain_whitelist"],
+        json_dumps_fields=_ORG_JSON_DUMPS_FIELDS,
         ddl=_organization_ddl,
     ),
     "posthog_team": TableConfig(
@@ -593,6 +606,7 @@ TABLE_CONFIGS: dict[str, TableConfig] = {
         bool_fields=_TEAM_BOOL_FIELDS,
         uuid_fields=["uuid", "organization_id"],
         array_fields=_TEAM_ARRAY_FIELDS,
+        json_dumps_fields=_TEAM_JSON_DUMPS_FIELDS,
         ddl=_team_ddl,
         post_transform=_finalize_team_row,
     ),
@@ -665,6 +679,9 @@ def transform_row(table_name: str, row: dict) -> dict:
             row[f] = []
         elif isinstance(row[f], list):
             row[f] = [v for v in row[f] if v is not None]
+    for f in cfg.json_dumps_fields:
+        if row.get(f) is not None:
+            row[f] = json.dumps(row[f])
     return cfg.post_transform(row) if cfg.post_transform else row
 
 

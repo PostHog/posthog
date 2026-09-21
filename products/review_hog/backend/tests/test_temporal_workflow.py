@@ -27,6 +27,7 @@ from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
+    FetchPRDataInput,
     GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
@@ -41,8 +42,11 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     ReviewMeta,
     SelectPerspectivesInput,
+    StatusCommentInput,
     SyncReviewSkillsInput,
+    TrackReviewCompletedInput,
     TrackReviewFailedInput,
+    TrackReviewStartedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
@@ -111,6 +115,7 @@ async def _run_full_review_pr_workflow(
     fail_review_units: frozenset[tuple[int, int]] = frozenset(),
     resolve_comments_setting: bool = False,
     input_resolve_comments: bool | None = None,
+    review_mode: str = "full",
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -142,12 +147,20 @@ async def _run_full_review_pr_workflow(
     # snapshot; input_resolve_comments is the per-run override on the workflow input.
     StubResolvePRWorkflow.dispatches.clear()
 
+    # The mode every consumer received, keyed by stage: the arms, the prefix, and the events all key
+    # off it, so a stage that drops it silently runs (or labels) a flash turn as a full one.
+    mode_calls: dict[str, set[str]] = {}
+
+    def _saw_mode(stage: str, mode: str) -> None:
+        mode_calls.setdefault(stage, set()).add(mode)
+
     @activity.defn(name="validate_github_integration_activity")
     async def validate_integration(input) -> None:
         return None
 
     @activity.defn(name="fetch_pr_data_activity")
-    async def fetch(input) -> ReviewMeta:
+    async def fetch(input: FetchPRDataInput) -> ReviewMeta:
+        _saw_mode("fetch", input.review_mode)
         return ReviewMeta(
             report_id="rep-1",
             head_sha="sha1",
@@ -202,6 +215,7 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="select_perspectives_activity")
     async def select_perspectives(input: SelectPerspectivesInput) -> PerspectiveSelectionDTO | None:
+        _saw_mode("select", input.review_mode)
         if fail_selection:
             raise ApplicationError("selector down", non_retryable=True)
         return selection
@@ -213,6 +227,7 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="review_chunk_activity")
     async def review(input: ReviewChunkInput) -> bool:
+        _saw_mode("review", input.review_mode)
         review_calls.append(
             (
                 input.pass_number,
@@ -240,6 +255,7 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="validate_chunk_activity")
     async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
+        _saw_mode("validate", input.review_mode)
         validate_calls.append(input.chunk_id)
         return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issue_ids))
 
@@ -251,6 +267,7 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="publish_review_activity")
     async def publish_act(input: PublishInput) -> PublishResult:
+        _saw_mode("publish", input.review_mode)
         publish_calls.append(input.pr_number)
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=True, review_url=_REVIEW_URL)
@@ -265,11 +282,13 @@ async def _run_full_review_pr_workflow(
         return None
 
     @activity.defn(name="post_status_comment_activity")
-    async def post_status(input) -> None:
+    async def post_status(input: StatusCommentInput) -> None:
+        _saw_mode("status", input.review_mode)
         return None
 
     @activity.defn(name="finalize_status_comment_activity")
     async def finalize_status(input: FinalizeStatusCommentInput) -> None:
+        _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
         return None
 
@@ -277,14 +296,28 @@ async def _run_full_review_pr_workflow(
     async def fail_status(input) -> None:
         return None
 
-    # Records the failed-turn analytics event's run_index — the completion-rate denominator the
-    # model experiment relies on; the patched block is swallowed best-effort, so without this stub
-    # deleting it would leave every test green.
-    track_failed_calls: list[int] = []
+    # Records the analytics events' run_index and the turn's trigger — the completion-rate
+    # denominator and the per-tier split rely on them; all three captures are swallowed best-effort
+    # in the workflow, so without these stubs deleting any of them would leave every test green.
+    track_failed_calls: list[tuple[int, str | None]] = []
+    track_completed_calls: list[tuple[int, str | None]] = []
+    track_started_calls: list[tuple[int, str | None]] = []
 
     @activity.defn(name="track_review_failed_activity")
     async def track_failed(input: TrackReviewFailedInput) -> None:
-        track_failed_calls.append(input.run_index)
+        track_failed_calls.append((input.run_index, input.turn_trigger_source))
+        return None
+
+    @activity.defn(name="track_review_completed_activity")
+    async def track_completed(input: TrackReviewCompletedInput) -> None:
+        _saw_mode("track", input.review_mode)
+        track_completed_calls.append((input.run_index, input.turn_trigger_source))
+        return None
+
+    @activity.defn(name="track_review_started_activity")
+    async def track_started(input: TrackReviewStartedInput) -> None:
+        _saw_mode("track", input.review_mode)
+        track_started_calls.append((input.run_index, input.turn_trigger_source))
         return None
 
     result: str | None = None
@@ -322,6 +355,8 @@ async def _run_full_review_pr_workflow(
                 finalize_status,
                 fail_status,
                 track_failed,
+                track_completed,
+                track_started,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -341,6 +376,7 @@ async def _run_full_review_pr_workflow(
                         signal_report_id=signal_report_id,
                         head_branch=input_head_branch,
                         resolve_comments=input_resolve_comments,
+                        review_mode=review_mode,
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
@@ -372,7 +408,10 @@ async def _run_full_review_pr_workflow(
         "thresholds": threshold_calls,
         "finalize_status": finalize_status_calls,
         "track_failed": track_failed_calls,
+        "track_completed": track_completed_calls,
+        "track_started": track_started_calls,
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
+        "modes": mode_calls,
     }
 
 
@@ -516,6 +555,22 @@ async def test_review_pr_workflow_chains_resolution_per_setting_and_override(
 
 
 @pytest.mark.asyncio
+async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_resolution():
+    # Flash must not write code even with the strongest opt-in (an explicit True override on a
+    # publishing run), and every stage that picks an arm, labels a GitHub message, or emits an
+    # event has to receive the mode — a consumer that falls back to the default runs or labels a
+    # flash turn as a full one.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, resolve_comments_setting=True, input_resolve_comments=True, review_mode="flash"
+    )
+    assert recorded["publish"] == [7]
+    assert recorded["resolve_dispatches"] == []
+    assert recorded["modes"] == {
+        stage: {"flash"} for stage in ("fetch", "select", "review", "validate", "publish", "status", "track")
+    }
+
+
+@pytest.mark.asyncio
 async def test_review_pr_workflow_early_exits_when_already_published():
     # A re-trigger at an already-published head: the gate returns the report id without running any
     # downstream stage — no re-chunk/review/dedup/validate and no re-publish.
@@ -525,6 +580,7 @@ async def test_review_pr_workflow_early_exits_when_already_published():
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == []
+    assert recorded["track_started"] == []  # a skipped turn never counts as started
 
 
 @pytest.mark.asyncio
@@ -537,6 +593,7 @@ async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == []
+    assert recorded["track_started"] == []
 
 
 @parameterized.expand(
@@ -575,11 +632,14 @@ async def test_review_pr_workflow_trigger_aware_gates(
     if expect_ran:
         assert recorded["split"] == [1]
         assert recorded["receipts"] == [("stored", None)]
+        assert recorded["track_started"] == [(1, trigger_source)]
     else:
         assert recorded["split"] == []
         assert recorded["review"] == []
         assert recorded["publish"] == []
         assert recorded["receipts"] == []
+        # The started event counts turns that passed every gate, so a gated-off turn must not fire it.
+        assert recorded["track_started"] == []
 
 
 @pytest.mark.asyncio
@@ -592,6 +652,8 @@ async def test_review_pr_workflow_appends_published_receipt_with_review_url():
     assert recorded["publish"] == [7]
     assert recorded["receipts"] == [("published", _REVIEW_URL)]
     assert recorded["track_failed"] == []  # a completed turn must not also count as failed
+    assert recorded["track_completed"] == [(1, "inbox")]  # this turn's trigger, not the report's
+    assert recorded["track_started"] == [(1, "inbox")]  # once, after the gates, before any sandbox
 
 
 @pytest.mark.asyncio
@@ -610,7 +672,11 @@ async def test_review_pr_workflow_appends_failed_receipt_and_still_fails():
     assert recorded["receipts"] == [("failed", None)]
     # The failed-turn analytics event fires exactly once with the turn's run_index — the completion
     # rate's denominator; it is best-effort-swallowed in the workflow, so only this assert guards it.
-    assert recorded["track_failed"] == [1]
+    assert recorded["track_failed"] == [(1, "inbox")]
+    assert recorded["track_completed"] == []
+    # The turn had started (the gates passed) before dedup killed it, so started + failed is the
+    # honest pair for an abandoned turn.
+    assert recorded["track_started"] == [(1, "inbox")]
 
 
 @pytest.mark.asyncio
@@ -662,6 +728,7 @@ async def test_review_pr_workflow_early_exits_on_empty_branch_diff():
     assert recorded["split"] == []
     assert recorded["review"] == []
     assert recorded["receipts"] == []
+    assert recorded["track_started"] == []
 
 
 def test_review_pr_workflow_inputs_deserialize_old_payloads():
@@ -678,6 +745,8 @@ def test_review_pr_workflow_inputs_deserialize_old_payloads():
     # in-flight review with a Non Deterministic Error on deploy.
     assert inputs.resolve_comments is None
     assert ResolveActingUserResult(acting_user_id=3).resolve_comments is False
+    # A pre-field payload is a full review: defaulting to flash would silently cheapen in-flight turns.
+    assert inputs.review_mode == "full"
 
 
 async def _run_validate_workflow(*, issue_ids: list[str], validate_chunk) -> int:

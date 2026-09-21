@@ -5,7 +5,7 @@ import { usePrDetails } from "@posthog/ui/features/git-interaction/usePrDetails"
 import { usePrDiffStatsFromBatch } from "@posthog/ui/features/inbox/context/PrDiffStatsBatchContext";
 import { Tooltip } from "@radix-ui/themes";
 
-export type ImplementationPrLinkSize = "sm" | "md";
+type ImplementationPrLinkSize = "sm" | "md";
 
 interface ReportImplementationPrLinkProps {
   prUrl: string;

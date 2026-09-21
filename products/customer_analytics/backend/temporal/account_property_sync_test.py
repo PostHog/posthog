@@ -12,6 +12,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.customer_analytics.backend.facade.temporal_contracts import (
     DispatchAccountPropertySyncInput,
+    FinalizeAccountPropertySyncRunsInput,
     StageAccountPropertySyncInput,
 )
 from products.customer_analytics.backend.temporal.account_property_sync import (
@@ -19,7 +20,9 @@ from products.customer_analytics.backend.temporal.account_property_sync import (
     StageWarehouseAccountPropertiesWorkflow,
     SyncWarehouseAccountPropertiesWorkflow,
     dispatch_warehouse_account_property_sync_activity,
+    finalize_warehouse_account_property_runs_activity,
     stage_warehouse_account_property_files_activity,
+    start_warehouse_account_property_runs_activity,
     sync_warehouse_account_properties_activity,
 )
 
@@ -54,35 +57,94 @@ async def test_staging_activity_reads_the_committed_delta_version() -> None:
             "products.customer_analytics.backend.temporal.account_property_sync.Heartbeater",
             return_value=_no_heartbeat(),
         ),
+        patch("products.customer_analytics.backend.temporal.account_property_sync.activity.info") as activity_info,
+        patch(
+            "products.customer_analytics.backend.temporal.account_property_sync.update_account_property_sync_runs_phase"
+        ),
     ):
+        activity_info.return_value.attempt = 1
+        activity_info.return_value.workflow_id = "stage-workflow-job-1"
         staged = await stage_warehouse_account_property_files_activity(_staging_input())
 
     assert staged is True
     sink.stage_delta_snapshot.assert_awaited_once_with("s3://data-warehouse/dlt/table", 5)
 
 
-async def test_staging_workflow_dispatches_segments_only_after_staging_succeeds() -> None:
+async def test_staging_workflow_opens_history_before_staging_and_dispatches_after_success() -> None:
+    execute_activity = AsyncMock(side_effect=[None, True, None])
+
+    with (
+        patch.object(workflow, "execute_activity", new=execute_activity),
+        patch.object(workflow, "patched", return_value=True),
+    ):
+        await StageWarehouseAccountPropertiesWorkflow().run(_staging_input())
+
+    assert [call.args[0] for call in execute_activity.await_args_list] == [
+        start_warehouse_account_property_runs_activity,
+        stage_warehouse_account_property_files_activity,
+        dispatch_warehouse_account_property_sync_activity,
+    ]
+
+
+async def test_staging_workflow_preserves_the_pre_history_command_sequence() -> None:
     execute_activity = AsyncMock(side_effect=[True, None])
 
-    with patch.object(workflow, "execute_activity", new=execute_activity):
+    with (
+        patch.object(workflow, "execute_activity", new=execute_activity),
+        patch.object(workflow, "patched", return_value=False),
+    ):
         await StageWarehouseAccountPropertiesWorkflow().run(_staging_input())
 
-    assert execute_activity.await_count == 2
-    assert execute_activity.await_args_list[0].args[0] == stage_warehouse_account_property_files_activity
-    assert execute_activity.await_args_list[1].args[0] == dispatch_warehouse_account_property_sync_activity
+    assert [call.args[0] for call in execute_activity.await_args_list] == [
+        stage_warehouse_account_property_files_activity,
+        dispatch_warehouse_account_property_sync_activity,
+    ]
 
 
-async def test_staging_workflow_stops_when_no_sources_remain() -> None:
-    execute_activity = AsyncMock(return_value=False)
+async def test_staging_workflow_finishes_empty_history_when_no_sources_remain() -> None:
+    execute_activity = AsyncMock(side_effect=[None, False, None])
 
-    with patch.object(workflow, "execute_activity", new=execute_activity):
+    with (
+        patch.object(workflow, "execute_activity", new=execute_activity),
+        patch.object(workflow, "patched", return_value=True),
+    ):
         await StageWarehouseAccountPropertiesWorkflow().run(_staging_input())
 
-    execute_activity.assert_awaited_once()
+    assert execute_activity.await_args_list[-1].args[0] == finalize_warehouse_account_property_runs_activity
+    finalization = execute_activity.await_args_list[-1].args[1]
+    assert isinstance(finalization, FinalizeAccountPropertySyncRunsInput)
+    assert (finalization.status, finalization.phase, finalization.error) == ("completed", "completed", None)
+
+
+@pytest.mark.parametrize(
+    "activity_results,failed_phase",
+    [
+        ([None, RuntimeError("staging failed"), None], "staging"),
+        ([None, True, RuntimeError("dispatch failed"), None], "dispatching"),
+    ],
+)
+async def test_staging_workflow_finishes_failed_history(activity_results: list[object], failed_phase: str) -> None:
+    execute_activity = AsyncMock(side_effect=activity_results)
+
+    with (
+        pytest.raises(RuntimeError),
+        patch.object(workflow, "execute_activity", new=execute_activity),
+        patch.object(workflow, "patched", return_value=True),
+    ):
+        await StageWarehouseAccountPropertiesWorkflow().run(_staging_input())
+
+    finalization = execute_activity.await_args_list[-1].args[1]
+    assert isinstance(finalization, FinalizeAccountPropertySyncRunsInput)
+    assert (finalization.status, finalization.phase) == ("failed", failed_phase)
+    assert finalization.error is not None
 
 
 async def test_staging_and_dispatch_recover_from_transient_activity_failures() -> None:
     attempts: list[tuple[str, int]] = []
+
+    @activity.defn(name="start-warehouse-account-property-runs")
+    async def start_runs(_input: DispatchAccountPropertySyncInput) -> None:
+        return None
 
     @activity.defn(name="stage-warehouse-account-property-files")
     async def stage_files(_input: StageAccountPropertySyncInput) -> bool:
@@ -105,7 +167,7 @@ async def test_staging_and_dispatch_recover_from_transient_activity_failures() -
             environment.client,
             task_queue=task_queue,
             workflows=[StageWarehouseAccountPropertiesWorkflow],
-            activities=[stage_files, dispatch],
+            activities=[start_runs, stage_files, dispatch],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             await environment.client.execute_workflow(
@@ -127,7 +189,15 @@ async def test_dispatch_starts_missing_segment_when_its_sibling_already_runs() -
         job_id="job-1",
     )
 
-    with patch("products.customer_analytics.backend.temporal.account_property_sync.async_connect", return_value=client):
+    with (
+        patch("products.customer_analytics.backend.temporal.account_property_sync.async_connect", return_value=client),
+        patch("products.customer_analytics.backend.temporal.account_property_sync.activity.info") as activity_info,
+        patch(
+            "products.customer_analytics.backend.temporal.account_property_sync.update_account_property_sync_runs_phase"
+        ),
+    ):
+        activity_info.return_value.attempt = 1
+        activity_info.return_value.workflow_id = "stage-workflow-job-1"
         await dispatch_warehouse_account_property_sync_activity(input)
 
     assert client.start_workflow.await_count == 2

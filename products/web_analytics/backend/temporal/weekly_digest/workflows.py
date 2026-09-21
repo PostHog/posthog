@@ -69,10 +69,12 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
             if page.batches:
                 workflow.logger.info(
                     "Fanning out WA digest page",
-                    batches=len(page.batches),
-                    orgs=page.org_count,
-                    cursor=cursor,
-                    next_cursor=page.cursor,
+                    extra={
+                        "batches": len(page.batches),
+                        "orgs": page.org_count,
+                        "cursor": cursor,
+                        "next_cursor": page.cursor,
+                    },
                 )
 
                 batch_count += len(page.batches)
@@ -120,6 +122,7 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
             "failed_batches": failed_batches,
             "emails_sent": totals.emails_sent,
             "emails_failed": totals.emails_failed,
+            "teams_failed": totals.teams_failed,
             "cumulative_duration_seconds": totals.total_duration,
         }
 

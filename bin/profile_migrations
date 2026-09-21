@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# Profile Django migrations across every writer DB alias.
+#
+# Mimics bin/migrate: full graph on `default`, per-app filtered migrate on
+# each product-routed aux DB (from products/db_routing.yaml). Running an
+# unfiltered migrate on every alias would walk all ~1300 migrations on each
+# aux DB, hugely inflating Migration.apply wall-clock with pure Django
+# state-rebuild on operations that allow_migrate already gates to no-op.
+#
+# Per alias:
+#   1. Verify django_migrations is empty (refuse to profile a non-fresh DB).
+#   2. Run `python manage.py migrate [<app_label>] --database <alias>
+#        --profile-operations`. pyinstrument is auto-attached if importable
+#        (writes a .pyinstrument.html alongside the JSONL).
+#   3. Optionally wrap under py-spy (--with-pyspy). Skipped by default: py-spy
+#        needs root on macOS, and pyinstrument already covers Python CPU.
+#
+# Output lives under /tmp/migration-profile-<ts>/ ; final report is rendered
+# by `analyze_migration_profile`.
+#
+# DB drop/recreate is left to the operator — this script aborts on a populated
+# django_migrations table to avoid accidental destructive ops on shared envs.
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
+REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)
+cd "$REPO_ROOT"
+
+TS=$(date +%s)
+OUT_DIR="${PROFILE_OUT_DIR:-/tmp/migration-profile-$TS}"
+mkdir -p "$OUT_DIR"
+
+usage() {
+    cat <<EOF
+Usage: bin/profile_migrations [--out <dir>] [--with-pyspy]
+
+Options:
+  --out          Output directory. Defaults to /tmp/migration-profile-<unix_ts>/.
+  --with-pyspy   Additionally wrap each migrate under py-spy record. Off by
+                 default — py-spy requires root on macOS, and pyinstrument
+                 (auto-attached if importable) already produces a per-alias
+                 HTML CPU report.
+  --help         Show this message.
+
+Profiles the same shape as bin/migrate: full graph on the `default` alias,
+and per-app filtered migrate on each product-routed aux DB (read from
+products/db_routing.yaml).
+
+Refuses to profile a database with existing applied migrations — drop and
+recreate it yourself first (e.g. \`dropdb <name> && createdb <name>\`).
+EOF
+}
+
+WITH_PYSPY=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --out) OUT_DIR="$2"; shift 2;;
+        --with-pyspy) WITH_PYSPY=1; shift;;
+        --help|-h) usage; exit 0;;
+        *) echo "Unknown arg: $1" >&2; usage; exit 2;;
+    esac
+done
+
+# --- 1. py-spy check (optional)
+if [[ "$WITH_PYSPY" -eq 1 ]] && ! command -v py-spy >/dev/null 2>&1; then
+    cat <<EOF >&2
+--with-pyspy was passed but py-spy is not on PATH.
+
+Install:
+    uv tool install py-spy
+    # or
+    cargo install py-spy
+
+On macOS py-spy additionally needs root: prefix the script with sudo.
+EOF
+    exit 1
+fi
+
+# --- 2. Discover (alias, app_label) targets from products/db_routing.yaml.
+# `default` always runs the full graph (no app filter); each aux alias runs
+# only the app(s) routed to it via the product DB router.
+# Done in pure Python to avoid pulling Django settings/logging into stdout.
+discover_targets() {
+    python - <<'PY'
+import sys, pathlib, yaml
+routes_path = pathlib.Path("products/db_routing.yaml")
+print("default\t")
+if not routes_path.exists():
+    sys.exit(0)
+with routes_path.open() as fh:
+    routes = yaml.safe_load(fh).get("routes", [])
+seen = set()
+for r in routes:
+    alias = f"{r['database']}_db_writer"
+    key = (alias, r["app_label"])
+    if key in seen:
+        continue
+    seen.add(key)
+    print(f"{alias}\t{r['app_label']}")
+PY
+}
+
+mapfile -t TARGETS < <(discover_targets)
+if [[ ${#TARGETS[@]} -eq 0 ]]; then
+    echo "No migrate targets discovered." >&2
+    exit 1
+fi
+
+# Probe DB freshness via direct psql (no Django bootstrap), based on the
+# alias's NAME/HOST from settings. One small Python helper renders the env.
+load_db_env() {
+    # Sets NAME/HOST/PORT/USER/PASSWORD. Values are read line-by-line in fixed
+    # order — never eval'd — so a password with shell metacharacters stays data.
+    local alias="$1"
+    local rendered
+    rendered=$(python - "$alias" <<'PY'
+import os, sys
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import django
+django.setup()
+from django.conf import settings
+alias = sys.argv[1]
+conf = settings.DATABASES[alias]
+print(conf.get("NAME"))
+print(conf.get("HOST") or "localhost")
+print(conf.get("PORT") or 5432)
+print(conf.get("USER") or "posthog")
+print(conf.get("PASSWORD") or "")
+PY
+    ) || return 1
+    { IFS= read -r NAME && IFS= read -r HOST && IFS= read -r PORT && IFS= read -r USER && IFS= read -r PASSWORD; } <<<"$rendered"
+}
+
+UNIQUE_ALIASES=()
+declare -A ALIAS_SEEN=()
+for line in "${TARGETS[@]}"; do
+    ALIAS="${line%%$'\t'*}"
+    if [[ -z "${ALIAS_SEEN[$ALIAS]:-}" ]]; then
+        ALIAS_SEEN[$ALIAS]=1
+        UNIQUE_ALIASES+=("$ALIAS")
+    fi
+done
+
+echo "Targets to profile:"
+for t in "${TARGETS[@]}"; do echo "  $t"; done
+echo "Output dir: $OUT_DIR"
+echo
+
+# --- 3. Per-(alias, app_label): verify fresh DB + run migrate
+JSONL_ARGS=()
+SPY_ARGS=()
+
+for ALIAS in "${UNIQUE_ALIASES[@]}"; do
+    # Render env once per alias and probe django_migrations row count. Fail
+    # closed: an unreachable DB or a broken probe must stop the run, not read
+    # as "fresh" and let migrate loose on a database we could not verify.
+    if ! load_db_env "$ALIAS"; then
+        echo "Cannot read database settings for alias $ALIAS." >&2
+        exit 1
+    fi
+    if ! ROW_COUNT=$(PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -U "$USER" -d "$NAME" -tAc \
+        "SELECT count(*) FROM django_migrations" 2>/dev/null | tr -d ' '); then
+        # No django_migrations table on an otherwise reachable DB is the one
+        # legitimate "fresh" shape — verify the DB answers at all.
+        if ! PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -U "$USER" -d "$NAME" -tAc "SELECT 1" >/dev/null 2>&1; then
+            echo "Cannot reach database $NAME for alias $ALIAS — refusing to run a blind migrate." >&2
+            exit 1
+        fi
+        ROW_COUNT=0
+    fi
+    if [[ "$ROW_COUNT" =~ ^[0-9]+$ ]] && [[ "$ROW_COUNT" -gt 0 ]]; then
+        echo "Refusing to profile $ALIAS — django_migrations has $ROW_COUNT rows." >&2
+        echo "Drop and recreate the DB first." >&2
+        exit 1
+    fi
+done
+
+for line in "${TARGETS[@]}"; do
+    ALIAS="${line%%$'\t'*}"
+    APP="${line#*$'\t'}"
+    LABEL="$ALIAS${APP:+:$APP}"
+    echo "=== $LABEL ==="
+
+    SAFE_LABEL="${LABEL//[:\/]/_}"
+    JSONL_OUT="$OUT_DIR/migration-profile-$SAFE_LABEL.jsonl"
+    MIGRATE_ARGS=(--database "$ALIAS" --profile-operations --profile-output "$JSONL_OUT" --no-input)
+    if [[ -n "$APP" ]]; then
+        MIGRATE_ARGS=("$APP" "${MIGRATE_ARGS[@]}")
+    fi
+
+    if [[ "$WITH_PYSPY" -eq 1 ]]; then
+        SPY_OUT="$OUT_DIR/migration-profile-$SAFE_LABEL.spy.raw"
+        py-spy record --format raw --rate 100 --subprocesses --output "$SPY_OUT" \
+            -- python manage.py migrate "${MIGRATE_ARGS[@]}"
+        SPY_ARGS+=( --spy "$ALIAS=$SPY_OUT" )
+    else
+        python manage.py migrate "${MIGRATE_ARGS[@]}"
+    fi
+
+    JSONL_ARGS+=( --jsonl "$JSONL_OUT" )
+    echo
+done
+
+# --- 4. Render report
+REPORT="$OUT_DIR/report.md"
+REPORT_HTML="$OUT_DIR/report.html"
+python manage.py analyze_migration_profile \
+    "${JSONL_ARGS[@]}" \
+    "${SPY_ARGS[@]}" \
+    --output "$REPORT" \
+    --output-html "$REPORT_HTML" \
+    --flame-svg-dir "$OUT_DIR"
+
+echo "Report: $REPORT"
+echo "HTML:   $REPORT_HTML"

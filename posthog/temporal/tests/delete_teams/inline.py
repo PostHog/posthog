@@ -71,7 +71,9 @@ async def _execute(workflow_run, inputs) -> None:
             await env.client.execute_workflow(workflow_run, inputs, id=str(uuid.uuid4()), task_queue=task_queue)
 
 
-def _run_delete_project_data(*, team_ids: list[int], project_id: int | None, user_id: int, project_name: str) -> None:
+def _run_delete_project_data(
+    *, team_ids: list[int], project_id: int | None, user_id: int, project_name: str, **_workflow_options: object
+) -> None:
     inputs = DeleteProjectDataWorkflowInputs(
         team_ids=team_ids, project_id=project_id, user_id=user_id, project_name=project_name
     )

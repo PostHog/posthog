@@ -18,7 +18,7 @@ import { Fragment, type ReactNode } from "react";
  * rather than a tooltip component: a list draws dozens of these, and the
  * browser's own costs nothing.
  */
-export function listItemMetadata(
+function listItemMetadata(
   segments: readonly ListItemMetadataSegment[],
 ): ReactNode | undefined {
   if (segments.length === 0) return undefined;
@@ -40,8 +40,11 @@ export function taskMetadata(
   >,
   creatorName: string | undefined,
   fields: readonly ListItemMetadataField[],
+  spaceName?: string,
 ): ReactNode | undefined {
-  return listItemMetadata(taskMetadataSegments(task, creatorName, fields));
+  return listItemMetadata(
+    taskMetadataSegments(task, creatorName, fields, spaceName),
+  );
 }
 
 /** A surface that resolved the values itself, like a space's session list. */

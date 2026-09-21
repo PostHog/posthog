@@ -37,6 +37,10 @@ from posthog.temporal.backfill_group_type_created_at import (
     ACTIVITIES as BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES,
     WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS,
 )
+from posthog.temporal.backfill_materialized_property import (
+    ACTIVITIES as BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES,
+    BackfillMaterializedPropertiesBatchWorkflow,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -87,10 +91,6 @@ from posthog.temporal.ingestion_acceptance_test import (
 from posthog.temporal.mcp_analytics.intent_clustering import (
     MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
     MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
-)
-from posthog.temporal.product_analytics import (
-    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
-    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.proxy_service import (
     ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
@@ -151,6 +151,14 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.alerts.backend.facade.temporal import (
+    DELIVERY_ACTIVITIES as ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
+    DELIVERY_WORKFLOWS as ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
+    EVALUATION_ACTIVITIES as ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+    EVALUATION_WORKFLOWS as ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PRODUCT_SHARED_ORCHESTRATION_ACTIVITIES,
+    SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PRODUCT_SHARED_ORCHESTRATION_WORKFLOWS,
+)
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -162,6 +170,10 @@ from products.billing_alerts.backend.temporal import (
 from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
+)
+from products.canvas.backend.temporal.registry import (
+    ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
+    WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
 )
 from products.context_layer.backend.temporal import (
     ACTIVITIES as CONTEXT_LAYER_ACTIVITIES,
@@ -197,6 +209,8 @@ from products.experiments.backend.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
     EXPERIMENT_CANARY_ACTIVITIES,
     EXPERIMENT_CANARY_WORKFLOWS,
+    EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
+    EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.exports.backend.temporal.subscriptions import (
@@ -224,6 +238,14 @@ from products.managed_warehouse.backend.facade.temporal import (
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
+)
+from products.posthog_ai.backend.temporal.backfill import (
+    ACTIVITIES as CONVERSATION_BACKFILL_ACTIVITIES,
+    WORKFLOWS as CONVERSATION_BACKFILL_WORKFLOWS,
+)
+from products.product_analytics.backend.facade.temporal import (
+    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
+    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
 from products.pulse.backend.temporal.registry import (
     ACTIVITIES as PULSE_ACTIVITIES,
@@ -268,6 +290,10 @@ from products.warehouse_sources.backend.facade.temporal import (
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
+)
+from products.wizard.backend.facade.temporal import (
+    ACTIVITIES as WIZARD_ACTIVITIES,
+    WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
 # When adding modules to a queue, also update the corresponding CI trigger
@@ -323,8 +349,11 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + EXPERIMENT_CANARY_WORKFLOWS
+        + EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
+        + [BackfillMaterializedPropertiesBatchWorkflow]
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
+        + CONVERSATION_BACKFILL_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
         + SYNC_EVENTS_RETENTION_WORKFLOWS
@@ -345,8 +374,11 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
         + EXPERIMENT_CANARY_ACTIVITIES
+        + EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
+        + BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
+        + CONVERSATION_BACKFILL_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
@@ -364,6 +396,13 @@ _task_queue_specs = [
         settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
         GROWTH_WORKFLOWS,
         GROWTH_ACTIVITIES,
+    ),
+    # Canvas builds. CANVAS_BUILD_TASK_QUEUE defaults to the general-purpose queue name (so it merges
+    # into that fleet until a dedicated worker exists).
+    (
+        settings.CANVAS_BUILD_TASK_QUEUE,
+        CANVAS_BUILD_WORKFLOWS,
+        CANVAS_BUILD_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -398,6 +437,11 @@ _task_queue_specs = [
         # products/slack_app to settings.TASKS_TASK_QUEUE.
         TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
         TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
+    ),
+    (
+        settings.WIZARD_TASK_QUEUE,
+        WIZARD_WORKFLOWS,
+        WIZARD_ACTIVITIES,
     ),
     (
         settings.MAX_AI_TASK_QUEUE,
@@ -512,6 +556,21 @@ _task_queue_specs = [
         settings.STAMPHOG_TASK_QUEUE,
         STAMPHOG_WORKFLOWS,
         STAMPHOG_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
+        ALERTS_PRODUCT_SHARED_ORCHESTRATION_WORKFLOWS,
+        ALERTS_PRODUCT_SHARED_ORCHESTRATION_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+        ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+        ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
+        ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
+        ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
     ),
 ]
 
@@ -693,14 +752,14 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        # Max AI and tasks-agent traces span the Django request and the Temporal activity that runs
+        # Max AI, tasks-agent, and wizard traces span the Django request and the Temporal activity that runs
         # the agent loop. Without the OTel plugin on the worker, every span emitted from an activity
         # is a root span and the conversation trace splits across disconnected pieces. Force-enable
-        # for both queues so investigations don't depend on an operator flipping
+        # for these queues so investigations don't depend on an operator flipping
         # TEMPORAL_OTEL_PLUGIN_ENABLED.
         enable_otel = (
             settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True
-            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE)
+            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE, settings.WIZARD_TASK_QUEUE)
         ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME

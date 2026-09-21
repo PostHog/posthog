@@ -20,7 +20,7 @@ import { create } from "zustand";
 // host renders the frames and overlays each onto the active route's placeholder
 // rect rather than mounting the iframe inside the route tree.
 
-export interface CanvasFrameRect {
+interface CanvasFrameRect {
   top: number;
   left: number;
   width: number;

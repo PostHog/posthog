@@ -56,7 +56,7 @@ const taxonomicGroupTypes = [
  */
 export const LogsQueryControls = (): JSX.Element => {
     const { logsLoading, liveTailRunning } = useValues(logsViewerDataLogic)
-    const { runQuery } = useActions(logsViewerDataLogic)
+    const { refreshQuery } = useActions(logsViewerDataLogic)
     const { setDateRange } = useActions(logsViewerFiltersLogic)
     const { filters } = useValues(logsViewerFiltersLogic)
     const { dateRange } = filters
@@ -69,7 +69,7 @@ export const LogsQueryControls = (): JSX.Element => {
                 size="small"
                 icon={<IconRefresh />}
                 type="secondary"
-                onClick={() => runQuery()}
+                onClick={() => refreshQuery()}
                 loading={logsLoading || liveTailRunning}
                 disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
             />

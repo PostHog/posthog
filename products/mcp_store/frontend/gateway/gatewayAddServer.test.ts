@@ -45,7 +45,7 @@ describe('gatewayAddServer', () => {
                     description: '  Company knowledge  ',
                     clientId: '  client-id  ',
                     clientSecret: '  client-secret  ',
-                    agentIds: ['agent-1'],
+                    agentScope: 'personal',
                 }),
                 { isAdmin: true, canManageAgentAccess: true }
             )
@@ -57,13 +57,13 @@ describe('gatewayAddServer', () => {
             client_id: 'client-id',
             client_secret: 'client-secret',
             team_enabled: true,
-            agent_ids: ['agent-1'],
+            agent_scope: 'personal',
         })
     })
 
     it('omits team and agent sharing fields when a member cannot manage them', () => {
         expect(
-            buildGatewayInstallRequest(values({ teamEnabled: false, agentIds: ['agent-1'] }), {
+            buildGatewayInstallRequest(values({ teamEnabled: false, agentScope: 'team' }), {
                 isAdmin: false,
                 canManageAgentAccess: false,
             })
@@ -75,9 +75,9 @@ describe('gatewayAddServer', () => {
         })
     })
 
-    it('lets a permitted member share with agents without sending team enablement', () => {
+    it('lets a permitted member pick the agent scope without sending team enablement', () => {
         expect(
-            buildGatewayInstallRequest(values({ teamEnabled: false, agentIds: ['agent-1'] }), {
+            buildGatewayInstallRequest(values({ teamEnabled: false, agentScope: 'team' }), {
                 isAdmin: false,
                 canManageAgentAccess: true,
             })
@@ -86,7 +86,7 @@ describe('gatewayAddServer', () => {
             url: 'https://mcp.example.com/sse',
             description: '',
             auth_type: 'oauth',
-            agent_ids: ['agent-1'],
+            agent_scope: 'team',
         })
     })
 

@@ -1,22 +1,33 @@
-import type { SidebarData } from "./sidebarData.types";
+import type { SidebarData, TaskData } from "./sidebarData.types";
 
 export type OrganizeMode = "by-project" | "chronological";
+
+export function computeOrderedVisibleTasks(
+  sidebarData: Pick<SidebarData, "pinnedTasks" | "flatTasks" | "groupedTasks">,
+  organizeMode: OrganizeMode,
+  collapsedSections: ReadonlySet<string>,
+): TaskData[] {
+  const tasks = [...sidebarData.pinnedTasks];
+  if (organizeMode === "by-project") {
+    for (const group of sidebarData.groupedTasks) {
+      if (!collapsedSections.has(group.id)) tasks.push(...group.tasks);
+    }
+  } else {
+    tasks.push(...sidebarData.flatTasks);
+  }
+  return tasks;
+}
 
 export function computeOrderedVisibleTaskIds(
   sidebarData: Pick<SidebarData, "pinnedTasks" | "flatTasks" | "groupedTasks">,
   organizeMode: OrganizeMode,
   collapsedSections: ReadonlySet<string>,
 ): string[] {
-  const ids: string[] = sidebarData.pinnedTasks.map((task) => task.id);
-  if (organizeMode === "by-project") {
-    for (const group of sidebarData.groupedTasks) {
-      if (collapsedSections.has(group.id)) continue;
-      for (const task of group.tasks) ids.push(task.id);
-    }
-  } else {
-    for (const task of sidebarData.flatTasks) ids.push(task.id);
-  }
-  return ids;
+  return computeOrderedVisibleTasks(
+    sidebarData,
+    organizeMode,
+    collapsedSections,
+  ).map((task) => task.id);
 }
 
 export interface RangeSelection {

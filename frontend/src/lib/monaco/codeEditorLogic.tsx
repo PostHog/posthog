@@ -51,6 +51,8 @@ export interface CodeEditorLogicProps {
     editor?: editor.IStandaloneCodeEditor | null
     globals?: Record<string, any>
     onError?: (error: string | null) => void
+    /** Ask for per-filter index eligibility. Costs a second resolution pass server-side, so set it only where the result is rendered. */
+    indexUsage?: boolean
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
@@ -185,6 +187,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 sourceQuery,
                                 variables,
                                 connectionId,
+                                indexUsage: props.indexUsage,
                             },
                             { recursion: false }
                         )

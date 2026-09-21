@@ -6,18 +6,15 @@ import userEvent from '@testing-library/user-event'
 import { IssueSeveritySelect } from './IssueSeveritySelect'
 
 describe('IssueSeveritySelect', () => {
-    it('updates and clears the severity from the menu', async () => {
+    it('updates severity without offering a clear action', async () => {
         const user = userEvent.setup()
         const onChange = jest.fn()
-        const { rerender } = render(<IssueSeveritySelect severity="high" onChange={onChange} />)
+        render(<IssueSeveritySelect severity="high" onChange={onChange} />)
 
         await user.click(screen.getByLabelText('Severity: High'))
+        expect(screen.queryByText('No severity')).not.toBeInTheDocument()
+
         await user.click(await screen.findByText('Critical'))
         expect(onChange).toHaveBeenLastCalledWith('critical')
-
-        rerender(<IssueSeveritySelect severity="critical" onChange={onChange} />)
-        await user.click(screen.getByLabelText('Severity: Critical'))
-        await user.click(await screen.findByText('No severity'))
-        expect(onChange).toHaveBeenLastCalledWith(null)
     })
 })

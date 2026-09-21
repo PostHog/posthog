@@ -41,9 +41,29 @@ import {
   type Options,
   type Query,
   query,
+  type SDKMessage,
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
+import {
+  createEnrichment,
+  type Enrichment,
+  type FileEnrichmentDeps,
+} from "@posthog/harness/extensions/enrichment";
+import {
+  isCloudRun,
+  LOCAL_TOOLS_MCP_NAME,
+  type LocalToolCtx,
+  resolveGithubToken,
+} from "@posthog/harness/extensions/local-tools";
+import {
+  classifyPostHogExecCall,
+  isUnclassifiedPostHogSubTool,
+  POSTHOG_PRODUCTS,
+  type PostHogProductId,
+  resolvePostHogExecPermissionRegex,
+} from "@posthog/harness/extensions/posthog-mcp-policy";
 import { leadingSlashCommand, serializeError } from "@posthog/shared";
 import { v7 as uuidv7 } from "uuid";
 import packageJson from "../../../package.json" with { type: "json" };
@@ -51,34 +71,17 @@ import {
   isMethod,
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
+  type SteerDeclineCause,
+  steerDeclined,
 } from "../../acp-extensions";
-import {
-  createEnrichment,
-  type Enrichment,
-  type FileEnrichmentDeps,
-} from "../../enrichment/file-enricher";
 import { PostHogAPIClient } from "../../posthog-api";
-import { resolvePostHogExecPermissionRegex } from "../../posthog-exec-permission";
-import {
-  classifyPostHogExecCall,
-  isUnclassifiedPostHogSubTool,
-  POSTHOG_PRODUCTS,
-  type PostHogProductId,
-} from "../../posthog-products";
-import type { ContextWikiEnv, PostHogAPIConfig } from "../../types";
+import type { PostHogAPIConfig } from "../../types";
 import { text } from "../../utils/acp-content";
-import {
-  isCloudRun,
-  unreachable,
-  withAbort,
-  withTimeout,
-} from "../../utils/common";
-import { resolveGithubToken } from "../../utils/github-token";
+import { unreachable, withAbort, withTimeout } from "../../utils/common";
 import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
 import { BaseAcpAgent } from "../base-acp-agent";
 import { isLocalSkillCommandChunk } from "../local-skill";
-import { LOCAL_TOOLS_MCP_NAME, type LocalToolCtx } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
 import {
   resolveBedrockGatewayVariant,
@@ -106,6 +109,7 @@ import {
   taskStateToPlanEntries,
 } from "./conversion/task-state";
 import type { EnrichedReadCache } from "./hooks";
+import type { MachineClaudeAuth } from "./machine-auth";
 import { createLocalToolsMcpServer } from "./mcp/local-tools";
 import {
   clearMcpToolMetadataCache,
@@ -115,7 +119,15 @@ import {
   setMcpToolApprovalStates,
 } from "./mcp/tool-metadata";
 import { canUseTool } from "./permissions/permission-handlers";
+import {
+  type AssistantUsageLike,
+  type BudgetSteerMode,
+  type BudgetSteerStage,
+  type BudgetThresholdEvent,
+  RunBudgetGuard,
+} from "./session/budget-guard";
 import { getAvailableSlashCommands } from "./session/commands";
+import { SessionInitialization } from "./session/initialization";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
 import { parseMcpServers } from "./session/mcp-config";
 import {
@@ -126,16 +138,15 @@ import {
   CONTEXT_WINDOW_1M_BETA,
   CONTEXT_WINDOW_200K_TOKENS,
   DEFAULT_EFFORT,
-  DEFAULT_MODEL,
   fastModeStateEnabled,
   getContextWindowOptions,
   getEffortOptions,
+  rerootedModelOptions,
   resolveEffortForModel,
   resolveModelPreference,
   supports1MContext,
   supportsFastMode,
   supportsMcpInjection,
-  toSdkModelId,
 } from "./session/models";
 import {
   buildSessionOptions,
@@ -146,6 +157,7 @@ import {
   toSdkEffort,
 } from "./session/options";
 import { SettingsManager } from "./session/settings";
+import { generateTraceparentHookNonce } from "./session/traceparent-hook";
 import {
   buildSideQuestionPrompt,
   collectSideQuestionAnswer,
@@ -161,6 +173,7 @@ import type {
   BackgroundTerminal,
   EffortLevel,
   NewSessionMeta,
+  PendingSteer,
   SDKMessageFilter,
   Session,
   ToolUpdateMeta,
@@ -243,15 +256,63 @@ function confirmConsumedSteers(turn: Turn): void {
 }
 
 /** Report every steer left on a finishing turn as undelivered so callers redeliver it. */
-function declinePendingSteers(turn: Turn): void {
+function declinePendingSteers(turn: Turn, cause: SteerDeclineCause): void {
   if (turn.steerTimer) {
     clearTimeout(turn.steerTimer);
     turn.steerTimer = undefined;
   }
   for (const steer of turn.pendingSteers.values()) {
-    steer.settle(false);
+    steer.settle(false, cause);
   }
   turn.pendingSteers.clear();
+}
+
+function hasUnconsumedBackgroundSteers(session: Session): boolean {
+  for (const steer of session.backgroundSteers?.values() ?? []) {
+    if (!steer.consumed) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function clearBackgroundSteerTimer(session: Session): void {
+  if (session.backgroundSteerTimer) {
+    clearTimeout(session.backgroundSteerTimer);
+    session.backgroundSteerTimer = undefined;
+  }
+}
+
+function confirmConsumedBackgroundSteers(session: Session): void {
+  const steers = session.backgroundSteers;
+  if (!steers) {
+    return;
+  }
+  for (const [uuid, steer] of steers) {
+    if (steer.consumed) {
+      steer.settle(true);
+      steers.delete(uuid);
+    }
+  }
+}
+
+function declineBackgroundSteers(
+  session: Session,
+  cause: SteerDeclineCause,
+  options: { onlyUnconsumed?: boolean } = {},
+): void {
+  clearBackgroundSteerTimer(session);
+  const steers = session.backgroundSteers;
+  if (!steers) {
+    return;
+  }
+  for (const [uuid, steer] of steers) {
+    if (options.onlyUnconsumed && steer.consumed) {
+      continue;
+    }
+    steer.settle(false, cause);
+    steers.delete(uuid);
+  }
 }
 
 function isSdkMcpServer(
@@ -319,13 +380,40 @@ function shouldEmitRawMessage(
   );
 }
 
+interface SdkTokenUsage {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}
+
+function sumSdkUsage(usage: SdkTokenUsage): number {
+  return (
+    (usage.input_tokens ?? 0) +
+    (usage.output_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0)
+  );
+}
+
+const CONTEXT_USAGE_TIMEOUT_MS = 5_000;
+
 async function fetchContextUsedTokens(
   sdkQuery: Query,
   logger: Logger,
 ): Promise<number | null> {
   try {
-    const usage = await sdkQuery.getContextUsage();
-    return usage.totalTokens;
+    const usage = await withTimeout(
+      sdkQuery.getContextUsage(),
+      CONTEXT_USAGE_TIMEOUT_MS,
+    );
+    if (usage.result === "timeout") {
+      logger.warn(
+        `Timed out after ${CONTEXT_USAGE_TIMEOUT_MS}ms fetching context usage from SDK`,
+      );
+      return null;
+    }
+    return usage.value.totalTokens;
   } catch (error) {
     logger.error("Failed to fetch context usage from SDK:", error);
     return null;
@@ -333,6 +421,7 @@ async function fetchContextUsedTokens(
 }
 
 export interface ClaudeAcpAgentOptions {
+  startupLogger?: Logger;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
   onMcpServersReady?: (serverNames: string[]) => void;
@@ -340,11 +429,16 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
+  machineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
+  protected override usesMachineAuth(): boolean {
+    return !!this.options?.machineAuth;
+  }
+
   readonly adapterName = "claude";
   declare session: Session;
   toolUseCache: ToolUseCache;
@@ -371,7 +465,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.emittedToolCalls = new Set();
     this.toolUseStreamCache = new Map();
     this.logger = new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
-    this.enrichment = createEnrichment(options?.posthogApiConfig, this.logger);
+    this.enrichment = createEnrichment(options?.posthogApiConfig);
   }
 
   protected getEnrichmentDeps(): FileEnrichmentDeps | undefined {
@@ -559,6 +653,96 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     return this.listSessions(params);
   }
 
+  private budgetSteerTail: Promise<void> = Promise.resolve();
+
+  private deliverBudgetSteer(
+    session: Session,
+    sessionId: string,
+    event: BudgetThresholdEvent,
+  ): Promise<void> {
+    const run = this.budgetSteerTail.then(() =>
+      this.sendBudgetSteer(session, sessionId, event),
+    );
+    this.budgetSteerTail = run.catch(() => undefined);
+    return run;
+  }
+
+  private async sendBudgetSteer(
+    session: Session,
+    sessionId: string,
+    event: BudgetThresholdEvent,
+  ): Promise<void> {
+    const guard = session.budgetGuard;
+    if (!guard || this.session !== session) return;
+    const stage = guard.takePendingSteer();
+    if (!stage) return;
+    const summary = `[BudgetGuard] ${stage}: $${event.spentUsd.toFixed(2)} of $${event.capUsd.toFixed(2)} spent, steering the turn`;
+    this.logger.warn(summary);
+    let delivered = false;
+    try {
+      const result = await this.prompt({
+        sessionId,
+        prompt: [
+          {
+            type: "text",
+            text: guard.steerText(stage),
+            _meta: { ui: { hidden: true }, budgetGuard: stage },
+          },
+        ],
+        _meta: { steer: true },
+      });
+      const meta = result._meta as
+        | { steer?: boolean; steerDeclineCause?: string }
+        | undefined;
+      delivered = meta?.steer === true;
+      if (!delivered) {
+        this.logger.warn("[BudgetGuard] Steer not delivered", {
+          stage,
+          cause: meta?.steerDeclineCause,
+        });
+      }
+    } catch (error) {
+      this.logger.warn("[BudgetGuard] Steer failed", { error });
+    }
+    if (this.session !== session) {
+      this.logger.warn("[BudgetGuard] Session replaced during the steer", {
+        stage,
+      });
+      return;
+    }
+    if (!delivered) {
+      guard.markUndelivered(stage);
+    }
+    await this.reportBudgetSteer(guard, sessionId, stage, delivered, summary);
+  }
+
+  private async reportBudgetSteer(
+    guard: RunBudgetGuard,
+    sessionId: string,
+    stage: BudgetSteerStage,
+    delivered: boolean,
+    summary: string,
+  ): Promise<void> {
+    const record = guard.recordSteer(stage, delivered);
+    try {
+      await this.client.extNotification(POSTHOG_NOTIFICATIONS.CONSOLE, {
+        sessionId,
+        level: "warn",
+        message: `${summary} (delivered=${delivered})`,
+      });
+      await this.client.extNotification(POSTHOG_NOTIFICATIONS.BUDGET_STEER, {
+        sessionId,
+        stage,
+        delivered,
+        spent_usd: record.spent_usd,
+        cap_usd: guard.capUsd,
+        mode: guard.mode,
+      });
+    } catch (error) {
+      this.logger.warn("[BudgetGuard] Failed to report the steer", { error });
+    }
+  }
+
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     // Detect local-only slash commands that return results without model invocation
     const command = promptSlashCommand(params);
@@ -570,6 +754,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return this.clearConversation(params);
     }
 
+    const budgetSteerMode = (
+      params._meta as { budgetSteerMode?: unknown } | undefined
+    )?.budgetSteerMode;
+    if (budgetSteerMode === "publish" || budgetSteerMode === "wrap_up") {
+      this.session.budgetGuard?.setMode(budgetSteerMode);
+    }
     const userMessage = promptToClaude(params);
     const promptUuid = randomUUID();
     userMessage.uuid = promptUuid;
@@ -597,7 +787,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       this.session.activeTurn !== null || this.session.turnQueue.length > 0;
 
     const isSteer = isSteerMeta(params._meta);
-    if (hasInFlightTurns && isSteer) {
+    if (hasInFlightTurns && isSteer && !this.session.compacting) {
       // Fold into the running turn (promptToClaude tagged it priority:"now");
       // the benign end_turn is ignored by clients, which key off _meta.steer.
       const owner =
@@ -606,15 +796,19 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Decline before pushing, so the message is redelivered rather than also
       // applied by a later turn.
       if (!owner) {
-        return { stopReason: "end_turn", _meta: { steer: false } };
+        return steerDeclined("no_owner_turn");
       }
       // Only a declined steer is redelivered, so acking on submission loses any
       // steer the SDK never folds in. Wait for the model to act on it instead.
       const ack = new Promise<PromptResponse>((resolve) => {
         owner.pendingSteers.set(promptUuid, {
           consumed: false,
-          settle: (reachedModel) =>
-            resolve({ stopReason: "end_turn", _meta: { steer: reachedModel } }),
+          settle: (reachedModel, cause) =>
+            resolve(
+              reachedModel
+                ? { stopReason: "end_turn", _meta: { steer: true } }
+                : steerDeclined(cause ?? "turn_ended_first"),
+            ),
         });
       });
       this.session.input.push(userMessage);
@@ -622,7 +816,28 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return ack;
     }
     if (isSteer) {
-      return { stopReason: "end_turn", _meta: { steer: false } };
+      if (this.session.backgroundTurnActive && !this.session.compacting) {
+        const session = this.session;
+        session.backgroundSteers ??= new Map<string, PendingSteer>();
+        const backgroundSteers = session.backgroundSteers;
+        const ack = new Promise<PromptResponse>((resolve) => {
+          backgroundSteers.set(promptUuid, {
+            consumed: false,
+            settle: (reachedModel, cause) =>
+              resolve(
+                reachedModel
+                  ? { stopReason: "end_turn", _meta: { steer: true } }
+                  : steerDeclined(cause ?? "turn_ended_first"),
+              ),
+          });
+        });
+        session.input.push(userMessage);
+        await this.broadcastUserMessage(params);
+        return ack;
+      }
+      return steerDeclined(
+        this.session.compacting ? "compacting" : "no_in_flight_turn",
+      );
     }
 
     if (!hasInFlightTurns && !isLocalOnlyCommand) {
@@ -687,7 +902,70 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     const input = head.pendingInput;
     head.pendingInput = undefined;
+    head.dispatchedAt = performance.now();
+    const guard = session.budgetGuard;
+    const steer = guard && !head.commandName ? guard.takePendingSteer() : null;
+    if (guard && steer) {
+      const steerBlock = {
+        type: "text" as const,
+        text: guard.steerText(steer),
+      };
+      const content = input.message.content;
+      input.message.content =
+        typeof content === "string"
+          ? [{ type: "text", text: content }, steerBlock]
+          : [...content, steerBlock];
+    }
     session.input.push(input);
+    if (guard && steer) {
+      void this.reportBudgetSteer(
+        guard,
+        this.sessionId,
+        steer,
+        true,
+        `[BudgetGuard] ${steer}: steer attached to the next turn`,
+      );
+    }
+  }
+
+  /** Time the window between handing a prompt to the SDK and the SDK's first
+   *  emission for it. Nothing crosses the wire during that window, so without
+   *  this line a slow first turn cannot be attributed after the fact: the log
+   *  names both how long the wait was and which message ended it, which
+   *  separates pre-model setup (a `commands_changed` skill rescan, for
+   *  example) from the model call itself. */
+  private timeFirstSdkMessage(
+    session: Session,
+    sessionId: string,
+    message: SDKMessage,
+  ): void {
+    const turn =
+      session.activeTurn ?? session.turnQueue.find((t) => !t.settled);
+    if (turn?.dispatchedAt === undefined || turn.firstMessageTimed) {
+      return;
+    }
+    turn.firstMessageTimed = true;
+    this.logger.debug("First SDK message after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+      messageType: message.type,
+      messageSubtype: (message as { subtype?: string }).subtype,
+    });
+  }
+
+  /** Time to the first assistant message, which is the first output a person
+   *  sees. Reported once per turn so a slow turn splits into the wait before
+   *  the model answered and the tool work after it. */
+  private timeFirstModelOutput(session: Session, sessionId: string): void {
+    const turn = session.activeTurn;
+    if (turn?.dispatchedAt === undefined || turn.firstOutputTimed) {
+      return;
+    }
+    turn.firstOutputTimed = true;
+    this.logger.debug("First model output after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+    });
   }
 
   private ensureConsumer(sessionId: string): void {
@@ -718,6 +996,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private closeQueryStream(session: Session): void {
     session.queryClosed = true;
     session.consumer = undefined;
+    declineBackgroundSteers(session, "turn_ended_first");
     if (session.forceCancelTimer) {
       clearTimeout(session.forceCancelTimer);
       session.forceCancelTimer = undefined;
@@ -754,13 +1033,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       cache_read_input_tokens: 0,
       cache_creation_input_tokens: 0,
     };
-    // Tracks whether we're inside a compaction. The SDK emits the terminal
-    // `status` (compact_result success/failed) twice for a single failed
-    // compaction, and the two messages are indistinguishable, so we report the
-    // outcome only while a compaction is in progress, then clear this. A fresh
-    // `compacting` status sets it again, so every distinct compaction (e.g.
-    // repeated auto-compactions in a long turn) is still shown.
-    let compactionInProgress = false;
     let stopReason: PromptResponse["stopReason"] = "end_turn";
 
     // Read live: model switches reset session.lastContextWindowSize.
@@ -831,7 +1103,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
       };
-      compactionInProgress = false;
+      session.compacting = false;
       stopReason = "end_turn";
       // sessionResources is intentionally NOT reset — the products list
       // accumulates across the whole session and is deduped, not per-turn.
@@ -883,7 +1155,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(
+        turn,
+        session.cancelled ? "cancelled" : "turn_ended_first",
+      );
       if (session.forceCancelTimer) {
         clearTimeout(session.forceCancelTimer);
         session.forceCancelTimer = undefined;
@@ -891,7 +1166,27 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.dispatchQueuedInput(session);
-      turn.resolve(result);
+      // Attach the turn's gateway trace id (from the traceparent hook) so the
+      // server can stamp it on `_posthog/turn_complete`. Cleared here so a
+      // turn whose hook never fired cannot inherit the previous turn's id.
+      const traceId = session.currentTurnTraceId;
+      session.currentTurnTraceId = undefined;
+      if (
+        !traceId &&
+        session.traceparentHookInstalled &&
+        !turn.isLocalOnlyCommand
+      ) {
+        // Loud on purpose: an SDK or CLI change that stops surfacing hook
+        // output would otherwise degrade feedback attribution silently.
+        this.logger.warn("Gateway turn settled without a trace id", {
+          sessionId: session.sdkSessionId,
+        });
+      }
+      turn.resolve(
+        traceId
+          ? { ...result, _meta: { ...(result._meta ?? {}), traceId } }
+          : result,
+      );
     };
 
     // Reject the active turn without tearing down the consumer.
@@ -905,9 +1200,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "turn_failed");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      session.currentTurnTraceId = undefined;
       this.toolUseStreamCache.clear();
       this.dispatchQueuedInput(session);
       turn.reject(error);
@@ -927,11 +1223,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         : [...session.turnQueue];
       session.activeTurn = null;
       session.turnQueue = [];
+      session.currentTurnTraceId = undefined;
       this.toolUseStreamCache.clear();
       for (const turn of turns) {
         if (!turn.settled) {
           turn.settled = true;
-          declinePendingSteers(turn);
+          declinePendingSteers(turn, "turn_failed");
           turn.reject(error);
         }
       }
@@ -976,7 +1273,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           for (const queued of [...session.turnQueue]) {
             if (!queued.settled) {
               queued.settled = true;
-              declinePendingSteers(queued);
+              declinePendingSteers(
+                queued,
+                session.cancelled ? "cancelled" : "turn_failed",
+              );
               queued.reject(
                 RequestError.internalError(undefined, SESSION_ENDED_MESSAGE),
               );
@@ -986,6 +1286,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.closeQueryStream(session);
           return;
         }
+
+        this.timeFirstSdkMessage(session, sessionId, message);
 
         if (
           session.emitRawSDKMessages &&
@@ -1047,18 +1349,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               // The SDK signals manual `/compact` completion with a status
               // message carrying `compact_result`, not the `compact_boundary`
               // message (which only fires when there's content to compact).
-              // Gate the user-facing outcome on `compactionInProgress` to
+              // Gate the user-facing outcome on `session.compacting` to
               // dedupe the duplicate terminal status the SDK emits for failed
               // compactions.
               if (message.status === "compacting") {
-                compactionInProgress = true;
+                session.compacting = true;
                 // Fall through to handleSystemMessage so the COMPACTING
                 // extNotification still fires.
               } else if (
                 message.compact_result === "success" &&
-                compactionInProgress
+                session.compacting
               ) {
-                compactionInProgress = false;
+                session.compacting = false;
                 await this.client.sessionUpdate({
                   sessionId,
                   update: {
@@ -1083,9 +1385,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 break;
               } else if (
                 message.compact_result === "failed" &&
-                compactionInProgress
+                session.compacting
               ) {
-                compactionInProgress = false;
+                session.compacting = false;
                 // A failed compaction never emits a `compact_boundary`, so emit a
                 // structured failure status: the renderer clears the "Compacting…"
                 // spinner and reports the outcome as its own status row (a separator
@@ -1140,7 +1442,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
                 head.settled = true;
-                declinePendingSteers(head);
+                declinePendingSteers(head, "turn_failed");
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
                 this.dispatchQueuedInput(session);
                 head.resolve({ stopReason: "end_turn" });
@@ -1162,6 +1464,30 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             const isTaskNotification =
               (message as { origin?: { kind?: string } }).origin?.kind ===
               "task-notification";
+            if (isTaskNotification) {
+              session.backgroundTurnActive = false;
+              if (hasUnconsumedBackgroundSteers(session)) {
+                session.backgroundSteerTimer ??= setTimeout(() => {
+                  session.backgroundSteerTimer = undefined;
+                  this.logger.warn("Background steer never reached the model", {
+                    sessionId,
+                  });
+                  declineBackgroundSteers(session, "turn_ended_first", {
+                    onlyUnconsumed: true,
+                  });
+                }, STEER_DELIVERY_GRACE_MS);
+              }
+            } else {
+              confirmConsumedBackgroundSteers(session);
+            }
+            const settledBudgetEvent = session.budgetGuard?.calibrate(
+              message.total_cost_usd,
+            );
+            if (settledBudgetEvent) {
+              this.logger.warn(
+                `[BudgetGuard] ${settledBudgetEvent.stage} at turn end: $${settledBudgetEvent.spentUsd.toFixed(2)} of $${settledBudgetEvent.capUsd.toFixed(2)} spent`,
+              );
+            }
 
             if (!isTaskNotification) {
               await this.syncFastModeState(
@@ -1205,6 +1531,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               }
             }
 
+            if (!isTaskNotification && lastAssistantTotalUsage === null) {
+              const usedTokens = await withAbort(
+                fetchContextUsedTokens(query, this.logger),
+                cancelController.signal,
+              );
+              const total =
+                usedTokens.result === "success" ? (usedTokens.value ?? 0) : 0;
+              if (total > 0) {
+                recordContextUsage(total);
+              }
+            }
+
             session.contextSize = windowSize();
             if (lastAssistantTotalUsage !== null) {
               session.contextUsed = lastAssistantTotalUsage;
@@ -1218,10 +1556,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   sessionUpdate: "usage_update",
                   used: lastAssistantTotalUsage,
                   size: windowSize(),
-                  cost: {
-                    amount: message.total_cost_usd,
-                    currency: "USD",
-                  },
                 },
               });
             }
@@ -1243,6 +1577,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   cachedWriteTokens: message.usage.cache_creation_input_tokens,
                 },
                 cost: message.total_cost_usd,
+                budget: session.budgetGuard?.snapshot(),
                 breakdown: buildBreakdown(
                   session.contextBreakdownBaseline ?? emptyBaseline(),
                   breakdownInputTokens,
@@ -1279,7 +1614,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               break;
             }
 
-            const result = handleResultMessage(message);
+            const result = handleResultMessage(
+              message,
+              session.activeTurn?.madeProgress === true,
+            );
             if (result.error) {
               if (!isTaskNotification) {
                 failActive(result.error);
@@ -1388,11 +1726,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 };
               }
 
-              const nextTotal =
-                lastStreamUsage.input_tokens +
-                lastStreamUsage.output_tokens +
-                lastStreamUsage.cache_read_input_tokens +
-                lastStreamUsage.cache_creation_input_tokens;
+              const nextTotal = sumSdkUsage(lastStreamUsage);
 
               if (recordContextUsage(nextTotal)) {
                 await this.client.sessionUpdate({
@@ -1411,10 +1745,27 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
           case "user":
           case "assistant": {
+            if (
+              message.type === "user" &&
+              (message as { origin?: { kind?: string } }).origin?.kind ===
+                "task-notification"
+            ) {
+              session.backgroundTurnActive = true;
+            }
             // A user echo promotes its queued turn (handing off any still-
             // active one first), then drops from the feed. Runs before the
             // cancelled guard so a turn enqueued after a cancel still starts.
             if (message.type === "user" && "uuid" in message && message.uuid) {
+              const backgroundSteer = session.backgroundSteers?.get(
+                message.uuid,
+              );
+              if (backgroundSteer) {
+                backgroundSteer.consumed = true;
+                if (!hasUnconsumedBackgroundSteers(session)) {
+                  clearBackgroundSteerTimer(session);
+                }
+                break;
+              }
               const steer = session.activeTurn?.pendingSteers.get(message.uuid);
               if (steer) {
                 steer.consumed = true;
@@ -1459,6 +1810,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             if (message.type === "assistant") {
+              this.timeFirstModelOutput(session, sessionId);
+              const budgetEvent = session.budgetGuard?.recordAssistantMessage(
+                message.message as AssistantUsageLike,
+              );
+              if (budgetEvent) {
+                void this.deliverBudgetSteer(session, sessionId, budgetEvent);
+              }
+              if (message.parent_tool_use_id === null) {
+                confirmConsumedBackgroundSteers(session);
+              }
               // Subagent output is a separate model context, so it is no
               // evidence the steer reached this turn's model.
               if (session.activeTurn && message.parent_tool_use_id === null) {
@@ -1496,11 +1857,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 cache_read_input_tokens: number | null;
                 cache_creation_input_tokens: number | null;
               };
-              const nextTotal =
-                (usage.input_tokens ?? 0) +
-                (usage.output_tokens ?? 0) +
-                (usage.cache_read_input_tokens ?? 0) +
-                (usage.cache_creation_input_tokens ?? 0);
+              const nextTotal = sumSdkUsage(usage);
 
               if (recordContextUsage(nextTotal)) {
                 await this.client.sessionUpdate({
@@ -1509,10 +1866,21 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                     sessionUpdate: "usage_update",
                     used: nextTotal,
                     size: windowSize(),
-                    cost: null,
                   },
                 });
               }
+            }
+
+            if (
+              session.activeTurn &&
+              message.parent_tool_use_id === null &&
+              Array.isArray(message.message.content) &&
+              message.message.content.some(
+                (block) =>
+                  block.type === "tool_use" || block.type === "tool_result",
+              )
+            ) {
+              session.activeTurn.madeProgress = true;
             }
 
             const result = await handleUserAssistantMessage(message, context);
@@ -1631,7 +1999,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         continue;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "cancelled");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       if (!turn.pendingInput) {
         session.pendingOrphanResults += 1;
@@ -1732,6 +2100,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     session.queryGeneration += 1;
     const oldConsumer = session.consumer;
     session.consumer = undefined;
+    session.backgroundTurnActive = false;
+    declineBackgroundSteers(session, "turn_ended_first");
     session.cancelController?.abort();
     session.cancelController = undefined;
 
@@ -1864,16 +2234,22 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...(session.modelId && { model: toSdkModelId(session.modelId) }),
+        ...rerootedModelOptions(
+          session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
       newQuery = query({ prompt: newInput, options: newOptions });
 
       session.query = newQuery;
+      session.budgetGuard?.onConversationCleared();
       session.input = newInput;
       session.queryOptions = newOptions;
       session.abortController = newAbortController;
+      session.contextUsed = undefined;
 
       const result = await withTimeout(
         newQuery.initializationResult(),
@@ -2043,6 +2419,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const abortController = new AbortController();
     this.sideQuestionAbort = abortController;
+    const session = this.session;
+    const guard = session.budgetGuard;
+    const sessionId = this.sessionId;
     try {
       // Drop `sessionId` (identity comes from `resume`), `hooks` (they close
       // over live-session caches and task state), and `outputFormat` (a
@@ -2088,9 +2467,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController,
         // `rest.model` is the creation-time value; the user may have
         // switched models since, so answer on the live session model.
-        ...(this.session.modelId && {
-          model: toSdkModelId(this.session.modelId),
-        }),
+        ...rerootedModelOptions(
+          this.session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const oneShot = query({
@@ -2099,7 +2480,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       });
 
       const answer = await withTimeout(
-        collectSideQuestionAnswer(oneShot),
+        collectSideQuestionAnswer(oneShot, (message) => {
+          const event = guard?.recordAssistantMessage(
+            message.message as AssistantUsageLike,
+            "side",
+          );
+          if (event) {
+            void this.deliverBudgetSteer(session, sessionId, event);
+          }
+        }),
         SIDE_QUESTION_TIMEOUT_MS,
       );
 
@@ -2200,13 +2589,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...(prev.modelId && { model: toSdkModelId(prev.modelId) }),
+        ...rerootedModelOptions(
+          prev.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
       newQuery = query({ prompt: newInput, options: newOptions });
 
       prev.query = newQuery;
+      prev.budgetGuard?.onQueryReset();
       prev.input = newInput;
       prev.queryOptions = newOptions;
       prev.abortController = newAbortController;
@@ -2370,8 +2764,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         },
       });
     } else if (params.configId === "model") {
-      const sdkModelId = toSdkModelId(resolvedValue);
-      await this.session.query.setModel(sdkModelId);
+      await this.session.query.setModel(resolvedValue);
       this.session.modelId = resolvedValue;
       this.session.lastContextWindowSize =
         this.getContextWindowForModel(resolvedValue);
@@ -2577,6 +2970,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // Gate signed-commit wiring on cloud-run detection so the desktop (which
     // signs via CommitSaga) is untouched.
     const cloudRun = isCloudRun(meta);
+    const budgetSteerMode: BudgetSteerMode =
+      meta?.budgetSteer?.mode === "publish" ? "publish" : "wrap_up";
+    const budgetGuard = cloudRun
+      ? RunBudgetGuard.fromEnv(process.env, this.logger, budgetSteerMode)
+      : null;
+    if (budgetGuard) {
+      this.logger.info("[BudgetGuard] Armed", {
+        capUsd: budgetGuard.capUsd,
+        mode: budgetGuard.mode,
+      });
+    }
     const effort = meta?.claudeCode?.options?.effort as EffortLevel | undefined;
 
     // We want to create a new session id unless it is resume,
@@ -2592,7 +2996,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const input = new Pushable<SDKUserMessage>();
 
-    const settingsManager = new SettingsManager(cwd);
+    const settingsManager = new SettingsManager(
+      cwd,
+      !!this.options?.machineAuth,
+    );
     await settingsManager.initialize();
 
     // The session's explicit pick outranks the shared claude settings file:
@@ -2616,6 +3023,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       typeof meta?.taskOriginProduct === "string"
         ? meta.taskOriginProduct
         : undefined;
+    const endRunWhenDone = meta?.endRunWhenDone === true;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
@@ -2639,6 +3047,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           background: meta?.mode === "background",
           peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
           taskOriginProduct,
+          endRunWhenDone,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -2696,6 +3105,24 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     );
 
     const taskState: TaskState = new Map();
+    const traceparentHookNonce = generateTraceparentHookNonce();
+    const startupLogger = this.options?.startupLogger ?? this.logger;
+    const initialization = new SessionInitialization((initializationPhase) => {
+      startupLogger.info("Session initialization phase changed", {
+        sessionId,
+        taskId,
+        taskRunId: meta?.taskRunId,
+        initializationPhase,
+      });
+      void this.client
+        .extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+          taskRunId: meta?.taskRunId,
+          status: initializationPhase,
+        })
+        .catch(() => {
+          startupLogger.warn("Failed to publish session startup phase");
+        });
+    });
     const options = buildSessionOptions({
       cwd,
       mcpServers,
@@ -2706,6 +3133,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       systemPrompt,
       userProvidedOptions: meta?.claudeCode?.options,
       sessionId,
+      taskId: resolveTaskId(meta),
       isResume,
       forkSession,
       additionalDirectories: [
@@ -2722,15 +3150,19 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       onPostHogResourceUsed: this.createOnPostHogResourceUsed(),
       onProcessSpawned: this.options?.onProcessSpawned,
       onProcessExited: this.options?.onProcessExited,
+      onStartupOutput: (stdout) => initialization.observe(stdout),
       effort,
       enrichmentDeps: this.enrichment?.deps,
       enrichedReadCache: this.enrichedReadCache,
       cloudMode: cloudRun,
+      budgetGuard: budgetGuard ?? undefined,
       onEnsureLocalToolsConnected: () =>
         this.ensureLocalToolsConnected("guard-hook"),
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      traceparentHookNonce,
+      machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
       onTaskStateChange: async () => {
@@ -2762,6 +3194,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       cloudMode: cloudRun,
       posthogExecPermissionRegex,
       abortController,
+      budgetGuard: budgetGuard ?? undefined,
       accumulatedUsage: {
         inputTokens: 0,
         outputTokens: 0,
@@ -2783,6 +3216,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         rules: estimateRulesTokens(readClaudeMdQuietly(cwd, this.logger)),
       },
       taskState,
+      traceparentHookNonce,
+      traceparentHookInstalled:
+        typeof options.extraArgs?.settings === "string" &&
+        options.extraArgs.settings.includes(traceparentHookNonce),
 
       // Custom properties
       cwd,
@@ -2798,14 +3235,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Resume must block on initialization to validate the session is still alive.
       // For stale sessions this throws (e.g. "No conversation found").
       try {
-        const result = await withTimeout(
-          q.initializationResult(),
-          SESSION_VALIDATION_TIMEOUT_MS,
-        );
+        const result = await initialization.wait(q.initializationResult());
         if (result.result === "timeout") {
           throw new RequestError(
             -32603,
-            `Session ${forkSession ? "fork" : "resumption"} timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+            `Session ${result.phase === "setup_hooks" ? "setup hooks" : forkSession ? "fork" : "resumption"} timed out after ${result.timeoutMs}ms`,
             { sessionId, taskId, taskRunId: meta?.taskRunId },
           );
         }
@@ -2824,7 +3258,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ) {
           throw RequestError.resourceNotFound(sessionId);
         }
-        this.logger.error(
+        startupLogger.error(
           forkSession ? "Session fork failed" : "Session resumption failed",
           {
             sessionId,
@@ -2841,7 +3275,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // with the model config fetch below (the gateway REST call is independent).
     const initStartedAt = Date.now();
     const initPromise = !isResume
-      ? withTimeout(q.initializationResult(), SESSION_VALIDATION_TIMEOUT_MS)
+      ? initialization.wait(q.initializationResult())
       : undefined;
     const requestedModel =
       meta?.model || settingsManager.getSettings().model || undefined;
@@ -2876,12 +3310,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       : rawModelOptions;
 
     if (initPromise) {
+      let initializationPhase = initialization.phase;
+      let timeoutMs = SESSION_VALIDATION_TIMEOUT_MS;
       try {
         const initResult = await initPromise;
         if (initResult.result === "timeout") {
+          initializationPhase = initResult.phase;
+          timeoutMs = initResult.timeoutMs;
           throw new RequestError(
             -32603,
-            `Session initialization timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+            `Session ${initializationPhase === "setup_hooks" ? "setup hooks" : "initialization"} timed out after ${timeoutMs}ms`,
             { sessionId, taskId, taskRunId: meta?.taskRunId },
           );
         }
@@ -2891,7 +3329,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         session.fastModeEnabled = fastModeStateEnabled(
           initResult.value.fast_mode_state,
         );
-        this.logger.info("Session initialized", {
+        startupLogger.info("Session initialized", {
           sessionId,
           taskId,
           taskRunId: meta?.taskRunId,
@@ -2902,12 +3340,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         settingsManager.dispose();
         this.terminateQuery(q, abortController);
         const initMs = Date.now() - initStartedAt;
-        this.logger.error("Session initialization failed", {
+        startupLogger.error("Session initialization failed", {
           sessionId,
           taskId,
           taskRunId: meta?.taskRunId,
-          initializationPhase: "sdk_initialization",
-          timeoutMs: SESSION_VALIDATION_TIMEOUT_MS,
+          initializationPhase,
+          timeoutMs,
           modelConfigMs,
           initMs,
           requestedModel: requestedModel ?? null,
@@ -2931,14 +3369,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ? CONTEXT_WINDOW_200K_TOKENS
         : this.getContextWindowForModel(resolvedModelId);
 
-    const resolvedSdkModel = toSdkModelId(resolvedModelId);
-
-    // New sessions start with options.model = DEFAULT_MODEL, so only a
-    // non-default pick needs a setModel call. Resumed sessions always need
-    // it: the SDK does not carry the model across resume and would silently
-    // run its default otherwise.
-    if (isResume || resolvedSdkModel !== DEFAULT_MODEL) {
-      await this.session.query.setModel(resolvedSdkModel);
+    if (isResume || resolvedModelId !== options.model) {
+      await this.session.query.setModel(resolvedModelId);
     }
 
     // Keep thinking enabled by default for effort-capable models (see
@@ -3504,7 +3936,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private async broadcastUserMessage(params: PromptRequest): Promise<void> {
-    for (const chunk of params.prompt) {
+    for (const chunk of visiblePromptBlocks(params.prompt)) {
       const notification = {
         sessionId: params.sessionId,
         update: {

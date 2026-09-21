@@ -27,6 +27,7 @@ class CDCErrorCategory(enum.StrEnum):
     SSL_REQUIRED = "ssl_required"
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
+    QUOTA_EXCEEDED = "quota_exceeded"
     SSH_TUNNEL_FAILED = "ssh_tunnel_failed"
     SLOT_MISSING = "slot_missing"
     SLOT_NOT_CONFIGURED = "slot_not_configured"
@@ -67,14 +68,19 @@ class CDCSlotNotConfiguredError(Exception):
 
 
 class CDCReservedColumnError(Exception):
-    """A source table carries a column whose name PostHog reserves for change ordering.
+    """A source table carries a column whose name PostHog stamps onto change rows.
 
     Non-retryable: the collision is a property of the customer's table, so replaying re-fails.
-    Raised only on the buffered-ingress path — buffer files derive their name, ordering, and
-    retry cleanup from the engine position column, and a same-named source column means the
-    batcher could not append it. Writing anyway would order and clean up by customer data,
-    which can silently delete unconsumed buffer files. The legacy path is unaffected: it
-    passes the customer's column through untouched.
+
+    For the engine position column it is raised only on the buffered-ingress path — buffer
+    files derive their name, ordering, and retry cleanup from it, and a same-named source column
+    means the batcher could not append it. Writing anyway would order and clean up by customer
+    data, which can silently delete unconsumed buffer files. The legacy path passes the
+    customer's column through untouched.
+
+    For the history table's validity columns it is raised on every path, from the SCD2 stamp
+    itself: Delta refuses the duplicate name at write time anyway, and failing before the writer
+    names the column instead of a qualified field in a schema error.
     """
 
 
@@ -107,10 +113,17 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         True,
     ),
     CDCErrorCategory.HOST_UNREACHABLE: (
-        "PostHog has no network route to the source database host, so it can't be reached. Check "
-        "that the host and port are correct and reachable from the public internet (PostHog's IP "
-        "addresses allowed through, and the host not resolving to a private or unreachable "
-        "address), then re-enable change data capture.",
+        "PostHog couldn't open a network connection to the source database. Check that the host "
+        "and port are correct, and that the database accepts connections from the public internet "
+        "with PostHog's IP addresses allowed through. If all of that looks right, contact support: "
+        "some hosts resolve to an address PostHog can't reach, which is ours to fix. Re-enable "
+        "change data capture once it's reachable.",
+        False,
+    ),
+    CDCErrorCategory.QUOTA_EXCEEDED: (
+        "Your database provider blocked the connection because your account or project exceeded a "
+        "usage quota. Upgrade your provider's plan or wait for the quota to reset, then re-enable "
+        "change data capture.",
         False,
     ),
     CDCErrorCategory.SSH_TUNNEL_FAILED: (

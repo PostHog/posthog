@@ -39,6 +39,11 @@ from products.posthog_ai.evals.data_warehouse.synthesizer import (
     SynthTable,
     WarehouseSchemaSynthesizer,
 )
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseTableFormat,
+    ExternalDataSourceStatus,
+    WarehouseColumnAnnotationDescriptionSource,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -71,7 +76,7 @@ def seed_warehouse_schema(context: CustomPromptSandboxContext) -> dict[str, Any]
         t.name: DataWarehouseTable(
             team=team,
             name=t.name,
-            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            format=DataWarehouseTableFormat.CSVWithNames,
             url_pattern="",
             columns=t.columns_json(),
             row_count=t.row_count,
@@ -84,7 +89,7 @@ def seed_warehouse_schema(context: CustomPromptSandboxContext) -> dict[str, Any]
     # 2. Annotations — table-level (column_name="") and column-level — under team_scope.
     #    UUIDTModel ids are generated client-side, so the in-memory models carry valid pks.
     annotations: list[WarehouseColumnAnnotation] = []
-    source = WarehouseColumnAnnotation.DescriptionSource.CANONICAL
+    source = WarehouseColumnAnnotationDescriptionSource.CANONICAL
     for t in metadata_tables:
         model = table_models[t.name]
         if t.description:
@@ -222,7 +227,7 @@ def _create_queryable_needle(team: Team, table: SynthTable) -> dict[str, Any]:
             team=team,
             source_id="eval_source",
             connection_id="eval_connection",
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=ExternalDataSourceType.STRIPE,
             prefix=RETRIEVAL_NEEDLE_PREFIX,
         )
@@ -233,7 +238,7 @@ def _create_queryable_needle(team: Team, table: SynthTable) -> dict[str, Any]:
         )
         created = DataWarehouseTable.objects.create(
             name=name,
-            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            format=DataWarehouseTableFormat.CSVWithNames,
             team=team,
             external_data_source=source,
             credential=credential,

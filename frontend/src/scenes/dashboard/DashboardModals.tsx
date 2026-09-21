@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { AddWidgetModal } from '@posthog/products-dashboards/frontend/widgets/AddWidgetModal'
 
 import { ButtonTileCardModal } from 'lib/components/Cards/ButtonTileCard/ButtonTileCardModal'
+import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
@@ -13,6 +15,8 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
+import { ImageTileModal } from 'products/dashboards/frontend/components/ImageTile/ImageTileModal'
+import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
@@ -29,6 +33,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
         subscriptionId,
         showTextTileModal,
         textTileId,
+        showImageTileModal,
         showButtonTileModal,
         buttonTileId,
         terraformModalOpen,
@@ -40,6 +45,23 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
     const { updateDashboardSuccess } = useActions(dashboardsModel)
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
+    const textRouteTile =
+        textTileId !== null ? dashboard.tiles?.find((tile) => tile.id === Number(textTileId)) : undefined
+    const isCreatingTextTile = textTileId === null
+    const textRouteHasImage =
+        !!textRouteTile?.text && !!getImageOnlyTextCardImage(textCardConverter, textRouteTile.text.body)
+    const buttonRouteTile =
+        buttonTileId !== null ? dashboard.tiles?.find((tile) => tile.id === Number(buttonTileId)) : undefined
+    const isCreatingButtonTile = buttonTileId === null
+    const selectedImageTileId = textRouteHasImage ? (textRouteTile?.id ?? null) : null
+    const shouldShowImageTileModal = showImageTileModal || selectedImageTileId !== null
+    const hasMissingRouteTile = (textTileId !== null && !textRouteTile) || (buttonTileId !== null && !buttonRouteTile)
+
+    useEffect(() => {
+        if (hasMissingRouteTile) {
+            push(urls.dashboard(dashboard.id))
+        }
+    }, [dashboard.id, hasMissingRouteTile, push])
 
     return (
         <>
@@ -47,7 +69,8 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                 isOpen={showSubscriptions}
                 closeModal={() => push(urls.dashboard(dashboard.id))}
                 dashboard={dashboard}
-                subscriptionId={subscriptionId}
+                isCreating={subscriptionId === 'new'}
+                subscriptionId={subscriptionId === 'new' ? null : subscriptionId}
             />
             <SharingModal
                 title="Dashboard permissions & sharing"
@@ -59,14 +82,24 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
             />
             {canEditDashboard && (
                 <>
-                    <TextCardModal
-                        isOpen={showTextTileModal}
-                        onClose={() => push(urls.dashboard(dashboard.id))}
-                        dashboard={dashboard}
-                        textTileId={textTileId}
-                    />
+                    {shouldShowImageTileModal ? (
+                        <ImageTileModal
+                            key={selectedImageTileId ?? 'new'}
+                            isOpen={shouldShowImageTileModal}
+                            onClose={() => push(urls.dashboard(dashboard.id))}
+                            dashboard={dashboard}
+                            imageTileId={selectedImageTileId}
+                        />
+                    ) : (
+                        <TextCardModal
+                            isOpen={showTextTileModal && (isCreatingTextTile || !!textRouteTile?.text)}
+                            onClose={() => push(urls.dashboard(dashboard.id))}
+                            dashboard={dashboard}
+                            textTileId={textTileId}
+                        />
+                    )}
                     <ButtonTileCardModal
-                        isOpen={showButtonTileModal}
+                        isOpen={showButtonTileModal && (isCreatingButtonTile || !!buttonRouteTile?.button_tile)}
                         onClose={() => push(urls.dashboard(dashboard.id))}
                         dashboard={dashboard}
                         buttonTileId={buttonTileId}

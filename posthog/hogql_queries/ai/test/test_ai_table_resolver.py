@@ -37,6 +37,10 @@ class TestIsAiEventsEnabled:
         )
 
 
+# query_ai_events resolves the events-schema gate. On a legacy-schema run that gate falls through
+# to an instance setting read from Postgres, which only stays off the wire while some earlier
+# BaseTest has warmed its cache. Declare the access rather than depend on test order.
+@pytest.mark.django_db
 class TestQueryAiEvents:
     def _make_query(self):
         return ast.SelectQuery(

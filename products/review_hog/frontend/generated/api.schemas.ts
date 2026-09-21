@@ -473,6 +473,7 @@ export interface ReviewPerspectiveStatsApi {
  * * `review` - review
  * * `review_only` - review_only
  * * `resolve_only` - resolve_only
+ * * `flash` - flash
  */
 export type ReviewTriggerRequestRunModeEnumApi =
     (typeof ReviewTriggerRequestRunModeEnumApi)[keyof typeof ReviewTriggerRequestRunModeEnumApi]
@@ -481,23 +482,25 @@ export const ReviewTriggerRequestRunModeEnumApi = {
     Review: 'review',
     ReviewOnly: 'review_only',
     ResolveOnly: 'resolve_only',
+    Flash: 'flash',
 } as const
 
 export interface ReviewTriggerRequestApi {
     /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
     pr_url: string
-    /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.
+    /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads; 'flash' uses a lower-cost model for the review passes and validation, and never resolves comments.
      *
      * * `review` - review
      * * `review_only` - review_only
-     * * `resolve_only` - resolve_only */
+     * * `resolve_only` - resolve_only
+     * * `flash` - flash */
     run_mode?: ReviewTriggerRequestRunModeEnumApi
 }
 
 export interface ReviewTriggerResponseApi {
     /** Temporal workflow id for the started review run; empty when no run was started. */
     workflow_id: string
-    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts and its mode stays unchanged; requests for Full mode lift a cheaper stored tier for later Full reviews, while Flash requests leave the tier unchanged). */
     status: string
 }
 
@@ -511,9 +514,10 @@ export interface ReviewTriggerErrorApi {
  * * `should_fix` - Should Fix
  * * `must_fix` - Must Fix
  */
-export type UrgencyThresholdEnumApi = (typeof UrgencyThresholdEnumApi)[keyof typeof UrgencyThresholdEnumApi]
+export type ReviewUserSettingsUrgencyThresholdEnumApi =
+    (typeof ReviewUserSettingsUrgencyThresholdEnumApi)[keyof typeof ReviewUserSettingsUrgencyThresholdEnumApi]
 
-export const UrgencyThresholdEnumApi = {
+export const ReviewUserSettingsUrgencyThresholdEnumApi = {
     Consider: 'consider',
     ShouldFix: 'should_fix',
     MustFix: 'must_fix',
@@ -533,7 +537,7 @@ export interface ReviewUserSettingsApi {
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
-    urgency_threshold?: UrgencyThresholdEnumApi
+    urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
     /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
@@ -554,7 +558,7 @@ export interface PatchedReviewUserSettingsApi {
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
-    urgency_threshold?: UrgencyThresholdEnumApi
+    urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
     /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews?: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */

@@ -6,6 +6,7 @@ including multiple variant handling and exposure filtering logic.
 """
 
 import logging
+from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Optional, Union
 
@@ -19,13 +20,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
-from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
 # (at least partly) without the new event, so they must keep counting exposures via
 # $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
 # after the cutoff can rely on $experiment_exposure covering their whole exposure window.
-EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 8, 5, tzinfo=UTC)
+EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
 
 
 def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
@@ -80,6 +79,60 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
 
 
+# What a new experiment filters test accounts by when its criteria don't say. It does not follow
+# Team.test_account_filters_default_checked: most projects leave that field null, while nearly
+# every experiment stores filterTestAccounts true.
+DEFAULT_FILTER_TEST_ACCOUNTS = True
+
+
+def apply_exposure_criteria_defaults(exposure_criteria: Union[dict, None]) -> dict:
+    """Fill in what a new experiment gets when its criteria leave a field out.
+
+    Both experiment creation and the reads that estimate a baseline for a not-yet-created
+    experiment go through here, so the two cannot describe different populations.
+    """
+    result = dict(exposure_criteria or {})
+    if result.get("filterTestAccounts") is None:
+        result["filterTestAccounts"] = DEFAULT_FILTER_TEST_ACCOUNTS
+    return result
+
+
+def multivariate_flag_response_expr() -> ast.Expr:
+    """Matches the `$feature_flag_called` rows ingestion copies into `$experiment_exposure`.
+
+    Ingestion has no flag definitions, so it infers multivariate from the response shape: a
+    non-empty string that is neither "true" nor "false" (`isMultivariateFeatureFlagCalledEvent` in
+    `nodejs/src/ingestion/common/steps/event-processing/create-event-step.ts`). A read of
+    `$feature_flag_called` that stands in for `$experiment_exposure` has to apply the same rule, or
+    the two events describe different populations.
+    """
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.NotIn,
+        left=ast.Call(
+            name="coalesce",
+            args=[
+                ast.Call(name="toString", args=[ast.Field(chain=["properties", "$feature_flag_response"])]),
+                ast.Constant(value=""),
+            ],
+        ),
+        right=ast.Constant(value=["", "true", "false"]),
+    )
+
+
+def resolve_flag_call_source_event(events_present: Collection[str]) -> str:
+    """Which of the two flag-call events a team-wide read must count, given the events it observed.
+
+    `$experiment_exposure` is an ingestion-side copy of `$feature_flag_called`, so counting both
+    double counts every multivariate call. Ingestion makes the copy only for the teams on its
+    duplication list, which is separate from EXPERIMENT_EXPOSURE_EVENT_FLAG, so what the team's
+    rows carry decides and the flag does not.
+
+    This is not `resolve_default_exposure_event`: that one answers what a new experiment would
+    count, which can differ from what the project's events carry today.
+    """
+    return EXPERIMENT_EXPOSURE_EVENT if EXPERIMENT_EXPOSURE_EVENT in events_present else DEFAULT_EXPOSURE_EVENT
+
+
 def _is_actions_node_dict(config: dict) -> bool:
     """
     Helper to determine if a dict represents an ActionsNode.
@@ -112,11 +165,7 @@ def normalize_to_exposure_criteria(
 
     # Convert dict to typed object
     if isinstance(exposure_criteria, dict):
-        # Copy only known fields before the strict (extra="forbid") parse: the write-side
-        # validator never rejected unknown top-level keys, so saved criteria can carry
-        # stray ones (e.g. `properties`, which belongs at exposure_config.properties) —
-        # erroring here would break every results/exposure query for that experiment.
-        criteria_copy = {k: v for k, v in exposure_criteria.items() if k in ExperimentExposureCriteria.model_fields}
+        criteria_copy = dict(exposure_criteria)
         # Also normalize nested configs if present
         for config_key in ("exposure_config", "activation_config"):
             config = criteria_copy.get(config_key)
@@ -165,39 +214,6 @@ def get_multiple_variant_handling_from_experiment(
 
     # Default to "exclude" if not specified
     return MultipleVariantHandling.EXCLUDE
-
-
-def get_variant_selection_expr(
-    feature_flag_variant_property: str, multiple_variant_handling: MultipleVariantHandling
-) -> ast.Expr:
-    """
-    Returns the appropriate variant selection expression based on multiple_variant_handling configuration.
-
-    Args:
-        feature_flag_variant_property: The property name containing the variant value
-        multiple_variant_handling: How to handle multiple exposures (EXCLUDE or FIRST_SEEN)
-    """
-    variant_property_field = ast.Field(chain=["properties", feature_flag_variant_property])
-
-    match multiple_variant_handling:
-        case MultipleVariantHandling.FIRST_SEEN:
-            # Use variant from earliest exposure (minimum timestamp)
-            return parse_expr(
-                "argMin({variant_property}, timestamp)",
-                placeholders={
-                    "variant_property": variant_property_field,
-                },
-            )
-        case _:
-            # Default behavior is EXCLUDE. Users who have seen more than one variant is assigned to the
-            # MULTIPLE_VARIANT_KEY group
-            return parse_expr(
-                "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
-                placeholders={
-                    "variant_property": variant_property_field,
-                    "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
-                },
-            )
 
 
 def get_test_accounts_filter(

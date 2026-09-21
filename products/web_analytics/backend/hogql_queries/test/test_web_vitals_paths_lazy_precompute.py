@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -142,7 +142,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def _job_count(self) -> int:
         return PreaggregationJob.objects.filter(team_id=self.team.pk).count()
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_round_trip_creates_precompute_job(self):
         self._seed()
         with self._enable_lazy():
@@ -151,7 +151,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._job_count() > 0, "expected at least one precompute job to be created"
 
     @parameterized.expand(PARITY_MATRIX)
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_matches_raw_per_metric_percentile(
         self, _name: str, metric: WebVitalsMetric, percentile: WebVitalsPercentile
     ):
@@ -173,7 +173,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 f"value mismatch for {path} {metric}/{percentile}: raw={raw_value}, lazy={lazy_value}"
             )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_classifies_bands_correctly(self):
         self._seed()
         with self._enable_lazy():
@@ -182,7 +182,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._band_paths(response, WebVitalsMetricBand.NEEDS_IMPROVEMENTS) == ["/mid"]
         assert self._band_paths(response, WebVitalsMetricBand.POOR) == ["/slow"]
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_conversion_goal_falls_through(self):
         self._seed()
         with self._enable_lazy():
@@ -192,7 +192,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_sampling_falls_through(self):
         self._seed()
         with self._enable_lazy():
@@ -207,7 +207,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("end_misaligned", "2024-01-02T00:00:00", "2024-01-02T12:00:00"),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_explicit_sub_day_range_falls_through(self, _name: str, date_from: str, date_to: str):
         # Only `explicitDate=True` lets the query date range surface non-midnight
         # times; without it, the parser silently truncates to start/end of day.
@@ -222,7 +222,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_half_hour_offset_timezone_matches_raw(self):
         # Vitals buckets by team-tz day, so half-hour-offset timezones (IST +5:30
         # here) align cleanly and don't fall through to raw.
@@ -238,7 +238,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert raw == lazy, f"lazy/raw mismatch in IST: raw={raw}, lazy={lazy}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
         # Direct user-facing calculate (no warm pass): warming triggers bypass the
         # org flag by design, so the helper's warm pre-pass would create jobs here.
@@ -249,7 +249,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_org_flag_alone_falls_through_when_query_not_opted_in(self):
         self._seed()
         with self._enable_lazy():
@@ -257,7 +257,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_host_filter_gets_distinct_cache_entry(self):
         self._seed()
         host_filter = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
@@ -274,7 +274,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert unfiltered.isdisjoint(filtered), "host filter must produce a distinct cache key"
 
     @parameterized.expand([("utc", "UTC"), ("pacific", "America/Los_Angeles"), ("tokyo", "Asia/Tokyo")])
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str):
         self.team.timezone = team_tz
         self.team.save()
@@ -286,7 +286,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert raw == lazy, f"lazy/raw mismatch for {team_tz}: raw={raw}, lazy={lazy}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_returns_at_most_20_per_band(self):
         _create_person(team_id=self.team.pk, distinct_ids=["bulk_user"], properties={})
         # 25 distinct paths all classifying as "poor" (LCP 6000+).
@@ -310,7 +310,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         poor_items = response.results[0].poor
         assert len(poor_items) == 20, f"expected exactly 20 paths in poor band, got {len(poor_items)}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_stale_served_enqueues_background_revalidation(self):
         # Without the `result.stale` hook this family would serve stale for the whole
         # 6h grace and never refresh (the revalidate half of stale-while-revalidate).

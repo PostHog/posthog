@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates_psycopg import (
     and_join,
     render_psycopg_row_filter_conditions,
@@ -372,6 +373,8 @@ def iterate_date_windows(
     chunk_size: int,
     arrow_schema: pa.Schema,
     logger: FilteringBoundLogger,
+    byte_bounded: bool = False,
+    fetch_rows: int | None = None,
     initial_window: timedelta | int | float | None = None,
     max_window_multiplier: int = 30,
     min_window_divisor: int = 10,
@@ -445,10 +448,9 @@ def iterate_date_windows(
                     cur.execute(query)
                     columns = [c.name for c in cur.description or []]
                     window_schema = restrict_schema_to_columns(arrow_schema, columns)
-                    while True:
-                        rows = cur.fetchmany(chunk_size)
-                        if not rows:
-                            break
+                    for rows in fetch_row_batches(
+                        cur.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded, max_page_rows=fetch_rows
+                    ):
                         rows_this_window += len(rows)
                         yield table_from_iterator(
                             (dict(zip(columns, r)) for r in rows),
@@ -602,6 +604,8 @@ def iterate_partitions(
     chunk_size: int,
     arrow_schema: pa.Schema,
     logger: FilteringBoundLogger,
+    byte_bounded: bool = False,
+    fetch_rows: int | None = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     db_incremental_field_last_value: Any = None,
@@ -642,10 +646,9 @@ def iterate_partitions(
                 cur.execute(query)
                 columns = [c.name for c in cur.description or []]
                 partition_schema = restrict_schema_to_columns(arrow_schema, columns)
-                while True:
-                    rows = cur.fetchmany(chunk_size)
-                    if not rows:
-                        break
+                for rows in fetch_row_batches(
+                    cur.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded, max_page_rows=fetch_rows
+                ):
                     rows_this_partition += len(rows)
                     yield table_from_iterator(
                         (dict(zip(columns, r)) for r in rows),

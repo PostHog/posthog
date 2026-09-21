@@ -527,6 +527,7 @@ def test_resolver_owner_normalization(
     expected_individuals: list[str],
     expected_owned: int,
 ) -> None:
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text(owners_yaml)
@@ -541,6 +542,7 @@ def test_resolver_owner_normalization(
 
 
 def test_ownership_cross_team_and_unowned(tmp_path: Path) -> None:
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text("owners:\n  - team-a\n  - team-b\n")
@@ -561,6 +563,7 @@ def test_ownership_counts_a_products_generated_directory_and_nothing_wider(tmp_p
     # changes anywhere in the repo, so a team owning only those was not touched by the change. The
     # match names one directory shape on purpose: AGENTS.md rules out a general harmless-file rule,
     # and a bare `generated/` match would catch hand-editable code elsewhere in the tree.
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text("owners:\n  - team-a\n")
@@ -577,6 +580,11 @@ def test_ownership_counts_a_products_generated_directory_and_nothing_wider(tmp_p
 
     assert ownership["team_file_counts"] == {"@PostHog/team-a": 3}
     assert ownership["team_generated_file_counts"] == {"@PostHog/team-a": 1}
+    # The sample is what the digest shows a summarizer as "your files", so a path no person edited
+    # does not belong in it. The count above is what the digest subtracts.
+    assert ownership["team_files"] == {
+        "@PostHog/team-a": ["products/foo/backend/generated/thing.py", "products/foo/backend/models.py"]
+    }
 
 
 def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
@@ -585,5 +593,30 @@ def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
     # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
     # credentials. Both candidates must stay fixed offsets from the engine's own file.
     engine_dir = Path(gates.__file__).resolve().parent
-    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parent / "owners"
-    assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parents[3] / "tools" / "owners"
+    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parents[3] / "packages" / "owners-yaml"
+    assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parent / "owners"
+
+
+@pytest.mark.parametrize(
+    "engine_file, resolver_dir",
+    [
+        pytest.param(
+            "root/products/stamphog/packages/pr-approval-agent/gates.py",
+            "root/packages/owners-yaml",
+            id="monorepo",
+        ),
+        pytest.param("root/tools/pr-approval-agent/gates.py", "root/tools/owners", id="sandbox-and-vendored"),
+    ],
+)
+def test_the_owners_package_is_found_in_both_engine_layouts(
+    tmp_path: Path, engine_file: str, resolver_dir: str
+) -> None:
+    expected = tmp_path / resolver_dir
+    (expected / "owners_yaml").mkdir(parents=True)
+    engine_path = tmp_path / engine_file
+    engine_path.parent.mkdir(parents=True)
+    engine_path.touch()
+
+    found = [candidate for candidate in gates._owners_pkg_candidates(engine_path) if candidate.is_dir()]
+
+    assert found == [expected.resolve()]

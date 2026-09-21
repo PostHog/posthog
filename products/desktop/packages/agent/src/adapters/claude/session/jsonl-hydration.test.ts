@@ -433,6 +433,36 @@ describe("rebuildConversation", () => {
     expect(input.preview.length).toBeLessThan(11_000);
     expect(input.originalSize).toBeGreaterThan(50_000);
   });
+
+  it.each(["tool_call_update", "tool_result"])(
+    "excludes MCP metadata from rebuilt model history for %s",
+    (sessionUpdate) => {
+      const rawOutput = {
+        content: [{ type: "text", text: "3 rows" }],
+        _meta: { "com.posthog.mcp/app_data": { rows: "UI_ONLY".repeat(5000) } },
+      };
+      const turns = rebuildConversation([
+        entry("user_message", { content: { type: "text", text: "run query" } }),
+        entry("tool_call", {
+          toolCallId: "toolu_query",
+          _meta: { claudeCode: { toolName: "mcp__posthog__exec" } },
+          rawInput: { command: "call insight-query {}" },
+        }),
+        entry(sessionUpdate, { toolCallId: "toolu_query", rawOutput }),
+      ]);
+
+      expect(turns[1].toolCalls?.[0].result).toEqual({
+        content: rawOutput.content,
+      });
+      const transcript = conversationTurnsToJsonlEntries(turns, {
+        sessionId: "test-session",
+        cwd: "/test",
+      }).join("\n");
+      expect(transcript).toContain("3 rows");
+      expect(transcript).not.toContain("UI_ONLY");
+      expect(rawOutput._meta).toBeDefined();
+    },
+  );
 });
 
 describe("selectRecentTurns", () => {

@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 
 from posthog.api.services.query import ExecutionMode
@@ -34,7 +34,7 @@ class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesM
         return result.series[0].points[result.series[0].current_index].value
 
     def test_filters_placeholder_with_and_without_saved_filters(self) -> None:
-        with freeze_time("2026-06-12T12:00:00Z"):
+        with time_machine.travel("2026-06-12T12:00:00Z", tick=False):
             for i in range(3):
                 _create_event(
                     team=self.team, event="signup", distinct_id=f"recent_{i}", timestamp="2026-06-11T12:00:00Z"

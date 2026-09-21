@@ -44,21 +44,30 @@ def queue_configured_scout_slack_delivery(
         if destination is None:
             return
 
-        transaction.on_commit(
-            partial(
-                enqueue_scout_slack_delivery,
-                team_id=run.team_id,
-                output_type=output_type,
-                output_id=output_id,
-                run_id=str(run.id),
-                delivery_id=delivery_id or str(uuid.uuid4()),
-                integration_id=destination.integration_id,
-                channel=destination.channel,
-                edit_note=edit_note[:MAX_SLACK_NOTE_SNAPSHOT_LEN] if edit_note is not None else None,
-                thread_reports=destination.thread_reports,
-            ),
-            robust=True,
-        )
+        base_delivery_id = delivery_id or str(uuid.uuid4())
+        note_snapshot = edit_note[:MAX_SLACK_NOTE_SNAPSHOT_LEN] if edit_note is not None else None
+        for index, target in enumerate(destination.targets):
+            transaction.on_commit(
+                partial(
+                    enqueue_scout_slack_delivery,
+                    team_id=run.team_id,
+                    output_type=output_type,
+                    output_id=output_id,
+                    run_id=str(run.id),
+                    # Extra DM recipients get their own derived id so each Slack message keeps a
+                    # distinct client_msg_id — a UUID, since Slack rejects non-UUID values there.
+                    delivery_id=(
+                        base_delivery_id
+                        if index == 0
+                        else str(uuid.uuid5(uuid.NAMESPACE_OID, f"{base_delivery_id}:{index}"))
+                    ),
+                    integration_id=destination.integration_id,
+                    channel=target,
+                    edit_note=note_snapshot,
+                    thread_reports=destination.thread_reports,
+                ),
+                robust=True,
+            )
     except Exception as exc:
         capture_exception(
             exc,

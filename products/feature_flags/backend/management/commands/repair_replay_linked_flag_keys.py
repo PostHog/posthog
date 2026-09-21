@@ -9,23 +9,31 @@ plus any left by a writer that bypasses `save()`, such as the `bulk_update` in `
 Only rows whose stored id resolves to a live flag in the team's own project are rewritten. Rows
 pointing at a soft-deleted flag or at a flag in another project are counted and reported but
 left alone, because neither has a safe new key to adopt: a human has to decide whether the team
-still wants a recording gate at all.
+still wants a recording gate at all. A flag soft-deleted between the scan and the write is the
+one exception. The write reads the key under the team's row lock, so that team follows the flag
+onto its current key, which is the tombstone key when the soft delete freed the original for a
+new flag to claim.
 """
 
 import json
 from collections import Counter
 from collections.abc import Iterator
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import QuerySet
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.session_recording_links import update_linked_flag_key
+from products.feature_flags.backend.session_recording_links import (
+    ReplayGateRewrite,
+    rewritten_linked_flag,
+    save_replay_gate_rewrites,
+    stored_flag_id,
+)
 
 
 class Outcome(StrEnum):
@@ -34,10 +42,17 @@ class Outcome(StrEnum):
     FLAG_SOFT_DELETED = "flag_soft_deleted"
     FLAG_IN_OTHER_PROJECT = "flag_in_other_project"
     FLAG_MISSING = "flag_missing"
+    TEAM_MISSING = "team_missing"
     MALFORMED = "malformed"
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
+class _ReplayLinkWrite:
+    outcome: Outcome
+    written_key: str | None = None
+
+
+@frozen
 class _FlagRow:
     key: str
     deleted: bool
@@ -55,19 +70,6 @@ def _iter_team_chunks(queryset: QuerySet[Team], chunk_size: int) -> Iterator[lis
             return
         yield chunk
         last_id = chunk[-1].id
-
-
-def _linked_flag_id(linked_flag: Any) -> int | None:
-    if not isinstance(linked_flag, dict):
-        return None
-    stored_id = linked_flag.get("id")
-    # The column is schemaless, so anything an API client or the admin's JSON widget sent can be
-    # here. Only an int is acted on; every other shape is reported as malformed for a human to
-    # look at rather than coerced. `bool` is excluded explicitly because it subclasses `int`, so
-    # `{"id": true}` would otherwise repair against flag 1.
-    if isinstance(stored_id, bool) or not isinstance(stored_id, int):
-        return None
-    return stored_id
 
 
 class Command(BaseCommand):
@@ -121,7 +123,7 @@ class Command(BaseCommand):
 
     def _load_flags(self, teams: list[Team]) -> dict[int, _FlagRow]:
         flag_ids = {
-            flag_id for team in teams if (flag_id := _linked_flag_id(team.session_recording_linked_flag)) is not None
+            flag_id for team in teams if (flag_id := stored_flag_id(team.session_recording_linked_flag)) is not None
         }
         if not flag_ids:
             return {}
@@ -139,7 +141,7 @@ class Command(BaseCommand):
         linked_flag = team.session_recording_linked_flag
         detail: dict[str, Any] = {"team_id": team.id, "project_id": team.project_id, "linked_flag": linked_flag}
 
-        stored_id = _linked_flag_id(linked_flag)
+        stored_id = stored_flag_id(linked_flag)
         if stored_id is None:
             return Outcome.MALFORMED, detail
 
@@ -155,10 +157,57 @@ class Command(BaseCommand):
             return Outcome.ALREADY_CORRECT, detail
 
         detail["old_key"] = linked_flag.get("key")
-        detail["new_key"] = flag.key
-        if not dry_run:
-            update_linked_flag_key(team, stored_id, flag.key)
-        return Outcome.REPAIRED, detail
+        if dry_run:
+            # No lock is taken, so this is the key the chunk read, not one this run will write.
+            detail["new_key"] = flag.key
+            return Outcome.REPAIRED, detail
+
+        write = self._write_current_key(team.pk, stored_id)
+        if write.written_key is not None:
+            detail["new_key"] = write.written_key
+        return write.outcome, detail
+
+    def _write_current_key(self, team_id: int, flag_id: int) -> _ReplayLinkWrite:
+        """Point a team's replay link at the flag's key, and report what the write did.
+
+        `written_key` is set only when this run rewrote the row, so the caller can count a repair
+        it actually made.
+
+        `_load_flags` reads each key once per chunk, so a whole page of teams can be written after
+        it. A rename landing in that window has already relinked this team, and writing the key
+        the chunk read would put a key no flag holds back over the new one. Reading the key inside
+        the lock converges on the value `relink_teams` writes, because that relink takes this same
+        row lock.
+        """
+        # `save_replay_gate_rewrites` skips `rewrite` when the team row is gone, so this stands
+        # until the lock is held.
+        write = _ReplayLinkWrite(outcome=Outcome.TEAM_MISSING)
+
+        def rewrite(locked: Team) -> ReplayGateRewrite:
+            nonlocal write
+            # `objects_including_soft_deleted` so a soft delete landing in the same window keeps
+            # the team on the tombstone key that `_free_key_held_by_soft_deleted_flags` gives the
+            # flag. That rename frees the original key for a new flag to claim, and a team left on
+            # it would gate recording on a flag it never linked.
+            current_key = (
+                FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id).values_list("key", flat=True).first()
+            )
+            if current_key is None:
+                write = _ReplayLinkWrite(outcome=Outcome.FLAG_MISSING)
+                return ReplayGateRewrite()
+            linked_flag = rewritten_linked_flag(
+                locked.session_recording_linked_flag, flag_id=flag_id, new_key=current_key
+            )
+            if linked_flag is None:
+                # The team was relinked or repointed since the chunk read, so this run changes
+                # nothing. Reporting a repair here would name a key it never wrote.
+                write = _ReplayLinkWrite(outcome=Outcome.ALREADY_CORRECT)
+                return ReplayGateRewrite()
+            write = _ReplayLinkWrite(outcome=Outcome.REPAIRED, written_key=current_key)
+            return ReplayGateRewrite(linked_flag=linked_flag)
+
+        save_replay_gate_rewrites(team_id, rewrite)
+        return write
 
     def _report(self, report: dict[str, Any], *, as_json: bool) -> None:
         if as_json:

@@ -28,6 +28,7 @@ from prometheus_client import Counter, Gauge
 
 from posthog.tasks.utils import CeleryQueue
 
+from products.cohorts.backend.backfill.allowlist import parse_run_allowlist
 from products.cohorts.backend.backfill.readiness import stamp_events_readiness, stamp_person_properties_readiness
 from products.cohorts.backend.models.backfill import (
     CohortBackfillKind,
@@ -67,16 +68,20 @@ HELD_RUNS_GAUGE = Gauge(
     "posthog_cohort_backfill_finalizer_held_runs",
     "Observed backfill runs the finalizer left in reconciling, by reason",
     # labels: "shortfall" (an outcome was missing), "error" (the pass raised), "gated" (a person
-    # run parked behind the readiness gate)
+    # run parked behind the readiness gate), "not_allowlisted" (excluded by
+    # BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST)
     ["reason"],
-    # This is a whole-fleet snapshot served from each worker pod's own registry, so `max` holds a
-    # drained reason high until the task lands again on the pod that wrote the high reading.
-    # `observe.py` pushes its equivalent gauges under one job name instead; this one wants the same.
-    multiprocess_mode="max",
+    # Each pass is a whole-fleet snapshot, so only the newest reading is correct. `max` pinned the
+    # gauge at the highest value any celery process ever wrote, including dead ones, so a backlog
+    # that has since drained still reads as full. Widening the allowlist is meant to be watched on
+    # `not_allowlisted` going to zero, which `max` could never show. `observe.py` reaches the same
+    # end by pushing its gauges under one job name.
+    multiprocess_mode="livemostrecent",
 )
 
 
-@dataclass
+# Mutable by design: one pass accumulates counters into it as it walks the runs.
+@dataclass(frozen=False)
 class FinalizerPass:
     runs_scanned: int = 0
     completed: int = 0
@@ -84,6 +89,7 @@ class FinalizerPass:
     held: int = 0
     errored: int = 0
     gated: int = 0
+    not_allowlisted: int = 0
     stamped_participations: int = 0
     invalidated_teams: int = 0
 
@@ -124,8 +130,8 @@ def finalize_backfill_runs() -> FinalizerPass:
     """One finalizer pass. Returns a summary so callers/tests can assert without scraping logs."""
     result = FinalizerPass()
     if not settings.BEHAVIORAL_BACKFILL_FINALIZER_ENABLED:
-        # Reset rather than leave the gauge frozen at its last value: multiprocess_mode="max" keeps
-        # a stale reading alive fleet-wide until the process recycles.
+        # Reset rather than leave the gauge frozen at its last value: a reason left unwritten while
+        # the finalizer is off keeps reporting whatever the last enabled pass observed.
         _publish_held_runs(result)
         return result
 
@@ -157,18 +163,25 @@ def finalize_backfill_runs() -> FinalizerPass:
     # rather than bounding a sort, and neither kind pays for the other's parked backlog.
     kinds = _finalizable_kinds()
     per_kind = max(1, settings.BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS // len(kinds))
-    observed = [
-        row
-        for kind in kinds
-        for row in CohortBackfillRun.objects.unscoped()
-        .filter(
+    allowlist = parse_run_allowlist(settings.BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST)
+    observed: list[tuple[UUID, int]] = []
+    for kind in kinds:
+        discovered = CohortBackfillRun.objects.unscoped().filter(
             backfill_kind=kind,
             status=CohortBackfillRunStatus.RECONCILING,
             reconcile_observed_at__isnull=False,
         )
-        .order_by("reconcile_observed_at")
-        .values_list("id", "team_id")[:per_kind]
-    ]
+        if allowlist is not None:
+            # Filtered in SQL, not in Python afterwards. The `[:per_kind]` slice below applies in the
+            # database, so a post-filter would let an excluded backlog consume the whole budget and
+            # starve the verified runs — the same starvation the per-kind split above guards against.
+            #
+            # Count the exclusions rather than leaving them invisible: the filter holds these runs in
+            # `reconciling` without touching `result.held`, so nothing else would report how much is
+            # waiting on the allowlist being widened.
+            result.not_allowlisted += discovered.exclude(id__in=allowlist).count()
+            discovered = discovered.filter(id__in=allowlist)
+        observed.extend(discovered.order_by("reconcile_observed_at").values_list("id", "team_id")[:per_kind])
 
     teams_to_invalidate: set[int] = set()
     for run_id, team_id in observed:
@@ -202,6 +215,7 @@ def _publish_held_runs(result: FinalizerPass) -> None:
     HELD_RUNS_GAUGE.labels(reason="shortfall").set(result.held)
     HELD_RUNS_GAUGE.labels(reason="error").set(result.errored)
     HELD_RUNS_GAUGE.labels(reason="gated").set(result.gated)
+    HELD_RUNS_GAUGE.labels(reason="not_allowlisted").set(result.not_allowlisted)
 
 
 def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool:

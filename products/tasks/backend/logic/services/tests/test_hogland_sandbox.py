@@ -13,6 +13,7 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
     SnapshotCreationError,
 )
+from products.tasks.backend.logic.services.cpu_billing import CPU_BILLING_STATE_PATH
 from products.tasks.backend.logic.services.hogland_sandbox import (
     _STATIC_BOX_ENV,
     HoglandSandbox,
@@ -23,6 +24,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
+    build_agent_runtime_env_prefix,
     get_sandbox_class_for_sandbox_id,
 )
 
@@ -90,6 +92,18 @@ class TestHoglandSandboxCreate:
         assert kwargs["env"]["IS_SANDBOX"] == "override"
         assert sandbox.id == "box-abc123def456"
         assert config.snapshot_restored is False
+
+    def test_create_bounds_tags_to_the_hogland_length_limit(self):
+        # Hogland rejects the whole create when any tag exceeds 64 characters, and a task
+        # workflow id is longer than that on its own.
+        workflow_id = f"task-processing-{'a' * 36}-{'b' * 36}"
+        config = SandboxConfig(name="sandbox-task-1", metadata={"task_id": "t1", "workflow_id": workflow_id})
+        _sandbox, client = self._create(config)
+
+        tags = client.create.call_args.kwargs["tags"]
+        assert all(len(tag) <= 64 for tag in tags)
+        assert "task_id=t1" in tags
+        assert f"workflow_id={workflow_id[:52]}" in tags
 
     def test_create_records_the_read_back_box_shape_for_the_ledger(self):
         # The box ignores per-task overrides, so the ledger must reflect the shape the box
@@ -226,6 +240,64 @@ class TestSandboxIdPrefixDispatch:
         assert (resolved is HoglandSandbox) == expect_hogland
 
 
+class TestHoglandCpuBilling:
+    def test_cpu_usage_reads_cgroup_via_exec_not_read_file(self):
+        # hogpanion's file endpoint returns an empty body for sysfs paths (stat size 0),
+        # so a read_file port of the Modal code would silently zero all attribution.
+        box = _mock_box()
+        box.exec.return_value = _exec_result(stdout="usage_usec 123456\nuser_usec 100\n")
+        sandbox = _running_sandbox(box)
+
+        assert sandbox.read_cpu_usage_usec() == 123456
+        assert box.exec.call_args.args[0] == ["bash", "-c", "cat /sys/fs/cgroup/cpu.stat"]
+        box.read_file.assert_not_called()
+
+    def test_cpu_usage_returns_none_when_cgroup_read_fails(self):
+        box = _mock_box()
+        box.exec.return_value = _exec_result(exit_code=1)
+        assert _running_sandbox(box).read_cpu_usage_usec() is None
+
+    def test_sampler_and_billed_read_use_the_modal_equivalent_floor(self):
+        # The floor must stay Modal's 0.5-core burstable default, not hogland's
+        # 4-core reservation — otherwise the like-for-like billed number inflates 8x.
+        box = _mock_box()
+        box.exec.return_value = _exec_result()
+        sandbox = _running_sandbox(box)
+
+        assert sandbox.start_cpu_billing_sampler() is True
+        assert " 0.5 " in box.exec.call_args.args[0][2]
+
+    @parameterized.expand(
+        [
+            # Busy window: actual delta (2_000_000) beats the 0.5-core floor (500_000).
+            ("busy", "1000000 5000000 1000", 7_000_000, 1_000_000_000 + 1000, 1_000_000 + 2_000_000),
+            # Idle window: floor tops up — 0.5 cores over 1s of elapsed ns = 500_000 usec.
+            ("idle", "1000000 5000000 1000", 5_000_100, 1_000_000_000 + 1000, 1_000_000 + 500_000),
+        ]
+    )
+    def test_billed_usage_math(self, _name, state, current_cpu, now_ns, expected):
+        box = _mock_box()
+        box.read_file.return_value = state.encode()
+        box.exec.return_value = _exec_result(stdout=f"usage_usec {current_cpu}\n")
+        sandbox = _running_sandbox(box)
+
+        with patch("products.tasks.backend.logic.services.hogland_sandbox.time.time_ns", return_value=now_ns):
+            assert sandbox.read_billed_cpu_usage_usec() == expected
+        box.read_file.assert_called_once_with(CPU_BILLING_STATE_PATH)
+
+    @parameterized.expand([("malformed_state", "1 2"), ("empty_state", "")])
+    def test_billed_usage_returns_none_on_bad_state(self, _name, state):
+        box = _mock_box()
+        box.read_file.return_value = state.encode()
+        box.exec.return_value = _exec_result(stdout="usage_usec 1\n")
+        assert _running_sandbox(box).read_billed_cpu_usage_usec() is None
+
+    def test_billed_usage_returns_none_when_state_file_is_gone(self):
+        box = _mock_box()
+        box.read_file.side_effect = NotFoundError("gone", status_code=404)
+        assert _running_sandbox(box).read_billed_cpu_usage_usec() is None
+
+
 class TestHoglandAuthPrecedence:
     def test_file_mode_builds_an_uncached_client_from_the_current_file_contents(self, tmp_path):
         token_path = tmp_path / "token"
@@ -271,3 +343,20 @@ class TestHoglandAuthPrecedence:
 
         with override_settings(HOGLAND_API_TOKEN_FILE=file_setting, HOGLAND_API_TOKEN=static_token):
             assert get_hogland_api_token() == expected
+
+
+class TestHoglandBedrockDisabled:
+    def test_hogland_opts_out_of_direct_bedrock(self):
+        # hogland boxes boot with the bedrock feature (CLAUDE_CODE_USE_BEDROCK=1);
+        # the sandbox opts in to unsetting it so the agent uses the LLM gateway.
+        assert HoglandSandbox.disable_direct_bedrock is True
+
+    def test_env_prefix_unsets_bedrock_vars_when_requested(self):
+        prefix = build_agent_runtime_env_prefix(unset_bedrock=True)
+        assert "-u CLAUDE_CODE_USE_BEDROCK" in prefix
+        assert "-u AWS_CONTAINER_CREDENTIALS_FULL_URI" in prefix
+
+    def test_env_prefix_keeps_bedrock_vars_by_default(self):
+        prefix = build_agent_runtime_env_prefix()
+        assert "CLAUDE_CODE_USE_BEDROCK" not in prefix
+        assert "AWS_CONTAINER_CREDENTIALS_FULL_URI" not in prefix

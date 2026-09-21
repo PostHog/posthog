@@ -43,6 +43,12 @@ export const INGESTION_WARNING_TYPES = {
     cannot_merge_already_identified: { category: 'merge', severity: 'warning' },
     cannot_merge_with_illegal_distinct_id: { category: 'merge', severity: 'warning' },
     merge_race_condition: { category: 'merge', severity: 'error' },
+    // A source person held more distinct ids than the merge is allowed to
+    // move, so its merge did not happen.
+    merge_move_limit_exceeded: { category: 'merge', severity: 'error' },
+    // The merge backend settled on a verdict that merged nothing, and the
+    // verdict is recorded, so this event cannot reach a different answer.
+    merge_settled_failure: { category: 'merge', severity: 'error' },
 
     // Event validation — malformed or rejected event data
     client_ingestion_warning: { category: 'event', severity: 'info' },
@@ -83,7 +89,7 @@ export const INGESTION_WARNING_TYPES = {
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
 
-    // Cookieless mode — events missing the data required to compute a cookieless distinct id
+    cookieless_team_disabled: { category: 'event', severity: 'error' },
     cookieless_missing_timestamp: { category: 'event', severity: 'error' },
     cookieless_timestamp_out_of_range: { category: 'event', severity: 'error' },
     cookieless_missing_user_agent: { category: 'event', severity: 'error' },
