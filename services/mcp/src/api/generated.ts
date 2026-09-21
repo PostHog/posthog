@@ -35595,6 +35595,41 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * * `github` - github
+     * * `gitlab` - gitlab
+     */
+    export type ErrorTrackingSourceLinkProviderEnum = typeof ErrorTrackingSourceLinkProviderEnum[keyof typeof ErrorTrackingSourceLinkProviderEnum];
+
+
+    export const ErrorTrackingSourceLinkProviderEnum = {
+      Github: 'github',
+      Gitlab: 'gitlab',
+    } as const;
+
+    export interface ErrorTrackingSourceLink {
+      raw_id: string;
+      provider: ErrorTrackingSourceLinkProviderEnum;
+      url: string;
+      path: string;
+    }
+
+    export interface ErrorTrackingSourceLinkResolveRequest {
+      /** ID of the exception event's release, from its `$exception_release` property. Its repository and commit are used for every frame. */
+      release_id: string;
+      /**
+         * Raw frame IDs in 'hash/part' format, as returned by the stack frame endpoints.
+         * @minItems 1
+         * @maxItems 500
+         */
+      raw_ids: string[];
+    }
+
+    export interface ErrorTrackingSourceLinkResolveResponse {
+      /** One link per frame that maps to a file in the repository. Frames without a match are omitted. */
+      results: ErrorTrackingSourceLink[];
+    }
+
     export interface ErrorTrackingSpikeDetectionConfig {
       /**
          * Time to wait before alerting again for the same issue after a spike is detected.
@@ -45086,15 +45121,6 @@ export namespace Schemas {
       teams: GitHubTeam[];
       /** Whether more teams are available beyond this page. */
       has_more: boolean;
-    }
-
-    export interface GitProviderFileLinkResolveResponse {
-      /** Whether a matching file URL was found. */
-      found: boolean;
-      /** Resolved URL for the matching file. */
-      url?: string;
-      /** Error message when input parameters are invalid. */
-      error?: string;
     }
 
     /**
@@ -103147,52 +103173,6 @@ export namespace Schemas {
      * Fingerprint value to resolve to the issue it currently belongs to.
      */
     fingerprint: string;
-    };
-
-    export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string;
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string;
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string;
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string;
-    };
-
-    export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string;
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string;
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string;
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string;
     };
 
     export type ErrorTrackingIssuesListParams = {

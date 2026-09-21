@@ -811,13 +811,39 @@ export interface PaginatedErrorTrackingFingerprintListApi {
     results: ErrorTrackingFingerprintApi[]
 }
 
-export interface GitProviderFileLinkResolveResponseApi {
-    /** Whether a matching file URL was found. */
-    found: boolean
-    /** Resolved URL for the matching file. */
-    url?: string
-    /** Error message when input parameters are invalid. */
-    error?: string
+export interface ErrorTrackingSourceLinkResolveRequestApi {
+    /** ID of the exception event's release, from its `$exception_release` property. Its repository and commit are used for every frame. */
+    release_id: string
+    /**
+     * Raw frame IDs in 'hash/part' format, as returned by the stack frame endpoints.
+     * @minItems 1
+     * @maxItems 500
+     */
+    raw_ids: string[]
+}
+
+/**
+ * * `github` - github
+ * * `gitlab` - gitlab
+ */
+export type ErrorTrackingSourceLinkProviderEnumApi =
+    (typeof ErrorTrackingSourceLinkProviderEnumApi)[keyof typeof ErrorTrackingSourceLinkProviderEnumApi]
+
+export const ErrorTrackingSourceLinkProviderEnumApi = {
+    Github: 'github',
+    Gitlab: 'gitlab',
+} as const
+
+export interface ErrorTrackingSourceLinkApi {
+    raw_id: string
+    provider: ErrorTrackingSourceLinkProviderEnumApi
+    url: string
+    path: string
+}
+
+export interface ErrorTrackingSourceLinkResolveResponseApi {
+    /** One link per frame that maps to a file in the repository. Frames without a match are omitted. */
+    results: ErrorTrackingSourceLinkApi[]
 }
 
 /**
@@ -2316,52 +2342,6 @@ export type ErrorTrackingFingerprintsResolveRetrieveParams = {
      * Fingerprint value to resolve to the issue it currently belongs to.
      */
     fingerprint: string
-}
-
-export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string
-}
-
-export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string
 }
 
 export type ErrorTrackingIssuesListParams = {

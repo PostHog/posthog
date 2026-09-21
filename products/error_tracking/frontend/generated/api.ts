@@ -30,8 +30,6 @@ import type {
     ErrorTrackingFingerprintApi,
     ErrorTrackingFingerprintsListParams,
     ErrorTrackingFingerprintsResolveRetrieveParams,
-    ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams,
-    ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams,
     ErrorTrackingGroupingRuleApi,
     ErrorTrackingGroupingRuleCreateRequestApi,
     ErrorTrackingGroupingRuleListResponseApi,
@@ -61,6 +59,8 @@ import type {
     ErrorTrackingSeverityRuleCreateRequestApi,
     ErrorTrackingSeverityRuleListResponseApi,
     ErrorTrackingSeverityRuleUpdateRequestApi,
+    ErrorTrackingSourceLinkResolveRequestApi,
+    ErrorTrackingSourceLinkResolveResponseApi,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
     ErrorTrackingStackFrameApi,
@@ -80,7 +80,6 @@ import type {
     ErrorTrackingSymbolSetBulkStartUploadResponseApi,
     ErrorTrackingSymbolSetFinishUploadApi,
     ErrorTrackingSymbolSetsListParams,
-    GitProviderFileLinkResolveResponseApi,
     PaginatedErrorTrackingAlertListApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingBypassRuleListApi,
@@ -740,68 +739,26 @@ export const errorTrackingFingerprintsResolveRetrieve = async (
     })
 }
 
-export const getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl = (
-    projectId: string,
-    params: ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/error_tracking/git-provider-file-links/resolve_github/?${stringifiedParams}`
-        : `/api/projects/${projectId}/error_tracking/git-provider-file-links/resolve_github/`
+export const getErrorTrackingGitProviderFileLinksResolveCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/git-provider-file-links/resolve/`
 }
 
-export const errorTrackingGitProviderFileLinksResolveGithubRetrieve = async (
+/**
+ * Links resolved stack frames to the matching file in the GitHub or GitLab repository of the exception event's release, at the release commit.
+ * @summary Resolve source links
+ */
+export const errorTrackingGitProviderFileLinksResolveCreate = async (
     projectId: string,
-    params: ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams,
+    errorTrackingSourceLinkResolveRequestApi: ErrorTrackingSourceLinkResolveRequestApi,
     options?: RequestInit
-): Promise<GitProviderFileLinkResolveResponseApi> => {
-    return apiMutator<GitProviderFileLinkResolveResponseApi>(
-        getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl(projectId, params),
+): Promise<ErrorTrackingSourceLinkResolveResponseApi> => {
+    return apiMutator<ErrorTrackingSourceLinkResolveResponseApi>(
+        getErrorTrackingGitProviderFileLinksResolveCreateUrl(projectId),
         {
             ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl = (
-    projectId: string,
-    params: ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/error_tracking/git-provider-file-links/resolve_gitlab/?${stringifiedParams}`
-        : `/api/projects/${projectId}/error_tracking/git-provider-file-links/resolve_gitlab/`
-}
-
-export const errorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
-    projectId: string,
-    params: ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams,
-    options?: RequestInit
-): Promise<GitProviderFileLinkResolveResponseApi> => {
-    return apiMutator<GitProviderFileLinkResolveResponseApi>(
-        getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSourceLinkResolveRequestApi),
         }
     )
 }

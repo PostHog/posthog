@@ -195,6 +195,14 @@ class ErrorTrackingStackFrame:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingSourceLink:
+    raw_id: str
+    provider: Literal["github", "gitlab"]
+    url: str
+    path: str
+
+
+@dataclass(frozen=True)
 class ErrorTrackingRuleAssignee:
     type: str
     id: int | UUID

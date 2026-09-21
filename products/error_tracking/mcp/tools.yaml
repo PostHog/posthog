@@ -188,11 +188,8 @@ tools:
     error-tracking-fingerprints-retrieve:
         operation: error_tracking_fingerprints_retrieve
         enabled: false
-    error-tracking-git-provider-file-links-resolve-github-retrieve:
-        operation: error_tracking_git_provider_file_links_resolve_github_retrieve
-        enabled: false
-    error-tracking-git-provider-file-links-resolve-gitlab-retrieve:
-        operation: error_tracking_git_provider_file_links_resolve_gitlab_retrieve
+    error-tracking-git-provider-file-links-resolve-create:
+        operation: error_tracking_git_provider_file_links_resolve_create
         enabled: false
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create

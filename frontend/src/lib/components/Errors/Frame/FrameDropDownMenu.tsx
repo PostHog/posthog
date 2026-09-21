@@ -13,6 +13,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
 import { SourceData, framesCodeSourceLogic } from './framesCodeSourceLogic'
 
@@ -27,8 +28,9 @@ export function FrameDropDownMenu({
     className?: string
 }): JSX.Element {
     const { raw_id } = frame
+    const { release } = useValues(errorPropertiesLogic)
     const { getSourceDataForFrame } = useValues(framesCodeSourceLogic)
-    const sourceData = getSourceDataForFrame(raw_id)
+    const sourceData = getSourceDataForFrame(raw_id, release?.id)
     const lineLocation = getLineLocation(frame)
     const hasItems = !!(frame.resolved_name || frame.source || lineLocation || sourceData)
 
@@ -61,6 +63,11 @@ const PROVIDER_ICON_MAP: Record<string, React.ComponentType<{ className?: string
     gitlab: IconGitLab,
 }
 
+const PROVIDER_NAME_MAP: Record<string, string> = {
+    github: 'GitHub',
+    gitlab: 'GitLab',
+}
+
 export function SourceDataLink({ sourceData }: { sourceData: SourceData }): JSX.Element {
     const ProviderIcon = sourceData.provider ? PROVIDER_ICON_MAP[sourceData.provider] : null
     const Icon = ProviderIcon || IconExternal
@@ -68,7 +75,7 @@ export function SourceDataLink({ sourceData }: { sourceData: SourceData }): JSX.
         <DropdownMenuItem>
             <Link to={sourceData.url} target="_blank" className="inline-flex items-center">
                 <Icon className="w-3.5 h-3.5" />
-                Open in {sourceData.provider}
+                Open in {PROVIDER_NAME_MAP[sourceData.provider] ?? sourceData.provider}
             </Link>
         </DropdownMenuItem>
     )

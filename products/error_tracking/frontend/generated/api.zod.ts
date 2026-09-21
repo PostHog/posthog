@@ -408,6 +408,25 @@ export const ErrorTrackingExternalReferencesLinkIssueCreateBody = /* @__PURE__ *
         ),
 })
 
+/**
+ * Links resolved stack frames to the matching file in the GitHub or GitLab repository of the exception event's release, at the release commit.
+ * @summary Resolve source links
+ */
+export const errorTrackingGitProviderFileLinksResolveCreateBodyRawIdsMax = 500
+
+export const ErrorTrackingGitProviderFileLinksResolveCreateBody = /* @__PURE__ */ zod.object({
+    release_id: zod
+        .uuid()
+        .describe(
+            "ID of the exception event's release, from its `$exception_release` property. Its repository and commit are used for every frame."
+        ),
+    raw_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(errorTrackingGitProviderFileLinksResolveCreateBodyRawIdsMax)
+        .describe("Raw frame IDs in 'hash\/part' format, as returned by the stack frame endpoints."),
+})
+
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
