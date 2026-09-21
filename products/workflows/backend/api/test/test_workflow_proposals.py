@@ -122,7 +122,8 @@ class TestWorkflowProposals(APIBaseTest):
 
         stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
         assert stored.status == "applied"
-        assert stored.applied_version == HogFlow.objects.get(id=flow_id).version == 2
+        assert HogFlow.objects.get(id=flow_id).version == 2
+        assert stored.applied_version == 2
 
     def test_only_the_suggestion_still_staged_is_recorded_as_applied(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -169,21 +170,41 @@ class TestWorkflowProposals(APIBaseTest):
         self._publish(flow_id)
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
 
-    @parameterized.expand([("actions",), ("variables",)])
-    def test_a_suggestion_is_refused_once_someone_edits_what_it_changes(self, _mock_flag, field: str):
-        flow_id = self._create_active_flow()
-        content = (
-            {"actions": [_webhook_action(url="https://proposed.example.com")]}
-            if field == "actions"
-            else {"variables": [{"key": "greeting", "type": "string", "default": "hi"}]}
-        )
-        proposal = self._propose(flow_id, content=content, source_id=f"stale:{field}")
+    def _rename_a_step_and_publish(self, flow_id: str) -> None:
         self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
             {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         self._publish(flow_id)
+
+    def test_a_suggestion_is_refused_once_someone_edits_the_step_it_changes(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            content={"actions": [_webhook_action(url="https://proposed.example.com")]},
+            source_id="stale:actions",
+        )
+        self._rename_a_step_and_publish(flow_id)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {"overwrite": True}
+        )
+
+        assert response.status_code == 409, response.json()
+        assert response.json()["code"] == "proposal_out_of_date"
+        assert HogFlow.objects.get(id=flow_id).draft is None
+
+    def test_a_variables_suggestion_is_refused_after_any_publish(self, _mock_flag):
+        # Variables replace the whole list, so there is nothing to merge onto and an edit
+        # anywhere in the workflow puts the suggestion out of date.
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            content={"variables": [{"key": "greeting", "type": "string", "default": "hi"}]},
+            source_id="stale:variables",
+        )
+        self._rename_a_step_and_publish(flow_id)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {"overwrite": True}
@@ -476,7 +497,9 @@ class TestWorkflowProposals(APIBaseTest):
         assert staged.status_code == 200, staged.json()
 
         url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/"
-        assert self.client.post(url, {}).json()["code"] == "draft_exists"
+        blocked = self.client.post(url, {})
+        assert blocked.status_code == 409, blocked.json()
+        assert blocked.json()["code"] == "draft_exists"
         stale = self.client.post(url, {"overwrite": True, "expected_draft_updated_at": "2020-01-01T00:00:00Z"})
         assert stale.status_code == 409, stale.json()
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
