@@ -591,6 +591,7 @@ export const batchExportsRunsCancelCreateBodyBytesExportedMax = 2147483647
 
 export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
     .object({
+        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         status: zod
             .enum([
                 'Cancelled',
@@ -624,7 +625,6 @@ export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
             .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
         latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
         data_interval_start: zod.iso.datetime({ offset: true }).nullish().describe('The start of the data interval.'),
-        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
         finished_at: zod.iso
             .datetime({ offset: true })
@@ -667,6 +667,7 @@ export const batchExportsRunsRetryCreateBodyBytesExportedMax = 2147483647
 
 export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
     .object({
+        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         status: zod
             .enum([
                 'Cancelled',
@@ -700,7 +701,6 @@ export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
             .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
         latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
         data_interval_start: zod.iso.datetime({ offset: true }).nullish().describe('The start of the data interval.'),
-        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
         finished_at: zod.iso
             .datetime({ offset: true })
