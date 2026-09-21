@@ -419,14 +419,14 @@ export interface insightVizDataLogicActions {
     setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => {
         detailedResultsAggregationType: AggregationType
     }
+    setFormulaMode: (enabled: boolean) => {
+        enabled: boolean
+    }
     setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => {
         isIntervalManuallySet: boolean
     }
     setTimedOutQueryId: (id: string | null) => {
         id: string | null
-    }
-    toggleFormulaMode: () => {
-        value: true
     }
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => {
         breakdownFilter: BreakdownFilter
@@ -1369,7 +1369,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
-        toggleFormulaMode: true,
+        setFormulaMode: (enabled: boolean) => ({ enabled }),
         removeFormulaNode: (formulas: TrendsFormulaNode[]) => ({ formulas }),
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
@@ -1397,7 +1397,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isFormulaModeOpenedExplicitly: [
             false,
             {
-                toggleFormulaMode: (state) => !state,
+                setFormulaMode: (_, { enabled }) => enabled,
+                // A blank row left behind still empties the query's formula list, so hold the
+                // mode open or hasFormula closes the editor mid-edit. A filled row needs no flag.
+                removeFormulaNode: (state, { formulas }) =>
+                    formulas.length > 0 && formulas.every((node) => node.formula.trim() === '') ? true : state,
             },
         ],
     }),
@@ -2815,26 +2819,24 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         loadDataFailure: () => {
             actions.setTimedOutQueryId(null)
         },
-        toggleFormulaMode: () => {
-            // Only if formula mode is already open should we trigger a query.
-            if (values.hasFormula) {
+        setFormulaMode: ({ enabled }) => {
+            // Turning the mode off has to clear the query's formulas too, because hasFormula reads
+            // them back and would turn the mode straight on again.
+            if (!enabled && values.formulaNodes.length > 0) {
                 actions.updateInsightFilter({ formula: undefined, formulas: undefined, formulaNodes: [] })
             }
         },
         removeFormulaNode: ({ formulas }) => {
             if (formulas.length === 0) {
-                actions.toggleFormulaMode()
+                actions.setFormulaMode(false)
                 return
             }
 
-            const filledFormulas = formulas.filter((v) => v.formula.trim() !== '')
-            if (filledFormulas.length > 0) {
-                actions.updateInsightFilter({
-                    formula: undefined,
-                    formulas: undefined,
-                    formulaNodes: filledFormulas,
-                })
-            }
+            actions.updateInsightFilter({
+                formula: undefined,
+                formulas: undefined,
+                formulaNodes: formulas.filter((v) => v.formula.trim() !== ''),
+            })
         },
     })),
     afterMount(({ actions, values }) => {
