@@ -1804,6 +1804,15 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp["content-type"], "text/event-stream")
         mock_stream.assert_called_once()
 
+    @override_settings(SERVER_GATEWAY_INTERFACE="WSGI")
+    def test_progress_endpoint_returns_204_on_wsgi(self) -> None:
+        # The stream body is an `async def` generator that only ASGI can consume, and these pods run
+        # WSGI. Raising there made every poll a 500; a 204 leaves the bar on its time-based fallback.
+        obs = self._create_observation(status=ObservationStatus.PENDING)
+        url = f"/api/projects/{self.team.id}/vision/observations/{obs.id}/progress/"
+        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
+        self.assertEqual(resp.status_code, 204)
+
     def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))
         self.assertEqual(resp.status_code, 404)

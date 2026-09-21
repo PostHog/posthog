@@ -366,3 +366,14 @@ def sse_streaming_response(
         # not strand the reservation until GC gets to it.
         reservation.release()
         raise
+
+
+def sse_streaming_supported() -> bool:
+    """Whether this process can serve an SSE view whose body is an ``async def`` generator.
+
+    Only ASGI can. Django's WSGI fallback for an async iterator buffers the whole stream
+    into a list before it sends a byte, which pins a blocking thread and delivers nothing
+    until the stream closes. So degrade on WSGI, do not raise: return an empty ``204``, and
+    let the client take its own fallback path instead of seeing a ``500`` on every poll.
+    """
+    return settings.SERVER_GATEWAY_INTERFACE == "ASGI"
