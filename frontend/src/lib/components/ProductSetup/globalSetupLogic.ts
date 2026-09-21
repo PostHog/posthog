@@ -190,9 +190,9 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
             },
         ],
         // Optimistic task statuses - updated immediately before the API call completes, so the UI
-        // responds instantly. An entry is dropped once the save lands or fails, which hands the task
-        // back to the saved team state. null means "the user unmarked this task"; a null entry stays
-        // for the session so an auto-completion cannot silently tick the task again.
+        // responds instantly. An entry is dropped once its save settles, which hands the task back to
+        // the saved team state. null means "the user unmarked this task"; a null entry stays for the
+        // session so an auto-completion cannot silently tick the task again.
         optimisticTaskStatuses: [
             {} as Record<string, ActivationTaskStatus | null>,
             {
@@ -227,9 +227,9 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
                     ...Object.keys(statuses),
                 ],
                 clearOptimisticTaskStatuses: (state, { taskIds }) =>
-                    state.filter((taskId) => !taskIds.includes(taskId as SetupTaskId)),
+                    state.filter((taskId) => !(taskIds as string[]).includes(taskId)),
                 settleTaskSaves: (state, { taskIds }) =>
-                    state.filter((taskId) => !taskIds.includes(taskId as SetupTaskId)),
+                    state.filter((taskId) => !(taskIds as string[]).includes(taskId)),
             },
         ],
     }),
