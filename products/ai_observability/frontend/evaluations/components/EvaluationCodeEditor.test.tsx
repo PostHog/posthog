@@ -142,7 +142,7 @@ describe('EvaluationCodeEditor', () => {
         logic.actions.loadEvaluationSuccess({ ...baseEvaluation, output_type: 'numeric' })
         renderEditor()
 
-        fireEvent.click(screen.getByRole('button', { name: label }))
+        fireEvent.click(screen.getByText(label))
 
         expect(logic.values.evaluation?.evaluation_config).toEqual({ source })
         expect(logic.values.evaluation?.output_config.allows_na).toBe(true)

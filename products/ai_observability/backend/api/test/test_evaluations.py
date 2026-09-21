@@ -2,7 +2,7 @@ import json
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase
@@ -60,6 +60,15 @@ def _setup_team():
 
 
 class TestNumericEvaluationSerializer(SimpleTestCase):
+    @parameterized.expand([("min", 0), ("passing_rule", {"operator": "gte", "threshold": 7})])
+    def test_boolean_patch_rejects_numeric_settings(self, key: str, value: object) -> None:
+        evaluation = Evaluation(
+            evaluation_type="hog", evaluation_config={"source": "return true;"}, output_type="boolean", output_config={}
+        )
+        serializer = EvaluationSerializer(instance=evaluation, data={"output_config": {key: value}}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(key, str(serializer.errors))
+
     def test_preview_validates_numeric_config(self):
         serializer = HogRequestSerializer(
             data={"source": "return 0;", "output_type": "numeric", "output_config": {"min": 0, "allows_na": True}}
@@ -1325,15 +1334,26 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
 
 class TestTestHogEndpoint(APIBaseTest):
+    @parameterized.expand(
+        [
+            (None, 0, 0),
+            ({"operator": "gte", "threshold": 0}, 1, 0),
+            ({"operator": "gte", "threshold": 1}, 0, 1),
+            ({"operator": "lte", "threshold": 1}, 1, 0),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.evaluations.report_user_action")
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_numeric_preview_does_not_coerce_score_to_boolean(self, mock_query):
+    def test_numeric_preview_does_not_coerce_score_to_boolean(
+        self, rule: dict[str, str | int] | None, passed: int, failed: int, mock_query: Mock, mock_report: Mock
+    ) -> None:
         mock_query.return_value = self._mock_hogql_response()
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
             {
                 "source": "return 0;",
                 "output_type": "numeric",
-                "output_config": {"min": 0},
+                "output_config": {"min": 0, "passing_rule": rule},
             },
         )
         self.assertEqual(response.status_code, 200, response.json())
@@ -1341,6 +1361,10 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(result["score"], 0)
         self.assertIsNone(result["result"])
         self.assertIsNone(result["error"])
+        counts = mock_report.call_args.args[2]
+        self.assertEqual(counts["pass_count"], passed)
+        self.assertEqual(counts["fail_count"], failed)
+        self.assertEqual(counts["na_count"], 0)
 
     EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
 

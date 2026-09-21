@@ -622,7 +622,7 @@ def call_llm_judge(
                     build_skipped_evaluation_result(
                         output_type="numeric",
                         allows_na=allows_na,
-                        reasoning=f"The judge returned a score outside the configured bounds: {error}. This run was skipped.",
+                        reasoning=f"{parsed_result.reasoning}\n\nThe judge returned a score outside the configured bounds: {error}. This run was skipped.",
                         skip_reason="score_out_of_bounds",
                     )
                 )

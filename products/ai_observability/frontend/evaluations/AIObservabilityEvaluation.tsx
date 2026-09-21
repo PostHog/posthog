@@ -48,8 +48,7 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
-import { formatNumericEvaluationScore } from './constants'
-import { EVALUATION_RUNS_QUERY_LIMIT } from './constants'
+import { EVALUATION_RUNS_QUERY_LIMIT, formatNumericEvaluationScore, numericOutputConfigError } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReports,
@@ -175,7 +174,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
               : 'Add an evaluation prompt before saving'
           : !hasSelectedJudgeModel
             ? 'Select a judge model before saving'
-            : undefined
+            : evaluation.output_type === 'numeric'
+              ? (numericOutputConfigError(evaluation.output_config) ?? undefined)
+              : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')

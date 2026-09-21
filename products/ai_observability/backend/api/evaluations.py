@@ -1,3 +1,5 @@
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from django.db import models, transaction
@@ -29,6 +31,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError,
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission
+from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
@@ -920,6 +923,24 @@ class TestHogResponseSerializer(serializers.Serializer):
     )
 
 
+def _hog_test_result_counts(
+    results: Sequence[Mapping[str, object]], output_type: str, output_config: dict[str, object] | None
+) -> dict[str, int]:
+    config = output_config or {}
+    # Preview telemetry and reports must agree on polarity and thresholds.
+    definition = get_outcome_definition(
+        output_type, true_is_failure=config.get("true_is_failure") is True, output_config=config
+    )
+    counts: Counter[str | None] = Counter()
+    for result in results:
+        if result["error"]:
+            counts["error"] += 1
+        else:
+            value = result.get("score") if output_type == "numeric" else result["result"]
+            counts[definition.label_for(value, applicable=value is not None)] += 1
+    return {f"{outcome}_count": counts[outcome] for outcome in ("pass", "fail", "na", "error")}
+
+
 def _humanize_seconds(seconds: int) -> str:
     """Whole units only: this reads back the quiet period the user just set, so "24 hours" beats
     "1440 minutes"."""
@@ -984,6 +1005,7 @@ def _test_hog_over_sessions(
         {
             "sample_count": sample_count,
             "results_count": len(results),
+            **_hog_test_result_counts(results, output_type, output_config),
             "target": EvaluationTarget.SESSION.value,
             "condition_count": len(conditions),
         },
@@ -1061,10 +1083,7 @@ def _test_hog_over_traces(
             "allows_na": allows_na,
             "condition_count": len(conditions),
             "result_count": len(results),
-            "pass_count": sum(1 for r in results if r["result"] is True),
-            "fail_count": sum(1 for r in results if r["result"] is False),
-            "error_count": sum(1 for r in results if r["error"]),
-            "na_count": sum(1 for r in results if r["result"] is None and r.get("score") is None and not r["error"]),
+            **_hog_test_result_counts(results, output_type, output_config),
             "no_events": not results,
             "target": EvaluationTarget.TRACE.value,
         },
@@ -1484,12 +1503,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "allows_na": allows_na,
                 "condition_count": len(conditions),
                 "result_count": len(results),
-                "pass_count": sum(1 for r in results if r["result"] is True),
-                "fail_count": sum(1 for r in results if r["result"] is False),
-                "error_count": sum(1 for r in results if r["error"]),
-                "na_count": sum(
-                    1 for r in results if r["result"] is None and r.get("score") is None and not r["error"]
-                ),
+                **_hog_test_result_counts(results, output_type, output_config),
                 "no_events": False,
                 "target": target,
             },

@@ -30,7 +30,7 @@ export function NumericEvaluationConfig({
                         <LemonInput
                             id={`${id}-${field}`}
                             type="number"
-                            value={config[field] ?? undefined}
+                            value={config[field] ?? NaN}
                             onChange={(value) => onChange({ [field]: Number.isFinite(value) ? value : null })}
                             placeholder="Not set"
                             data-attr={`llma-evaluation-numeric-${field}`}
@@ -75,13 +75,7 @@ export function NumericEvaluationConfig({
                             value={rule.threshold}
                             onChange={(threshold) =>
                                 onChange({
-                                    passing_rule: {
-                                        ...rule,
-                                        threshold:
-                                            typeof threshold === 'number' && Number.isFinite(threshold)
-                                                ? threshold
-                                                : (config.min ?? config.max ?? 0),
-                                    },
+                                    passing_rule: { ...rule, threshold: threshold ?? NaN },
                                 })
                             }
                             min={config.min ?? undefined}

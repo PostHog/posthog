@@ -2553,6 +2553,7 @@ class TestEvalResultModels:
             properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 7, 1, tzinfo=UTC))
             assert properties["$ai_evaluation_skipped"] is True
             assert properties["$ai_evaluation_skip_reason"] == "score_out_of_bounds"
+            assert properties["$ai_evaluation_reasoning"].startswith("Quality\n\n")
             assert "$ai_score" not in properties
             assert properties["$ai_input_tokens"] == 100
             assert properties["$ai_output_tokens"] == 20

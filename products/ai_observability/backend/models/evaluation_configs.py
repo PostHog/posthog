@@ -52,6 +52,8 @@ class HogEvalConfig(BaseModel):
 class BooleanOutputConfig(BaseModel):
     """Configuration for boolean output type"""
 
+    model_config = ConfigDict(extra="forbid")
+
     allows_na: bool = False
     # Detector-style evaluations look for a problem, so their true result is the undesirable one and
     # must be reported as a fail. Defaulting to False keeps stored configs written before this field
