@@ -3122,7 +3122,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     )
 
             try:
-                signal_result = tasks_facade.signal_task_run_user_message(
+                # Forks rather than signals when the run was started by the Signals pipeline —
+                # its sandbox holds a token minted for the pipeline's budget, and that token
+                # can't be swapped mid-run.
+                delivery_outcome, forked_run = tasks_facade.deliver_task_run_user_message(
                     pk,
                     task_id,
                     self.team_id,
@@ -3140,9 +3143,24 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
-            if signal_result is None:
+            if delivery_outcome == "not_found":
                 raise NotFound()
-            if signal_result is False:
+            if delivery_outcome == "attachments_not_forkable":
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {
+                            "error": "This run can't take attachments. Send the message on its own, "
+                            "then attach files once the new run starts."
+                        }
+                    ).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if delivery_outcome == "nothing_to_deliver":
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Add a message to send to this run."}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if delivery_outcome == "workflow_gone":
                 return Response(
                     TaskRunErrorResponseSerializer({"error": "Task run workflow has ended"}).data,
                     status=status.HTTP_409_CONFLICT,
@@ -3156,9 +3174,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             except Exception:
                 logger.warning("Failed to clear await_user_message for task run %s", pk)
 
+            command_result: dict[str, Any] = {"queued": True}
+            if forked_run is not None:
+                # The message went to a successor run, so a client streaming this one needs to
+                # know where it went. Watchers also re-resolve on the stopped run's status change.
+                command_result["forked_run_id"] = str(forked_run.id)
             response_payload: dict[str, Any] = {
                 "jsonrpc": request.validated_data["jsonrpc"],
-                "result": {"queued": True},
+                "result": command_result,
             }
             if request_id is not None:
                 response_payload["id"] = request_id

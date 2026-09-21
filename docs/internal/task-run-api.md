@@ -41,6 +41,19 @@ Agent-sourced runs use the read-only MCP permission preset.
 Run state updates cannot change or remove the run source or base branch.
 The `state` field must be a JSON object.
 
+## Messages to pipeline-started runs
+
+The run command endpoint accepts `user_message` commands.
+For a live Signals run that the pipeline started, it requests cancellation and starts a new interactive run on the same task.
+The new run references the old run through `resume_from_run_id` and receives the message as `pending_user_message`.
+The response includes `result.forked_run_id`; clients must use that run ID to follow the new run.
+The server does not wait for cancellation to finish before it starts the new run.
+If the new run fails to start, the old run still has its cancellation request.
+
+Interactive Signals runs, including runs with the `inbox` or `chat` stage, receive the message without a fork.
+A fork rejects attachments and empty messages before it requests cancellation.
+Send the message without attachments, then attach files after the new run starts.
+
 ## Run summaries
 
 `PATCH /api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/set_summary/` replaces the run's progress summary.

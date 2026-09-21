@@ -16,6 +16,7 @@ from products.tasks.backend.temporal.oauth import (
     INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS,
     create_oauth_access_token,
     create_oauth_access_token_for_run,
+    is_pipeline_started_signals_run,
 )
 
 
@@ -511,3 +512,32 @@ def test_workflow_fired_run_excludes_loop_write_scope(mock_create: MagicMock) ->
     granted = mock_create.call_args.kwargs["scopes"]
     assert "loop:write" not in granted
     assert "loop:read" in granted
+
+
+@pytest.mark.parametrize(
+    ("origin_product", "run_state", "expected"),
+    [
+        (Task.OriginProduct.SIGNAL_REPORT, {"ai_stage": "implementation"}, True),
+        (Task.OriginProduct.SIGNAL_REPORT, {"ai_stage": "research"}, True),
+        (Task.OriginProduct.SIGNAL_REPORT, {"ai_stage": "inbox"}, False),
+        (Task.OriginProduct.SIGNALS_CHAT, {"ai_stage": "chat"}, False),
+        # Wider than the interactive predicate on purpose: a scheduled scout's sandbox holds a
+        # pipeline-minted token too, so a person's message must not land on it in place.
+        (Task.OriginProduct.SIGNALS_SCOUT, {"ai_stage": "scout"}, True),
+        # A hand-started run carries no stage, so it is steerable and keeps its own budget.
+        (Task.OriginProduct.SIGNAL_REPORT, {"mode": "interactive"}, False),
+        (Task.OriginProduct.SIGNAL_REPORT, None, False),
+        (Task.OriginProduct.SIGNAL_REPORT, {"ai_stage": ""}, False),
+        (Task.OriginProduct.SIGNALS_CHAT, None, False),
+        # Non-signals origins mint under a different app entirely and are none of its business.
+        (Task.OriginProduct.USER_CREATED, {"ai_stage": "implementation"}, False),
+    ],
+)
+def test_only_pipeline_started_signals_runs_refuse_in_place_steering(
+    origin_product: Task.OriginProduct,
+    run_state: dict | None,
+    expected: bool,
+) -> None:
+    task = MagicMock(id="task-id", origin_product=origin_product, internal=True)
+
+    assert is_pipeline_started_signals_run(task, run_state) is expected
