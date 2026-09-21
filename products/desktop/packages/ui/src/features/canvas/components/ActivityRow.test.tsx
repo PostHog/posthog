@@ -7,6 +7,10 @@ const navigation = vi.hoisted(() => ({
   toChannelTask: vi.fn(),
   toTaskDetail: vi.fn(),
 }));
+const links = vi.hoisted(() => ({
+  copyCanvasLink: vi.fn(() => Promise.resolve()),
+  copyChannelLink: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannelDashboard: navigation.toChannelDashboard,
@@ -27,6 +31,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
 }));
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => vi.fn(),
+}));
+vi.mock("@posthog/ui/features/canvas/utils/copyCanvasLink", () => ({
+  copyCanvasLink: links.copyCanvasLink,
+}));
+vi.mock("@posthog/ui/features/canvas/utils/copyChannelLink", () => ({
+  copyChannelLink: links.copyChannelLink,
 }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
@@ -117,6 +127,25 @@ describe("ActivityRow", () => {
     expect(row).not.toHaveClass("bg-primary/10");
     expect(row).not.toHaveClass("outline-primary/20");
     expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
+  });
+
+  it("shows the full waiting status and space in a tooltip", () => {
+    render(
+      <ActivityRow
+        menu={taskMenu()}
+        item={item({ activityKind: "awaiting_input", channelName: "personal" })}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={new Set(["task-1"])}
+        compact
+      />,
+    );
+
+    expect(
+      screen.getByTitle(
+        "just now · Agent is waiting for your reply in Personal",
+      ),
+    ).toBeInTheDocument();
   });
 
   it.each([
@@ -222,5 +251,30 @@ describe("ActivityRow", () => {
       openCommentsTab: true,
       intent: "navigate",
     });
+  });
+
+  it("copies a canvas link, not a task link, for a canvas comment row", () => {
+    render(
+      <ActivityRow
+        item={item({
+          channelId: "channel-1",
+          commentId: "comment-1",
+          commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+        })}
+        menu={taskMenu()}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={NO_BLOCKED_TASKS}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Copy thread link"));
+
+    expect(links.copyCanvasLink).toHaveBeenCalledWith(
+      "channel-1",
+      "canvas-1",
+      "activity",
+    );
+    expect(links.copyChannelLink).not.toHaveBeenCalled();
   });
 });

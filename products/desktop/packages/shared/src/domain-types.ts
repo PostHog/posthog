@@ -593,6 +593,7 @@ export interface CloudTaskSnapshotUpdate extends CloudTaskUpdateBase {
    *  than the full history; older entries page in on demand. Absent means
    *  the snapshot starts at the head of the chain. */
   windowStart?: number;
+  rebuilt?: boolean;
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
@@ -1045,6 +1046,10 @@ export interface SuggestedReviewer {
   github_name: string | null;
   relevant_commits: SuggestedReviewerCommit[];
   user: SuggestedReviewerUser | null;
+  reason?: string | null;
+  source_skill?: string | null;
+  source_label?: string;
+  explanation?: string | null;
 }
 
 export interface SuggestedReviewerWriteEntry {

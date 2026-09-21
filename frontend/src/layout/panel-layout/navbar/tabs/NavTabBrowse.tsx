@@ -35,6 +35,7 @@ import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/navbar/NavLink'
+import { NavLinkSideActionButton } from '~/layout/panel-layout/navbar/NavLinkSideActionButton'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -224,14 +225,21 @@ export function NavTabBrowse(): JSX.Element {
                             isCollapsed={isLayoutNavCollapsed}
                             data-attr="nav-item-home"
                             onClick={() => reportNavItemClicked('home', 'primary')}
-                            sideAction={{
-                                onClick: () =>
-                                    uiCustomizationEnabled
-                                        ? router.actions.push(urls.settings('user-navigation', 'homepage'))
-                                        : showConfigureHomeModal(),
-                                tooltip: 'Configure home',
-                                'data-attr': 'nav-configure-home',
-                            }}
+                            sideAction={
+                                <NavLinkSideActionButton
+                                    icon={<IconGear />}
+                                    tooltip="Configure home"
+                                    data-attr="nav-configure-home"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (uiCustomizationEnabled) {
+                                            router.actions.push(urls.settings('user-navigation', 'homepage'))
+                                        } else {
+                                            showConfigureHomeModal()
+                                        }
+                                    }}
+                                />
+                            }
                         />
                     )}
 

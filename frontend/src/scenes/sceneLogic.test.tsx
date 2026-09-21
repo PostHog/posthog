@@ -31,8 +31,11 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
+    [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
+    [Scene.OrganizationCreateFirst]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
+    [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
 }
 
@@ -101,6 +104,31 @@ describe('sceneLogic', () => {
         router.actions.push(urls.billingAuthorizationStatus())
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.billingAuthorizationStatus())
+    })
+
+    it.each([
+        ['/organization', urls.settings('organization'), Scene.Settings],
+        ['/organization/projects', urls.settings('organization'), Scene.Settings],
+        ['/organization/settings/projects', urls.settings('organization'), Scene.Settings],
+        ['/organization/projects/new', urls.projectCreateFirst(), Scene.ProjectCreateFirst],
+        ['/organization/create', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
+        ['/organization/new', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
+    ])('sends the unrouted %s to %s instead of the 404 scene', async (path, expected, expectedScene) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(expectedScene)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expected)
+    })
+
+    // The redirect table is keyed on exact paths, so a later `/organization/*` prefix entry would
+    // shadow the real scenes under it.
+    it('keeps /organization/billing on its own scene route, not the organization redirect', async () => {
+        router.actions.push(urls.organizationBilling())
+        await expectLogic(logic).delay(1)
+        // The `/*` fallback leaves the pathname alone, so only the scene tells a shadowed route apart
+        // from a served one.
+        expect(logic.values.activeSceneId).toEqual(Scene.Billing)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
     })
 
     it('redirects /project/new to the create-project flow instead of a 404', async () => {
@@ -314,6 +342,64 @@ describe('sceneLogic', () => {
             }
             expect(hadBootstrappedHomepage).toBe(false)
             expect(redirectedPathname).toEqual(urls.projectHomepage())
+        })
+
+        it('drops a homepage whose object turned out not to exist, and lands on the launchpad', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+
+            logic.actions.resetUnavailableHomepage(urls.dashboard(42))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.homepage).toBeNull()
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+        })
+
+        // The way out of the dead end must keep the URL state the `/` → homepage redirect already
+        // forwards, or a modal bound to `?modal=` closes itself as the person lands on the launchpad.
+        it('carries the hash and allow-listed params onto the launchpad when it drops the homepage', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage(), { modal: 'invite-members' }, { panel: 'max:hi' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+
+            logic.actions.resetUnavailableHomepage(urls.dashboard(42))
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            expect(router.values.searchParams).toEqual({ modal: 'invite-members' })
+            expect(router.values.hashParams).toEqual({ panel: 'max:hi' })
+        })
+
+        // The reset fires from whichever logic found its object missing, and dashboard logics are
+        // also mounted embedded — in notebooks, on the feature flag page — so a missing object that
+        // is not the homepage must leave both the setting and the address bar alone.
+        it('keeps the homepage when some other object is the missing one', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.dashboard(99))
+            await expectLogic(logic).delay(1)
+
+            logic.actions.resetUnavailableHomepage(urls.dashboard(99))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.homepage?.pathname).toEqual(urls.dashboard(42))
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(99))
+        })
+
+        // Clearing the setting is right wherever the homepage dashboard was found missing, but
+        // navigating away is only right when that dashboard is what fills the screen.
+        it('drops the homepage without navigating when it is missing from an embedded render', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.notebook('abc'))
+            await expectLogic(logic).delay(1)
+
+            logic.actions.resetUnavailableHomepage(urls.dashboard(42))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.homepage).toBeNull()
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.notebook('abc'))
         })
 
         it('forwards allow-listed query params onto the homepage redirect and drops the rest', async () => {

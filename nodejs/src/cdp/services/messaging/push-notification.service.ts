@@ -151,7 +151,7 @@ function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAf
 }
 
 export type PushNotificationFetchUtils = {
-    trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string }) => Promise<{
+    trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string; teamId?: number }) => Promise<{
         fetchError: Error | null
         fetchResponse: FetchResponse | null
         fetchDuration: number
@@ -453,6 +453,7 @@ export class PushNotificationService {
             url,
             fetchParams,
             templateId,
+            teamId: result.invocation.teamId,
         })
 
         result.invocation.state.timings.push({
@@ -600,6 +601,7 @@ export class PushNotificationService {
             url: `https://${apns.apnsHost}/3/device/${subscription.token}`,
             fetchParams,
             templateId: apns.templateId,
+            teamId: result.invocation.teamId,
         })
 
         result.invocation.state.timings.push({

@@ -104,7 +104,9 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
     const { insightProps } = useValues(insightLogic)
     const { querySource, shouldShowSessionAnalysisWarning } = useValues(insightVizDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
-    const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
+    const { handleInsightSuggested, onKeepSuggestedInsight, onRejectSuggestedInsight } = useActions(
+        insightLogic(insightProps)
+    )
     const { previousQuery, suggestedQuery } = useValues(insightLogic(insightProps))
 
     const panelRef = useRef<HTMLDivElement>(null)
@@ -205,6 +207,7 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
                             <SuggestionBanner
                                 previousQuery={previousQuery}
                                 suggestedQuery={suggestedQuery}
+                                onKeep={onKeepSuggestedInsight}
                                 onReject={onRejectSuggestedInsight}
                             />
                         )}

@@ -144,6 +144,7 @@ describe('PushNotificationService', () => {
                 url: 'https://fcm.googleapis.com/v1/projects/test-project/messages:send',
                 fetchParams: expect.objectContaining({ method: 'POST' }),
                 templateId: 'unknown',
+                teamId: invocation.teamId,
             })
         })
 
@@ -630,6 +631,7 @@ describe('PushNotificationService', () => {
                     }),
                 }),
                 templateId: 'unknown',
+                teamId: invocation.teamId,
             })
         })
 

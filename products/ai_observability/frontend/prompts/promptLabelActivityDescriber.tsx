@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -21,6 +22,8 @@ function parseDetailName(logItem: ActivityLogItem): { promptName: string; labelN
 export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     const { promptName, labelName } = parseDetailName(logItem)
     const change = logItem.detail?.changes?.[0]
+    const beforeVersion = String(change?.before ?? '?')
+    const afterVersion = String(change?.after ?? '?')
     const onPrompt = promptName ? (
         <>
             {' '}
@@ -30,10 +33,18 @@ export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Created the label pointing at v${afterVersion}`,
+                <>
+                    {labelName}
+                    {onPrompt}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created label <b>{labelName}</b> pointing at{' '}
-                    <b>v{String(change?.after ?? '?')}</b>
+                    <b>v{afterVersion}</b>
                     {onPrompt}
                 </>
             ),
@@ -42,10 +53,18 @@ export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity === 'updated') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Moved the label from v${beforeVersion} to v${afterVersion}`,
+                <>
+                    {labelName}
+                    {onPrompt}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> moved label <b>{labelName}</b> from{' '}
-                    <b>v{String(change?.before ?? '?')}</b> to <b>v{String(change?.after ?? '?')}</b>
+                    <b>v{beforeVersion}</b> to <b>v{afterVersion}</b>
                     {onPrompt}
                 </>
             ),
@@ -54,10 +73,18 @@ export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Removed the label (was pointing at v${beforeVersion})`,
+                <>
+                    {labelName}
+                    {onPrompt}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> removed label <b>{labelName}</b> (was pointing at{' '}
-                    <b>v{String(change?.before ?? '?')}</b>){onPrompt}
+                    <b>v{beforeVersion}</b>){onPrompt}
                 </>
             ),
         }

@@ -1267,6 +1267,33 @@ class TestWarmRunRelease(APIBaseTest):
 
 
 class TestWarmTaskResumeSandbox(APIBaseTest):
+    def test_warm_resume_from_an_import_run_marks_the_warm_run(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        import_run = task.create_run(mode="interactive", extra_state={"imported_from": "conversation"})
+        import_run.status = TaskRun.Status.COMPLETED
+        import_run.save(update_fields=["status"])
+
+        with (
+            patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False),
+            patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            warmed = facade.warm_task_resume_sandbox(
+                task.id, self.team.id, self.user.id, resume_from_run_id=import_run.id
+            )
+
+        assert warmed is not None
+        warm_run = TaskRun.objects.get(id=warmed.run_id)
+        assert warm_run.state["resume_from_run_id"] == str(import_run.id)
+        assert warm_run.state["resume_from_import_run"] is True
+        assert "imported_from" not in warm_run.state
+
     @parameterized.expand(["release", None])
     def test_warms_and_activates_a_successor_for_the_latest_terminal_run(self, base_branch):
         task = Task.objects.create(

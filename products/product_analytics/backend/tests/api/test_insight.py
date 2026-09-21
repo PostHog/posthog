@@ -713,29 +713,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
         self.assertEqual(response.json()["results"][0]["query"]["source"]["series"][0]["event"], "$pageview")
 
-    @parameterized.expand([("full", ""), ("basic", "&basic=true")])
-    def test_listing_an_insight_with_only_filters_serves_them(self, _name: str, query_string: str) -> None:
-        # `unique_users` is not a math value the query schema accepts, so this definition cannot be
-        # expressed as a query at all. Reading it used to raise out of the serializer and fail the
-        # whole list request.
-        stored_filters = {"events": [{"id": "$pageview", "math": "unique_users"}]}
-        Insight.objects.create(
-            team=self.team,
-            saved=True,
-            short_id="brokenfl",
-            filters=stored_filters,
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=brokenfl{query_string}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        result = response.json()["results"][0]
-        self.assertIsNone(result["query"])
-        # The stored definition survives the read, and the absent `insight` key is not filled in:
-        # the client's converter defaults it, the same way the server's converter does.
-        self.assertEqual(result["filters"]["events"], stored_filters["events"])
-        self.assertNotIn("insight", result["filters"])
-
     @parameterized.expand(
         [
             ("numeric_id", lambda insight: insight.id),
@@ -813,7 +790,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name",
                 "derived_name",
                 "favorited",
-                "filters",
                 "query",
                 "dashboard_tiles",
                 "description",
@@ -858,7 +834,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"({unsaved_no_dashboard.short_id}) must be excluded."
         )
 
-    def test_search_filter_does_not_duplicate_insights_with_multiple_matching_tags(self) -> None:
+    @parameterized.expand(
+        [
+            ("search", "search=needle"),
+            ("tags filter", 'tags=["needle-tag-a", "needle-tag-b", "needle-tag-c"]'),
+        ]
+    )
+    def test_list_does_not_duplicate_insights_with_multiple_matching_tags(self, _name: str, query: str) -> None:
         from posthog.models.tag import Tag
         from posthog.models.tagged_item import TaggedItem
 
@@ -869,13 +851,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             tag = Tag.objects.create(name=tag_name, team=self.team)
             TaggedItem.objects.create(insight=insight, tag=tag)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=needle")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?{query}")
         assert response.status_code == status.HTTP_200_OK
-        matching_short_ids = [r["short_id"] for r in response.json()["results"] if r["short_id"] == insight.short_id]
+        body = response.json()
+        matching_short_ids = [r["short_id"] for r in body["results"] if r["short_id"] == insight.short_id]
         assert len(matching_short_ids) == 1, (
-            f"search=needle must return the insight once even though three tags + the name match it; "
+            f"?{query} must return the insight once even though three tags match it; "
             f"got {len(matching_short_ids)} copies."
         )
+        assert body["count"] == 1, f"?{query} must count the insight once; got {body['count']}."
 
     @parameterized.expand(
         [

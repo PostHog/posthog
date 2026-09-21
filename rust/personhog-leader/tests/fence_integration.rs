@@ -11,7 +11,7 @@ use dashmap::DashMap;
 
 use common::{
     create_leader_client, create_test_kafka, seed_person, test_cached_person, test_recovery,
-    unique_team_id, CHANGELOG_TOPIC, NUM_PARTITIONS,
+    unique_team_id, NUM_PARTITIONS,
 };
 use personhog_common::partitioning::partition_for_person;
 use personhog_leader::cache::{
@@ -90,8 +90,8 @@ struct FenceHarness {
     locks: Arc<DashMap<PersonCacheKey, Arc<tokio::sync::Mutex<()>>>>,
     fences: FenceMap,
     _cancel: CancellationToken,
-    _mock_cluster:
-        rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
+    /// Kept alive so the topic outlives the test that reads it.
+    topic: common::TestTopic,
 }
 
 async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback>) -> FenceHarness {
@@ -112,23 +112,21 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let locks = Arc::new(DashMap::new());
     let fences: FenceMap = Arc::new(DashMap::new());
-    // Recovery consumes the same mock cluster so a post-death cache miss
-    // can recover the death document.
+    // Recovery consumes the same topic so a post-death cache miss can
+    // recover the death document.
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         fallback,
         Arc::clone(&locks),
         Arc::clone(&inflight),
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
-        test_recovery(&bootstrap),
+        test_recovery(&mock_cluster.topic, &bootstrap),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         Arc::clone(&fences),
-        None,
-        None,
+        common::fenced_producers_acquired(&mock_cluster.topic, NUM_PARTITIONS as i32).await,
+        common::live_authority(),
         Arc::clone(&emitted_versions),
     );
 
@@ -164,7 +162,7 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
         locks,
         fences,
         _cancel: cancel,
-        _mock_cluster: mock_cluster,
+        topic: mock_cluster,
     }
 }
 
@@ -177,7 +175,7 @@ fn changelog_records(harness: &FenceHarness) -> Vec<Person> {
         .expect("failed to create consumer");
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition_offset(
-        CHANGELOG_TOPIC,
+        &harness.topic.topic,
         harness.partition as i32,
         rdkafka::Offset::Beginning,
     )
@@ -1445,19 +1443,17 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
-        test_recovery(&_mock_cluster.bootstrap_servers()),
+        test_recovery(&_mock_cluster.topic, &_mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await,
+        common::live_authority(),
         Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     )
     .with_fence_capacity(1);

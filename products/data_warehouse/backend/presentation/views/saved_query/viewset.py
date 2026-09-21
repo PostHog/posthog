@@ -3,8 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Model, OuterRef, Prefetch, Subquery, TextField
-from django.db.models.functions import Cast
+from django.db.models import Model, Prefetch
 
 import structlog
 import posthoganalytics
@@ -22,7 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.rbac.query_access import assert_user_can_read_query
@@ -41,6 +40,19 @@ logger = structlog.get_logger(__name__)
 class _CancelTarget:
     workflow_id: str
     workflow_run_id: str | None
+
+
+class DependentsValidationError(serializers.ValidationError):
+    """A refused delete, carrying the blocked view's node id for a link to its lineage.
+
+    exceptions_hog renders only str, list, or {field: message} details, so the id travels on
+    `extra`, which the handler attaches to the response verbatim.
+    """
+
+    def __init__(self, detail: str, node_id: str | None = None) -> None:
+        super().__init__(detail)
+        if node_id:
+            self.extra = {"node_id": node_id}
 
 
 class DataWarehouseSavedQueryPagination(PageNumberPagination):
@@ -195,24 +207,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if not is_managed_viewset_enabled:
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
-        # Only the detail serializer returns `latest_history_id`, and the subquery costs a jsonb
-        # key-path filter the GIN index on `detail` cannot serve, so keep it off the list page.
-        if getattr(self, "action", None) == "retrieve":
-            # Scoped to query edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs
-            # don't advance the head.
-            latest_activity = (
-                ActivityLog.objects.filter(
-                    scope="DataWarehouseSavedQuery",
-                    item_id=Cast(OuterRef("id"), output_field=TextField()),
-                    team_id=self.team_id,
-                    **editing.QUERY_CHANGE_ACTIVITY_FILTER,
-                )
-                .order_by("-created_at")
-                .values("id")[:1]
-            )
-
-            return base_queryset.annotate(latest_activity_id=Subquery(latest_activity))
-
         return base_queryset
 
     def create(self, request, *args, **kwargs):
@@ -236,15 +230,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.facade.api import HasDependentsError
+        from products.data_modeling.backend.facade.api import HasDependentsError, describe_dependents
 
         instance: DataWarehouseSavedQuery = self.get_object()
         name = instance.name
         try:
             lifecycle.delete_saved_query(instance)
-        except HasDependentsError:
-            raise serializers.ValidationError(
-                "Cannot delete this view because other views depend on it. Delete or update those views first."
+        except HasDependentsError as dependents_error:
+            visible = lifecycle.visible_dependents(dependents_error.dependents, self.user_access_control)
+            raise DependentsValidationError(
+                describe_dependents(name, visible, any_hidden=len(visible) < len(dependents_error.dependents)),
+                node_id=lifecycle.refusal_node_id(dependents_error, visible, self.user_access_control),
             )
 
         log_activity(
