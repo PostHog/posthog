@@ -96,8 +96,15 @@ TYPES_THAT_CAN_RERUN = (
 DRAFT_ONLY_UPDATE_FIELDS = frozenset({"draft", "draft_updated_at", "draft_encrypted_inputs"})
 
 
+DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error"}
+
+
 def _is_draft_only_save(update_fields: Optional[Iterable[str]]) -> bool:
     return update_fields is not None and set(update_fields) <= DRAFT_ONLY_UPDATE_FIELDS
+
+
+def _raw_filters(filters: dict | None) -> dict:
+    return {key: value for key, value in (filters or {}).items() if key not in DERIVED_FILTER_KEYS}
 
 
 class HogFunction(FileSystemSyncMixin, UUIDTModel):
@@ -301,7 +308,10 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         )
         previous_bytecode = previous.get("bytecode")
 
-        if previous_bytecode is not None:
+        # The runtime reads raw fields beside the bytecode - `source` picks the consumer, `events`
+        # drives the pre-filter - so new raw fields on an old program would apply rules the stored
+        # filters no longer describe.
+        if previous_bytecode is not None and _raw_filters(compiled) == _raw_filters(previous):
             compiled["bytecode"] = previous_bytecode
             logger.warning(
                 "hog_function_filters_kept_previous_bytecode",
