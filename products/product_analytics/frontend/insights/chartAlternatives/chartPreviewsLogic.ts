@@ -315,16 +315,22 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                 }
                 const eligiblePreviews = values.previews.filter((preview) => !preview.option.disabledReason)
                 const loadedPreviews = eligiblePreviews.filter((preview) => preview.response !== null)
-                const samplePreviewCount = loadedPreviews.filter((preview) => preview.sample).length
+                const samplePreviews = loadedPreviews.filter((preview) => preview.sample)
                 posthog.capture('insight chart alternatives viewed', {
                     current_display: values.currentDisplay,
                     eligible_chart_count: eligiblePreviews.length,
+                    eligible_displays: eligiblePreviews.map((preview) => preview.option.display),
                     preview_count: loadedPreviews.length,
-                    sample_preview_count: samplePreviewCount,
+                    preview_displays: loadedPreviews.map((preview) => preview.option.display),
+                    sample_preview_count: samplePreviews.length,
+                    sample_preview_displays: samplePreviews.map((preview) => preview.option.display),
+                    suggested_displays: eligiblePreviews
+                        .filter((preview) => preview.suggested)
+                        .map((preview) => preview.option.display),
                     all_previews_loaded:
                         eligiblePreviews.length > 0 && loadedPreviews.length === eligiblePreviews.length,
                     all_previews_use_sample_data:
-                        eligiblePreviews.length > 0 && samplePreviewCount === eligiblePreviews.length,
+                        eligiblePreviews.length > 0 && samplePreviews.length === eligiblePreviews.length,
                 })
             },
             loadDataSuccess: rememberLoadedTimeSeries,
