@@ -295,7 +295,7 @@ export function SavedInsights(): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Delete insight?',
                                                 description:
-                                                    'If there are any associated alerts or subscriptions, they will be removed.',
+                                                    'Are you sure you want to delete this insight? Associated alerts and subscriptions will also be removed. Their removal cannot be undone.',
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',
@@ -453,8 +453,7 @@ export function SavedInsights(): JSX.Element {
                                             const noun = count === 1 ? 'insight' : 'insights'
                                             LemonDialog.open({
                                                 title: `Delete ${count} ${noun}?`,
-                                                description:
-                                                    'If there are any associated alerts or subscriptions, they will be removed.',
+                                                description: `Are you sure you want to delete ${count} ${noun}? Associated alerts and subscriptions will also be removed. Their removal cannot be undone.`,
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',
