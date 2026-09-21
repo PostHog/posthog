@@ -46,8 +46,6 @@ Two traps:
 The check aggregates its whole window into one number at run time, so a window longer than the soak mixes pre-fix traffic into the result and can fail a fix that held.
 Keep `date_from` equal to the soak.
 
-A number only another product's tool can measure is an `agent` check, however deterministic it looks.
-
 ### `agent`
 
 For a claim no single number settles, or a number that lives outside events — a log rate, a fix whose effect shows in *which* entities fire rather than how many, a claim that needs a stack trace read.

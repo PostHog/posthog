@@ -266,12 +266,12 @@ The report contract behind each report — the report bar, evidence, actionabili
 `inbox-report-checks-list` returns every check on one report, newest first, with its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, `cancelled`), its `last_outcome`, and its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`); `inbox-report-checks-retrieve` returns one check with its full config.
 Read the rows this way:
 
-- **`pending`** — the check is waiting for the report to resolve before its clock starts. Nothing is late.
+- **`pending`** — the check is waiting for the report to resolve before its clock starts.
 - **`active`** with a future `next_run_at` — a verdict is on its way. Don't re-derive the answer by hand; say when it lands.
-- Everything else is terminal, so the check will not run again. A claim still worth watching needs a new check, which is a write — hand off to `authoring-scouts`.
+- Everything else is terminal. A claim still worth watching needs a new check, which is a write — hand off to `authoring-scouts`.
 
 The verdicts themselves are **not** on the check row: each one is a `check_result` artefact on the report, so read them through the report's artefact list.
-`query` and `baseline_value` read as null for a credential that cannot read the data they describe — that is an access limit, not a missing check.
+`query` and `baseline_value` read as null for a credential that cannot read the data they describe.
 A `failed` check on a resolved report usually has a **fresh report** behind it as well (the breach is re-surfaced as a new report linked to the resolved one), so look for that before reporting the relapse as unhandled.
 The full mechanics — the two check kinds, the soak window, what each verdict does next — are in the `authoring-scouts` skill (`references/report-checks.md`).
 

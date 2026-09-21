@@ -110,9 +110,9 @@ A report is backward-looking; a **check** is the opposite direction — an expec
 Give your scout a checks section when its findings are the kind whose fix shows up in data later.
 Three rules belong in the body, and the reference has the rest:
 
-- **List the report's existing checks first** (`scout-report-check-list`), every time. A report already carrying an open check for the same claim needs no second one, and a report holds at most five open checks — a resolved report often arrives already covered, because the report pipeline's research stage attaches checks of its own.
-- **`metric_threshold` wherever one number settles the claim and an event or action series can carry it.** The coordinator measures it itself, with no scout run and no LLM. Set the comparison to the level a reader would accept as "the problem stopped", and keep the query's window equal to the soak.
-- **`agent` when no single number settles it, or when the number lives outside events** — a log rate, a fix whose effect shows in which entities fire rather than how many, a claim that needs a stack trace read. It is dispatched as a scout run, which records the verdict with `scout-check-record-result`.
+- **List the report's existing checks first** (`scout-report-check-list`), every time. An open check for the same claim makes a second one noise, and a report holds at most five open checks.
+- **`metric_threshold` wherever one number settles the claim and an event or action series can carry it.** The coordinator measures it itself, with no scout run.
+- **`agent` when no single number settles it, or when the number lives outside events** — a log rate, a fix whose effect shows in which entities fire rather than how many, a claim that needs a stack trace read.
 
 The single most important design decision in any scout is its **signal-vs-noise discriminator** — the cheap profile-shape read that separates "worth investigating" from "baseline".
 For error tracking it's the `count` vs `distinct_users` ratio; for CSP it's reach over raw count.
