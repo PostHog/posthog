@@ -44,6 +44,9 @@ class VercelProvider(WebhookProvider):
     provider = "vercel"
     app = "marketplace"
     invalid_signature_status = 401
+    # The endpoint answered 401 for a missing secret as well as a bad signature, because the old
+    # verifier could not tell the caller apart from the operator. Inherited rather than chosen.
+    unconfigured_status = 401
     # A delivery no consumer accepted answers 500, which is what this endpoint answered before.
     # Vercel does not redeliver after a non-2xx, so it buys no retry.
     retry_status = 500

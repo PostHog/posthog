@@ -39,8 +39,9 @@ It is the only provider here that does, and `receiving_region_domain` is what sa
 A deauthorization for an installation neither region holds is still accepted.
 A billing event never forwards, whichever region holds the installation, because the region that did not sell the plan cannot bill it.
 
-A bad signature answers 401, which is what this endpoint answered before.
-A missing secret answers 500 rather than that 401: an unset secret is an operator problem and not a verdict on the caller.
+A bad signature answers 401, and so does a missing secret.
+The 401 on a missing secret is inherited, not chosen: the old verifier could not tell the caller apart from the operator, and a migration that only changes the transport keeps the status the endpoint answered.
+The package default would be 500, and `ingress_webhook_not_configured` is still logged either way.
 
 A delivery a consumer did not accept answers 500 rather than the 202 receipt.
 Vercel does not redeliver after a non-2xx, so the 500 buys no retry; it keeps the status the endpoint answered before.

@@ -15,13 +15,7 @@ from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
 from posthog.ingress.providers import WebhookProvider
-from posthog.ingress.verify.schemes import (
-    HmacSignature,
-    SignatureScheme,
-    Verification,
-    VerificationOutcome,
-    header_value,
-)
+from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme, Verification, VerificationOutcome, header_value
 
 PANDADOC_EVENT_TYPES = frozenset({"document_state_changed"})
 PANDADOC_SIGNATURE_HEADER = "X-PandaDoc-Signature"
@@ -45,7 +39,7 @@ class PandaDocProvider(WebhookProvider):
 
     def __init__(self, *, enabled: Callable[[], bool] | None = None) -> None:
         self._enabled = enabled
-        self._scheme = HmacSignature(
+        self._scheme = HmacSha256(
             secret_getter=_pandadoc_secret,
             signature_header=PANDADOC_SIGNATURE_HEADER,
         )

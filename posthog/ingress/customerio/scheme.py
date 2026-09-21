@@ -8,11 +8,11 @@ declares no provider spec, because nothing dispatches here.
 
 from collections.abc import Callable
 
-from posthog.ingress.verify.schemes import HmacSignature
+from posthog.ingress.verify.schemes import HmacSha256
 
 
-def build_customerio_scheme(secret_getter: Callable[[], str | None]) -> HmacSignature:
-    return HmacSignature(
+def build_customerio_scheme(secret_getter: Callable[[], str | None]) -> HmacSha256:
+    return HmacSha256(
         secret_getter=secret_getter,
         signature_header="x-cio-signature",
         signed_input="v0_timestamp_body",

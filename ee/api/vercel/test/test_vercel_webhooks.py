@@ -75,12 +75,12 @@ class TestVercelWebhooks(VercelTestBase):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="")
-    def test_missing_secret_returns_500(self):
+    def test_missing_secret_returns_401(self):
         payload = {"type": "marketplace.invoice.paid", "payload": {"installationId": self.installation_id}}
 
         response = self._post_webhook(payload, signature="anything")
 
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand(
         [
