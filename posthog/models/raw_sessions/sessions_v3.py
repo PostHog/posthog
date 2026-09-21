@@ -2,7 +2,11 @@ from typing import Optional
 
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
+from posthog.models.event.sql import EVENTS_TABLE_BASE_SQL, EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS
 
 """Raw sessions table v3
 
@@ -307,10 +311,10 @@ PROPERTIES = f"""
         tupleElement(p, '$host') as _host"""
 
 
-def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
+def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False, extra_ctes=""):
     return """
 WITH
-    {PROPERTIES},
+    {extra_ctes}{PROPERTIES},
     -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
     if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
     if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
@@ -401,6 +405,7 @@ AND {where}
         source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
+        extra_ctes=extra_ctes,
         session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS session_timestamp,"
         if include_session_timestamp
         else "",
@@ -436,6 +441,69 @@ MODIFY QUERY
             where=where, source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
         ),
     )
+
+
+# WarpStream ingestion pipeline on the ingestion-events cluster: Kafka table -> MV -> writable.
+# The 'ws2' names avoid the hand-managed 2026 pipeline's names, whose half-detached remnants
+# still hold metadata in prod, and give the consumer a fresh group with no stale offsets.
+
+KAFKA_RAW_SESSIONS_V3_TABLE = "kafka_raw_sessions_v3_events_json_ws2"
+RAW_SESSIONS_V3_EVENTS_WS_MV = "raw_sessions_v3_events_json_ws2_mv"
+
+# The Kafka stream carries raw event JSON, so the columns the select reads from sharded_events
+# as materialized columns are derived here instead. The flags map expression matches the
+# properties_group_feature_flags materializer in posthog/clickhouse/property_groups.py.
+KAFKA_SOURCE_COLUMN_CTES = """JSONExtractString(properties, '$session_id') AS `$session_id`,
+    toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)')) AS `$session_id_uuid`,
+    mapSort(mapFilter((key, _) -> key LIKE '$feature/%', CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))) AS properties_group_feature_flags,
+    _timestamp AS inserted_at,
+    """
+
+
+def KAFKA_RAW_SESSIONS_V3_TABLE_SQL():
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """
+    SETTINGS kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_num_consumers = 1
+"""
+    ).format(
+        table_name=KAFKA_RAW_SESSIONS_V3_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_EVENTS_JSON,
+            group=CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        materialized_columns="",
+        indexes="",
+    )
+
+
+def RAW_SESSIONS_V3_EVENTS_WS_MV_SQL():
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
+TO {database}.{target_table}
+AS
+{select_sql}
+""".format(
+        mv_name=RAW_SESSIONS_V3_EVENTS_WS_MV,
+        database=settings.CLICKHOUSE_DATABASE,
+        target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.{KAFKA_RAW_SESSIONS_V3_TABLE}",
+            extra_ctes=KAFKA_SOURCE_COLUMN_CTES,
+        ),
+    )
+
+
+def DROP_RAW_SESSIONS_V3_EVENTS_WS_MV_SQL():
+    return f"DROP TABLE IF EXISTS {RAW_SESSIONS_V3_EVENTS_WS_MV}"
+
+
+def DROP_KAFKA_RAW_SESSIONS_V3_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {KAFKA_RAW_SESSIONS_V3_TABLE}"
 
 
 def RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
