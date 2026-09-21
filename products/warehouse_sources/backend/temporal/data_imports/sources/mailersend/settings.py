@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class MailerSendEndpointConfig:
     name: str
     path: str

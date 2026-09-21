@@ -50,7 +50,7 @@ MAILERSEND_DEFAULT_ACTIVITY_DAYS = 30
 _DOMAINS_PARENT = "domains"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MailerSendResumeConfig:
     # Legacy fields kept (with defaults) so resume state saved by the pre-migration source still
     # deserializes via `dataclass(**saved)`. New runs checkpoint through `fanout_state` — the
