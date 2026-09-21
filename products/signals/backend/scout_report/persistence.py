@@ -47,10 +47,12 @@ from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
+    ArtefactContentValidationError,
     ImplementationDecision,
     ImplementationDispatch,
     NoteArtefact,
     PriorityAssessment,
+    ReportLink,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
@@ -585,6 +587,46 @@ def append_report_note(
         },
     )
     return AppendedNote(report_id=report_id, corroboration_count=corroboration_count, collapsed=collapsed)
+
+
+def append_report_links(
+    *,
+    team_id: int,
+    report_id: str,
+    links: Sequence[ReportLink],
+    attribution: ArtefactAttribution,
+) -> int:
+    """Write typed, directed `report_link` artefacts on an existing report, returning how many landed.
+
+    Team-scoped fail-closed like every other edit path: a `report_id` the team does not own raises.
+    `add_log` enforces the link's own invariants (no self-link, a live target in the same team, no
+    cycle of one kind) and raises `ArtefactContentValidationError`, which is re-raised as an
+    `InvalidScoutReportError` so the scout tool answers with its own error shape.
+
+    Written one at a time rather than in bulk, because the cycle check has to see each link the
+    previous one added. A batch that links A to B and B to A is rejected on the second link.
+    """
+    _validate_report_id(report_id)
+    if not links:
+        return 0
+    with transaction.atomic():
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        for link in links:
+            try:
+                SignalReportArtefact.add_log(
+                    team_id=team_id,
+                    report_id=report_id,
+                    content=link,
+                    attribution=attribution,
+                )
+            except ArtefactContentValidationError as err:
+                raise InvalidScoutReportError(str(err))
+    logger.info(
+        "signals_scout.edit_report: links appended",
+        extra={"team_id": team_id, "report_id": report_id, "link_count": len(links)},
+    )
+    return len(links)
 
 
 def record_content_revision(*, team_id: int, report_id: str) -> int:
