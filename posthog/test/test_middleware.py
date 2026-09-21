@@ -2332,7 +2332,9 @@ class TestCSPMiddleware(APIBaseTest):
             assert "report-to posthog" in policy
             # Sampling the admin policy too would silently drop violations, so the branches diverge.
             assert "sample_rate" not in policy
-            assert "Reporting-Endpoints" in response
+            # Without it every admin report arrives under a freshly minted id, so one staff session
+            # counts as many users.
+            assert f"distinct_id={self.user.distinct_id}" in response["Reporting-Endpoints"]
         else:
             assert "report-uri" not in policy
             assert "report-to" not in policy

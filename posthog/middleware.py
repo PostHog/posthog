@@ -1433,10 +1433,18 @@ class CSPMiddleware:
             admin_report_endpoint = csp_report_endpoint()
             if admin_report_endpoint:
                 csp_parts += [f"report-uri {admin_report_endpoint}", "report-to posthog"]
+                # Without a distinct_id the report endpoint mints a new one for every report, so a
+                # single staff session reads as a crowd of users. Only this header carries it, as in
+                # the app policy below.
+                user = getattr(request, "user", None)
+                distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
+                reporting_endpoint = (
+                    csp_report_endpoint(distinct_id=distinct_id) if distinct_id else admin_report_endpoint
+                )
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = (
-                    f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
+                    f'posthog="{reporting_endpoint}", default="{reporting_endpoint}"'
                 )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         elif "Content-Security-Policy" in response.headers:
