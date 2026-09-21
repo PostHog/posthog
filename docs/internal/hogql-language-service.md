@@ -326,7 +326,7 @@ An absent series can mean no observations or a missing scrape.
 The share is undefined when an operation has no successful enabled responses in the selected interval.
 
 After a missing or legacy catalog response, Django coordinates publication in Redis by language-service target, catalog contract, team, and user.
-A publisher holds a 30-second token-owned lease while it rechecks Go, builds the permission-filtered catalog, and publishes it.
+A publisher holds a 10-second token-owned lease while it rechecks Go, builds the permission-filtered catalog, and publishes it.
 Contenders wait for the lease for at most 250 milliseconds, then recheck Go and use the Python path if the catalog is still unavailable.
 Redis socket operations and Go requests have their own bounds; the 250-millisecond contention budget is not a total refresh deadline.
 A five-second success marker lets a request recheck Go before acquiring a newly released lease.

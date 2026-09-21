@@ -175,7 +175,7 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         assert result is self.result
         publish_catalog.assert_called_once()
         redis_client.lock.assert_called_once_with(
-            redis_client.lock.call_args.args[0], timeout=30, blocking_timeout=0.25
+            redis_client.lock.call_args.args[0], timeout=10, blocking_timeout=0.25
         )
         redis_client.set.assert_called_once_with(redis_client.set.call_args.args[0], "1", ex=5)
         redis_client.lock.return_value.release.assert_called_once()
