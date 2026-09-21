@@ -880,7 +880,11 @@ export const maxLogic = kea<maxLogicType>([
                     // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
                     // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
                     // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
-                    actions.markConversationNotFound(conversationId)
+                    // A history load can land while this request is in flight, so only trust this
+                    // answer about a chat the list we now hold does not carry.
+                    if (!values.conversationHistory.some((c) => c.id === conversationId)) {
+                        actions.markConversationNotFound(conversationId)
+                    }
                     return
                 }
 

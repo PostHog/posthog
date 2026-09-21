@@ -335,6 +335,58 @@ describe('maxLogic', () => {
         expect(requests).toBe(2)
     })
 
+    it('does not mark a chat missing when a newer history load already listed it', async () => {
+        const racingConversationId = 'racing-conversation-id'
+        const racingConversation = { ...MOCK_CONVERSATION, id: racingConversationId } as ConversationDetail
+        let listed: ConversationDetail[] = []
+        let requests = 0
+        let releaseDetail = (): void => {}
+        const detailBlocked = new Promise<void>((resolve) => {
+            releaseDetail = resolve
+        })
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': () => [200, { results: listed }],
+                [`/api/environments/:team_id/conversations/${racingConversationId}`]: async () => {
+                    requests += 1
+                    if (requests === 1) {
+                        await detailBlocked
+                        return [404, { detail: 'Not found' }]
+                    }
+                    return [200, racingConversation]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        logic.actions.setConversationId(racingConversationId)
+        logic.actions.pollConversation(racingConversationId, 0, 0)
+
+        // The list answers while that request is still open, so the 404 below is already stale.
+        listed = [racingConversation]
+        await expectLogic(logic, () => {
+            logic.actions.loadConversationHistory()
+        }).toDispatchActions(['loadConversationHistorySuccess'])
+
+        releaseDetail()
+        await expectLogic(logic).toFinishAllListeners()
+
+        listed = []
+        await expectLogic(logic, () => {
+            logic.actions.loadConversationHistory()
+        })
+            .toDispatchActions(['loadConversationHistorySuccess'])
+            .toFinishAllListeners()
+
+        expect(requests).toBe(2)
+    })
+
     it('manages suggestion group selection correctly', async () => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
