@@ -13,6 +13,13 @@ export namespace Schemas {
     /**
      *
      */
+    export interface AIContextAccountProperty {
+      /** Customer analytics account property definition id. */
+      id: string;
+      /** Display name of the account property. */
+      name: string;
+    }
+
     export type AIEventType = typeof AIEventType[keyof typeof AIEventType];
 
 
@@ -7233,9 +7240,11 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingExternalReference {
+      external_id: string;
       external_url: string;
       id: string;
       integration: ErrorTrackingExternalReferenceIntegration;
+      title: string;
     }
 
     export interface FirstEvent {
@@ -26660,6 +26669,7 @@ export namespace Schemas {
      * * `HeyReach` - HeyReach
      * * `MoEngage` - MoEngage
      * * `Monaco` - Monaco
+     * * `Oneleet` - Oneleet
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -28009,6 +28019,7 @@ export namespace Schemas {
       HeyReach: 'HeyReach',
       MoEngage: 'MoEngage',
       Monaco: 'Monaco',
+      Oneleet: 'Oneleet',
     } as const;
 
     /**
@@ -29371,7 +29382,8 @@ export namespace Schemas {
        * * `Quo` - Quo
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco */
+       * * `Monaco` - Monaco
+       * * `Oneleet` - Oneleet */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -31782,7 +31794,8 @@ export namespace Schemas {
        * * `Quo` - Quo
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco */
+       * * `Monaco` - Monaco
+       * * `Oneleet` - Oneleet */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -32796,6 +32809,45 @@ export namespace Schemas {
     }
 
     /**
+     * * `depends_on` - Depends on
+     * * `part_of` - Part of
+     * * `follow_up_of` - Follow-up of
+     * * `duplicate_of` - Duplicate of
+     * * `recurrence_of` - Recurrence of
+     */
+    export type ReportLinkKindEnum = typeof ReportLinkKindEnum[keyof typeof ReportLinkKindEnum];
+
+
+    export const ReportLinkKindEnum = {
+      DependsOn: 'depends_on',
+      PartOf: 'part_of',
+      FollowUpOf: 'follow_up_of',
+      DuplicateOf: 'duplicate_of',
+      RecurrenceOf: 'recurrence_of',
+    } as const;
+
+    /**
+     * One typed, directed link to write on the report being edited.
+     */
+    export interface ReportLinkWrite {
+      /** How the edited report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
+       *
+       * * `depends_on` - Depends on
+       * * `part_of` - Part of
+       * * `follow_up_of` - Follow-up of
+       * * `duplicate_of` - Duplicate of
+       * * `recurrence_of` - Recurrence of */
+      kind: ReportLinkKindEnum;
+      /** Id of the report to link to. Must be another report in this project. */
+      report_id: string;
+      /**
+         * Optional one-line note on why the reports are linked this way.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -32856,6 +32908,11 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       suggested_prompts?: string[] | null;
+      /**
+         * Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so the order is recorded rather than left to a reader of the diffs. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
+         * @maxItems 10
+         */
+      links?: ReportLinkWrite[];
       /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
       supersedes_implementation?: boolean;
     }
@@ -32869,6 +32926,8 @@ export namespace Schemas {
       note_appended: boolean;
       /** How many observations this edit added to the report's evidence rail; 0 if none. */
       evidence_appended: number;
+      /** How many typed report-to-report links this edit wrote; 0 if none. */
+      links_appended: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -34498,6 +34557,10 @@ export namespace Schemas {
       readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
       /** URL of the linked external issue in the provider's system. */
       readonly external_url: string;
+      /** Provider-native identifier of the linked issue. */
+      readonly external_id: string;
+      /** Title of the linked issue. */
+      readonly title: string;
       /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
       integration_id: number;
       /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
@@ -34507,7 +34570,7 @@ export namespace Schemas {
     }
 
     /**
-     * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
      */
     export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
 
@@ -34516,7 +34579,7 @@ export namespace Schemas {
       integration_id: number;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
-      /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
       external_context: ErrorTrackingExternalReferenceLinkExternalContext;
     }
 
@@ -34530,6 +34593,10 @@ export namespace Schemas {
       readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
       /** URL of the linked external issue in the provider's system. */
       readonly external_url: string;
+      /** Provider-native identifier of the linked issue. */
+      readonly external_id: string;
+      /** Title of the linked issue. */
+      readonly title: string;
     }
 
     export interface ErrorTrackingFingerprint {
@@ -41173,7 +41240,8 @@ export namespace Schemas {
        * * `Quo` - Quo
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco */
+       * * `Monaco` - Monaco
+       * * `Oneleet` - Oneleet */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -42556,7 +42624,8 @@ export namespace Schemas {
        * * `Quo` - Quo
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco */
+       * * `Monaco` - Monaco
+       * * `Oneleet` - Oneleet */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -49048,7 +49117,7 @@ export namespace Schemas {
       kind?: 'MCPToolCallBreakdownQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCallBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49092,7 +49161,7 @@ export namespace Schemas {
       kind?: 'MCPToolCallsAndErrorsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCallsAndErrorsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49136,7 +49205,7 @@ export namespace Schemas {
       kind?: 'MCPHarnessBreakdownQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPHarnessBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
@@ -49186,7 +49255,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Number of individual models to skip when includeAllModels is enabled. */
       offset?: number | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPModelBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49500,6 +49569,7 @@ export namespace Schemas {
       /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
       categories?: string[] | null;
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolQualityRowsQuery';
       /** Page size. The server defaults to 50 and caps this at 100. */
       limit?: number | null;
@@ -49507,6 +49577,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Number of matching tools to skip. */
       offset?: number | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolQualityRowsQueryResponse | null;
       /** Case-insensitive substring search on the effective tool name. */
       search?: string | null;
@@ -49554,11 +49625,13 @@ export namespace Schemas {
       /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
       categories?: string[] | null;
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
       interval?: IntervalType | null;
       kind?: 'MCPToolQualityDailyStatsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolQualityDailyStatsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** Restrict to a single $mcp_tool_name; omitted means the aggregate across all tools. */
@@ -49596,9 +49669,11 @@ export namespace Schemas {
 
     export interface MCPToolCategoryCountsQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolCategoryCountsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCategoryCountsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -49633,9 +49708,11 @@ export namespace Schemas {
 
     export interface MCPToolCategoriesQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolCategoriesQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolCategoriesQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -53647,16 +53724,16 @@ export namespace Schemas {
       /** Log count observed in this bucket. */
       observed: number;
       /**
-         * Lower edge of the expected band. Null while no validated band is available for this series.
+         * Lower edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.
          * @nullable
          */
       lower: number | null;
       /**
-         * Upper edge of the expected band. Null while no validated band is available for this series.
+         * Upper edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.
          * @nullable
          */
       upper: number | null;
-      /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready.
+      /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready. An out-of-range bucket is not a confirmed incident or an alert.
        *
        * * `above` - Above the band
        * * `below` - Below the band */
@@ -53672,12 +53749,12 @@ export namespace Schemas {
       severity: string;
       /** Total observed log count over the window. Series are ordered by this, descending. */
       total_count: number;
-      /** Full weeks of history behind the band, 0 to 5. History depth alone does not enable a band; a validated readiness policy is also required. */
+      /** Full weeks of history behind the band, 0 to 5. Four complete weeks are required: at least two for fitting and two separate weeks for calibration. */
       baseline_weeks: number;
       /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
       history_start: string;
       /**
-         * When this series gains its band under a validated readiness policy. Null when the band is ready or no validated readiness date is available. Check the buckets' lower and upper values to determine whether a band is present.
+         * Earliest end of a rolling window of this length with four complete preceding weeks. Null when the band is ready. A fixed historical window does not gain history by waiting. Check the buckets' lower and upper values to determine whether a band is present.
          * @nullable
          */
       band_ready_at: string | null;
@@ -57580,6 +57657,45 @@ export namespace Schemas {
       feedback?: string;
     }
 
+    /**
+     * * `thumbnail` - Thumbnail
+     * * `clip` - Clip
+     */
+    export type ReplayObservationMediaKindEnum = typeof ReplayObservationMediaKindEnum[keyof typeof ReplayObservationMediaKindEnum];
+
+
+    export const ReplayObservationMediaKindEnum = {
+      Thumbnail: 'thumbnail',
+      Clip: 'clip',
+    } as const;
+
+    /**
+     * One thumbnail or clip illustrating an observation.
+     */
+    export interface ReplayObservationMedia {
+      /** Id of this media entry. */
+      readonly id: string;
+      /** `thumbnail` for the single frame that illustrates the observation, `clip` for a short video.
+       *
+       * * `thumbnail` - Thumbnail
+       * * `clip` - Clip */
+      readonly kind: ReplayObservationMediaKindEnum;
+      /** Export asset holding the bytes; fetch it from the export content endpoint. */
+      readonly asset_id: number;
+      /**
+         * One sentence saying what the clip shows. Null for thumbnails.
+         * @nullable
+         */
+      readonly description: string | null;
+      /** Where this media starts in the analysis video, in milliseconds. */
+      readonly video_start_ms: number;
+      /**
+         * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
+         * @nullable
+         */
+      readonly video_end_ms: number | null;
+    }
+
     export interface ReplayObservation {
       readonly id: string;
       /** The scanner that produced this observation. */
@@ -57645,6 +57761,8 @@ export namespace Schemas {
       readonly label: ReplayObservationLabel | null;
       /** Whether the calling user has opened this observation. */
       readonly viewed: boolean;
+      /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
+      readonly media: readonly ReplayObservationMedia[];
       /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
       readonly summary_line: string;
       /** @nullable */
@@ -61812,6 +61930,7 @@ export namespace Schemas {
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
      * * `related_to` - Related To
+     * * `report_link` - Report Link
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
@@ -61842,6 +61961,7 @@ export namespace Schemas {
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
+      ReportLink: 'report_link',
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
@@ -87089,7 +87209,8 @@ export namespace Schemas {
        * * `Quo` - Quo
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco */
+       * * `Monaco` - Monaco
+       * * `Oneleet` - Oneleet */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -88488,7 +88609,8 @@ export namespace Schemas {
        * * `Quo` - Quo
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco */
+       * * `Monaco` - Monaco
+       * * `Oneleet` - Oneleet */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -89869,7 +89991,8 @@ export namespace Schemas {
        * * `Quo` - Quo
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
-       * * `Monaco` - Monaco */
+       * * `Monaco` - Monaco
+       * * `Oneleet` - Oneleet */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -101653,13 +101776,21 @@ export namespace Schemas {
     filters_override?: string;
     format?: DashboardsRunInsightsRetrieveFormat;
     /**
-     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     * Per-tile character budget for 'optimized' output, truncation marker included. A longer table keeps its header and both ends, and names how many rows were dropped from the middle. Defaults to 2000; pass 0 for the whole table, or 200 or more, since a smaller budget cannot carry the marker. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run.
+     */
+    max_result_chars?: number;
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight, bounded by max_result_chars. 'json' returns the raw query result objects, unbounded.
      */
     output_format?: DashboardsRunInsightsRetrieveOutputFormat;
     /**
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh;
+    /**
+     * Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.
+     */
+    tile_ids?: string;
     /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
@@ -103153,7 +103284,7 @@ export namespace Schemas {
      */
     repository?: string;
     /**
-     * Text to match against existing issue titles / keys in the provider. GitHub matches it as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
      */
     search?: string;
     };
