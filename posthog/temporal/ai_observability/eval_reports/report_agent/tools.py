@@ -37,9 +37,11 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     ReportSection,
     calculate_boolean_pass_rate,
     calculate_result_rates,
+    citation_wrappers,
     normalize_metrics_payload,
     normalize_report_content_payload,
 )
+from posthog.temporal.ai_observability.eval_reports.report_agent.state import REPORT_RUN_HANDLE_KEY
 from posthog.temporal.ai_observability.eval_reports.targets import (
     GENERATION_TARGET,
     SESSION_ID_ALLOWLIST_KEY,
@@ -139,6 +141,32 @@ def _handled_ids(state: dict) -> set[str]:
         if isinstance(allowlist, list):
             handled.update(value for value in allowlist if isinstance(value, str))
     return handled
+
+
+def _report_run_handle(state: dict, run_id: str) -> str:
+    """Return the short handle the agent uses for a past run, minting one on first sight.
+
+    A run UUID looks like a citable ID to the model but can never be cited, so handing it
+    over invites backticked prose the guard then has to treat as a dead identifier.
+    """
+    handles = state.get(REPORT_RUN_HANDLE_KEY)
+    if not isinstance(handles, dict):
+        return run_id
+    for handle, known_run_id in handles.items():
+        if known_run_id == run_id:
+            return handle
+    handle = f"run_{len(handles) + 1}"
+    handles[handle] = run_id
+    return handle
+
+
+def _resolve_report_run_handle(state: dict, handle: str) -> str | None:
+    """Return the run UUID a handle stands for, or None when the handle is unknown."""
+    handles = state.get(REPORT_RUN_HANDLE_KEY)
+    if isinstance(handles, dict) and handle in handles:
+        return handles[handle]
+    # A raw UUID still resolves, so a run started before handles existed keeps working.
+    return handle if _UUID_RE.fullmatch(handle or "") else None
 
 
 def _report_run_target_filter(evaluation_target: str) -> Q:
@@ -1286,7 +1314,8 @@ def list_recent_report_runs(
 ) -> str:
     """List metadata for previous report runs of this evaluation.
 
-    Returns a compact index: run_id, period, title, outcome rates, total runs.
+    Returns a compact index: run_id (a short handle, not a UUID), period, title,
+    outcome rates, total runs.
     No full content — use this to discover which past runs look interesting,
     then call `get_report_run(run_id)` to pull the full narrative for the ones
     worth reading. This two-step pattern keeps context small when scanning a
@@ -1333,7 +1362,7 @@ def list_recent_report_runs(
         normalized_metrics = normalize_metrics_payload({**metadata, **metrics})
         output_type = normalized_metrics["output_type"]
         entry = {
-            "run_id": str(run.id),
+            "run_id": _report_run_handle(state, str(run.id)),
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
             "title": content.get("title", ""),
@@ -1362,17 +1391,18 @@ def get_report_run(
     sections, citations, metrics).
 
     Args:
-        run_id: The report run UUID, from list_recent_report_runs.
+        run_id: The run handle from list_recent_report_runs, e.g. "run_1".
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 
-    if not _UUID_RE.fullmatch(run_id or ""):
-        return json.dumps({"error": "Invalid run_id format"})
+    resolved_run_id = _resolve_report_run_handle(state, run_id)
+    if resolved_run_id is None:
+        return json.dumps({"error": f"Unknown run handle {run_id!r}. Use one returned by list_recent_report_runs."})
 
     # Scope to the current evaluation so the agent can't read runs from another eval.
     evaluation_id = state["evaluation_id"]
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
-    runs = EvaluationReportRun.objects.filter(id=run_id, report__evaluation_id=evaluation_id)
+    runs = EvaluationReportRun.objects.filter(id=resolved_run_id, report__evaluation_id=evaluation_id)
     runs = runs.filter(_report_run_target_filter(evaluation_target))
     runs = runs.filter(_completed_report_run_filter())
     try:
@@ -1385,7 +1415,7 @@ def get_report_run(
 
     return json.dumps(
         {
-            "run_id": str(run.id),
+            "run_id": _report_run_handle(state, str(run.id)),
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
             "content": content,
@@ -1495,7 +1525,7 @@ def set_title(
 def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[str]) -> list[str]:
     """Return backticked IDs in `text` that no report renderer turns into a link.
 
-    A renderer links only an exactly-cited ID wrapped in one pair of backticks. An
+    A renderer links an exactly-cited ID in any wrapper `citation_wrappers` names. An
     ID is any backticked token the session handled (its query allowlists) or a
     canonical UUID; other backticked spans are prose and stay untouched.
     """
@@ -1503,12 +1533,33 @@ def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[
     dead: list[str] = []
     for match in _BACKTICKED_TOKEN_RE.finditer(text):
         token = match.group(1).strip()
-        if token not in handled_ids and _UUID_SHAPE_RE.fullmatch(token) is None:
-            continue
-        links = token in cited_ids and match.group(0) == f"`{token}`"
-        if not links and token not in dead:
+        if _is_dead_id_span(match.group(0), token, cited_ids, handled_ids) and token not in dead:
             dead.append(token)
     return dead
+
+
+def _is_dead_id_span(span: str, token: str, cited_ids: Container[str], handled_ids: Container[str]) -> bool:
+    """Is this inline-code span an ID that no report renderer turns into a link?"""
+    if token not in handled_ids and _UUID_SHAPE_RE.fullmatch(token) is None:
+        return False
+    return not (token in cited_ids and span in citation_wrappers(token))
+
+
+def strip_dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[str]) -> str:
+    """Unwrap every dead backticked ID in `text`, leaving the ID as plain prose.
+
+    This is what the tool errors ask the agent to do itself. Applying it before delivery
+    keeps a whole report's analysis instead of trading it for a deterministic stub.
+    """
+    cited_ids = {citation.cited_id() for citation in citations}
+
+    def unwrap(match: re.Match[str]) -> str:
+        token = match.group(1).strip()
+        if _is_dead_id_span(match.group(0), token, cited_ids, handled_ids):
+            return token
+        return match.group(0)
+
+    return _BACKTICKED_TOKEN_RE.sub(unwrap, text)
 
 
 def _dead_backticked_ids_in_report(
@@ -1588,7 +1639,7 @@ def add_section(
         return (
             f"Error: the following backticked IDs will not render as citation links: {preview}. "
             "Cite each generation, trace, or session with add_citation, then use one pair of backticks around the exact cited ID. "
-            "Run IDs from list_recent_report_runs cannot be cited. Name a prior run by its period and remove the backticks."
+            "An ID you read in a prior report belongs to another period and cannot be cited here. Remove its backticks."
         )
     state["report"].sections.append(ReportSection(title=clean_title, content=clean_content))
     return f"Section {len(state['report'].sections)}/{MAX_REPORT_SECTIONS} added: {clean_title!r} ({len(clean_content)} chars)"
