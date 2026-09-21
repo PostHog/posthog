@@ -92,14 +92,17 @@ export default meta
 
 let uniqueNode = 0
 
-function Stage({ children }: { children: React.ReactNode }): JSX.Element {
+function Stage({ children, width = 720 }: { children: React.ReactNode; width?: number }): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ height: 360, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
+        <div style={{ height: 360, width, display: 'flex', flexDirection: 'column' }}>{children}</div>
     )
 }
 
-function renderTrendsBarChart(insightFixture: any): JSX.Element {
+function renderTrendsBarChart(
+    insightFixture: any,
+    { embedded = false, width = 720 }: { embedded?: boolean; width?: number } = {}
+): JSX.Element {
     const [dashboardItemId] = useState(() => `TrendsBarChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
@@ -114,8 +117,8 @@ function renderTrendsBarChart(insightFixture: any): JSX.Element {
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <Stage>
-                    <TrendsBarChart />
+                <Stage width={width}>
+                    <TrendsBarChart embedded={embedded} />
                 </Stage>
             </BindLogic>
         </BindLogic>
@@ -547,6 +550,27 @@ const BAR_VALUE_50_BREAKDOWNS_INSIGHT = {
 
 export const BarValue50Breakdowns: Story = {
     render: () => renderTrendInsight(BAR_VALUE_50_BREAKDOWNS_INSIGHT),
+}
+
+const SHORT_BREAKDOWN_LABELS = [
+    ...Array.from({ length: 25 }, (_, index) => String(500 + index * 37)),
+    'Other (all remaining values)',
+]
+
+const BAR_VALUE_EMBEDDED_NARROW_INSIGHT = {
+    ...BAR_VALUE_50_BREAKDOWNS_INSIGHT,
+    id: 205,
+    short_id: 'barValueEmbeddedNarrow',
+    name: 'Users by screen height',
+    result: BAR_VALUE_50_BREAKDOWNS.slice(0, SHORT_BREAKDOWN_LABELS.length).map((result, index) => ({
+        ...result,
+        label: SHORT_BREAKDOWN_LABELS[index],
+        breakdown_value: SHORT_BREAKDOWN_LABELS[index],
+    })),
+}
+
+export const BarValueEmbeddedNarrow: Story = {
+    render: () => renderTrendsBarChart(BAR_VALUE_EMBEDDED_NARROW_INSIGHT, { embedded: true, width: 600 }),
 }
 
 // A single breakdown row should still fill the standard chart height — the lone bar must not

@@ -5238,6 +5238,8 @@ export interface AppContext {
     oauth_mcp_consent?: OAuthMcpConsentContext
     /** One of the user's organizations has the access-control feature and at least one rule, so a granted scope can reach less. */
     oauth_consent_access_controls_apply?: boolean
+    /** The scope set `/authorize` resolved for this request; the consent screen must render this, not the URL's `scope`. */
+    oauth_scope_resolution?: OAuthScopeResolution
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -7927,6 +7929,13 @@ export interface ProjectTreeRef {
 export type OAuthMcpConsentContext = {
     is_mcp_resource: boolean
     scopes?: string[]
+}
+
+export type OAuthScopeResolution = {
+    /** What `/authorize` resolved the request to: clamped to the app ceiling, and defaulted to it when the client sent no usable scope. */
+    scopes: string[]
+    /** Whether the client sent no usable `scope` (omitted, or cut off mid-token), so the server picked the set. */
+    was_defaulted: boolean
 }
 
 export type OAuthApplicationPublicMetadata = {

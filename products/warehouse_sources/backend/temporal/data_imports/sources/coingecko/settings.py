@@ -12,6 +12,17 @@ TICKERS_ENDPOINT = "coins_tickers"
 MARKET_CHART_ENDPOINT = "coins_market_chart"
 OHLC_ENDPOINT = "coins_ohlc"
 
+# Top-level endpoints whose body has to be reshaped into rows rather than being a row list already,
+# named so the row builders and the routing in coingecko.py reference them without repeating the
+# string.
+EXCHANGE_RATES_ENDPOINT = "exchange_rates"
+GLOBAL_MARKET_CAP_CHART_ENDPOINT = "global_market_cap_chart"
+
+# /global/market_cap_chart takes a relative `days` window from a fixed enum rather than a from/to
+# range. `days=1` is served at hourly granularity and every larger value at daily, so 1 is left out:
+# a shorter window would return hourly points that don't line up with the daily rows already synced.
+GLOBAL_CHART_DAYS_OPTIONS = ("7", "14", "30", "90", "180", "365", "max")
+
 # /coins/{id}/tickers is fixed at 100 items per page, unlike the 250 the other list endpoints take.
 TICKERS_PAGE_SIZE = 100
 
@@ -66,6 +77,9 @@ class CoinGeckoEndpointConfig:
     window_days: int | None = None
     # Timestamp column the timeseries endpoints are keyed, partitioned and filtered on.
     date_field: str | None = None
+    # Whether CoinGecko serves the endpoint only to paid plans. A Demo key gets a 401 back, so these
+    # endpoints are gated on the configured plan rather than offered to everyone.
+    pro_only: bool = False
 
 
 COINGECKO_ENDPOINTS: dict[str, CoinGeckoEndpointConfig] = {
@@ -167,6 +181,48 @@ COINGECKO_ENDPOINTS: dict[str, CoinGeckoEndpointConfig] = {
         data_selector="data",
         primary_keys=["updated_at"],
     ),
+    # Historical market-wide market cap and volume, which is the timeseries behind global_market_data.
+    # Two parallel [timestamp, value] series under a `market_cap_chart` envelope, zipped into one row
+    # per timestamp. Requires a Pro key on the Analyst plan or above.
+    GLOBAL_MARKET_CAP_CHART_ENDPOINT: CoinGeckoEndpointConfig(
+        name=GLOBAL_MARKET_CAP_CHART_ENDPOINT,
+        path="/global/market_cap_chart",
+        data_selector="market_cap_chart",
+        date_field="timestamp",
+        primary_keys=["timestamp"],
+        extra_params={"vs_currency": "usd"},
+        pro_only=True,
+    ),
+    # BTC-to-currency rates, which normalise the BTC-denominated columns on the derivatives and
+    # exchanges tables into any other currency. One object keyed by currency code under a `rates`
+    # envelope, flattened into a row per currency.
+    EXCHANGE_RATES_ENDPOINT: CoinGeckoEndpointConfig(
+        name=EXCHANGE_RATES_ENDPOINT,
+        path="/exchange_rates",
+        data_selector="rates",
+    ),
+    # Derivatives venues with open interest, 24h volume and contract counts. Paginated.
+    "derivatives_exchanges": CoinGeckoEndpointConfig(
+        name="derivatives_exchanges",
+        path="/derivatives/exchanges",
+        paginated=True,
+    ),
+    # Every perpetual and futures contract across those venues, with price, funding rate, open
+    # interest and 24h volume. One bare array with no pagination params. A ticker carries no id, so
+    # key on the venue and the contract symbol.
+    "derivatives_tickers": CoinGeckoEndpointConfig(
+        name="derivatives_tickers",
+        path="/derivatives",
+        primary_keys=["market", "symbol"],
+    ),
+    # NFT collections with floor price, market cap and 24h volume. Paginated. Requires a Pro key on
+    # the Analyst plan or above.
+    "nfts_markets": CoinGeckoEndpointConfig(
+        name="nfts_markets",
+        path="/nfts/markets",
+        paginated=True,
+        pro_only=True,
+    ),
 }
 
 ENDPOINTS = tuple(COINGECKO_ENDPOINTS.keys())
@@ -188,3 +244,7 @@ MERGE_ONLY_ENDPOINTS = tuple(name for name, config in COINGECKO_ENDPOINTS.items(
 SHOULD_SYNC_DEFAULT = {name: config.should_sync_default for name, config in COINGECKO_ENDPOINTS.items()}
 
 PER_COIN_ENDPOINTS = tuple(name for name, config in COINGECKO_ENDPOINTS.items() if config.per_coin)
+
+# Endpoints a Demo key can't reach at all, so they are offered only to a source configured with a
+# Pro key rather than queueing a sync that can only 401.
+PRO_ONLY_ENDPOINTS = tuple(name for name, config in COINGECKO_ENDPOINTS.items() if config.pro_only)
