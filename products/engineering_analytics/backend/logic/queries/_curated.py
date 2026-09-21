@@ -70,6 +70,17 @@ class DeploySources:
 
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
+_PUSH_RUN_PREDICATE = "pr_number > 0 AND NOT is_merge_queue"
+
+
+def push_rows_select(*, runs_source: str, run_filter: str) -> str:
+    """One row per authored commit that reached CI. Skipped workflows still prove the push."""
+    return f"""
+        SELECT pr_number, head_sha, min(coalesce(created_at, run_started_at)) AS pushed_at
+        FROM {runs_source} AS r
+        WHERE {_PUSH_RUN_PREDICATE} AND ({run_filter})
+        GROUP BY pr_number, head_sha
+    """
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -463,7 +474,7 @@ class CuratedGitHubSource:
                     count(DISTINCT head_sha) AS pushes,
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
-                WHERE pr_number > 0 AND NOT is_merge_queue
+                WHERE {_PUSH_RUN_PREDICATE}
                     AND pr_number IN (SELECT number FROM pr_scope)
                 GROUP BY repo_owner, repo_name, pr_number
             )
