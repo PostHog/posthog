@@ -16,6 +16,7 @@ from django.http import HttpRequest, HttpResponse
 
 from rest_framework.throttling import BaseThrottle
 
+from posthog import regions
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.verify.schemes import SignatureScheme, Verification, VerificationOutcome
 
@@ -125,6 +126,15 @@ class WebhookProvider(ABC):
         400 before any consumer runs. That is how a provider holds a body field to the claim
         that signs it, rather than handing a consumer a delivery it has to distrust.
         """
+
+    def receiving_region_domain(self) -> str:
+        """The region whose URL this App is registered against.
+
+        That region receives every delivery, and forwards the ones another region owns. Almost
+        every third party holds the primary region's URL, which is why this is not a field: a
+        provider that needs the other one overrides the method, and nothing else has to know.
+        """
+        return regions.PRIMARY_REGION_DOMAIN
 
     def verify(self, request: HttpRequest) -> Verification:
         scheme = self.scheme()

@@ -184,7 +184,9 @@ Ingress carries both as general controls, so the next endpoint gets them without
 
 ## Regional forwarding
 
-A third party holds one callback URL, which points at the primary region (EU), so a delivery about a resource the other region (US) owns still arrives here first.
+A third party holds one callback URL, which points at one region, so a delivery about a resource the other region owns still arrives there first.
+For every App registered today that URL is the primary region (EU) and the forward runs to the secondary one (US).
+A provider whose App was registered against the secondary region instead overrides `receiving_region_domain()`, and the forward runs the other way.
 Ingress owns the forward, because what is replayed is the signed body — a consumer only ever sees the parsed mapping.
 
 A consumer whose resources are split by region declares `ownership`, a callable that takes the delivery and answers a `DeliveryOwnership`:
@@ -198,7 +200,7 @@ A fourth value, `FAILED`, is the dispatcher's own: a consumer never answers it, 
 Every delivery in the request is assessed first, and the request is then forwarded **once**, when any consumer answered `ELSEWHERE`.
 One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
 Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
-Only the primary region forwards; on the secondary region an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
+Only the receiving region forwards; on the region that receives forwards an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
 The replay carries the signed bytes and the provider's own headers, but never the headers that name the host this region answered on: `Host`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Proto` and `Forwarded`.
 The receiving region reads which region it is off the connection it receives, so a forwarded host would make it forward the delivery on again.
 
@@ -274,7 +276,7 @@ The lease exists because a process that dies mid-run leaves its mark behind and 
 Its cost is that a redelivery arriving after the lease ran out can run beside a first attempt that overran the budget, which is the exposure a provider without dedup has on every retry.
 Because two runs can overlap, a second key (`<key>:holder`) names the run that holds the lease, and a run only deletes its own claim: a late failure from the first run cannot drop the second run's claim, nor the done mark a finished run wrote.
 The token lives in its own key so that the mark itself stays the plain value every deployed version reads as in flight, which keeps a rolling deploy from receipting a delivery the new worker can still fail.
-That fence reads the cache primary rather than a read replica, because a replica can still serve a token the primary already replaced.
+The marks live in the `ingress_dedup` cache alias rather than the default one, because the default alias is replica aware and a replica can still serve a token the primary already replaced, which would have a run delete a mark a newer run holds.
 Settling to done is not fenced that way, because a consumer that ran the delivery and returned makes the mark true whoever wrote the value it replaces; a run drops the mark only while it is still a lease, so a late failure cannot delete a mark another run settled.
 Keying per consumer rather than per delivery matters: one delivery legitimately fans out to several consumers, and a delivery-wide key would starve every consumer but the first.
 A cache error fails **open** — dropping deliveries during a cache outage is worse than running a consumer twice, and consumers carry their own idempotency underneath this.
