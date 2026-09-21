@@ -151,6 +151,7 @@ dependencies = [
     # reads a repo's team -> Slack channel registry through it (products/stamphog/backend/logic/
     # channel_resolution.py). Adds no third-party code — its own deps, pyyaml and click, are here.
     "owners-yaml",
+    "personhog-proto",
     "umap-learn~=0.5.0",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "whitenoise~=6.10.0",
@@ -212,6 +213,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    { include-group = "proto-codegen" },
     "aioresponses==0.7.6",
     "autoevals==0.2.0",
     "boto3-stubs[s3]~=1.38.30",
@@ -236,8 +238,6 @@ dev = [
     "pyinstrument~=5.1",
     "pytest-rerunfailures~=16.1",
     "time-machine==3.5.0",
-    "grpcio-tools~=1.71.0",
-    "protoletariat~=3.3.10",
     "ipython~=9.3.0",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
@@ -265,7 +265,6 @@ dev = [
     "python-dateutil~=2.9.0",
     "requests-mock~=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.15.20",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
     "tach~=0.34",
@@ -298,6 +297,10 @@ sentiment = [
 hogql-parser-parity = [
     "shrinkray==26.4.14.0",
 ]
+proto-codegen = [
+    "grpcio-tools~=1.71.0",
+    "ruff~=0.15.20",
+]
 
 [tool.uv]
 required-version = ">=0.10.2"
@@ -311,11 +314,12 @@ exclude-newer = "7 days"
 exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
-members = ["tools/hogli", "packages/owners-yaml"]
+members = ["tools/hogli", "packages/owners-yaml", "packages/personhog-proto"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
 owners-yaml = { workspace = true }
+personhog-proto = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
@@ -392,12 +396,9 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# protoletariat generates .pyi stubs with re-exports (e.g. `from . import person_pb2`)
-# that type checkers need to resolve the package structure.
-# protobuf 5.x _pb2.py files have side-effect-only imports that load dependency
-# descriptors into the pool before AddSerializedFile() — ruff must not strip them.
-"posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
-"posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
+# protoc's _pb2.py files import dependencies for the side effect of loading their descriptors
+# into the pool before AddSerializedFile(). ruff must not strip or move those imports.
+"packages/personhog-proto/**/*_pb2.py" = ["F401", "E402"]
 # deltalite's test suite bootstraps its harness/planner via sys.path (the package is a
 # maturin-built extension living under rust/, not part of the Django app), so imports
 # are necessarily lazy / post-path-insert (PLC0415, E402); the planner's small CLI
@@ -498,7 +499,7 @@ exclude_gitignore = true
 # packages/owners-yaml: a standalone distribution that must build and run with no Django. This config
 # loads the Django and DRF plugins and the app's settings, so it is the wrong checker for it. ty
 # covers it repo-wide instead, and ci-python builds and exercises the wheel in an empty venv.
-exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|packages/personhog-proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -535,7 +536,7 @@ exclude = [
     "bin/**",
     "manage.py",
     "posthog/hogql/grammar/**",
-    "posthog/personhog_client/proto/generated/**",
+    "packages/personhog-proto/**",
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
