@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconLogomark, IconPullRequest, IconWarning } from '@posthog/icons'
+import { IconCopy, IconLogomark, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 import {
     buildClaudeCodeDeepLink,
@@ -124,13 +124,6 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
     }
 
         return (
-        <>
-            {!report.repo_slug && (
-                <span className="flex items-center gap-1.5 text-warning text-xs font-medium max-w-80 text-right leading-tight">
-                    <IconWarning className="text-warning text-base shrink-0" />
-                    This report isn't linked to a repository, so PostHog can't open a PR for it. Add the repository name to your note and try again.
-                </span>
-            )}
             <LemonButton
                 type="primary"
                 size="small"
@@ -218,6 +211,5 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
             >
                 Implement
             </LemonButton>
-        </>
-    )
-}
+        )
+    }

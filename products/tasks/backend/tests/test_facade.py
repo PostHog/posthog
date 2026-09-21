@@ -25,6 +25,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -2592,12 +2593,10 @@ class TestSignalReportNoRepoFacadeGates(TestCase):
         self.assertEqual(task.repository, "acme/backend")
 
     def test_create_task_allows_implementation_when_persisted_repo_exists(self):
-        # When a persisted repo selection exists, create_task uses it directly.
-        # It must not re-resolve via the cascade, and it must capture resolution_tier="persisted".
+        # When a persisted repo selection exists, create_task uses it directly. It must not re-resolve via the cascade, and no override telemetry is sent.
         report = self._report()
-        
-        from products.tasks.backend.facade.repo_selection import RepoSelectionResult
-        persisted_result = RepoSelectionResult(repository="persisted/repo", resolution_status="persisted", is_override=False)
+
+        persisted_result = RepoSelectionResult(repository="persisted/repo", reason="test")
 
         with (
             patch("products.signals.backend.facade.api.persisted_repo_selection", return_value=persisted_result),
@@ -2618,13 +2617,11 @@ class TestSignalReportNoRepoFacadeGates(TestCase):
 
         # 1. Cascade should not have been called because persisted won
         cascade_mock.assert_not_called()
-        
+
         # 2. Task should be created with the persisted repository
         self.assertTrue(Task.objects.filter(id=dto.id).exists())
         task = Task.objects.get(id=dto.id)
         self.assertEqual(task.repository, "persisted/repo")
 
-        # 3. Analytics capture must have `resolution_tier="persisted"`
+        # 3. Persisted selection skips the cascade, so no override telemetry is sent
         capture_mock.assert_not_called()
-        self.assertEqual(capture_mock.call_args.kwargs["resolution_tier"], "persisted")
-        self.assertEqual(capture_mock.call_args.kwargs["resolved_repository"], "persisted/repo")
