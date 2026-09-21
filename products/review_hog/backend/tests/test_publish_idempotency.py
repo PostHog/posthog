@@ -175,6 +175,29 @@ class TestPublishIdempotency(BaseTest):
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_publication_write_keeps_a_watermark_that_landed_while_posting(
+        self, _auth, _snapshot, mock_publish
+    ) -> None:
+        report_id = self._report()
+
+        def post_while_the_other_mode_publishes(**_kwargs: Any) -> PublishOutcome:
+            # The standalone publish command runs outside the per-PR queue, so a Flash publication
+            # can commit while this Full one is still posting to GitHub.
+            ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
+                published_heads_by_mode={"flash": "sha1"}, published_head_shas={"9": "sha1"}
+            )
+            return PublishOutcome(posted=True)
+
+        mock_publish.side_effect = post_while_the_other_mode_publishes
+        _publish(_publish_input(self.team.id, report_id, "sha1"))
+
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.published_heads_by_mode == {"flash": "sha1", "full": "sha1"}
+        assert report.published_head_shas == {"9": "sha1", "1": "sha1"}
+
+    @patch(_PUBLISH)
+    @patch(_SNAPSHOT, return_value=None)
     @patch(_AUTH, return_value=("tok", "9876543"))
     def test_first_publish_posts_promo_and_records_watermark(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)

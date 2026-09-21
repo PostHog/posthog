@@ -2,6 +2,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Required, TypedDict
 
+from django.db import transaction
+
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
@@ -125,30 +127,37 @@ def publish_persisted_review(
                 report_id,
                 head_sha,
             )
-        report.published_heads_by_mode = {**published_heads_by_mode(report), review_mode: head_sha}
-        report.published_head_sha = head_sha
-        # Recorded per turn, never overwritten: this turn posted only its own findings, so an
-        # earlier turn's threshold stays the truth about what that turn put on the PR.
-        report.published_urgency_thresholds = {
-            **(report.published_urgency_thresholds or {}),
-            str(run_index): urgency_threshold.value,
-        }
-        # The base a later sweep compares this turn's findings against. Without it every finding is
-        # compared from the newest publish, so a fix landing between two turns falls outside the diff.
-        report.published_head_shas = {**(report.published_head_shas or {}), str(run_index): head_sha}
-        # Idle lands in the same save as the watermark, so no reader can see the published head
-        # with the report still counting as in-progress.
-        report.status = ReviewReport.Status.IDLE
-        report.save(
-            update_fields=[
-                "published_head_sha",
-                "published_heads_by_mode",
-                "published_urgency_thresholds",
-                "published_head_shas",
-                "status",
-                "updated_at",
-            ]
-        )
+        # Every map below merges into the row's CURRENT value, so it has to be re-read under a row
+        # lock: the snapshot above predates the GitHub post, and a publish that finished during it
+        # would be overwritten. The standalone publish command runs outside the per-PR queue, so a
+        # Flash and a Full publication really can land in this block at once, each dropping the
+        # other's mode watermark. Nothing slow runs inside the lock — the posting is already done.
+        with transaction.atomic():
+            locked = ReviewReport.objects.for_team(team_id).select_for_update().get(id=report_id)
+            locked.published_heads_by_mode = {**published_heads_by_mode(locked), review_mode: head_sha}
+            locked.published_head_sha = head_sha
+            # Recorded per turn, never overwritten: this turn posted only its own findings, so an
+            # earlier turn's threshold stays the truth about what that turn put on the PR.
+            locked.published_urgency_thresholds = {
+                **(locked.published_urgency_thresholds or {}),
+                str(run_index): urgency_threshold.value,
+            }
+            # The base a later sweep compares this turn's findings against. Without it every finding is
+            # compared from the newest publish, so a fix landing between two turns falls outside the diff.
+            locked.published_head_shas = {**(locked.published_head_shas or {}), str(run_index): head_sha}
+            # Idle lands in the same save as the watermark, so no reader can see the published head
+            # with the report still counting as in-progress.
+            locked.status = ReviewReport.Status.IDLE
+            locked.save(
+                update_fields=[
+                    "published_head_sha",
+                    "published_heads_by_mode",
+                    "published_urgency_thresholds",
+                    "published_head_shas",
+                    "status",
+                    "updated_at",
+                ]
+            )
     else:
         _mark_report_idle(team_id, report_id)
     return outcome
