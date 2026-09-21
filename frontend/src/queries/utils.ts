@@ -782,7 +782,7 @@ export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined =>
  *  renders as a flat 100%. A breakdown splits into one series per value, so it always qualifies; a
  *  formula collapses the series it reads into a single result series. */
 const stacksMultipleSeries = (query: TrendsQuery): boolean =>
-    hasBreakdownFilter(getBreakdown(query)) || (getFormulaNodes(query)?.length ?? query.series?.length ?? 0) > 1
+    hasBreakdownFilter(getBreakdown(query)) || (getFormulaNodes(query)?.length || query.series?.length || 0) > 1
 
 export const supportsPercentStackView = (q: InsightQueryNode | null | undefined): boolean =>
     isTrendsQuery(q) &&

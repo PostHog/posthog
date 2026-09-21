@@ -501,11 +501,7 @@ const PERCENT_STACK_SINGLE_SERIES_INSIGHT = {
     id: 203,
     short_id: 'barPercentStackSingle',
     name: 'Pageviews (100% stacked, one series)',
-    result: [PERCENT_STACK_BREAKDOWN_INSIGHT.result[0]].map((series) => ({
-        ...series,
-        label: '$pageview',
-        breakdown_value: undefined,
-    })),
+    result: [{ ...PERCENT_STACK_BREAKDOWN_INSIGHT.result[0], label: '$pageview', breakdown_value: undefined }],
     query: {
         ...PERCENT_STACK_BREAKDOWN_INSIGHT.query,
         source: { ...PERCENT_STACK_BREAKDOWN_INSIGHT.query.source, breakdownFilter: undefined },
