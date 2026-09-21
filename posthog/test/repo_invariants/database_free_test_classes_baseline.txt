@@ -27,7 +27,6 @@ ee/hogai/chat_agent/trends/test/test_toolkit.py::TestTrendsToolkit
 ee/hogai/context/insight/format/test/test_lifecycle.py::TestLifecycleResultsFormatter
 ee/hogai/context/insight/format/test/test_paths.py::TestPathsResultsFormatter
 ee/hogai/context/insight/format/test/test_retention.py::TestRetentionResultsFormatter
-ee/hogai/context/insight/format/test/test_sql.py::TestSQLResultsFormatter
 ee/hogai/context/insight/format/test/test_stickiness.py::TestStickinessResultsFormatter
 ee/hogai/context/insight/format/test/test_utils.py::TestFormatUtils
 ee/hogai/context/insight/test/test_query_executor.py::TestValidateAssistantQuery
