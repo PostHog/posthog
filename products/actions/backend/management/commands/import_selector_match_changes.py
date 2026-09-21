@@ -73,26 +73,22 @@ class Command(BaseCommand):
             changes = []
             for row in rows:
                 action = actions.get(row["action_id"])
-                # The verdict describes the selector as measured. A step edited or
-                # removed since then is a different selector, and these counts say
-                # nothing about it.
-                if action is None or action.deleted or row["step_index"] >= len(action.steps):
+                if action is None or action.deleted:
                     stale += 1
                     continue
-                if (action.steps[row["step_index"]].selector or "").strip() != row["selector"]:
-                    stale += 1
-                    continue
-                changes.append(
-                    ActionSelectorMatchChange(
-                        team_id=team_id,
-                        action=action,
-                        step_index=row["step_index"],
-                        selector=row["selector"],
-                        old_match_count=row["counts"]["old_original"],
-                        new_match_count=row["counts"]["new_original"],
-                        measured_at=measured_at,
-                    )
+                change = ActionSelectorMatchChange(
+                    team_id=team_id,
+                    action=action,
+                    step_index=row["step_index"],
+                    selector=row["selector"],
+                    old_match_count=row["counts"]["old_original"],
+                    new_match_count=row["counts"]["new_original"],
+                    measured_at=measured_at,
                 )
+                if not change.describes(action):
+                    stale += 1
+                    continue
+                changes.append(change)
             imported += len(changes)
             if not options["live_run"]:
                 continue

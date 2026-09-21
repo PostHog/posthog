@@ -61,6 +61,7 @@ rules:
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
                               |Action
+                              |ActionSelectorMatchChange
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -473,6 +474,7 @@ rules:
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
                         |Action
+                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential

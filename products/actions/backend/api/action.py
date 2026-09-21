@@ -1,11 +1,10 @@
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import connection
-from django.db.models import Count, F
+from django.db.models import Count
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
@@ -39,6 +38,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
+from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
@@ -605,17 +605,25 @@ class ActionViewSet(
             Action.objects.filter(team_id=self.team_id, id__in=action_ids, deleted=False),
             resource="action",
         )
-        changes = (
-            visible_actions.filter(selector_match_changes__isnull=False)
-            .values(action_id=F("id"), action_name=F("name"))
-            .annotate(
-                selectors=ArrayAgg(
-                    "selector_match_changes__selector",
-                    order_by="selector_match_changes__step_index",
-                ),
-            )
-            .order_by("action_id")
+        actions_by_id = {action.id: action for action in visible_actions}
+        selectors_by_action: dict[int, list[str]] = defaultdict(list)
+        stored_changes = (
+            ActionSelectorMatchChange.objects.for_team(self.team_id)
+            .filter(action_id__in=actions_by_id)
+            .order_by("action_id", "step_index")
         )
+        for change in stored_changes:
+            if change.describes(actions_by_id[change.action_id]):
+                selectors_by_action[change.action_id].append(change.selector)
+
+        changes = [
+            {
+                "action_id": action_id,
+                "action_name": actions_by_id[action_id].name,
+                "selectors": selectors,
+            }
+            for action_id, selectors in sorted(selectors_by_action.items())
+        ]
         return Response(ActionSelectorMatchChangeSerializer(changes, many=True).data)
 
     @extend_schema(responses={200: ActionReferenceSerializer(many=True)})
