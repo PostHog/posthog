@@ -526,6 +526,56 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
                 titles.data["summaries"], [{"trace_id": trace_id, "title": "public-output", "cached": True}]
             )
 
+    @parameterized.expand([("trace",), ("event",)])
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_client_payload_is_kept_when_only_another_property_type_is_restricted(
+        self, summarize_type: str, mock_summarize: MagicMock
+    ) -> None:
+        self._approve_ai_processing()
+        reader = self._create_user("person-restricted-reader@example.com")
+        self.client.force_login(reader)
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="email", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=reader.organization_memberships.get(organization=self.organization),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        event = {
+            "id": "client-only-event",
+            "event": "$ai_generation",
+            "properties": {
+                "$ai_span_name": "generation",
+                "$ai_input": [{"role": "user", "content": "client-supplied-input"}],
+            },
+        }
+        data = (
+            {
+                "trace": {"id": "client-only-trace", "properties": {"$ai_span_name": "generation"}},
+                "hierarchy": [{"event": event, "children": []}],
+            }
+            if summarize_type == "trace"
+            else {"event": event}
+        )
+        mock_summarize.return_value = SummarizationResponse(
+            title="client-supplied-input", flow_diagram="Start", summary_bullets=[], interesting_notes=[]
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/llm_analytics/summarization/",
+            {"summarize_type": summarize_type, "data": data},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertIn("client-supplied-input", response.data["text_repr"])
+
     @parameterized.expand(
         [
             (

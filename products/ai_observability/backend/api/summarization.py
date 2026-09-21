@@ -63,6 +63,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -621,10 +622,14 @@ The response includes the structured summary, the text representation, and metad
             else:
                 data = serializer.validated_data["data"]
                 entity_id, entity_data = self._extract_entity_id(summarize_type, data)
-                if get_restricted_properties_with_group_type_index_for_team(
+                restrictions = get_restricted_properties_with_group_type_index_for_team(
                     user=cast("User", request.user), team=self.team
-                ):
-                    # Client payloads may predate the caller's current property permissions.
+                )
+                # Client payloads may predate the caller's current property permissions, so read the
+                # entity again to apply them. Only event restrictions reach the formatters, and the
+                # id-based read can fail to resolve a client-supplied id, so the other property types
+                # must not route a request into it.
+                if any(restriction.property_type == PropertyDefinition.Type.EVENT for restriction in restrictions):
                     if summarize_type == "trace":
                         trace_id = entity_id
                     else:
