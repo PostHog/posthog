@@ -1086,6 +1086,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "$virt_agent_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_agent_source`",
+                  "id": null,
+                  "name": "$virt_agent_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "events",
@@ -13010,6 +13020,16 @@
                   "hogql_value": "`$virt_bot_operator`",
                   "id": null,
                   "name": "$virt_bot_operator",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_agent_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_agent_source`",
+                  "id": null,
+                  "name": "$virt_agent_source",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

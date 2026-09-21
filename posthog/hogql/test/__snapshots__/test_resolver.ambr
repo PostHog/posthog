@@ -52,6 +52,10 @@
                             description: None,
                             hidden: False
                           },
+                          $virt_agent_source: {
+                            description: None,
+                            hidden: False
+                          },
                           $virt_bot_name: {
                             description: None,
                             hidden: False
@@ -2308,6 +2312,10 @@
                     hidden: False
                   },
                   $session_id_uuid: {
+                    description: None,
+                    hidden: False
+                  },
+                  $virt_agent_source: {
                     description: None,
                     hidden: False
                   },
@@ -5298,6 +5306,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              $virt_agent_source: {
+                                description: None,
+                                hidden: False
+                              },
                               $virt_bot_name: {
                                 description: None,
                                 hidden: False
@@ -6317,6 +6329,10 @@
                                 hidden: False
                               },
                               $session_id_uuid: {
+                                description: None,
+                                hidden: False
+                              },
+                              $virt_agent_source: {
                                 description: None,
                                 hidden: False
                               },
@@ -9463,6 +9479,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_agent_source: {
+                    description: None,
+                    hidden: False
+                  },
                   $virt_bot_name: {
                     description: None,
                     hidden: False
@@ -11131,6 +11151,10 @@
                       hidden: False
                     },
                     $session_id_uuid: {
+                      description: None,
+                      hidden: False
+                    },
+                    $virt_agent_source: {
                       description: None,
                       hidden: False
                     },
@@ -12807,6 +12831,10 @@
                         description: None,
                         hidden: False
                       },
+                      $virt_agent_source: {
+                        description: None,
+                        hidden: False
+                      },
                       $virt_bot_name: {
                         description: None,
                         hidden: False
@@ -13104,6 +13132,10 @@
                         hidden: False
                       },
                       $session_id_uuid: {
+                        description: None,
+                        hidden: False
+                      },
+                      $virt_agent_source: {
                         description: None,
                         hidden: False
                       },
@@ -13754,6 +13786,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_agent_source: {
+                    description: None,
+                    hidden: False
+                  },
                   $virt_bot_name: {
                     description: None,
                     hidden: False
@@ -14087,6 +14123,10 @@
                       hidden: False
                     },
                     $session_id_uuid: {
+                      description: None,
+                      hidden: False
+                    },
+                    $virt_agent_source: {
                       description: None,
                       hidden: False
                     },
@@ -14427,6 +14467,10 @@
                         hidden: False
                       },
                       $session_id_uuid: {
+                        description: None,
+                        hidden: False
+                      },
+                      $virt_agent_source: {
                         description: None,
                         hidden: False
                       },
@@ -14807,6 +14851,10 @@
                                 hidden: False
                               },
                               $session_id_uuid: {
+                                description: None,
+                                hidden: False
+                              },
+                              $virt_agent_source: {
                                 description: None,
                                 hidden: False
                               },
@@ -15196,6 +15244,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_agent_source: {
+                    description: None,
+                    hidden: False
+                  },
                   $virt_bot_name: {
                     description: None,
                     hidden: False
@@ -15548,6 +15600,10 @@
                       hidden: False
                     },
                     $session_id_uuid: {
+                      description: None,
+                      hidden: False
+                    },
+                    $virt_agent_source: {
                       description: None,
                       hidden: False
                     },
@@ -15907,6 +15963,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_agent_source: {
+                    description: None,
+                    hidden: False
+                  },
                   $virt_bot_name: {
                     description: None,
                     hidden: False
@@ -16244,6 +16304,10 @@
                       hidden: False
                     },
                     $session_id_uuid: {
+                      description: None,
+                      hidden: False
+                    },
+                    $virt_agent_source: {
                       description: None,
                       hidden: False
                     },
@@ -16699,6 +16763,10 @@
                       description: None,
                       hidden: False
                     },
+                    $virt_agent_source: {
+                      description: None,
+                      hidden: False
+                    },
                     $virt_bot_name: {
                       description: None,
                       hidden: False
@@ -16993,6 +17061,10 @@
                           hidden: False
                         },
                         $session_id_uuid: {
+                          description: None,
+                          hidden: False
+                        },
+                        $virt_agent_source: {
                           description: None,
                           hidden: False
                         },
@@ -17312,6 +17384,10 @@
                     hidden: False
                   },
                   $session_id_uuid: {
+                    description: None,
+                    hidden: False
+                  },
+                  $virt_agent_source: {
                     description: None,
                     hidden: False
                   },
