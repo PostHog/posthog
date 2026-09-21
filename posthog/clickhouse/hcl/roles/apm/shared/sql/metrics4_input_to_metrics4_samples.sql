@@ -4,8 +4,6 @@ SELECT
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
   toDate32(original_expiry_timestamp) AS original_expiry_date,
-  toUInt32(_partition) AS source_partition,
-  intDiv(_offset, 1000) AS source_offset_bucket,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
   any(metric_type) AS metric_type,
@@ -16,20 +14,18 @@ SELECT
   any(instrumentation_scope) AS instrumentation_scope,
   anyLast(histogram_bounds) AS histogram_bounds,
   any(_topic) AS _topic,
-  groupArray(timestamp) AS timestamp_arr,
-  groupArray(observed_timestamp) AS observed_timestamp_arr,
-  groupArray(value) AS value_arr,
-  groupArray(count) AS count_arr,
-  groupArray(histogram_counts) AS histogram_counts_arr,
-  groupArray(trace_id) AS trace_id_arr,
-  groupArray(span_id) AS span_id_arr,
-  groupArray(trace_flags) AS trace_flags_arr
+  groupArray(10000)(timestamp) AS timestamp_arr,
+  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
+  groupArray(10000)(value) AS value_arr,
+  groupArray(10000)(count) AS count_arr,
+  groupArray(10000)(histogram_counts) AS histogram_counts_arr,
+  groupArray(10000)(trace_id) AS trace_id_arr,
+  groupArray(10000)(span_id) AS span_id_arr,
+  groupArray(10000)(trace_flags) AS trace_flags_arr
 FROM posthog.metrics4_input
 GROUP BY
   team_id,
   metric_name,
   time_bucket,
   series_fingerprint,
-  original_expiry_date,
-  source_partition,
-  source_offset_bucket
+  original_expiry_date

@@ -1,12 +1,12 @@
 """Define the metrics4 tables and their materialized views.
 
-`metrics4_samples` groups points by series, hour, expiry date, Kafka partition,
-and Kafka offset range. Each offset range contains 1,000 source records. This
-chunk key limits the size of a row during background merges. The table stores
-each point field in a parallel array. Readers use `groupArrayArray` to combine
-partial rows. The PromQL bridge already builds this shape from `metrics2` with
-`groupArray`. Readers must sort points because the table does not sort the
-arrays by time.
+`metrics4_samples` groups points by series, hour, and expiry date. It stores up
+to 10,000 points for each series-hour. The materialized view limits each insert
+block. The table applies the same limit during background merges. It stores each
+point field in a parallel array. Readers use `groupArrayArray` to combine partial
+rows. The PromQL bridge already builds this shape from `metrics2` with
+`groupArray`. Readers must sort points because the table does not sort the arrays
+by time.
 
 `metrics4_series` stores one label row for each series and hour in each expiry
 partition after a merge. This structure records when a series was active.
@@ -25,8 +25,9 @@ granularity so that a lookup by primary key does not read a whole fresh part.
 Each `groupArray` function reads the same rows in the same order within one
 insert block. Thus, the fields for a source point use the same array index.
 During a merge, the engine reads equal-key rows in the same sequence for each
-array. The `groupArrayArray` function concatenates each array in that sequence.
-An `ARRAY JOIN` operation fails if parallel arrays have different lengths.
+array. The `groupArrayArray` function keeps up to 10,000 elements in that
+sequence. An `ARRAY JOIN` operation fails if parallel arrays have different
+lengths.
 """
 
 from django.conf import settings
@@ -48,7 +49,7 @@ WRITABLE_METRICS4_SAMPLES_TABLE_NAME = "writable_metrics4_samples"
 WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
 WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
-METRICS4_SAMPLES_PER_CHUNK = 1_000
+METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
 
 # Each tuple gives an input column and the element type for its metrics4 array.
 METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -111,7 +112,7 @@ ENGINE = {Distributed(data_table=data_table_name, cluster=settings.CLICKHOUSE_LO
 
 def WRITABLE_METRICS4_SAMPLES_TABLE_SQL() -> str:
     arrays = ",\n".join(
-        f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray, Array({element_type}))"
+        f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR}), Array({element_type}))"
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
     )
     return _writable_table_sql(
@@ -122,8 +123,6 @@ def WRITABLE_METRICS4_SAMPLES_TABLE_SQL() -> str:
     `time_bucket` DateTime,
     `series_fingerprint` UInt64,
     `original_expiry_date` Date32,
-    `source_partition` UInt32,
-    `source_offset_bucket` UInt64,
     `resource_fingerprint` SimpleAggregateFunction(any, UInt64),
     `service_name` SimpleAggregateFunction(any, LowCardinality(String)),
     `metric_type` SimpleAggregateFunction(any, LowCardinality(String)),
@@ -190,7 +189,7 @@ def WRITABLE_METRICS4_ATTRIBUTES_TABLE_SQL() -> str:
 
 def METRICS4_SAMPLES_TABLE_SQL() -> str:
     arrays = ",\n".join(
-        f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray, Array({element_type})){_ARRAY_CODECS.get(name, '')}"
+        f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR}), Array({element_type})){_ARRAY_CODECS.get(name, '')}"
         for name, element_type in METRICS4_POINT_ARRAY_COLUMNS
     )
     # One row contains one offset range for one series and hour.
@@ -208,8 +207,6 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     `time_bucket` DateTime,
     `series_fingerprint` UInt64 CODEC(Delta(8), Default),
     `original_expiry_date` Date32,
-    `source_partition` UInt32,
-    `source_offset_bucket` UInt64,
     `resource_fingerprint` SimpleAggregateFunction(any, UInt64),
     `service_name` SimpleAggregateFunction(any, LowCardinality(String)),
     `metric_type` SimpleAggregateFunction(any, LowCardinality(String)),
@@ -227,7 +224,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
 )
 ENGINE = {AggregatingMergeTree(METRICS4_SAMPLES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY original_expiry_date
-ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, source_partition, source_offset_bucket)
+ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
 TTL original_expiry_date
 SETTINGS
     index_granularity = 128,
@@ -319,7 +316,10 @@ SETTINGS
 
 def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
     db = _db()
-    group_arrays = ",\n".join(f"    groupArray({name}) AS {name}_arr" for name, _ in METRICS4_POINT_ARRAY_COLUMNS)
+    group_arrays = ",\n".join(
+        f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})({name}) AS {name}_arr"
+        for name, _ in METRICS4_POINT_ARRAY_COLUMNS
+    )
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
 AS SELECT
@@ -328,8 +328,6 @@ AS SELECT
     toDateTime(toStartOfHour(timestamp)) AS time_bucket,
     series_fingerprint,
     toDate32(original_expiry_timestamp) AS original_expiry_date,
-    toUInt32(_partition) AS source_partition,
-    intDiv(_offset, {METRICS4_SAMPLES_PER_CHUNK}) AS source_offset_bucket,
     any(resource_fingerprint) AS resource_fingerprint,
     any(service_name) AS service_name,
     any(metric_type) AS metric_type,
@@ -347,9 +345,7 @@ GROUP BY
     metric_name,
     time_bucket,
     series_fingerprint,
-    original_expiry_date,
-    source_partition,
-    source_offset_bucket
+    original_expiry_date
 """
 
 

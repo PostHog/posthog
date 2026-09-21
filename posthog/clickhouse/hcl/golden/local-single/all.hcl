@@ -7663,7 +7663,7 @@ SQL
   }
 
   table "metrics4_samples" {
-    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "source_partition", "source_offset_bucket"]
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
@@ -7685,12 +7685,6 @@ SQL
     }
     column "original_expiry_date" {
       type = "Date32"
-    }
-    column "source_partition" {
-      type = "UInt32"
-    }
-    column "source_offset_bucket" {
-      type = "UInt64"
     }
     column "resource_fingerprint" {
       type = "SimpleAggregateFunction(any, UInt64)"
@@ -7723,33 +7717,33 @@ SQL
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
     }
     column "timestamp_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
       codec = "DoubleDelta, Default"
     }
     column "observed_timestamp_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
       codec = "DoubleDelta, Default"
     }
     column "value_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(Float64))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(Float64))"
       codec = "Gorilla(8), Default"
     }
     column "count_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(UInt64))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64))"
       codec = "T64, Default"
     }
     column "histogram_counts_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(Array(UInt64)))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64)))"
       codec = "T64, Default"
     }
     column "trace_id_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
     }
     column "span_id_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
     }
     column "trace_flags_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(Int32))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
     }
     index "idx_metric_type_set" {
       expr        = "metric_type"
@@ -17986,12 +17980,6 @@ SQL
     column "original_expiry_date" {
       type = "Date32"
     }
-    column "source_partition" {
-      type = "UInt32"
-    }
-    column "source_offset_bucket" {
-      type = "UInt64"
-    }
     column "resource_fingerprint" {
       type = "SimpleAggregateFunction(any, UInt64)"
     }
@@ -18023,28 +18011,28 @@ SQL
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
     }
     column "timestamp_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
     }
     column "observed_timestamp_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
     }
     column "value_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(Float64))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Float64))"
     }
     column "count_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(UInt64))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64))"
     }
     column "histogram_counts_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(Array(UInt64)))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64)))"
     }
     column "trace_id_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
     }
     column "span_id_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
     }
     column "trace_flags_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(Int32))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
     }
     engine "distributed" {
       cluster_name    = "logs"
@@ -23016,8 +23004,6 @@ SELECT
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
   series_fingerprint,
   toDate32(original_expiry_timestamp) AS original_expiry_date,
-  toUInt32(_partition) AS source_partition,
-  intDiv(_offset, 1000) AS source_offset_bucket,
   any(resource_fingerprint) AS resource_fingerprint,
   any(service_name) AS service_name,
   any(metric_type) AS metric_type,
@@ -23028,17 +23014,17 @@ SELECT
   any(instrumentation_scope) AS instrumentation_scope,
   anyLast(histogram_bounds) AS histogram_bounds,
   any(_topic) AS _topic,
-  groupArray(timestamp) AS timestamp_arr,
-  groupArray(observed_timestamp) AS observed_timestamp_arr,
-  groupArray(value) AS value_arr,
-  groupArray(count) AS count_arr,
-  groupArray(histogram_counts) AS histogram_counts_arr,
-  groupArray(trace_id) AS trace_id_arr,
-  groupArray(span_id) AS span_id_arr,
-  groupArray(trace_flags) AS trace_flags_arr
+  groupArray(10000)(timestamp) AS timestamp_arr,
+  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
+  groupArray(10000)(value) AS value_arr,
+  groupArray(10000)(count) AS count_arr,
+  groupArray(10000)(histogram_counts) AS histogram_counts_arr,
+  groupArray(10000)(trace_id) AS trace_id_arr,
+  groupArray(10000)(span_id) AS span_id_arr,
+  groupArray(10000)(trace_flags) AS trace_flags_arr
 FROM posthog.metrics4_input
 GROUP BY
-  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date, source_partition, source_offset_bucket
+  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date
 SQL
 
     column "team_id" {
@@ -23055,12 +23041,6 @@ SQL
     }
     column "original_expiry_date" {
       type = "Date32"
-    }
-    column "source_partition" {
-      type = "UInt32"
-    }
-    column "source_offset_bucket" {
-      type = "UInt64"
     }
     column "resource_fingerprint" {
       type = "UInt64"

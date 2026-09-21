@@ -2052,7 +2052,7 @@ SQL
   }
 
   table "metrics4_samples" {
-    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "source_partition", "source_offset_bucket"]
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
@@ -2074,12 +2074,6 @@ SQL
     }
     column "original_expiry_date" {
       type = "Date32"
-    }
-    column "source_partition" {
-      type = "UInt32"
-    }
-    column "source_offset_bucket" {
-      type = "UInt64"
     }
     column "resource_fingerprint" {
       type = "SimpleAggregateFunction(any, UInt64)"
@@ -2112,33 +2106,33 @@ SQL
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
     }
     column "timestamp_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
       codec = "DoubleDelta, Default"
     }
     column "observed_timestamp_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
       codec = "DoubleDelta, Default"
     }
     column "value_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(Float64))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(Float64))"
       codec = "Gorilla(8), Default"
     }
     column "count_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(UInt64))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64))"
       codec = "T64, Default"
     }
     column "histogram_counts_arr" {
-      type  = "SimpleAggregateFunction(groupArrayArray, Array(Array(UInt64)))"
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64)))"
       codec = "T64, Default"
     }
     column "trace_id_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
     }
     column "span_id_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
     }
     column "trace_flags_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(Int32))"
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
     }
     index "idx_metric_type_set" {
       expr        = "metric_type"

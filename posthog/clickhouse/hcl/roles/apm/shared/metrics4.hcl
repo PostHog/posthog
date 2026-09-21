@@ -79,8 +79,6 @@ database "posthog" {
     column "time_bucket" { type = "DateTime" }
     column "series_fingerprint" { type = "UInt64" }
     column "original_expiry_date" { type = "Date32" }
-    column "source_partition" { type = "UInt32" }
-    column "source_offset_bucket" { type = "UInt64" }
     column "resource_fingerprint" { type = "SimpleAggregateFunction(any, UInt64)" }
     column "service_name" { type = "SimpleAggregateFunction(any, LowCardinality(String))" }
     column "metric_type" { type = "SimpleAggregateFunction(any, LowCardinality(String))" }
@@ -91,14 +89,14 @@ database "posthog" {
     column "instrumentation_scope" { type = "SimpleAggregateFunction(any, String)" }
     column "histogram_bounds" { type = "SimpleAggregateFunction(anyLast, Array(Float64))" }
     column "_topic" { type = "SimpleAggregateFunction(any, LowCardinality(String))" }
-    column "timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))" }
-    column "observed_timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6)))" }
-    column "value_arr" { type = "SimpleAggregateFunction(groupArrayArray, Array(Float64))" }
-    column "count_arr" { type = "SimpleAggregateFunction(groupArrayArray, Array(UInt64))" }
-    column "histogram_counts_arr" { type = "SimpleAggregateFunction(groupArrayArray, Array(Array(UInt64)))" }
-    column "trace_id_arr" { type = "SimpleAggregateFunction(groupArrayArray, Array(String))" }
-    column "span_id_arr" { type = "SimpleAggregateFunction(groupArrayArray, Array(String))" }
-    column "trace_flags_arr" { type = "SimpleAggregateFunction(groupArrayArray, Array(Int32))" }
+    column "timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))" }
+    column "observed_timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))" }
+    column "value_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Float64))" }
+    column "count_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64))" }
+    column "histogram_counts_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64)))" }
+    column "trace_id_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))" }
+    column "span_id_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))" }
+    column "trace_flags_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))" }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -208,8 +206,6 @@ database "posthog" {
     column "time_bucket" { type = "DateTime" }
     column "series_fingerprint" { type = "UInt64" }
     column "original_expiry_date" { type = "Date32" }
-    column "source_partition" { type = "UInt32" }
-    column "source_offset_bucket" { type = "UInt64" }
     column "resource_fingerprint" { type = "UInt64" }
     column "service_name" { type = "String" }
     column "metric_type" { type = "String" }
