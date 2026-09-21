@@ -13,6 +13,9 @@ export interface TracingViewerProps {
     id: string
     pinnedFilters?: UniversalFiltersGroup
     autoLoad?: boolean
+    /** Enable this only from the /tracing scene. The saved-views logics always bind the scene's
+     *  viewer instance, so a viewer under any other `id` would read and write the scene's filters
+     *  instead of its own. */
     showSavedViewsButton?: boolean
     onOperationClick?: (row: AggregatedSpanRow, dateRange: DateRange) => void
 }
