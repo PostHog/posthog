@@ -178,6 +178,7 @@ def create_external_reference(
     integration_id: int,
     config: dict[str, Any] | None = None,
     external_context: dict[str, Any] | None = None,
+    attach_backlink: bool = True,
 ) -> tuple[ErrorTrackingExternalReference, bool]:
     """Link an error tracking issue to an external provider issue.
 
@@ -215,7 +216,7 @@ def create_external_reference(
                 existing.external_context = updated_context
                 existing.save(update_fields=["external_context"])
             return existing, False
-        if integration.kind == Integration.IntegrationKind.LINEAR:
+        if integration.kind == Integration.IntegrationKind.LINEAR and attach_backlink:
             # Linked issues get the same PostHog back-link attachment as created ones.
             attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
             LinearIntegration(integration).create_attachment(stored_context["id"], attachment_url)

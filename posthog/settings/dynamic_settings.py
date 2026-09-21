@@ -266,6 +266,11 @@ CONSTANCE_CONFIG = {
         "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
         str,
     ),
+    "LINEAR_WEBHOOK_SECRET": (
+        get_from_env("LINEAR_WEBHOOK_SECRET", default=""),
+        "Used to validate Linear webhook events (HMAC-SHA256 signature verification)",
+        str,
+    ),
     "PARALLEL_DASHBOARD_ITEM_CACHE": (
         get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
         "user to determine how many insight cache updates to run at a time",
@@ -441,6 +446,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",
+    "LINEAR_WEBHOOK_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
@@ -473,5 +479,6 @@ SECRET_SETTINGS = [
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",
+    "LINEAR_WEBHOOK_SECRET",
     "GROWTH_RESCORE_WEBHOOK_SECRET",
 ]

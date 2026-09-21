@@ -91,6 +91,20 @@ class GitHubExternalReferenceJob:
 
 
 @dataclass(frozen=True)
+class LinearExternalReferenceJob:
+    team_id: int
+    organization_id: str
+    identifier: str
+    title: str
+    issue_id: UUID | None = None
+    fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.issue_id is None) == (self.fingerprint is None):
+            raise ValueError("Provide exactly one PostHog issue identifier.")
+
+
+@dataclass(frozen=True)
 class ErrorTrackingFingerprint:
     id: UUID
     fingerprint: str
