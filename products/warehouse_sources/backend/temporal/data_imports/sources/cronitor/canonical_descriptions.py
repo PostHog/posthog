@@ -93,7 +93,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "Display name of the site.",
             "client_key": "Public key the browser script uses to report data for this site.",
             "public_report_enabled": "Whether the site's performance report is published publicly.",
-            "public_report_key": "Key of the public performance report, when it is enabled.",
             "webvitals_enabled": "Whether web vitals collection is on.",
             "errors_enabled": "Whether JavaScript error tracking is on.",
             "filter_localhost": "Whether traffic from localhost is discarded.",

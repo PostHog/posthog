@@ -134,9 +134,12 @@ class TestMonitors:
         assert len(rows) == 1
         assert fetched == [_monitors_url(3)]
 
-    def test_unexpected_envelope_yields_nothing(self, monkeypatch: Any) -> None:
+    def test_unexpected_envelope_fails_the_sync(self, monkeypatch: Any) -> None:
+        # Reading an unrecognized 200 as an empty page would let a full refresh replace the table
+        # with nothing and report success.
         _patch_fetch(monkeypatch, {_monitors_url(1): {"detail": "something unexpected"}})
-        assert _collect(_FakeResumableManager(), "monitors") == []
+        with pytest.raises(cronitor.CronitorResponseShapeError):
+            _collect(_FakeResumableManager(), "monitors")
 
     def test_sensitive_request_config_is_redacted(self, monkeypatch: Any) -> None:
         # HTTP-check monitors embed the outbound request config, which can carry credentials:
@@ -267,9 +270,10 @@ class TestPaginatedListEndpoints:
 
     def test_every_schema_is_routed_to_a_transport(self, monkeypatch: Any) -> None:
         # A schema listed in the wizard but missing a transport branch only fails once a user
-        # selects it, so walk every advertised endpoint against an empty API.
+        # selects it, so walk every advertised endpoint against an API holding no rows.
+        empty_page: dict[str, Any] = {"monitors": [], "groups": [], "issues": [], "data": []}
         _freeze_now(monkeypatch)
-        monkeypatch.setattr(cronitor, "_fetch", lambda session, url, api_key, logger: {})
+        monkeypatch.setattr(cronitor, "_fetch", lambda session, url, api_key, logger: empty_page)
 
         for endpoint in ENDPOINTS:
             assert _collect(_FakeResumableManager(), endpoint) == []
@@ -299,6 +303,36 @@ class TestSiteErrors:
         assert all(all(key in row for key in primary_keys) for row in rows)
         # Bookmark advanced to the next site after site-a's rows were yielded.
         assert manager.saved == [CronitorResumeConfig(site_key="site-b", page=1)]
+
+    def test_public_report_key_is_redacted(self, monkeypatch: Any) -> None:
+        # The key opens the site's performance report without a Cronitor login, so it must not
+        # land in a table every project member can query.
+        site: dict[str, Any] = {
+            "key": "site-a",
+            "name": "Main Website",
+            "client_key": "ck_public",
+            "public_report_key": "pr_capability",
+        }
+        _patch_fetch(monkeypatch, {_list_url("/sites", 1): {"data": [site]}})
+        rows = _collect(_FakeResumableManager(), "sites")
+
+        assert rows == [{"key": "site-a", "name": "Main Website", "client_key": "ck_public"}]
+        # The original response dict must not be mutated in place.
+        assert "public_report_key" in site
+
+    def test_fan_out_order_does_not_follow_the_api(self, monkeypatch: Any) -> None:
+        # The sites list takes no sort parameter, so a reordered list would push sites behind a
+        # saved bookmark and skip them on resume.
+        responses = {
+            _list_url("/sites", 1): self._sites_page("site-c", "site-a", "site-b"),
+            self._errors_url("site-a", 1): {"data": [{"key": "err-a"}]},
+            self._errors_url("site-b", 1): {"data": [{"key": "err-b"}]},
+            self._errors_url("site-c", 1): {"data": [{"key": "err-c"}]},
+        }
+        _patch_fetch(monkeypatch, responses)
+        rows = _collect(_FakeResumableManager(), "site_errors")
+
+        assert [row["site_key"] for row in rows] == ["site-a", "site-b", "site-c"]
 
     def test_paginates_within_a_site_until_short_page(self, monkeypatch: Any) -> None:
         responses = {

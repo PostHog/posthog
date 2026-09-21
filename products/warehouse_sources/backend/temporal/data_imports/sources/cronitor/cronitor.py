@@ -1,5 +1,4 @@
 import time
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -9,6 +8,8 @@ import requests
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -32,7 +33,11 @@ class CronitorRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class CronitorResponseShapeError(Exception):
+    pass
+
+
+@frozen
 class CronitorResumeConfig:
     # Paginated list endpoints (and site_errors within one site): next 1-indexed page to fetch.
     page: int | None = None
@@ -140,20 +145,27 @@ def _redact_monitor(monitor: dict[str, Any]) -> dict[str, Any]:
     return {**monitor, "request": redacted_request}
 
 
-def _extract_rows(data: Any, envelope_key: str) -> list[dict[str, Any]]:
+def _extract_rows(data: Any, endpoint: CronitorListEndpoint) -> list[dict[str, Any]]:
     """Pull the row list out of a paginated response.
 
     Cronitor is not consistent about the envelope: monitors and groups nest the rows under a
     resource-named key while sites and site errors use `data`, so try the endpoint's documented
     key, then `data`, then a bare list.
+
+    A 200 carrying none of them is a shape change rather than an empty page. Reading it as empty
+    would let a full refresh replace the table with nothing and report success, so fail instead.
+    An empty list is still a legitimate empty page.
     """
     rows: Any = data
     if isinstance(data, dict):
-        rows = data.get(envelope_key)
+        rows = data.get(endpoint.envelope_key)
         if not isinstance(rows, list):
             rows = data.get("data")
     if not isinstance(rows, list):
-        return []
+        raise CronitorResponseShapeError(
+            f"Cronitor returned an unexpected response shape for {endpoint.path}: "
+            f"no list under '{endpoint.envelope_key}' or 'data'"
+        )
     return [row for row in rows if isinstance(row, dict)]
 
 
@@ -174,12 +186,27 @@ def _fetch_list_page(
     if extra_params:
         params.extend(extra_params)
     data = _fetch(session, _build_url(endpoint.path, params), api_key, logger)
-    rows = _extract_rows(data, endpoint.envelope_key)
+    rows = _extract_rows(data, endpoint)
     return rows, len(rows) >= PAGE_SIZE
 
 
+# Anyone holding a site's public report key can open that report without a Cronitor login, so
+# drop it before a row is persisted rather than leaving the capability in a table every project
+# member can query. `client_key` stays: it ships in the site's own browser snippet.
+_SENSITIVE_SITE_FIELDS = ("public_report_key",)
+
+
+def _redact_site(site: dict[str, Any]) -> dict[str, Any]:
+    if not any(field in site for field in _SENSITIVE_SITE_FIELDS):
+        return site
+    return {key: value for key, value in site.items() if key not in _SENSITIVE_SITE_FIELDS}
+
+
 # Row normalizers applied to a paginated list before its rows are yielded.
-_LIST_ROW_MAPPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {"monitors": _redact_monitor}
+_LIST_ROW_MAPPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "monitors": _redact_monitor,
+    "sites": _redact_site,
+}
 
 
 def _get_paginated_rows(
@@ -228,7 +255,10 @@ def _list_monitor_keys(session: requests.Session, api_key: str, logger: Filterin
 
 
 def _list_site_keys(session: requests.Session, api_key: str, logger: FilteringBoundLogger) -> list[str]:
-    return _list_keys(session, api_key, logger, PAGINATED_LIST_ENDPOINTS["sites"])
+    # The sites list takes no sort parameter, so the API order is not guaranteed between runs.
+    # Sorting here gives the fan-out a stable order, which is what makes resuming at a saved site
+    # key safe: without it a reordered list would skip the sites that moved behind the bookmark.
+    return sorted(_list_keys(session, api_key, logger, PAGINATED_LIST_ENDPOINTS["sites"]))
 
 
 def _get_site_error_rows(
