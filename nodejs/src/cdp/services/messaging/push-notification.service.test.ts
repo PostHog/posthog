@@ -1073,6 +1073,19 @@ describe('PushNotificationService', () => {
             expect(delayMs).toBeGreaterThan(20_000)
             expect(delayMs).toBeLessThanOrEqual(30_000)
         })
+
+        it('explains a device that failed while another device was delivered to', async () => {
+            // The channel reports success, so this device never reaches the outer catch that logs a
+            // channel failure. Without a line of its own it is permanently broken and invisible, since
+            // the only other record is the debug-level provider response.
+            mockTrackedFetch.mockResolvedValueOnce(ok()).mockResolvedValueOnce(badPayload())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.finished).toBe(true)
+            const visibleLogs = result.logs.filter((log) => log.level !== 'debug').map((log) => log.message)
+            expect(visibleLogs).toContainEqual(expect.stringContaining('rejected the notification contents'))
+        })
     })
 
     describe('multiple channels', () => {

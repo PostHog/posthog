@@ -157,6 +157,18 @@ function longestRetriableFailure(current: PushSendError | undefined, candidate: 
     return (candidate.retryAfterMs ?? 0) > (current.retryAfterMs ?? 0) ? candidate : current
 }
 
+// The devices that failed inside a channel that still delivered to another one. That channel reports
+// success, so these never reach the outer catch that logs and counts a whole-channel failure, and a
+// device failing for good — a token registered against the wrong app, a rejected payload — would be
+// left with only a debug-level line. Counting here cannot double-count: a channel that delivered is
+// never rescheduled, so no later attempt sees these devices again.
+function reportPartialDeviceFailures(failures: PushSendError[], addLog: ReturnType<typeof createAddLogFunction>): void {
+    for (const failure of failures) {
+        pushNotificationFailedCounter.labels({ platform: failure.platform, reason: failure.reason }).inc()
+        addLog(failure.level, failure.message)
+    }
+}
+
 function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAfterMs?: number): PushSendError {
     // Append the raw provider code so the failure surfaced to the hog template stays debuggable, while
     // the human-readable sentence leads.
@@ -413,7 +425,7 @@ export class PushNotificationService {
         // A terminal failure on one device must not mask a retriable one on another: whether the step
         // is worth re-running depends on any device being retriable, not on which failed last.
         let retriableFailure: PushSendError | undefined
-        let lastFailure: Error | undefined
+        const failures: PushSendError[] = []
 
         for (const subscription of subscriptions) {
             const outcome = await this.sendOneFcm(result, params, subscription, url, accessToken, templateId, addLog)
@@ -423,20 +435,21 @@ export class PushNotificationService {
                 this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'fcm')
                 addLog('warn', `FCM: ${outcome.message}`)
             } else if (outcome.error) {
-                lastFailure = outcome.error
+                failures.push(outcome.error)
                 retriableFailure = longestRetriableFailure(retriableFailure, outcome.error)
             }
         }
 
         if (delivered > 0) {
             addLog('info', `Push notification accepted by FCM for ${delivered} of ${subscriptions.length} device(s).`)
+            reportPartialDeviceFailures(failures, addLog)
             // A throw here would re-run the step and push again to every device already delivered to.
             // A device that failed retryably loses this one notification instead, which is the better
             // of the two: a missed push on one device rather than a duplicate on the others.
             return true
         }
 
-        const failure = retriableFailure ?? lastFailure
+        const failure = retriableFailure ?? failures.at(-1)
         if (failure) {
             throw failure
         }
@@ -454,7 +467,7 @@ export class PushNotificationService {
         accessToken: string,
         templateId: string,
         addLog: ReturnType<typeof createAddLogFunction>
-    ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: Error }> {
+    ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: PushSendError }> {
         const fetchParams: FetchOptions = {
             method: 'POST',
             headers: {
@@ -547,7 +560,7 @@ export class PushNotificationService {
         // A terminal failure on one device must not mask a retriable one on another: whether the step
         // is worth re-running depends on any device being retriable, not on which failed last.
         let retriableFailure: PushSendError | undefined
-        let lastFailure: Error | undefined
+        const failures: PushSendError[] = []
 
         for (const subscription of subscriptions) {
             const outcome = await this.sendOneApns(
@@ -563,19 +576,20 @@ export class PushNotificationService {
                 this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'apns')
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
-                lastFailure = outcome.error
+                failures.push(outcome.error)
                 retriableFailure = longestRetriableFailure(retriableFailure, outcome.error)
             }
         }
 
         if (delivered > 0) {
             addLog('info', `Push notification accepted by APNs for ${delivered} of ${subscriptions.length} device(s).`)
+            reportPartialDeviceFailures(failures, addLog)
             // See executeFcm: retrying after a partial success would push again to the devices already
             // delivered to.
             return true
         }
 
-        const failure = retriableFailure ?? lastFailure
+        const failure = retriableFailure ?? failures.at(-1)
         if (failure) {
             throw failure
         }
@@ -591,7 +605,7 @@ export class PushNotificationService {
         subscription: DeviceSubscription,
         apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string },
         addLog: ReturnType<typeof createAddLogFunction>
-    ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: Error }> {
+    ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: PushSendError }> {
         const payload = params.payload
         const headers: Record<string, string> = {
             Authorization: `bearer ${apns.jwt}`,
