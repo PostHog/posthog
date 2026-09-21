@@ -12,13 +12,37 @@ import (
 
 var ErrUnauthorized = errors.New("unauthorized")
 
+// MaxConnectionIDLength bounds the direct-connection segment of a catalog scope. Connection ids
+// are UUIDs; the bound keeps a hostile path from minting unbounded registry keys.
+const MaxConnectionIDLength = 64
+
+// Authorization is the catalog scope of one request. ConnectionID is empty for the team's PostHog
+// catalog, and names a direct warehouse connection otherwise. Two connections of the same user
+// hold separate catalogs, so neither can read or overwrite the other.
 type Authorization struct {
-	TeamID int64
-	UserID int64
+	TeamID       int64
+	UserID       int64
+	ConnectionID string
 }
 
 func (a Authorization) Valid() bool {
-	return a.TeamID > 0 && a.UserID > 0
+	return a.TeamID > 0 && a.UserID > 0 && validConnectionID(a.ConnectionID)
+}
+
+func validConnectionID(connectionID string) bool {
+	if len(connectionID) > MaxConnectionIDLength {
+		return false
+	}
+	for _, character := range connectionID {
+		switch {
+		case character >= 'a' && character <= 'z', character >= 'A' && character <= 'Z':
+		case character >= '0' && character <= '9':
+		case character == '-', character == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 type Operation string
@@ -41,12 +65,13 @@ type header struct {
 }
 
 type Claims struct {
-	Audience   string   `json:"aud"`
-	TeamID     int64    `json:"team_id"`
-	UserID     int64    `json:"user_id"`
-	Operations []string `json:"operations"`
-	ExpiresAt  int64    `json:"exp"`
-	NotBefore  int64    `json:"nbf,omitempty"`
+	Audience     string   `json:"aud"`
+	TeamID       int64    `json:"team_id"`
+	UserID       int64    `json:"user_id"`
+	ConnectionID string   `json:"connection_id,omitempty"`
+	Operations   []string `json:"operations"`
+	ExpiresAt    int64    `json:"exp"`
+	NotBefore    int64    `json:"nbf,omitempty"`
 }
 
 func New(keys []string, allowInsecure bool) *Authenticator {
@@ -91,7 +116,7 @@ func (a *Authenticator) Verify(headerValue string, authorization Authorization, 
 		return ErrUnauthorized
 	}
 	now := a.now().Unix()
-	if claims.Audience != "hogql-language-service" || claims.ExpiresAt <= now || claims.NotBefore > now || claims.TeamID != authorization.TeamID || claims.UserID != authorization.UserID {
+	if claims.Audience != "hogql-language-service" || claims.ExpiresAt <= now || claims.NotBefore > now || claims.TeamID != authorization.TeamID || claims.UserID != authorization.UserID || claims.ConnectionID != authorization.ConnectionID {
 		return ErrUnauthorized
 	}
 	for _, allowed := range claims.Operations {

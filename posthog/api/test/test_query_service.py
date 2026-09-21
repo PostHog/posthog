@@ -39,6 +39,7 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.language_service import (
     CatalogMissing,
+    CatalogScope,
     LanguageServiceError,
     LanguageServiceResult,
     MalformedLanguageServiceResponse,
@@ -50,6 +51,7 @@ from posthog.api.services.query import (
     _capture_malformed_language_service_response,
     _DatabaseSchemaCatalog,
     _EditorAssistRoute,
+    _editor_assist_scope,
     _language_service_call,
     _language_service_eligible,
     _record_editor_assist_backend,
@@ -110,6 +112,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         route = _language_service_call(
             cast(Team, SimpleNamespace(pk=12)),
             cast(User, SimpleNamespace(pk=34)),
+            CatalogScope(team_id=12, user_id=34),
             HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
         )
 
@@ -545,6 +548,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         result = _language_service_call(
             cast(Team, SimpleNamespace(pk=12)),
             cast(User, SimpleNamespace(pk=34)),
+            CatalogScope(team_id=12, user_id=34),
             HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
         )
 
@@ -586,7 +590,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         )
         published_revision: list[str] = []
 
-        def publish(_team_id: int, _user_id: int, revision: str, _catalog: dict[str, object]) -> None:
+        def publish(_scope: CatalogScope, revision: str, _catalog: dict[str, object]) -> None:
             published_revision.append(revision)
 
         client.publish.side_effect = publish
@@ -608,6 +612,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         result = _language_service_call(
             cast(Team, SimpleNamespace(pk=12)),
             cast(User, SimpleNamespace(pk=34)),
+            CatalogScope(team_id=12, user_id=34),
             HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
         )
 
@@ -644,6 +649,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         result = _language_service_call(
             cast(Team, SimpleNamespace(pk=12)),
             cast(User, SimpleNamespace(pk=34)),
+            CatalogScope(team_id=12, user_id=34),
             HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
         )
 
@@ -701,6 +707,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         result = _language_service_call(
             cast(Team, SimpleNamespace(pk=12)),
             cast(User, SimpleNamespace(pk=34)),
+            CatalogScope(team_id=12, user_id=34),
             HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
         )
 
@@ -1440,6 +1447,42 @@ class TestQueryService(APIBaseTest):
 
         self.assertEqual(mock_resolve_database_for_connection.call_args.kwargs["user"], self.user)
         self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], self.user)
+
+    @parameterized.expand(
+        [
+            ("clickhouse", ExternalDataSourceType.CLICKHOUSE, True),
+            ("clickhouse_cloud", ExternalDataSourceType.CLICKHOUSECLOUD, True),
+            ("postgres", ExternalDataSourceType.POSTGRES, False),
+            ("snowflake", ExternalDataSourceType.SNOWFLAKE, False),
+        ]
+    )
+    def test_only_clickhouse_connections_reach_the_language_service(
+        self, _label: str, source_type: str, expected: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        query = HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL, connectionId=str(source.id))
+
+        scope = _editor_assist_scope(self.team, self.user, query)
+
+        if expected:
+            assert scope == CatalogScope(team_id=self.team.pk, user_id=self.user.pk, connection_id=str(source.id))
+        else:
+            assert scope is None
+
+    def test_a_request_without_a_connection_keeps_the_team_catalog_scope(self) -> None:
+        query = HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL)
+
+        assert _editor_assist_scope(self.team, self.user, query) == CatalogScope(
+            team_id=self.team.pk, user_id=self.user.pk
+        )
 
     @parameterized.expand(
         [

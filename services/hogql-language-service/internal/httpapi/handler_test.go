@@ -72,6 +72,54 @@ func TestAutocompleteUsesOnlyRequestedTeamAndUserCatalog(t *testing.T) {
 	}
 }
 
+func TestAutocompleteKeepsConnectionCatalogsApartFromTheTeamCatalog(t *testing.T) {
+	handler := newTestServer(t).handler()
+	scopes := map[string]string{
+		scopePath(1, 10): "orders",
+		connectionScopePath(1, 10, "connection-a"): "alpha_events",
+		connectionScopePath(1, 10, "connection-b"): "beta_events",
+	}
+	for scope, table := range scopes {
+		putCatalogAtScope(t, handler, scope, "revision-"+table, table)
+	}
+
+	for scope, table := range scopes {
+		request := httptest.NewRequest(http.MethodPost, scope+"/autocomplete", strings.NewReader(`{"query":"SELECT * FROM "}`))
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("autocomplete on %s returned %d: %s", scope, response.Code, response.Body.String())
+		}
+		var result completionResponse
+		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if result.CatalogRevision != "revision-"+table || !hasSuggestion(result.Suggestions, table) {
+			t.Fatalf("unexpected response for %s: %#v", scope, result)
+		}
+		for _, otherTable := range scopes {
+			if otherTable != table && hasSuggestion(result.Suggestions, otherTable) {
+				t.Fatalf("%s leaked into %s", otherTable, scope)
+			}
+		}
+	}
+}
+
+func TestAutocompleteRejectsUnusableConnectionIdentifiers(t *testing.T) {
+	handler := newTestServer(t).handler()
+	putCatalogAtScope(t, handler, connectionScopePath(1, 10, "connection-a"), "revision-one", "orders")
+
+	for _, connectionID := range []string{strings.Repeat("a", serviceauth.MaxConnectionIDLength+1), "connection%20a"} {
+		path := connectionScopePath(1, 10, connectionID) + "/autocomplete"
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"query":"SELECT "}`))
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("connection id %q returned %d: %s", connectionID, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestAutocompleteRequiresKnownTeamAndUser(t *testing.T) {
 	s := newTestServer(t)
 	for _, test := range []struct {
@@ -308,8 +356,13 @@ func TestPrincipalRateLimitRunsBeforeBodyDecodeAndDoesNotCrossScopes(t *testing.
 
 func putCatalogForTest(t *testing.T, handler http.Handler, teamID, userID int64, revision, table string) {
 	t.Helper()
+	putCatalogAtScope(t, handler, scopePath(teamID, userID), revision, table)
+}
+
+func putCatalogAtScope(t *testing.T, handler http.Handler, scope, revision, table string) {
+	t.Helper()
 	body := `{"revision":"` + revision + `","catalog":{"tables":{"` + table + `":{"name":"` + table + `","type":"warehouse","fields":{}}},"properties":{}}}`
-	path := scopePath(teamID, userID) + "/catalog"
+	path := scope + "/catalog"
 	request := httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -344,6 +397,10 @@ func discardLogger() *slog.Logger {
 
 func scopePath(teamID, userID int64) string {
 	return "/teams/" + strconv.FormatInt(teamID, 10) + "/users/" + strconv.FormatInt(userID, 10)
+}
+
+func connectionScopePath(teamID, userID int64, connectionID string) string {
+	return scopePath(teamID, userID) + "/connections/" + connectionID
 }
 
 func hasSuggestion(suggestions []completion.Suggestion, label string) bool {

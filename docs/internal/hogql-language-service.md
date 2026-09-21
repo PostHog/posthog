@@ -41,6 +41,20 @@ An alias candidate that resolves unambiguously to another visible canonical tabl
 Nonrepresentable resolver collisions require a separate catalog contract before they can use the Go service.
 Built-in `posthog.*` namespaces are outside this rollout.
 
+## Catalog scope
+
+A catalog belongs to a team, a user, and optionally a direct warehouse connection. A connection exposes the live
+tables of one external database, so it holds a separate catalog from the team's PostHog schema and from every other
+connection. The connection appears in the route (`/teams/{teamID}/users/{userID}/connections/{connectionID}/...`),
+in the service JWT as a `connection_id` claim, in the registry key, and in the affinity header and publication lock
+Django uses. A token minted for one scope cannot read or replace another scope's catalog.
+
+Only a connection whose engine compiles to the ClickHouse dialect uses the Go service. The service parses and prints
+ClickHouse, so a Postgres, Snowflake, or Trino connection would be told its own valid SQL is invalid. Those stay on
+the Python path, which prints the engine's own dialect.
+
+Rate limits stay keyed on the team and user, so a caller cannot widen its budget by varying the connection.
+
 ## Query analysis
 
 `internal/analysis` owns parsed statements, nested scopes, table and CTE bindings, and projected fields for validation and completion.
@@ -271,7 +285,7 @@ keystroke path.
 
 The initial internal API supports:
 
-- publishing and deleting a catalog for one team and user;
+- publishing and deleting a catalog for one team, user, and optional direct connection;
 - contextual autocomplete with at most 25 results and cursor pagination; and
 - syntax and catalog-backed semantic validation.
 

@@ -6,6 +6,7 @@ from datetime import timedelta
 from hashlib import sha256
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -25,6 +26,7 @@ from posthog.hogql.editor_assist_metrics import (
 )
 from posthog.hogql.errors import QueryError, ResolutionError
 
+from posthog.dataclasses import frozen
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PropertyDefinition, Team, User
 from posthog.redis import get_client
@@ -67,17 +69,45 @@ class LanguageServiceResult:
     response_size_bytes: int
 
 
+@frozen
+class CatalogScope:
+    """The catalog one editor-assist request reads and writes.
+
+    A direct warehouse connection exposes its own tables, so its catalog cannot share a slot with
+    the team's PostHog catalog, nor with another connection's.
+    """
+
+    team_id: int
+    user_id: int
+    connection_id: str | None = None
+
+    @property
+    def path_prefix(self) -> str:
+        base = f"teams/{self.team_id}/users/{self.user_id}"
+        if self.connection_id is None:
+            return base
+        return f"{base}/connections/{quote(self.connection_id, safe='')}"
+
+    @property
+    def key(self) -> str:
+        """Stable identity for affinity routing and the publication lock.
+
+        A scope without a connection keeps the pre-connection spelling, so a deploy does not move
+        every warm catalog to a different pod at once.
+        """
+        if self.connection_id is None:
+            return f"{self.team_id}:{self.user_id}"
+        return f"{self.team_id}:{self.user_id}:{self.connection_id}"
+
+
 def coordinate_catalog_publication(
-    team_id: int,
-    user_id: int,
+    scope: CatalogScope,
     service_target: str,
     check_catalog: Callable[[], LanguageServiceResult | None],
     publish_catalog: Callable[[], None],
 ) -> LanguageServiceResult | None:
-    scope = sha256(
-        f"{service_target}:{team_id}:{user_id}:{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}".encode()
-    ).hexdigest()
-    key_prefix = f"hogql-language-service:catalog-publication:{{{scope}}}"
+    scope_hash = sha256(f"{service_target}:{scope.key}:{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}".encode()).hexdigest()
+    key_prefix = f"hogql-language-service:catalog-publication:{{{scope_hash}}}"
     marker_key = f"{key_prefix}:success"
     lock_key = f"{key_prefix}:lock"
 
@@ -196,6 +226,10 @@ def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Data
             continue
         warehouse_tables.append(schema_table)
         resolved = _visible_warehouse_table(database, visible_names, canonical_name)
+        if resolved is None:
+            # A direct connection serves the live tables of one external database. They are not
+            # S3-backed and carry no alternate name, so they never stand in as an alias target.
+            continue
         if resolved.table_id != schema_table.id:
             raise LanguageServiceError(f"catalog table {canonical_name!r} does not match the HogQL resolver")
         canonical_by_resolved_object.setdefault(id(resolved), []).append(canonical_name)
@@ -205,7 +239,7 @@ def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Data
     for schema_table in warehouse_tables:
         for alias in schema_table.search_aliases or []:
             resolved = _visible_warehouse_table(database, visible_names, alias)
-            targets = canonical_by_resolved_object.get(id(resolved), [])
+            targets = canonical_by_resolved_object.get(id(resolved), []) if resolved is not None else []
             if len(targets) != 1:
                 raise LanguageServiceError(f"catalog alias {alias!r} has no unique visible target")
             target = targets[0]
@@ -219,7 +253,8 @@ def _warehouse_table_aliases(schema: DatabaseSchemaQueryResponse, database: Data
     return aliases
 
 
-def _visible_warehouse_table(database: Database, visible_names: set[str], name: str) -> S3Table:
+def _visible_warehouse_table(database: Database, visible_names: set[str], name: str) -> S3Table | None:
+    """The S3 table behind a catalog name, or None when the name resolves to something else."""
     if name not in visible_names:
         raise LanguageServiceError(f"catalog table {name!r} is not visible")
     try:
@@ -227,7 +262,7 @@ def _visible_warehouse_table(database: Database, visible_names: set[str], name: 
     except (QueryError, ResolutionError) as error:
         raise LanguageServiceError(f"catalog table {name!r} cannot be resolved") from error
     if not isinstance(table, S3Table) or table.table_id is None:
-        raise LanguageServiceError(f"catalog table {name!r} is not a warehouse table")
+        return None
     return table
 
 
@@ -256,47 +291,46 @@ class LanguageServiceClient:
             raise LanguageServiceError("HogQL language service is not configured")
         self.signing_key = keys[0]
 
-    def publish(self, team_id: int, user_id: int, revision: str, catalog: dict[str, Any]) -> LanguageServiceResult:
-        return self._request(
-            "PUT", team_id, user_id, "catalog", "publish", {"revision": revision, "catalog": catalog}, 10
-        )
+    def publish(self, scope: CatalogScope, revision: str, catalog: dict[str, Any]) -> LanguageServiceResult:
+        return self._request("PUT", scope, "catalog", "publish", {"revision": revision, "catalog": catalog}, 10)
 
-    def autocomplete(self, team_id: int, user_id: int, query: str, position: int) -> LanguageServiceResult:
+    def autocomplete(self, scope: CatalogScope, query: str, position: int) -> LanguageServiceResult:
         return self._request(
             "POST",
-            team_id,
-            user_id,
+            scope,
             "autocomplete",
             "complete",
             {"query": query, "position": position, "positionEncoding": "utf-16"},
             1,
         )
 
-    def validate(self, team_id: int, user_id: int, query: str) -> LanguageServiceResult:
-        return self._request("POST", team_id, user_id, "validate", "validate", {"query": query}, 1)
+    def validate(self, scope: CatalogScope, query: str) -> LanguageServiceResult:
+        return self._request("POST", scope, "validate", "validate", {"query": query}, 1)
 
     def _request(
         self,
         method: str,
-        team_id: int,
-        user_id: int,
+        scope: CatalogScope,
         endpoint: str,
         operation: str,
         payload: dict[str, Any],
         timeout_seconds: float,
     ) -> LanguageServiceResult:
+        claims: dict[str, Any] = {"team_id": scope.team_id, "user_id": scope.user_id, "operations": [operation]}
+        if scope.connection_id is not None:
+            claims["connection_id"] = scope.connection_id
         token = encode_jwt(
-            {"team_id": team_id, "user_id": user_id, "operations": [operation]},
+            claims,
             timedelta(minutes=1),
             PosthogJwtAudience.HOGQL_LANGUAGE_SERVICE,
             signing_key=self.signing_key,
         )
         started = perf_counter()
-        affinity_key = sha256(f"{team_id}:{user_id}".encode()).hexdigest()
+        affinity_key = sha256(scope.key.encode()).hexdigest()
         try:
             response = internal_requests.request(
                 method,
-                f"{self.base_url}/teams/{team_id}/users/{user_id}/{endpoint}",
+                f"{self.base_url}/{scope.path_prefix}/{endpoint}",
                 json=payload,
                 headers={"Authorization": f"Bearer {token}", AFFINITY_HEADER: affinity_key},
                 timeout=(0.25, timeout_seconds),

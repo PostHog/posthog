@@ -31,21 +31,27 @@ func TestRegistryIsolatesCatalogsAndReplacesRevisionAtomically(t *testing.T) {
 	if err := registry.Put(serviceauth.Authorization{TeamID: 1, UserID: 10}, "1", first); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Put(serviceauth.Authorization{TeamID: 2, UserID: 20}, "7", second); err != nil {
-		t.Fatal(err)
-	}
-	loaded, revision, ok := registry.Get(serviceauth.Authorization{TeamID: 1, UserID: 10})
-	events, eventsExist := loaded.Table("events")
-	if !ok || revision != "1" || !eventsExist || events.Name != "events" {
-		t.Fatalf("unexpected first catalog: %#v, %q, %t", loaded, revision, ok)
-	}
-	if _, exists := loaded.Table("persons"); exists {
-		t.Fatal("one team and user scope received another scope's table")
+	for _, other := range []serviceauth.Authorization{
+		{TeamID: 2, UserID: 20},
+		{TeamID: 1, UserID: 10, ConnectionID: "connection-a"},
+	} {
+		if err := registry.Put(other, "7", second); err != nil {
+			t.Fatal(err)
+		}
+		loaded, revision, ok := registry.Get(serviceauth.Authorization{TeamID: 1, UserID: 10})
+		events, eventsExist := loaded.Table("events")
+		if !ok || revision != "1" || !eventsExist || events.Name != "events" {
+			t.Fatalf("unexpected first catalog after %#v published: %#v, %q, %t", other, loaded, revision, ok)
+		}
+		if _, exists := loaded.Table("persons"); exists {
+			t.Fatalf("scope %#v overwrote the catalog of team 1 user 10", other)
+		}
+		registry.Delete(other)
 	}
 	if err := registry.Put(serviceauth.Authorization{TeamID: 1, UserID: 10}, "2", second); err != nil {
 		t.Fatal(err)
 	}
-	loaded, revision, ok = registry.Get(serviceauth.Authorization{TeamID: 1, UserID: 10})
+	loaded, revision, ok := registry.Get(serviceauth.Authorization{TeamID: 1, UserID: 10})
 	persons, personsExist := loaded.Table("persons")
 	if !ok || revision != "2" || !personsExist || persons.Name != "persons" {
 		t.Fatalf("replacement was not visible: %#v, %q, %t", loaded, revision, ok)
