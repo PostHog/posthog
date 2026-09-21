@@ -22,6 +22,7 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { InsightQueuedState } from 'scenes/insights/EmptyStates/InsightQueuedState'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -163,6 +164,8 @@ export interface InsightCardProps extends Resizeable {
     loadingQueued?: boolean
     /** Whether the insight is loading. */
     loading?: boolean
+    /** When the tile started loading, so a slow tile can show how long it has been running. */
+    loadingStartedAt?: Date | null
     /** Whether an error occurred on the server. */
     apiErrored?: boolean
     /** Might contain more information on the error that occurred on the server. */
@@ -233,6 +236,7 @@ function InsightCardInternal(
         ribbonColor,
         loadingQueued,
         loading,
+        loadingStartedAt,
         apiError,
         apiErrored,
         queryId,
@@ -374,8 +378,12 @@ function InsightCardInternal(
             )
         }
 
-        if (!hasResults && loadingQueued) {
-            return <InsightLoadingState insightProps={insightLogicProps} />
+        if (!hasResults && (loading || loadingQueued)) {
+            return loading ? (
+                <InsightLoadingState insightProps={insightLogicProps} queryId={queryId} startTime={loadingStartedAt} />
+            ) : (
+                <InsightQueuedState />
+            )
         }
 
         if (apiErrored) {

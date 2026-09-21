@@ -2,7 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { TileFilters } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    DashboardPlacement,
+    DashboardTile,
+    InsightColor,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -85,6 +92,50 @@ const meta: Meta<InsightCardProps> = {
 }
 export default meta
 type Story = StoryObj<InsightCardProps>
+
+/** A tile that is waiting for a free slot, next to one whose query is running and slow. */
+export const RefreshingTiles: Story = {
+    render: () => {
+        const pendingInsight = {
+            ...EXAMPLE_TRENDS,
+            name: 'Waiting for a slot',
+            result: null,
+        } as unknown as QueryBasedInsightModel
+        const runningInsight = {
+            ...EXAMPLE_TRENDS,
+            name: 'Running for a while',
+            result: null,
+        } as unknown as QueryBasedInsightModel
+
+        return (
+            <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]">
+                <InsightCardComponent
+                    insight={pendingInsight}
+                    loadingQueued
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement={DashboardPlacement.Dashboard}
+                />
+                <InsightCardComponent
+                    insight={runningInsight}
+                    loadingQueued
+                    loading
+                    loadingStartedAt={new Date(Date.now() - 65000)}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement={DashboardPlacement.Dashboard}
+                />
+            </div>
+        )
+    },
+    parameters: {
+        // Both tiles are loading on purpose, so their spinners never go away.
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="insight-queued-state"]',
+        },
+    },
+}
 
 export const InsightCard: Story = {
     render: (args) => {
