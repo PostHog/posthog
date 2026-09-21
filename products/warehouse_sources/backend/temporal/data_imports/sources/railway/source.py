@@ -44,7 +44,7 @@ class RailwaySource(ResumableSource[RailwaySourceConfig, RailwayResumeConfig]):
             name=ExternalDataSourceType.RAILWAY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Railway",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Railway API token to pull your Railway projects, services, environments, deployments, members, and volumes into the PostHog Data warehouse.
 
 Create an account or workspace token in your [Railway account settings](https://railway.com/account/tokens). Project tokens are not supported — they are scoped to a single environment and cannot list your projects.

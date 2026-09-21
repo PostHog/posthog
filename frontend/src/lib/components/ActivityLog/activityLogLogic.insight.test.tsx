@@ -336,6 +336,9 @@ describe('the activity log logic', () => {
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
                 'peter changed the description to "changed" on test insight'
             )
+            expect(actual[0].summary?.preview).toBe('changed')
+            expect(render(<>{actual[0].summary?.action}</>).container).toHaveTextContent(/^added the description$/)
+            expect(render(<>{actual[0].summary?.target}</>).container).toHaveTextContent('test insight')
         })
 
         it('can handle change of favorited', async () => {

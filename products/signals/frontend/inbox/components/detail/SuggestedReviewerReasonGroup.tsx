@@ -6,6 +6,7 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { EnrichedReviewer } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
 import { getReviewerSourceLabel, isScoutReviewer } from './SuggestedReviewerPerson'
+import { SuggestedReviewerScoutTag } from './SuggestedReviewerScoutTag'
 
 export function SuggestedReviewerReasonGroup({
     reviewers,
@@ -72,21 +73,7 @@ export function SuggestedReviewerReasonGroup({
             </div>
             <div className="flow-root min-w-0 border-t px-2.5 py-2">
                 <span className="float-right ml-2 flex min-w-0 flex-wrap justify-end gap-1">
-                    {scoutNames.size > 0 && (
-                        <Tooltip
-                            title={
-                                <div className="flex flex-col">
-                                    {[...scoutNames].map((scoutName) => (
-                                        <span key={scoutName}>{scoutName}</span>
-                                    ))}
-                                </div>
-                            }
-                        >
-                            <LemonTag type="muted" size="small" className="cursor-help">
-                                Added by scout
-                            </LemonTag>
-                        </Tooltip>
-                    )}
+                    {scoutNames.size > 0 && <SuggestedReviewerScoutTag scoutNames={[...scoutNames]} />}
                     {[...otherSourceLabels].map((sourceLabel) => (
                         <LemonTag key={sourceLabel} type="muted" size="small" wrap className="max-w-32">
                             {sourceLabel}

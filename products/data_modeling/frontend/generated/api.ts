@@ -15,6 +15,7 @@ import type {
     DataModelingNodesLineageRetrieveParams,
     DataModelingNodesListParams,
     EdgeApi,
+    LineageResponseApi,
     NodeApi,
     NodeResumeApi,
     PaginatedDAGListApi,
@@ -433,15 +434,15 @@ export const getDataModelingNodesLineageRetrieveUrl = (
 /**
  * Return the subgraph of nodes and edges reachable from a node (upstream + downstream).
  *
- * Accepts either node_id or saved_query_id, so a caller holding only a saved query (the SQL
- * editor) doesn't need to resolve the node itself.
+ * Accepts node_id, saved_query_id or metric_id, so a caller holding only the backing resource
+ * (the SQL editor, the metric page) doesn't need to resolve the node itself.
  */
 export const dataModelingNodesLineageRetrieve = async (
     projectId: string,
     params?: DataModelingNodesLineageRetrieveParams,
     options?: RequestInit
-): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesLineageRetrieveUrl(projectId, params), {
+): Promise<LineageResponseApi> => {
+    return apiMutator<LineageResponseApi>(getDataModelingNodesLineageRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

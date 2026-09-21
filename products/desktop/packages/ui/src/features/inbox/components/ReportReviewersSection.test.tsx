@@ -34,8 +34,10 @@ describe("ReportReviewersSection", () => {
   it("keeps the reviewer controls available before the first assignment", () => {
     render(<ReportReviewersSection report={report} />);
 
-    expect(screen.getByText("Reviewers")).toBeInTheDocument();
-    expect(screen.getByText("No reviewers assigned.")).toBeInTheDocument();
+    expect(screen.getByText("Suggested reviewers")).toBeInTheDocument();
+    expect(
+      screen.getByText("No suggested reviewers. Select Add to suggest one."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Add")).toBeInTheDocument();
   });
 });

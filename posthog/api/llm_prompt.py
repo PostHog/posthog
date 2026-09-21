@@ -76,7 +76,11 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
-from products.ai_observability.backend.prompt_references import PromptReferenceResolutionError, assemble_prompt_payload
+from products.ai_observability.backend.prompt_references import (
+    PromptReferenceResolutionError,
+    assemble_prompt_payload,
+    get_active_references_to,
+)
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
@@ -517,6 +521,7 @@ class LLMPromptViewSet(
                 "versions": self._serialize_version_summaries(versions),
                 "has_more": has_more,
                 "labels": LLMPromptLabelSerializer(get_prompt_labels(self.team, prompt_name), many=True).data,
+                "referenced_by": get_active_references_to(self.team.id, prompt_name),
             }
         )
 

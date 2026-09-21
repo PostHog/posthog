@@ -10,3 +10,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class CoinGeckoSourceConfig(config.Config):
     api_key: str
     plan: Literal["demo", "pro"] = config.value(default="demo")
+    coin_ids: str | None = None
+    start_date: str | None = None

@@ -19,6 +19,16 @@ import { ScannerType } from '../types'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
 
+const PROBLEM_TYPE_LABELS: Record<string, string> = {
+    bug: 'bug',
+    crash: 'crash',
+    design_flaw: 'design flaw',
+    ux_friction: 'UX friction',
+}
+
+const problemTypeLabel = (problemType: string): string =>
+    PROBLEM_TYPE_LABELS[problemType] ?? problemType.replace(/_/g, ' ')
+
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     // The scan wrote this sentence while watching the session, so it beats anything derived from the
     // reason kind. Absent on observations scanned before notability shipped, which fall through below.
@@ -26,10 +36,37 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
         return reason.notability_reason
     }
     switch (reason.kind) {
-        case 'signal_emitted':
-            return (reason.signals_count ?? 0) > 1
-                ? `The scanner raised ${reason.signals_count} signals from this session.`
-                : 'The scanner raised a signal from this session.'
+        case 'signal_emitted': {
+            const total = reason.signals_count ?? 0
+            const problemTypes = reason.problem_types ?? []
+            if (problemTypes.length === 0) {
+                return total > 1
+                    ? `The scanner raised ${total} signals from this session.`
+                    : 'The scanner raised a signal from this session.'
+            }
+            // Count each problem type, keeping the order the scan first raised them.
+            const order: string[] = []
+            const countByType = new Map<string, number>()
+            for (const problemType of problemTypes) {
+                if (!countByType.has(problemType)) {
+                    order.push(problemType)
+                }
+                countByType.set(problemType, (countByType.get(problemType) ?? 0) + 1)
+            }
+            if (order.length === 1) {
+                const label = problemTypeLabel(order[0])
+                return total > 1
+                    ? `The scanner raised ${total} ${label} signals from this session.`
+                    : `The scanner raised a ${label} signal from this session.`
+            }
+            const breakdown = order
+                .map((problemType) => {
+                    const n = countByType.get(problemType) ?? 0
+                    return `${n} ${problemTypeLabel(problemType)} signal${n === 1 ? '' : 's'}`
+                })
+                .join(', ')
+            return `The scanner raised ${total} signals from this session: ${breakdown}.`
+        }
         case 'unusual_verdict':
             return reason.verdict
                 ? `The scanner answered ${reason.verdict}, which is rare for it in this window.`

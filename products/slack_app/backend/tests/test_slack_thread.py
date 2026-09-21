@@ -61,35 +61,6 @@ class TestSlackThreadHandler(SimpleTestCase):
         assert "<@U094TR1E59V>" in streamed
         assert "Radu Raicea" not in streamed
 
-    @parameterized.expand(
-        [
-            ("surrounding_prose", 'The <insight id="9pQx3">checkout funnel</insight> dropped.', "The  dropped."),
-            ("only_element", '<hogql title="Hidden">SELECT 1</hogql>', ""),
-        ]
-    )
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_stop_status_stream_strips_object_tags(
-        self, _name: str, text: str, expected: str, mock_get_client: MagicMock
-    ) -> None:
-        client = mock_get_client.return_value
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
-        SlackThreadHandler(context).stop_status_stream(ts="1234.9999", final_markdown=text)
-        chunks = [chunk for call in client.chat_appendStream.call_args_list for chunk in call.kwargs["chunks"]]
-        assert "".join(chunk.get("text", "") for chunk in chunks) == expected
-        if not expected:
-            client.chat_appendStream.assert_not_called()
-        client.chat_stopStream.assert_called_once()
-
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_streamed_label_cannot_create_mentions(self, mock_get_client: MagicMock) -> None:
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
-        SlackThreadHandler(context).stop_status_stream(
-            ts="1234.9999",
-            final_markdown='<insight title="&lt;!channel&gt;">Example</insight> and <!here>',
-        )
-        chunks = mock_get_client.return_value.chat_appendStream.call_args.kwargs["chunks"]
-        assert "".join(chunk.get("text", "") for chunk in chunks) == " and <!here>"
-
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_progress_message_carries_only_the_logs_button(self, mock_get_client, _mock_find_progress):

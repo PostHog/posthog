@@ -1,5 +1,6 @@
 mod common;
 
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use common::{
@@ -74,6 +75,57 @@ async fn raw_proxy_eventual_get_person_routes_to_replica() {
         .unwrap();
 
     assert_eq!(response.into_inner().person.unwrap().id, test_person.id);
+}
+
+#[tokio::test]
+async fn raw_proxy_retries_a_shed_onto_a_later_attempt() {
+    let test_person = create_test_person();
+    let replica_service = TestReplicaService::with_person(test_person.clone()).sheds(1);
+    let calls = replica_service.calls.clone();
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+    let mut client = create_client(router_addr).await;
+
+    let response = client
+        .get_person(with_consistency(
+            GetPersonRequest {
+                team_id: 1,
+                person_id: 42,
+                read_options: None,
+            },
+            "eventual",
+        ))
+        .await
+        .expect("a shed must not surface to the caller");
+
+    assert_eq!(response.into_inner().person.unwrap().id, test_person.id);
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "the shed was not retried");
+}
+
+#[tokio::test]
+async fn raw_proxy_returns_a_persistent_shed_after_the_budget() {
+    let replica_service = TestReplicaService::with_person(create_test_person()).sheds(usize::MAX);
+    let calls = replica_service.calls.clone();
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+    let mut client = create_client(router_addr).await;
+
+    let status = client
+        .get_person(with_consistency(
+            GetPersonRequest {
+                team_id: 1,
+                person_id: 42,
+                read_options: None,
+            },
+            "eventual",
+        ))
+        .await
+        .expect_err("an exhausted retry budget must surface the refusal");
+
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "the budget was not spent");
 }
 
 #[tokio::test]

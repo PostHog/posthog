@@ -117,5 +117,4 @@ rules:
               - /ee/api/vercel/vercel_webhooks.py
               - /ee/partners/stripe/api/provisioning/signature.py
               - /posthog/models/integration/slack.py
-              - /products/user_interviews/backend/presentation/webhooks.py
               - /products/workflows/backend/api/ses_events_webhook.py
