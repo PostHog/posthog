@@ -80,15 +80,18 @@ describe('TaxonomicPopover', () => {
         })
     })
 
-    it('keeps the legacy picker search after reopening', async () => {
+    it('resets the legacy picker search after closing completely', async () => {
         renderPopover()
 
         await userEvent.click(screen.getByText('Please select'))
         await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event1')
         await userEvent.click(document.body)
+        await waitFor(() => {
+            expect(screen.queryByTestId('taxonomic-filter-searchfield')).not.toBeInTheDocument()
+        })
         await userEvent.click(screen.getByText('Please select'))
 
-        expect(screen.getByTestId('taxonomic-filter-searchfield')).toHaveValue('event1')
+        expect(screen.getByTestId('taxonomic-filter-searchfield')).toHaveValue('')
     })
 
     it('opens the rebuilt actions picker', async () => {
