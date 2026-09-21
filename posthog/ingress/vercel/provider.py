@@ -47,9 +47,15 @@ class VercelProvider(WebhookProvider):
     # The endpoint answered 401 for a missing secret as well as a bad signature, because the old
     # verifier could not tell the caller apart from the operator. Inherited rather than chosen.
     unconfigured_status = 401
+    # A dropped secret makes every marketplace invoice answer 401, and the 401 above hides that
+    # from anyone reading status codes, so it has to reach error tracking as the old view made it.
+    reports_unconfigured = True
     # A delivery no consumer accepted answers 500, which is what this endpoint answered before.
-    # Vercel does not redeliver after a non-2xx, so it buys no retry.
+    # Vercel publishes no retry policy, so whether that buys a redelivery is unknown; the status is
+    # right either way, because the work did not run.
     retry_status = 500
+    # The old cross-region proxy allowed 10 seconds for the same hop, so the forward keeps it.
+    forward_timeout_seconds = 10.0
 
     def __init__(self) -> None:
         self._scheme = HmacSignature(
@@ -62,8 +68,9 @@ class VercelProvider(WebhookProvider):
         return self._scheme
 
     def receiving_region_domain(self) -> str:
-        # Vercel registered its marketplace webhook URL against the secondary region, so deliveries
-        # arrive there and the ones the primary region owns are forwarded on.
+        # The marketplace App holds one webhook URL, on the secondary region, so deliveries arrive
+        # there and the ones the primary region owns are forwarded on. A request that arrives on
+        # any other host is reported as `ingress_delivery_host_matches_no_region`.
         return regions.SECONDARY_REGION_DOMAIN
 
     def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
@@ -75,7 +82,9 @@ class VercelProvider(WebhookProvider):
             WebhookDelivery(
                 provider=self.provider,
                 app=self.app,
-                # Vercel sends no delivery id, so dedup is the consumer's own job.
+                # Vercel does send one, as the body's `id`. It is left unused because turning
+                # dedup on changes which redeliveries reach the consumer, and that belongs in its
+                # own change rather than in a transport swap. Dedup stays the consumer's own job.
                 delivery_id=None,
                 event_type=delivery_event_type(str(payload.get("type", ""))),
                 payload=payload,

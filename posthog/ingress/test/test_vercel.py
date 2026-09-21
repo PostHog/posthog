@@ -46,6 +46,15 @@ class TestVercelProvider(SimpleTestCase):
         # primary region would forward every unowned deauthorization to the wrong place.
         self.assertEqual(build_vercel_provider().receiving_region_domain(), regions.SECONDARY_REGION_DOMAIN)
 
+    def test_the_endpoint_keeps_the_alerting_the_old_view_had(self) -> None:
+        provider = build_vercel_provider()
+
+        # A dropped secret answers 401 to every marketplace invoice, and the status alone reads as
+        # a caller problem, so error tracking is the only thing that says otherwise.
+        self.assertTrue(provider.reports_unconfigured)
+        # The cross-region proxy this replaces allowed 10 seconds for the same hop.
+        self.assertEqual(provider.forward_timeout_seconds, 10.0)
+
     def test_a_missing_secret_is_not_configured_rather_than_a_bad_signature(self) -> None:
         with override_settings(VERCEL_CLIENT_INTEGRATION_SECRET=""):
             outcome = build_vercel_provider().verify(_request(_sha1_signature())).outcome

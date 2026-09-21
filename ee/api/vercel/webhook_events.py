@@ -22,7 +22,10 @@ logger = structlog.get_logger(__name__)
 
 BILLING_EVENT_PREFIX = f"{VERCEL_BILLING_EVENT}."
 
-# The lookup is one indexed row and runs inside the request, before dispatch.
+# The lookup runs inside the request, before dispatch, so it is capped. It is not a point lookup:
+# `OrganizationIntegration`'s only index is the unique constraint on (organization, kind,
+# integration_id), and this filters kind and integration_id without the organization, so Postgres
+# cannot use it as a prefix. The cap is what keeps a scan from costing the whole delivery.
 OWNERSHIP_LOOKUP_TIMEOUT_MS = 1000
 
 

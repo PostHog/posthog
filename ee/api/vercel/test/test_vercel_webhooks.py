@@ -5,9 +5,11 @@ import hashlib
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 from django.test import override_settings
 
 from parameterized import parameterized
+from requests import RequestException
 from rest_framework import status
 
 from posthog.ingress.dispatch.loading import reset_consumer_registry
@@ -170,6 +172,48 @@ class TestVercelWebhooks(VercelTestBase):
         assert mock_request.call_args.kwargs["url"] == f"https://{EU_HOST}/webhooks/vercel"
         forwarded_headers = {key.lower(): value for key, value in mock_request.call_args.kwargs["headers"].items()}
         assert forwarded_headers["x-vercel-signature"] == self._sign_payload(payload)
+
+    @parameterized.expand(
+        [
+            ("the_forward_never_completes", RequestException("connection reset"), None),
+            ("the_other_region_refuses_it", None, MagicMock(ok=False, status_code=502)),
+        ]
+    )
+    @patch("posthog.ingress.dispatch.forward.requests.request")
+    def test_a_forward_that_did_not_land_is_not_receipted(self, _name, raises, answer, mock_request):
+        # The old proxy answered 200 whatever the other region said, so a deauthorization could be
+        # lost in silence. A 500 says the delivery was not accepted.
+        if raises is not None:
+            mock_request.side_effect = raises
+        else:
+            mock_request.return_value = answer
+        payload = {
+            "type": "integration-configuration.removed",
+            "payload": {"installationId": "icfg_unknown"},
+        }
+
+        response = self._post_signed(payload)
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+    @patch("ee.api.vercel.webhook_events.VercelIntegration")
+    @patch(
+        "ee.api.vercel.webhook_events.installation_is_local",
+        side_effect=OperationalError("canceling statement due to statement timeout"),
+    )
+    def test_an_ownership_lookup_that_times_out_asks_for_the_delivery_again(self, _lookup, mock_integration):
+        # A cap that fires rules no region out, so this region cannot tell whether it owns the
+        # installation. Receipting the delivery would leave it in place in whichever region does.
+        payload = {
+            "type": "integration-configuration.removed",
+            "payload": {"installationId": self.installation_id},
+        }
+
+        response = self._post_signed(payload)
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        mock_integration.delete_installation.assert_not_called()
+        assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     @patch("posthog.ingress.dispatch.forward.requests.request")
     def test_a_billing_event_is_never_forwarded(self, mock_request):
