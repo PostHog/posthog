@@ -376,10 +376,10 @@ class TestExperimentHoldoutApprovals(APILicensedTest):
             created_by=self.user,
         )
 
-    def _patch_exclusion(self, percentage: int):
+    def _patch_exclusion(self, percentage: int, **extra):
         return self.client.patch(
             f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}",
-            data={"filters": [{"properties": [], "rollout_percentage": percentage, "variant": "holdout"}]},
+            data={"filters": [{"properties": [], "rollout_percentage": percentage, "variant": "holdout"}], **extra},
             format="json",
         )
 
@@ -413,7 +413,7 @@ class TestExperimentHoldoutApprovals(APILicensedTest):
 
     def test_approving_an_update_rewrites_the_holdout_and_every_flag(self):
         self._create_policy("experiment_holdout.update")
-        self._patch_exclusion(40)
+        self._patch_exclusion(40, name="Renamed holdout")
 
         response = self._approve(self._change_request("experiment_holdout.update"))
 
@@ -421,6 +421,7 @@ class TestExperimentHoldoutApprovals(APILicensedTest):
         assert response.json()["status"] == "applied"
         self.holdout.refresh_from_db()
         self.flag.refresh_from_db()
+        assert self.holdout.name == "Renamed holdout"
         assert self.holdout.filters[0]["rollout_percentage"] == 40
         assert self.flag.filters["holdout"]["exclusion_percentage"] == 40
 

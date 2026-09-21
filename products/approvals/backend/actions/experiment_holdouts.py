@@ -12,6 +12,11 @@ def _exclusion_percentage(filters: Any) -> Optional[float]:
     return first.get("rollout_percentage") if isinstance(first, dict) else None
 
 
+# The fields a holdout edit can write. An approved edit replays all of them, so a change
+# that also renames the holdout does not lose the rename on apply.
+HOLDOUT_WRITABLE_FIELDS = ("name", "description", "filters")
+
+
 def _affected_experiments(holdout) -> list[dict[str, Any]]:
     """The experiments whose flag this holdout rewrites, as stable display data."""
     return [
@@ -107,6 +112,7 @@ class UpdateExperimentHoldoutAction(ExperimentHoldoutActionBase):
             "current_state": {"exclusion_percentage": _exclusion_percentage(holdout.filters)},
             "gated_changes": {"exclusion_percentage": _exclusion_percentage(change.get("filters"))},
             "desired_filters": change.get("filters"),
+            "desired_changes": {field: change[field] for field in HOLDOUT_WRITABLE_FIELDS if field in change},
             "affected_experiments": _affected_experiments(holdout),
         }
 
@@ -121,9 +127,13 @@ class UpdateExperimentHoldoutAction(ExperimentHoldoutActionBase):
         desired = _exclusion_percentage(validated_intent.get("desired_filters"))
         if desired is None:
             raise ApplyFailed("The change request carries no exclusion percentage")
+        desired_changes = validated_intent.get("desired_changes") or {"filters": validated_intent["desired_filters"]}
         current = _exclusion_percentage(holdout.filters)
-        if current == desired:
-            # Idempotency: the holdout already carries the approved percentage.
+        other_fields_applied = all(
+            getattr(holdout, field) == value for field, value in desired_changes.items() if field != "filters"
+        )
+        if current == desired and other_fields_applied:
+            # Idempotency: the holdout already carries the approved change.
             return holdout
         if current != validated_intent.get("current_state", {}).get("exclusion_percentage"):
             raise PreconditionFailed("The holdout changed after this request was created")
@@ -133,7 +143,7 @@ class UpdateExperimentHoldoutAction(ExperimentHoldoutActionBase):
         serializer = ExperimentHoldoutSerializer(context=cls._serializer_context(holdout, context))
         try:
             # update() rewrites every linked flag and the holdout row in one transaction.
-            return serializer.update(holdout, {"filters": validated_intent["desired_filters"]})
+            return serializer.update(holdout, desired_changes)
         except Exception as e:
             raise ApplyFailed(f"Holdout update failed: {str(e)}")
 
