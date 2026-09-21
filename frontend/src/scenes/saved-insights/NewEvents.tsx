@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -12,7 +12,8 @@ import { EventRow } from './EventRow'
 import { newEventsLogic } from './newEventsLogic'
 
 export function NewEvents(): JSX.Element {
-    const { newEvents, newEventsLoading } = useValues(newEventsLogic)
+    const { newEvents, newEventsLoading, newEventsLoadedError } = useValues(newEventsLogic)
+    const { loadNewEvents } = useActions(newEventsLogic)
 
     return (
         <CompactList
@@ -27,6 +28,13 @@ export function NewEvents(): JSX.Element {
             viewAllURL={urls.eventDefinitions()}
             viewAllDataAttr="insights-home-tab-new-events-view-all"
             loading={newEventsLoading}
+            error={newEventsLoadedError}
+            errorMessage={{
+                title: "Couldn't load new events",
+                description: 'Something went wrong loading this list.',
+                buttonText: 'Retry',
+                buttonOnClick: loadNewEvents,
+            }}
             emptyMessage={{
                 title: 'No events found',
                 description: 'Set up event capture to see events here.',

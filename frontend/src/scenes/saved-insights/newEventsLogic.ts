@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, kea, path } from 'kea'
+import { MakeLogicType, afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -8,6 +8,7 @@ import { EventDefinition } from '~/types'
 export interface newEventsLogicValues {
     newEvents: EventDefinition[]
     newEventsLoading: boolean
+    newEventsLoadedError: boolean
 }
 
 export interface newEventsLogicActions {
@@ -30,14 +31,20 @@ export const newEventsLogic = kea<newEventsLogicType>([
         newEvents: {
             __default: [] as EventDefinition[],
             loadNewEvents: async () => {
-                try {
-                    const response = await api.eventDefinitions.list({ limit: 10, ordering: '-created_at' })
-                    return response.results
-                } catch {
-                    return []
-                }
+                const response = await api.eventDefinitions.list({ limit: 10, ordering: '-created_at' })
+                return response.results
             },
         },
+    }),
+    reducers({
+        newEventsLoadedError: [
+            false,
+            {
+                loadNewEvents: () => false,
+                loadNewEventsSuccess: () => false,
+                loadNewEventsFailure: () => true,
+            },
+        ],
     }),
     afterMount(({ actions }) => actions.loadNewEvents()),
 ])

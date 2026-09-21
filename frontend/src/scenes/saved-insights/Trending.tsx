@@ -12,8 +12,9 @@ import { InsightRow } from './InsightRow'
 import { trendingInsightsLogic } from './trendingInsightsLogic'
 
 export function Trending(): JSX.Element {
-    const { trendingInsights, trendingInsightsLoading, expandedInsightIds } = useValues(trendingInsightsLogic)
-    const { toggleInsightExpanded } = useActions(trendingInsightsLogic)
+    const { trendingInsights, trendingInsightsLoading, trendingInsightsLoadedError, expandedInsightIds } =
+        useValues(trendingInsightsLogic)
+    const { toggleInsightExpanded, loadTrendingInsights } = useActions(trendingInsightsLogic)
 
     return (
         <CompactList
@@ -28,6 +29,13 @@ export function Trending(): JSX.Element {
             viewAllURL={urls.savedInsights(SavedInsightsTabs.All)}
             viewAllDataAttr="insights-home-tab-trending-view-all"
             loading={trendingInsightsLoading}
+            error={trendingInsightsLoadedError}
+            errorMessage={{
+                title: "Couldn't load trending insights",
+                description: 'Something went wrong loading this list.',
+                buttonText: 'Retry',
+                buttonOnClick: loadTrendingInsights,
+            }}
             emptyMessage={{
                 title: 'No trending insights',
                 description: 'Frequently viewed insights will appear here.',

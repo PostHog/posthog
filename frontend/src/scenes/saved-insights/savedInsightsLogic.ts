@@ -776,6 +776,20 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 },
             })
         },
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            // showHomeTab resolves asynchronously, so a flag that flips after the URL was already
+            // parsed needs the current tab re-derived, same as urlToAction does for a fresh visit
+            if (sceneLogic.findMounted()?.values.activeSceneId !== Scene.SavedInsights) {
+                return
+            }
+            if (router.values.searchParams.tab) {
+                return
+            }
+            const defaultTab = getDefaultSavedInsightsTab(values.filters, values.showHomeTab)
+            if (defaultTab !== values.filters.tab) {
+                actions.setSavedInsightsFilters({ tab: defaultTab }, false)
+            }
+        },
     })),
     trackedActionToUrl(({ values }) => {
         const changeUrl = ():

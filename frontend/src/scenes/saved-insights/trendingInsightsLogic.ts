@@ -10,6 +10,7 @@ export interface trendingInsightsLogicValues {
     expandedInsightIds: Set<string>
     trendingInsights: QueryBasedInsightModel[]
     trendingInsightsLoading: boolean
+    trendingInsightsLoadedError: boolean
 }
 
 export interface trendingInsightsLogicActions {
@@ -36,12 +37,8 @@ export const trendingInsightsLogic = kea<trendingInsightsLogicType>([
         trendingInsights: {
             __default: [] as QueryBasedInsightModel[],
             loadTrendingInsights: async () => {
-                try {
-                    const insights = await api.insights.trending({ days: 7, limit: 5 })
-                    return insights.map(getQueryBasedInsightModel)
-                } catch {
-                    return []
-                }
+                const insights = await api.insights.trending({ days: 7, limit: 5 })
+                return insights.map(getQueryBasedInsightModel)
             },
         },
     }),
@@ -54,6 +51,14 @@ export const trendingInsightsLogic = kea<trendingInsightsLogicType>([
                     next.has(insightShortId) ? next.delete(insightShortId) : next.add(insightShortId)
                     return next
                 },
+            },
+        ],
+        trendingInsightsLoadedError: [
+            false,
+            {
+                loadTrendingInsights: () => false,
+                loadTrendingInsightsSuccess: () => false,
+                loadTrendingInsightsFailure: () => true,
             },
         ],
     }),

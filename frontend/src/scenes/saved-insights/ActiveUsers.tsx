@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -10,7 +10,8 @@ import { ActivePersonType, activeUsersLogic } from './activeUsersLogic'
 import { PersonRow } from './PersonRow'
 
 export function ActiveUsers(): JSX.Element {
-    const { persons, personsLoading } = useValues(activeUsersLogic)
+    const { persons, personsLoading, personsLoadedError } = useValues(activeUsersLogic)
+    const { loadPersons } = useActions(activeUsersLogic)
 
     return (
         <CompactList
@@ -25,6 +26,13 @@ export function ActiveUsers(): JSX.Element {
             viewAllURL={urls.persons()}
             viewAllDataAttr="insights-home-tab-active-users-view-all"
             loading={personsLoading}
+            error={personsLoadedError}
+            errorMessage={{
+                title: "Couldn't load active users",
+                description: 'Something went wrong loading this list.',
+                buttonText: 'Retry',
+                buttonOnClick: loadPersons,
+            }}
             emptyMessage={{
                 title: 'No active people',
                 description: 'People who have been active in your product will appear here.',

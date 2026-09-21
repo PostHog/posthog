@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, kea, path } from 'kea'
+import { MakeLogicType, afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -13,6 +13,7 @@ export interface ActivePersonType extends PersonType {
 export interface activeUsersLogicValues {
     persons: ActivePersonType[]
     personsLoading: boolean
+    personsLoadedError: boolean
 }
 
 export interface activeUsersLogicActions {
@@ -39,28 +40,34 @@ export const activeUsersLogic = kea<activeUsersLogicType>([
                     ORDER BY activity_count DESC
                     LIMIT 5
                 `
-                try {
-                    const idsResponse = await api.queryHogQL(query, {
-                        scene: 'SavedInsights',
-                        productKey: 'persons',
-                    })
-                    const results = idsResponse.results || []
-                    const distinctIds = results.map((row) => row[0] as string)
-                    const counts = new Map(results.map((row) => [row[0] as string, row[1] as number]))
-                    const personsMap = await api.persons.getByDistinctIds(distinctIds)
+                const idsResponse = await api.queryHogQL(query, {
+                    scene: 'SavedInsights',
+                    productKey: 'persons',
+                })
+                const results = idsResponse.results || []
+                const distinctIds = results.map((row) => row[0] as string)
+                const counts = new Map(results.map((row) => [row[0] as string, row[1] as number]))
+                const personsMap = await api.persons.getByDistinctIds(distinctIds)
 
-                    return distinctIds
-                        .map((distinctId) => {
-                            const person = personsMap[distinctId]
-                            return person ? { ...person, activity_count: counts.get(distinctId) || 0 } : null
-                        })
-                        .filter((person): person is ActivePersonType => person !== null)
-                        .sort((a, b) => b.activity_count - a.activity_count)
-                } catch {
-                    return []
-                }
+                return distinctIds
+                    .map((distinctId) => {
+                        const person = personsMap[distinctId]
+                        return person ? { ...person, activity_count: counts.get(distinctId) || 0 } : null
+                    })
+                    .filter((person): person is ActivePersonType => person !== null)
+                    .sort((a, b) => b.activity_count - a.activity_count)
             },
         },
+    }),
+    reducers({
+        personsLoadedError: [
+            false,
+            {
+                loadPersons: () => false,
+                loadPersonsSuccess: () => false,
+                loadPersonsFailure: () => true,
+            },
+        ],
     }),
     afterMount(({ actions }) => actions.loadPersons()),
 ])
