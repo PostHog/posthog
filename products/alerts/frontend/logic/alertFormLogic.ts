@@ -1015,6 +1015,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 parent.actions.setSimulationAnomalyPoints(anomalyPoints)
             },
+            setSimulationDateFrom: () => {
+                // A preview is only valid for the range it ran over, whether it has finished or not.
+                actions.clearSimulation()
+                getParentLogic()?.actions.clearSimulationAnomalyPoints()
+            },
             simulateAlertFailure: ({ error }) => {
                 const detectorConfig = values.alertForm.detector_config
                 posthog.capture('alert simulation run', {

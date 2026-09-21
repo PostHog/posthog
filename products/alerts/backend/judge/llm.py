@@ -40,6 +40,13 @@ from products.alerts.backend.llm_detector_limits import llm_detector_access_erro
 logger = structlog.get_logger(__name__)
 
 DEFAULT_WINDOW = LLM_DETECTOR_DEFAULT_WINDOW
+
+
+def prompt_window(config: dict[str, Any]) -> int:
+    """How many trailing points the model is shown for this configuration."""
+    return min(int(config.get("window") or DEFAULT_WINDOW), MAX_PROMPT_POINTS)
+
+
 MIN_POINTS_TO_JUDGE = LLM_DETECTOR_MIN_POINTS
 
 # One constant, matching the anomaly investigation agent. Not exposed per alert: a
@@ -160,7 +167,7 @@ class LLMSeriesJudge:
         if len(data) < MIN_POINTS_TO_JUDGE:
             return None
 
-        window = min(int(self.config.get("window") or DEFAULT_WINDOW), MAX_PROMPT_POINTS)
+        window = prompt_window(self.config)
         verdict = self._ask_model(
             data=data, series=series, attribution=attribution, window=window, judge_every_point=judge_every_point
         )

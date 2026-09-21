@@ -45,6 +45,7 @@ from products.alerts.backend.investigation_episode import EpisodeInvestigations,
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.signals.backend.facade import api as signals
 
 if TYPE_CHECKING:
@@ -146,7 +147,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
 
     await _update_status(alert_check, InvestigationStatus.RUNNING)
 
-    insight = alert.insight
+    insight = await sync_to_async(_evaluated_insight, thread_sensitive=False)(alert, alert_check)
     metric_description = insight.name or f"Insight {insight.short_id}"
     detector_type = (
         "llm"
@@ -720,6 +721,16 @@ def _evaluated_series_index(alert, alert_check) -> int:
     if isinstance(saved, int) and not isinstance(saved, bool):
         return saved
     return (alert.config or {}).get("series_index", 0)
+
+
+def _evaluated_insight(alert, alert_check):
+    """The insight the check judged, which the alert can have been repointed away from since."""
+    saved = (alert_check.triggered_metadata or {}).get("insight_id")
+    if not isinstance(saved, int) or isinstance(saved, bool) or saved == alert.insight_id:
+        return alert.insight
+    # The judged insight can be soft-deleted by now; its definition is still what the check was about.
+    found = insights_including_soft_deleted_for_team(team_id=alert.team_id, insight_ids=[saved])
+    return found[0] if found else alert.insight
 
 
 def _build_multimodal_context(

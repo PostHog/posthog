@@ -15,7 +15,11 @@ from posthog.schema import (
 
 from posthog.caching.insight_result import InsightResult
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
-from posthog.temporal.ai.anomaly_investigation.workflow import _build_multimodal_context, _evaluated_series_index
+from posthog.temporal.ai.anomaly_investigation.workflow import (
+    _build_multimodal_context,
+    _evaluated_insight,
+    _evaluated_series_index,
+)
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -128,6 +132,33 @@ def test_investigation_reads_the_series_the_check_judged(triggered_metadata: dic
     check.triggered_metadata = triggered_metadata
 
     assert _evaluated_series_index(alert, check) == expected_index
+
+
+@pytest.mark.parametrize(
+    "triggered_metadata,found,expect_saved",
+    [
+        ({"insight_id": 7}, True, True),
+        ({"insight_id": 7}, False, False),
+        ({"insight_id": 3}, True, False),
+        ({}, True, False),
+    ],
+)
+@patch("posthog.temporal.ai.anomaly_investigation.workflow.insights_including_soft_deleted_for_team")
+def test_investigation_reads_the_insight_the_check_judged(
+    mock_load: MagicMock, triggered_metadata: dict, found: bool, expect_saved: bool
+) -> None:
+    alert = MagicMock(spec=AlertConfiguration)
+    alert.team_id = 1
+    alert.insight_id = 3
+    alert.insight = MagicMock(spec=Insight)
+    saved_insight = MagicMock(spec=Insight)
+    mock_load.return_value = [saved_insight] if found else []
+    check = MagicMock(spec=AlertCheck)
+    check.triggered_metadata = triggered_metadata
+
+    assert _evaluated_insight(alert, check) is (saved_insight if expect_saved else alert.insight)
+    if triggered_metadata.get("insight_id") == 3 or not triggered_metadata:
+        mock_load.assert_not_called()
 
 
 @patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")

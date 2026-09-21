@@ -477,6 +477,27 @@ class TestUpsertAlertTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    async def test_update_validates_the_threshold_the_edit_would_leave_behind(self, _flag):
+        insight = await self._create_insight()
+        alert = await self._create_alert(insight, enabled=True)
+        await AlertConfiguration.objects.filter(team=self.team, id=alert.id).aupdate(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert.id), threshold_type=InsightThresholdType.PERCENTAGE)
+        )
+
+        assert artifact["error"] == "validation_failed"
+        assert "percentage threshold" in content
+        threshold = await sync_to_async(lambda: AlertConfiguration.objects.get(id=alert.id).threshold)()
+        assert threshold is not None
+        assert threshold.configuration["type"] == InsightThresholdType.ABSOLUTE
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
     async def test_update_rejects_enabling_an_ai_alert_outside_the_rollout(self, _flag):
         insight = await self._create_insight()

@@ -380,7 +380,7 @@ class UpsertAlertTool(MaxTool):
                             {**(alert.config or {}), "series_index": action.series_index}
                             if action.series_index is not None
                             else alert.config,
-                            alert.threshold.configuration if alert.threshold else None,
+                            self._proposed_threshold_configuration(alert, action),
                             new_interval,
                             detector_config=alert.detector_config,
                         )
@@ -519,32 +519,39 @@ class UpsertAlertTool(MaxTool):
         except Exception:
             return None
 
-    @staticmethod
-    def _update_threshold(alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:
+    @classmethod
+    def _proposed_threshold_configuration(cls, alert: AlertConfiguration, action: UpdateAlertAction) -> dict | None:
+        """The threshold configuration the alert will have once ``action`` is applied.
+
+        Validation runs before the threshold is written, so it must see the same configuration
+        that ``_update_threshold`` persists, or a change to an incompatible threshold passes and
+        the next scheduled check auto-disables the alert.
+        """
+        if not cls._has_threshold_changes(action):
+            return alert.threshold.configuration if alert.threshold else None
+        base: dict = dict(alert.threshold.configuration) if alert.threshold else {}
+        config: dict = {**base, "type": action.threshold_type or base.get("type") or InsightThresholdType.ABSOLUTE}
+        bounds: dict = dict(base.get("bounds") or {})
+        if action.lower_threshold is not None:
+            bounds["lower"] = action.lower_threshold
+        if action.upper_threshold is not None:
+            bounds["upper"] = action.upper_threshold
+        config["bounds"] = bounds
+        return config
+
+    @classmethod
+    def _update_threshold(cls, alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:
         """Returns list of alert field names that were modified (for use with update_fields)."""
+        config = cls._proposed_threshold_configuration(alert, action)
         threshold = alert.threshold
 
-        def _build_bounds(base: dict) -> dict:
-            bounds: dict = dict(base.get("bounds") or {})
-            if action.lower_threshold is not None:
-                bounds["lower"] = action.lower_threshold
-            if action.upper_threshold is not None:
-                bounds["upper"] = action.upper_threshold
-            return bounds
-
         if threshold is None:
-            config: dict = {"type": action.threshold_type or InsightThresholdType.ABSOLUTE}
-            config["bounds"] = _build_bounds(config)
             threshold = Threshold(team=alert.team, insight=alert.insight, name=alert.name, configuration=config)
             threshold.clean()
             threshold.save()
             alert.threshold = threshold
             return ["threshold"]
 
-        config = dict(threshold.configuration)
-        if action.threshold_type is not None:
-            config["type"] = action.threshold_type
-        config["bounds"] = _build_bounds(config)
         threshold.configuration = config
         threshold.clean()
         threshold.save(update_fields=["configuration"])

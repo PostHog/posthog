@@ -51,6 +51,7 @@ FAKE_USER = MagicMock(spec=User)
 
 
 class _FakeInsight:
+    id = 42
     name = "Daily signups"
     query = TRENDS_QUERY
     team = FAKE_TEAM
@@ -118,6 +119,12 @@ class TestJudgePlumbing:
         assert attribution.user is FAKE_USER
         assert attribution.evaluation_id == "workflow-run:activity"
 
+    def test_the_description_covers_only_the_points_the_judge_is_shown(self) -> None:
+        _evaluate({"type": "llm", "window": 3})
+
+        series, _ = _RecordingJudge.seen[0]
+        assert "2026-01-03 to 2026-01-05" in series.metric_description
+
     def test_an_ai_alert_with_no_creator_is_refused_before_any_call(self) -> None:
         alert = _FakeAlert()
         alert.created_by = None
@@ -151,6 +158,7 @@ class TestLLMVerdictReachesTheCheck:
         assert "probability" not in result.breaches[0]
         assert result.triggered_metadata == {
             "series_index": 0,
+            "insight_id": 42,
             "rationale": "Signups fell to 12.",
             "kind": "drop",
             "verdict_is_anomaly": True,

@@ -49,7 +49,8 @@ from products.alerts.backend.judge import (
     SeriesJudge,
     SeriesJudgment,
 )
-from products.alerts.backend.judge.llm import LLMSeriesJudge
+from products.alerts.backend.judge.llm import LLMSeriesJudge, prompt_window
+from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -138,14 +139,18 @@ def _metric_description(
     return describe_metric_definition(query, series_index=series_index, effective_date_range=effective_date_range)
 
 
-def _effective_date_range(result: ExtractionResult) -> MetricDateRange | None:
+def _effective_date_range(result: ExtractionResult, detector_config: dict[str, Any]) -> MetricDateRange | None:
     """First and last date of the points the detector scores.
 
     Extraction widens the insight's saved range when the detector needs more buckets than it
-    holds, so the saved range would describe a shorter span than the points beside it.
+    holds, so the saved range would describe a shorter span than the points beside it. The AI
+    judge is shown only its trailing window, so its description covers that window alone.
     """
+    shown = prompt_window(detector_config) if is_llm_detector_config(detector_config) else None
     for series in result.series:
         dates = [point.date for point in series.points if point.date]
+        if shown is not None:
+            dates = dates[-shown:]
         if dates:
             return MetricDateRange(start=dates[0], end=dates[-1])
     return None
@@ -309,7 +314,7 @@ def evaluate_with_detector(
         value: float | None = 0 if result.empty_query_result else None
         return AlertEvaluationResult(value=value, breaches=[], interval=interval_value)
 
-    metric_description = _metric_description(insight, series_index, _effective_date_range(result))
+    metric_description = _metric_description(insight, series_index, _effective_date_range(result, detector_config))
 
     def score(series: ComparableSeries) -> _ScoredSeries:
         return _score_series(
@@ -338,7 +343,7 @@ def evaluate_with_detector(
                     triggered_points=scored.detection.triggered_indices or None,
                     triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
                     interval=interval_value,
-                    triggered_metadata={"series_index": bd_index, **scored.persisted_metadata},
+                    triggered_metadata={**_judged_target(insight, bd_index), **scored.persisted_metadata},
                 )
         return AlertEvaluationResult(value=None, breaches=[], interval=interval_value)
 
@@ -360,12 +365,19 @@ def evaluate_with_detector(
         triggered_points=scored.detection.triggered_indices or None,
         triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
         interval=interval_value,
-        # The series index rides along so an investigation that starts after the alert is
-        # repointed still reads the series this verdict was about.
-        triggered_metadata={"series_index": series_index, **scored.persisted_metadata}
+        triggered_metadata={**_judged_target(insight, series_index), **scored.persisted_metadata}
         if scored.persisted_metadata
         else None,
     )
+
+
+def _judged_target(insight: Insight | None, series_index: int) -> dict[str, int]:
+    # The insight and series ride along so an investigation that starts after the alert is
+    # repointed still reads the metric this verdict was about.
+    target = {"series_index": series_index}
+    if insight is not None:
+        target["insight_id"] = insight.id
+    return target
 
 
 class TrendsDetectorExtractor:
@@ -481,7 +493,7 @@ def simulate_detector_on_insight(
     sim_context = _SimulationSeriesContext(
         insight=insight,
         interval=interval_value,
-        metric_description=_metric_description(insight, series_index, _effective_date_range(result)),
+        metric_description=_metric_description(insight, series_index, _effective_date_range(result, detector_config)),
         user=user,
         score=score,
         is_agent_billable=is_agent_billable,
