@@ -1,4 +1,7 @@
-import { router } from 'kea-router'
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { kea, path } from 'kea'
+import { router, urlToAction } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
@@ -243,5 +246,37 @@ describe('settingsSceneLogic on a cold page load', () => {
             selectedSectionId: 'organization-members',
         })
         expect(router.values.location.pathname).toContain('/settings/organization-members')
+    })
+})
+
+// Stands in for sceneLogic, which sends a person with no organization from
+// `/settings/organization` to organization creation.
+const redirectAwayFromSettingsLogic = kea([
+    path(['scenes', 'settings', 'test', 'redirectAwayFromSettingsLogic']),
+    urlToAction(() => ({
+        '/settings/organization': () => {
+            router.actions.replace('/create-organization')
+        },
+    })),
+])
+
+describe('settingsSceneLogic when another logic redirects off settings', () => {
+    // A person with no organization has no organization section, so the level-only URL fell
+    // through to `selectLevel`, whose actionToUrl put `/settings/organization` back in the
+    // address bar. The two redirects replaced each other until the call stack ran out and the
+    // scene died with "Maximum call stack size exceeded".
+    it('leaves the redirect target in the address bar', async () => {
+        // No organization, so the settings map holds no organization section to redirect to.
+        initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, null as any)
+        // Mounted first so its redirect runs before the settings scene reacts to the same
+        // `locationChanged`, which is the order sceneLogic gets in the app.
+        redirectAwayFromSettingsLogic().mount()
+        const logic = settingsSceneLogic()
+        logic.mount()
+
+        router.actions.push('/settings/organization')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe('/create-organization')
     })
 })

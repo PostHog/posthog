@@ -2,6 +2,7 @@ import { MakeLogicType, connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
 import type { Params } from 'scenes/sceneTypes'
@@ -47,6 +48,14 @@ const MOVED_SETTINGS: Record<string, SettingSectionId> = {
 }
 
 const hasHashParam = (hashParams: Params, key: string): boolean => Object.prototype.hasOwnProperty.call(hashParams, key)
+
+// The settings actions below sync the address bar back to `/settings/...`. Another logic can
+// redirect the browser off settings while the same `locationChanged` is still being handled —
+// sceneLogic sends a person with no organization to organization creation, for example. Syncing
+// the URL after that restarts the redirect, and the two replace each other until the call stack
+// runs out. Sync only while the browser is still on a settings page.
+const isOnSettingsPath = (): boolean =>
+    removeProjectIdIfPresent(router.values.location.pathname).startsWith('/settings')
 
 const sectionForMovedSetting = (section: string, hashParams: Params): SettingSectionId | null => {
     for (const [settingId, currentSection] of Object.entries(MOVED_SETTINGS)) {
@@ -286,12 +295,21 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
         // Replace history for level changes, so the environments<>project redirect doesn't leave dead history entries.
         // Section/setting changes push real history entries so the back button works between settings.
         selectLevel({ level }) {
+            if (!isOnSettingsPath()) {
+                return
+            }
             return [urls.settings(level), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSection({ section }) {
+            if (!isOnSettingsPath()) {
+                return
+            }
             return [urls.settings(section), router.values.searchParams, router.values.hashParams]
         },
         selectSetting({ setting }) {
+            if (!isOnSettingsPath()) {
+                return
+            }
             return [
                 urls.settings(values.selectedSectionId ?? values.selectedLevel),
                 router.values.searchParams,
