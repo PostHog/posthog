@@ -24632,7 +24632,11 @@
                 },
                 "conversion_window": {
                     "$ref": "#/definitions/integer",
-                    "description": "Conversion window duration."
+                    "description": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
+                    "description": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
                 },
                 "denominator": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
@@ -24641,6 +24645,10 @@
                 "denominator_outlier_handling": {
                     "$ref": "#/definitions/ExperimentMetricOutlierHandling",
                     "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                },
+                "funnel_order_type": {
+                    "$ref": "#/definitions/StepOrderValue",
+                    "description": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                 },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal",
@@ -31542,6 +31550,19 @@
             "required": ["type"],
             "type": "object"
         },
+        "MCPAnalyticsPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                }
+            ]
+        },
         "MCPHarnessBreakdownItem": {
             "additionalProperties": false,
             "description": "One row of the MCP harness (client) breakdown: a resolved customer label and its activity.",
@@ -31586,7 +31607,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -31862,7 +31883,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -31991,7 +32012,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32116,7 +32137,7 @@
                 },
                 "properties": {
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -32206,6 +32227,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolCategoriesQuery",
                     "type": "string"
@@ -32213,6 +32237,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolCategoriesQueryResponse"
@@ -32314,6 +32344,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolCategoryCountsQuery",
                     "type": "string"
@@ -32321,6 +32354,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolCategoryCountsQueryResponse"
@@ -33199,6 +33238,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."
@@ -33210,6 +33252,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityDailyStatsQueryResponse"
@@ -33361,6 +33409,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolQualityRowsQuery",
                     "type": "string"
@@ -33376,6 +33427,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of matching tools to skip."
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityRowsQueryResponse"
@@ -48430,7 +48487,7 @@
                     "type": "string"
                 },
                 "findings": {
-                    "description": "Empty when the analysis found nothing to fix.",
+                    "description": "Every finding, fixable or not. Empty when the analysis found none.",
                     "items": {
                         "$ref": "#/definitions/QueryScanWarning"
                     },
@@ -48453,9 +48510,9 @@
             "enum": ["no_event_filter", "no_start_date", "persons_join"],
             "type": "string"
         },
-        "QueryScanFindingReason": {
-            "description": "Why a filter the query does have did not narrow the read. `in_or`: it sits inside an OR. `wrapped`: `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`: `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `filters`: the date range comes from `{filters}` and the insight left it open.",
-            "enum": ["in_or", "wrapped", "negated", "dynamic", "not_pruned", "filters"],
+        "QueryScanFixLocation": {
+            "description": "Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`.",
+            "enum": ["query", "subquery", "view", "insight_date_range", "dashboard_date_filter"],
             "type": "string"
         },
         "QueryScanResponse": {
@@ -48500,6 +48557,18 @@
             "additionalProperties": false,
             "description": "One finding of a query's analysis.",
             "properties": {
+                "actionable": {
+                    "description": "Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and \"Fix with AI\" only when a finding is actionable.",
+                    "type": "boolean"
+                },
+                "by_design": {
+                    "description": "True when the query reads this much on purpose, so reading less would change the answer. Absent means no.",
+                    "type": "boolean"
+                },
+                "cause": {
+                    "description": "A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change.",
+                    "type": "string"
+                },
                 "evidence": {
                     "description": "The one fact the finding rests on.",
                     "type": "string"
@@ -48508,19 +48577,19 @@
                     "description": "What \"Fix with AI\" and the assistant are told to do.",
                     "type": "string"
                 },
+                "fix_location": {
+                    "$ref": "#/definitions/QueryScanFixLocation",
+                    "description": "Where the change goes. Absent means the query itself."
+                },
                 "kind": {
                     "$ref": "#/definitions/QueryScanFindingKind"
                 },
                 "message": {
                     "description": "Shown to the person: what happened and what to do.",
                     "type": "string"
-                },
-                "reason": {
-                    "$ref": "#/definitions/QueryScanFindingReason",
-                    "description": "Only with `no_event_filter` and `no_start_date`."
                 }
             },
-            "required": ["kind", "message", "fix"],
+            "required": ["kind", "message", "fix", "actionable"],
             "type": "object"
         },
         "QuerySchema": {

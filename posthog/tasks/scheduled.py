@@ -46,7 +46,6 @@ from posthog.tasks.tasks import (
     clickhouse_mutation_count,
     clickhouse_part_count,
     clickhouse_row_count,
-    clickhouse_send_license_usage,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
     fail_stuck_video_exports,
@@ -88,6 +87,7 @@ from products.conversations.backend.tasks.email import flush_pending_email_repli
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
+from products.customer_analytics.backend.facade.tasks import schedule_task_digests
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -126,6 +126,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.surveys.backend.facade.tasks import sweep_expired_desktop_feedback_media_task
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
@@ -537,6 +538,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="sweep abandoned media uploads",
     )
 
+    # Desktop feedback attachments are private diagnostic data with a fixed retention period.
+    sender.add_periodic_task(
+        crontab(hour="4", minute="20"),
+        sweep_expired_desktop_feedback_media_task.s(),
+        name="sweep expired desktop feedback media",
+    )
+
     # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
@@ -913,17 +921,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     if settings.EE_AVAILABLE:
-        sender.add_periodic_task(
-            # The minute differs between installations so that they do not all call
-            # license.posthog.com in the same minute past midnight.
-            crontab(hour="0", minute=instance_spread_minute("send license usage", 40)),
-            clickhouse_send_license_usage.s(),
-        )
-        sender.add_periodic_task(
-            crontab(hour="4", minute=instance_spread_minute("send license usage retry", 40)),
-            clickhouse_send_license_usage.s(),
-        )  # again a few hours later just to make sure
-
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
         if materialize_columns_crontab:
@@ -1167,4 +1164,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         MCP_REGISTRY_SYNC_CRONTAB,
         run_mcp_registry_sync.s(),
         name="mcp registry daily sync",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        schedule_task_digests.s(),
+        name="schedule customer task digests",
+        expires_seconds=300,
     )

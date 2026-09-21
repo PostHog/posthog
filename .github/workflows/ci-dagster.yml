@@ -74,7 +74,7 @@ jobs:
     # actually import — prevents silent drift where a new import slips in
     # without a matching filter entry.
     validate-paths:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Validate dagster path filter coverage
         steps:
@@ -89,7 +89,7 @@ jobs:
     # Job to decide if we should run dagster ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run dagster checks
         # Set job outputs to values from filter step
@@ -383,7 +383,7 @@ jobs:
             && needs.changes.outputs.merge_queue != 'true'
             && needs.changes.outputs.dagster_direct == 'true'
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-dagster')
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -752,7 +752,7 @@ jobs:
     dagster_tests:
         needs: [changes, dagster]
         name: Dagster Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

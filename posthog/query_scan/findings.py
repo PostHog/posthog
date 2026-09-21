@@ -1,10 +1,15 @@
 """Turn an analysis outcome into the warning a person reads, and the prompt the assistant reads.
 
-A no-event-filter or no-start-date finding reads differently for raw SQL than for an insight built
-from pickers, so the query kind chooses which wording to use.
+A finding reads differently for raw SQL than for an insight built from pickers, so the query kind
+chooses which wording to use. Within a kind, three facts choose it: the cause, whether the query
+reads this much by design, and where the fix goes. The same facts decide whether the finding is
+actionable: whether the person can change the query so it reads less and still answers the same
+question. A by-design finding stays, worded as an explanation, and is never actionable.
 """
 
-from posthog.schema import QueryScanFindingKind, QueryScanFindingReason, QueryScanWarning
+from enum import StrEnum
+
+from posthog.schema import QueryScanFindingKind, QueryScanFixLocation, QueryScanWarning
 
 from posthog.dataclasses import frozen
 
@@ -28,8 +33,44 @@ ASSISTANT_RULES = (
 )
 
 
+class FindingCause(StrEnum):
+    """What in the query text kept ClickHouse from narrowing the read, when the analysis could tell.
+
+    The value picks the wording, and it is the label the `query scan analyzed` event and the
+    assistant's prompt carry. Nothing a person sees branches on it: surfaces read `actionable`.
+    """
+
+    EVENT_FILTER_INSIDE_OR = "in_or"
+    EVENT_WRAPPED_IN_FUNCTION = "wrapped"
+    EVENT_FILTER_ONLY_EXCLUDES = "negated"
+    EVENT_COMPARED_TO_COLUMN = "dynamic"
+    EVENT_FILTER_NOT_USED_BY_CLICKHOUSE = "not_pruned"
+    PROPERTY_FILTER_WITHOUT_EVENT = "property_filter"
+    UNFILTERED_HELPER_READ = "helper_read"
+    START_DATE_NOT_USED_BY_CLICKHOUSE = "bound_not_used"
+
+
+_FIXABLE_CAUSES: dict[QueryScanFindingKind, frozenset[FindingCause | None]] = {
+    QueryScanFindingKind.NO_EVENT_FILTER: frozenset(
+        {
+            FindingCause.EVENT_FILTER_INSIDE_OR,
+            FindingCause.EVENT_WRAPPED_IN_FUNCTION,
+            FindingCause.EVENT_FILTER_ONLY_EXCLUDES,
+            FindingCause.EVENT_FILTER_NOT_USED_BY_CLICKHOUSE,
+            FindingCause.PROPERTY_FILTER_WITHOUT_EVENT,
+            FindingCause.UNFILTERED_HELPER_READ,
+        }
+    ),
+    QueryScanFindingKind.NO_START_DATE: frozenset({None, FindingCause.START_DATE_NOT_USED_BY_CLICKHOUSE}),
+}
+
+# Fixed on the insight or the dashboard, so the assistant editing the query has nothing to change.
+_OUTSIDE_THE_QUERY = frozenset({QueryScanFixLocation.INSIGHT_DATE_RANGE, QueryScanFixLocation.DASHBOARD_DATE_FILTER})
+
+
 @frozen
 class _Copy:
+    # `{subject}` is the query, the insight, a subquery of it, or the view it reads.
     lead: str
     advice: str
     fix: str
@@ -37,7 +78,7 @@ class _Copy:
 
 _NO_EVENT_FILTER_SQL = _Copy(
     lead=(
-        "Queries are fastest when they name a fixed set of events. This query has no event filter, so it "
+        "Queries are fastest when they name a fixed set of events. {subject} has no event filter, so it "
         "reads a large share of the events in its date range, which is slow."
     ),
     advice="If the question is about specific events, add `WHERE event IN ('…')` naming them.",
@@ -53,19 +94,19 @@ _NO_EVENT_FILTER_SQL = _Copy(
 
 _NO_EVENT_FILTER_INSIGHT = _Copy(
     lead=(
-        "Insights are fastest when they look at a fixed set of events. This insight looks at all events, so "
+        "Insights are fastest when they look at a fixed set of events. {subject} looks at all events, so "
         "it reads a large share of the events in its date range, which is slow."
     ),
     advice="Pick specific events if the question is about some of them.",
     fix="Pick the events this insight is about instead of All events.",
 )
 
-# A raw SQL query can name events yet leave ClickHouse unable to prune on them. The reason from the
+# A raw SQL query can name events yet leave ClickHouse unable to prune on them. The cause from the
 # tree says which shape blocked it, so the copy names that shape and the specific fix.
-_NO_EVENT_FILTER_BY_REASON: dict[QueryScanFindingReason, _Copy] = {
-    QueryScanFindingReason.IN_OR: _Copy(
+_NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
+    FindingCause.EVENT_FILTER_INSIDE_OR: _Copy(
         lead=(
-            "Queries are fastest when they name a fixed set of events. This query names events only inside an OR "
+            "Queries are fastest when they name a fixed set of events. {subject} names events only inside an OR "
             "with another condition, so that filter cannot be used and it still reads a large share of the events "
             "in its date range, which is slow."
         ),
@@ -79,9 +120,9 @@ _NO_EVENT_FILTER_BY_REASON: dict[QueryScanFindingReason, _Copy] = {
             "help; propose the time bound only."
         ),
     ),
-    QueryScanFindingReason.WRAPPED: _Copy(
+    FindingCause.EVENT_WRAPPED_IN_FUNCTION: _Copy(
         lead=(
-            "Queries are fastest when they compare `event` directly to fixed names. This query wraps `event` in a "
+            "Queries are fastest when they compare `event` directly to fixed names. {subject} wraps `event` in a "
             "function, so that filter cannot be used and it still reads a large share of the events in its date "
             "range, which is slow."
         ),
@@ -93,26 +134,27 @@ _NO_EVENT_FILTER_BY_REASON: dict[QueryScanFindingReason, _Copy] = {
             "names could vary over time, say the rewrite may miss older spellings and ask."
         ),
     ),
-    QueryScanFindingReason.NEGATED: _Copy(
+    FindingCause.EVENT_FILTER_ONLY_EXCLUDES: _Copy(
         lead=(
-            "Queries are fastest when they explicitly enumerate the events they want. This query only excludes "
+            "Queries are fastest when they explicitly enumerate the events they want. {subject} only excludes "
             "events, so that filter cannot be used and it still reads most of the events in its date range, "
             "which is slow."
         ),
         advice="Explicitly enumerate the events you want instead.",
         fix=(
-            "The filter excludes events, and the index cannot use an exclusion, so it reads everything. "
-            'Exploration cannot reveal the intended set, because the query says "everything except". Ask whether '
-            "the person can name the events they want. If they can, replace the exclusion with `event IN (...)`; "
-            "if they cannot, keep the exclusion and add the time bound. Do not run exploratory queries for this "
-            "finding."
+            "The filter excludes events, and the index cannot use an exclusion, so it reads everything. Run one "
+            "query for what the rest of the query matches: `SELECT event, count() FROM events WHERE <the query's "
+            "conditions, the exclusion included> AND timestamp >= now() - interval 7 day GROUP BY event ORDER BY "
+            "count() DESC LIMIT 20`. If that is a few events, replace the exclusion with `event IN (<those "
+            "events>)` and say the result then covers only those. If it is many events, ask which events the "
+            "person wants. If they cannot say, keep the exclusion and add the time bound."
         ),
     ),
-    QueryScanFindingReason.DYNAMIC: _Copy(
+    FindingCause.EVENT_COMPARED_TO_COLUMN: _Copy(
         lead=(
-            "Queries are fastest when they compare `event` to fixed names. This query compares `event` to another "
-            "column or a subquery, so that filter cannot be used and it still reads a large share of the events "
-            "in its date range, which is slow."
+            "Queries are fastest when they compare `event` to fixed names. {subject} compares `event` to another "
+            "column, so that filter cannot be used and it still reads a large share of the events in its date "
+            "range, which is slow."
         ),
         advice="Compare `event` to fixed names.",
         fix=(
@@ -121,9 +163,9 @@ _NO_EVENT_FILTER_BY_REASON: dict[QueryScanFindingReason, _Copy] = {
             "interval 7 day LIMIT 20` and enumerate; otherwise keep the condition and add the time bound."
         ),
     ),
-    QueryScanFindingReason.NOT_PRUNED: _Copy(
+    FindingCause.EVENT_FILTER_NOT_USED_BY_CLICKHOUSE: _Copy(
         lead=(
-            "Queries are fastest when they compare `event` directly to fixed names. This query has an event "
+            "Queries are fastest when they compare `event` directly to fixed names. {subject} has an event "
             "filter, but it could not be used, so it still read a large share of the events in its date range, "
             "which is slow."
         ),
@@ -134,11 +176,92 @@ _NO_EVENT_FILTER_BY_REASON: dict[QueryScanFindingReason, _Copy] = {
             "read."
         ),
     ),
+    FindingCause.PROPERTY_FILTER_WITHOUT_EVENT: _Copy(
+        lead=(
+            "Queries are fastest when they name a fixed set of events. {subject} narrows events by a property "
+            "but names no events, so it still reads a large share of the events in its date range, which is slow."
+        ),
+        advice=(
+            "If that property only appears on some events, add `WHERE event IN ('…')` naming them, for example "
+            "`$pageview` for a URL or path filter."
+        ),
+        fix=(
+            "The query filters on a property and names no events, so the index cannot prune. Run one query for "
+            "which events carry the property: `SELECT event, count() FROM events WHERE <the property condition> "
+            "AND timestamp >= now() - interval 7 day GROUP BY event ORDER BY count() DESC LIMIT 20`. If that is a "
+            "few events, add `event IN (<those events>)` and say the answer is the same; if the property is on "
+            "most events, say an event filter would change the answer and ask which events matter."
+        ),
+    ),
+    FindingCause.UNFILTERED_HELPER_READ: _Copy(
+        lead=(
+            "Queries are fastest when every read of the events table names a fixed set of events. {subject} "
+            "names events in one read, but its largest read of the events table has no event filter, which is slow."
+        ),
+        advice="Add an event filter, or at least the same start date, to the unfiltered read too.",
+        fix=(
+            "The query names events in one read of the events table and reads every event in another, a subquery "
+            "or CTE with no event condition, and that read is the large one. Add an event filter to the unfiltered "
+            "read: the events the other read names when it stands for the same people or sessions, otherwise the "
+            "events its own question is about. If nothing says which events, add the same time bound as the main "
+            "read and say the answer may change."
+        ),
+    ),
 }
+
+_NO_EVENT_FILTER_INSIGHT_BY_CAUSE: dict[FindingCause, _Copy] = {
+    FindingCause.PROPERTY_FILTER_WITHOUT_EVENT: _Copy(
+        lead=(
+            "Insights are fastest when they look at a fixed set of events. {subject} looks at all events and "
+            "filters them by a property, so it still reads a large share of the events in its date range, which "
+            "is slow."
+        ),
+        advice=(
+            "Pick the events that carry that property instead of All events, for example `$pageview` for a URL "
+            "or path filter."
+        ),
+        fix=(
+            "The insight looks at All events with a property filter. Run one query for which events carry the "
+            "property: `SELECT event, count() FROM events WHERE <the property condition> AND timestamp >= now() - "
+            "interval 7 day GROUP BY event ORDER BY count() DESC LIMIT 20`. If that is a few events, pick them in "
+            "the series and say the answer is the same; otherwise say picking events would change the answer and "
+            "ask."
+        ),
+    ),
+}
+
+_ALL_EVENTS_SQL = _Copy(
+    lead=(
+        "{subject} reads all events by design: the answer is the set of events itself, or a count of people "
+        "or sessions over any event, so an event filter would change it. Reading a large share of the events "
+        "in its date range is what makes it slow."
+    ),
+    advice="There is no event filter to add unless the question is about specific events.",
+    fix=(
+        "The query reads all events by design: it groups by event, counts distinct people or sessions over "
+        "any event, or finds each person's last event. An event filter would change the answer, so do not "
+        "propose one. If the question could be about specific events, ask which; otherwise leave the event "
+        "set alone."
+    ),
+)
+
+_ALL_EVENTS_INSIGHT = _Copy(
+    lead=(
+        "{subject} looks at all events by design: the answer is a breakdown by event, or a count of people "
+        "or sessions over any event, so picking events would change it. Reading a large share of the events "
+        "in its date range is what makes it slow."
+    ),
+    advice="There are no events to pick unless the question is about specific ones.",
+    fix=(
+        "The insight breaks down by event or counts people or sessions over all events by design, so picking "
+        "events would change the answer. Do not propose one. Ask whether the question is about specific "
+        "events; otherwise leave the series on All events."
+    ),
+)
 
 _NO_START_DATE_SQL = _Copy(
     lead=(
-        "Queries are fastest when they start from a recent date. This query has no start date, so it reads "
+        "Queries are fastest when they start from a recent date. {subject} has no start date, so it reads "
         "all your data back to the beginning, which is slow."
     ),
     advice="If you only need recent data, add `timestamp >= now() - interval 30 day` or the range you need.",
@@ -150,30 +273,103 @@ _NO_START_DATE_SQL = _Copy(
     ),
 )
 
-_NO_START_DATE_FILTERS = _Copy(
+_DATE_RANGE_WITHOUT_START_SQL = _Copy(
     lead=(
-        "Queries are fastest when they start from a recent date. No date range is set on this insight or "
-        "dashboard, so this query reads all your data back to the beginning, which is slow."
+        "Queries are fastest when they start from a recent date. The date range on this insight or dashboard "
+        "has no start date, so {subject_lower} reads all your data back to the beginning, which is slow."
     ),
-    advice="Set a date range on the insight or the dashboard.",
+    advice="Set a date range with a start date on the insight or the dashboard.",
     fix=(
-        "The SQL takes its date range from the insight's or dashboard's filters and none is set. Do not edit "
-        "the SQL; tell the person to set a date range on the insight or the dashboard."
+        "The SQL takes its date range from the insight's or dashboard's filters, and that range has no start "
+        "date: it is unset or set to All time. Do not edit the SQL; tell the person to set a date range on the "
+        "insight or the dashboard."
+    ),
+)
+
+_DASHBOARD_ALL_TIME_SQL = _Copy(
+    lead=(
+        "Queries are fastest when they start from a recent date. The dashboard's date filter is set to All "
+        "time, so {subject_lower} gets no start date and reads all your data back to the beginning, which is "
+        "slow."
+    ),
+    advice="Change the dashboard's date filter if you only need recent data.",
+    fix=(
+        "The SQL takes its date range from `{filters}` and the dashboard's date filter is All time. Do not "
+        "edit the SQL; tell the person to change the dashboard's date filter."
+    ),
+)
+
+_BOUND_NOT_USED_SQL = _Copy(
+    lead=(
+        "Queries are fastest when they start from a fixed recent date. {subject} has a start date, but it "
+        "could not be used to skip older data: it compares `timestamp` to another column, wraps it in a "
+        "function, or sits where the events read cannot see it, so the query still reads all your data back "
+        "to the beginning, which is slow."
+    ),
+    advice=(
+        "Keep it and add a fixed start date directly on the events read, for example "
+        "`AND timestamp >= now() - interval 30 day`."
+    ),
+    fix=(
+        "The query bounds `timestamp`, but ClickHouse could not skip data with the bound: it compares to "
+        "another column, wraps `timestamp` in a function, or sits in a CTE or subquery the events read does "
+        "not see. Keep that condition and add a fixed relative bound beside it on the events read, "
+        "`timestamp >= now() - interval N day`, with N from the question or 30 days. Never a calendar date. "
+        "No exploration needed."
+    ),
+)
+
+_ALL_HISTORY_SQL = _Copy(
+    lead=(
+        "{subject} finds a first event ever, so it reads all your data back to the beginning by design. A "
+        "start date would change the answer. Reading everything is what makes it slow."
+    ),
+    advice="There is no start date to add unless the question only needs recent history.",
+    fix=(
+        "The query finds a first event ever, with `min` or `argMin` over `timestamp` or a ranking window "
+        "ordered by it, and has no lower bound, so it reads all history by design and a start date would "
+        "change the answer. Do not propose a time bound for that read. If the question only needs people "
+        "first seen recently, ask before changing anything."
     ),
 )
 
 _NO_START_DATE_INSIGHT = _Copy(
     lead=(
-        "Insights are fastest when they start from a recent date. This insight has no start date, so it reads "
+        "Insights are fastest when they start from a recent date. {subject} has no start date, so it reads "
         "all your data back to the beginning, which is slow."
     ),
     advice="Set a date range if you only need recent data.",
     fix="Set a date range on the insight instead of All time.",
 )
 
+_DASHBOARD_ALL_TIME_INSIGHT = _Copy(
+    lead=(
+        "Insights are fastest when they start from a recent date. The dashboard's date filter is set to All "
+        "time, which overrides the date range on {subject_lower}, so it reads all your data back to the "
+        "beginning, which is slow."
+    ),
+    advice="Change the dashboard's date filter if you only need recent data.",
+    fix=(
+        "The insight's own date range is overridden by the dashboard's date filter, which is All time. Do not "
+        "change the insight's date range; tell the person to change the dashboard's date filter."
+    ),
+)
+
+_ALL_HISTORY_INSIGHT = _Copy(
+    lead=(
+        "{subject} finds each person's first event, so it reads all your data back to the beginning by "
+        "design. A date range would change the answer. Reading everything is what makes it slow."
+    ),
+    advice="There is no date range to set unless the question only needs recent history.",
+    fix=(
+        "The insight uses a first-time math or first-time retention, which reads from the project's first "
+        "event by design, so a date range would change the answer. Do not propose a date range change."
+    ),
+)
+
 _PERSONS_JOIN = _Copy(
     lead=(
-        "Queries are fastest when they take person details from the events table. This query joins the "
+        "Queries are fastest when they take person details from the events table. {subject} joins the "
         "persons table, and reading it costs about as much as reading the events, which is slow."
     ),
     advice="Read person properties from the events table instead, for example `person.properties.email`.",
@@ -186,37 +382,145 @@ _PERSONS_JOIN = _Copy(
 )
 
 
-def _copy_for(kind: QueryScanFindingKind, reason: QueryScanFindingReason | None, *, is_sql: bool) -> _Copy:
+# The option names are the ones on the project's "Person properties mode" setting.
+_PERSONS_JOIN_INSIGHT = _Copy(
+    lead="{subject} joins the persons table, which is slow.",
+    advice=(
+        'The project\'s Person properties mode is set to "Use person properties as of running the query". '
+        'PostHog recommends "Use person properties from the time of the event", which makes queries fast.'
+    ),
+    fix=(
+        "The insight joins the persons table because the project's Person properties mode reads person "
+        "properties as of running the query. Nothing in the insight changes that, so do not propose an edit "
+        "for it. Say that the mode is a project setting."
+    ),
+)
+
+
+def _by_cause(table: dict[FindingCause, _Copy], cause: FindingCause | None, default: _Copy) -> _Copy:
+    return default if cause is None else table.get(cause, default)
+
+
+def _copy_for(
+    kind: QueryScanFindingKind,
+    cause: FindingCause | None,
+    *,
+    is_sql: bool,
+    by_design: bool,
+    fix_location: QueryScanFixLocation,
+) -> _Copy:
     if kind == QueryScanFindingKind.NO_EVENT_FILTER:
+        if by_design:
+            return _ALL_EVENTS_SQL if is_sql else _ALL_EVENTS_INSIGHT
         if not is_sql:
-            return _NO_EVENT_FILTER_INSIGHT
-        if reason is not None and reason in _NO_EVENT_FILTER_BY_REASON:
-            return _NO_EVENT_FILTER_BY_REASON[reason]
-        return _NO_EVENT_FILTER_SQL
+            return _by_cause(_NO_EVENT_FILTER_INSIGHT_BY_CAUSE, cause, _NO_EVENT_FILTER_INSIGHT)
+        return _by_cause(_NO_EVENT_FILTER_SQL_BY_CAUSE, cause, _NO_EVENT_FILTER_SQL)
     if kind == QueryScanFindingKind.NO_START_DATE:
+        if by_design:
+            return _ALL_HISTORY_SQL if is_sql else _ALL_HISTORY_INSIGHT
+        if fix_location == QueryScanFixLocation.DASHBOARD_DATE_FILTER:
+            return _DASHBOARD_ALL_TIME_SQL if is_sql else _DASHBOARD_ALL_TIME_INSIGHT
         if not is_sql:
             return _NO_START_DATE_INSIGHT
-        return _NO_START_DATE_FILTERS if reason == QueryScanFindingReason.FILTERS else _NO_START_DATE_SQL
+        if fix_location == QueryScanFixLocation.INSIGHT_DATE_RANGE:
+            return _DATE_RANGE_WITHOUT_START_SQL
+        return _BOUND_NOT_USED_SQL if cause == FindingCause.START_DATE_NOT_USED_BY_CLICKHOUSE else _NO_START_DATE_SQL
     if kind == QueryScanFindingKind.PERSONS_JOIN:
-        return _PERSONS_JOIN
+        return _PERSONS_JOIN if is_sql else _PERSONS_JOIN_INSIGHT
     raise ValueError(f"No copy for finding kind {kind}")
+
+
+def is_actionable(kind: QueryScanFindingKind, cause: FindingCause | None, *, is_sql: bool, by_design: bool) -> bool:
+    """Whether the person can change something so the query reads less and still answers the same
+    question. A read inside a saved view counts: the person can edit the view."""
+    if by_design:
+        return False
+    if kind == QueryScanFindingKind.PERSONS_JOIN:
+        # An insight joins the persons table because of the project's person properties mode, which
+        # nothing in the insight changes. A SQL author wrote the join and can take it out.
+        return is_sql
+    if kind == QueryScanFindingKind.NO_EVENT_FILTER and cause is None:
+        # An insight's All events series is a choice the person made in a picker. A SQL query that
+        # names no events may have left them out, and nothing in it tells which, so it is a warning.
+        return is_sql
+    return cause in _FIXABLE_CAUSES.get(kind, frozenset())
+
+
+def _read_location(*, subquery_index: int | None, view_name: str | None) -> QueryScanFixLocation:
+    if view_name is not None:
+        return QueryScanFixLocation.VIEW
+    if subquery_index is not None:
+        return QueryScanFixLocation.SUBQUERY
+    return QueryScanFixLocation.QUERY
+
+
+def _subject(*, is_sql: bool, subquery_index: int | None, view_name: str | None) -> str:
+    """Who the finding is about, so a person with a bounded main query is not told the query has no
+    start date when a subquery or a view is the one reading everything."""
+    noun = "query" if is_sql else "insight"
+    if view_name is not None:
+        return f"The view `{view_name}` inside this {noun}"
+    if subquery_index is not None:
+        return f"Subquery {subquery_index + 1} of this {noun}"
+    return f"This {noun}"
 
 
 def build_warning(
     *,
     kind: QueryScanFindingKind,
     query_kind: str,
-    reason: QueryScanFindingReason | None = None,
+    cause: FindingCause | None = None,
+    by_design: bool = False,
+    fix_location: QueryScanFixLocation | None = None,
     evidence: str | None = None,
+    subquery_index: int | None = None,
+    view_name: str | None = None,
 ) -> QueryScanWarning:
-    copy = _copy_for(kind, reason, is_sql=query_kind == SQL_QUERY_KIND)
+    """``fix_location`` is for a fix that goes outside the query text, on the insight's date range or
+    the dashboard's date filter. None takes the location from the read: a view, a subquery, or the
+    query itself.
+    """
+    is_sql = query_kind == SQL_QUERY_KIND
+    location = fix_location or _read_location(subquery_index=subquery_index, view_name=view_name)
+    copy = _copy_for(kind, cause, is_sql=is_sql, by_design=by_design, fix_location=location)
+    subject = _subject(is_sql=is_sql, subquery_index=subquery_index, view_name=view_name)
+    lead = copy.lead.format(subject=subject, subject_lower=subject[0].lower() + subject[1:])
+    advice = copy.advice
+    fix = copy.fix
+    if view_name is not None:
+        advice = f"{advice} The events read is inside the view `{view_name}`, so the change goes in the view."
+        fix = (
+            f"{fix} The events read is inside the saved view `{view_name}`, and this query does not contain it. "
+            "Do not edit this query for it; tell the person the change belongs in the view."
+        )
+    elif subquery_index is not None:
+        fix = (
+            f"{fix} This is about subquery {subquery_index + 1}, an `IN (SELECT …)` of the query; change that subquery."
+        )
     return QueryScanWarning(
         kind=kind,
-        reason=reason,
-        message=f"{copy.lead} {copy.advice}",
-        fix=copy.fix,
+        cause=cause.value if cause is not None else None,
+        by_design=by_design,
+        fix_location=location,
+        message=f"{lead} {advice}",
+        fix=fix,
         evidence=evidence,
+        actionable=is_actionable(kind, cause, is_sql=is_sql, by_design=by_design),
     )
+
+
+def finding_label(finding: QueryScanWarning) -> str:
+    """The kind, then whichever of the cause, `by_design` and a fix location other than the query
+    apply, joined by `/`. The `query scan analyzed` event splits findings by it, and the job uses
+    it to drop a finding that several executions of one run repeat."""
+    parts = [str(finding.kind)]
+    if finding.cause:
+        parts.append(finding.cause)
+    if finding.by_design:
+        parts.append("by_design")
+    if finding.fix_location is not None and finding.fix_location != QueryScanFixLocation.QUERY:
+        parts.append(str(finding.fix_location))
+    return "/".join(parts)
 
 
 def explain_evidence(
@@ -246,14 +550,18 @@ def assistant_prompt(
     fixable_only: bool = False,
 ) -> str | None:
     """What the assistant reads about a slow run: the goal, the run, one line per finding, and the
-    standing rules. "Fix with AI" sends it as the person's message, and the in-app assistant and MCP
-    get it above a slow run's results, so all of them read the same text.
+    standing rules. "Fix with AI" sends it as the person's message.
 
-    ``fixable_only`` leaves out a finding that is fixed on the insight rather than in the query, since
-    the assistant has nothing to change for it. None when no finding is left.
+    ``fixable_only`` is for "Fix with AI": without the findings fixed on the insight or the
+    dashboard rather than in the query, and None unless one of the rest is actionable. A by-design
+    finding stays, because its guidance tells the assistant what not to change.
     """
     if fixable_only:
-        findings = [finding for finding in findings if finding.reason != QueryScanFindingReason.FILTERS]
+        findings = [
+            finding for finding in findings if finding.by_design or finding.fix_location not in _OUTSIDE_THE_QUERY
+        ]
+        if not any(finding.actionable for finding in findings):
+            return None
     if not findings:
         return None
     lines = [ASSISTANT_GOAL, ""]
@@ -279,7 +587,7 @@ def _run_line(rows_read: int, duration_ms: int, killed: bool) -> str:
 
 
 def _finding_line(finding: QueryScanWarning) -> str:
-    head = f"{finding.kind} ({finding.reason})" if finding.reason else str(finding.kind)
+    head = f"{finding.kind} ({finding.cause})" if finding.cause else str(finding.kind)
     parts = [f"{head}:"]
     if finding.evidence:
         parts.append(finding.evidence)

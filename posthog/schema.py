@@ -233,7 +233,7 @@ from posthog.schema_enums import (
     PropertyType as PropertyType,
     QueryIndexUsage as QueryIndexUsage,
     QueryScanFindingKind as QueryScanFindingKind,
-    QueryScanFindingReason as QueryScanFindingReason,
+    QueryScanFixLocation as QueryScanFixLocation,
     QuickFilterContext as QuickFilterContext,
     QuickFilterType as QuickFilterType,
     RecordingOrder as RecordingOrder,
@@ -2678,13 +2678,35 @@ class QueryScanWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actionable: bool = Field(
+        ...,
+        description=(
+            "Whether the person can change the query so it reads less and still answers"
+            ' the same question. Surfaces show the full advice and "Fix with AI" only'
+            " when a finding is actionable."
+        ),
+    )
+    by_design: bool | None = Field(
+        default=None,
+        description=(
+            "True when the query reads this much on purpose, so reading less would change the answer. Absent means no."
+        ),
+    )
+    cause: str | None = Field(
+        default=None,
+        description=(
+            "A label for what in the query text kept the read wide, such as `in_or`."
+            " Only analytics and the assistant read it, and the labels can change."
+        ),
+    )
     evidence: str | None = Field(default=None, description="The one fact the finding rests on.")
     fix: str = Field(..., description='What "Fix with AI" and the assistant are told to do.')
+    fix_location: QueryScanFixLocation | None = Field(
+        default=None,
+        description="Where the change goes. Absent means the query itself.",
+    )
     kind: QueryScanFindingKind
     message: str = Field(..., description="Shown to the person: what happened and what to do.")
-    reason: QueryScanFindingReason | None = Field(
-        default=None, description="Only with `no_event_filter` and `no_start_date`."
-    )
 
 
 class QueryTiming(BaseModel):
@@ -5217,7 +5239,22 @@ class ExperimentApiMetric(BaseModel):
     completion_event: ExperimentApiEventSource | None = Field(
         default=None, description="For retention metrics: completion event."
     )
-    conversion_window: int | None = Field(default=None, description="Conversion window duration.")
+    conversion_window: int | None = Field(
+        default=None,
+        description=(
+            "Only count metric events within this many units after the user's first"
+            " exposure. Requires conversion_window_unit: a window without a unit is"
+            " ignored and the metric counts events until the experiment ends. Omit both"
+            " to count until the experiment ends."
+        ),
+    )
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = Field(
+        default=None,
+        description=(
+            "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or"
+            " 'month'. Required when conversion_window is set."
+        ),
+    )
     denominator: ExperimentApiEventSource | None = Field(
         default=None, description="For ratio metrics: denominator source."
     )
@@ -5226,6 +5263,14 @@ class ExperimentApiMetric(BaseModel):
         description=(
             "For ratio metrics: winsorization applied to the denominator aggregate."
             " Leave unset for a binomial-style denominator, which is never clamped."
+        ),
+    )
+    funnel_order_type: StepOrderValue | None = Field(
+        default=None,
+        description=(
+            "For funnel metrics: how the steps must occur. 'ordered' (default) or"
+            " 'unordered'. Do not use 'strict': experiment funnels give wrong counts"
+            " with it."
         ),
     )
     goal: ExperimentMetricGoal | None = Field(
@@ -6818,7 +6863,10 @@ class QueryScanAnalysis(BaseModel):
             " finding can be fixed in the query."
         ),
     )
-    findings: list[QueryScanWarning] = Field(..., description="Empty when the analysis found nothing to fix.")
+    findings: list[QueryScanWarning] = Field(
+        ...,
+        description=("Every finding, fixable or not. Empty when the analysis found none."),
+    )
     project_share: float | None = Field(
         default=None,
         description="How much of all the project's events the query read, 0 to 1.",
@@ -27429,7 +27477,7 @@ class MCPHarnessBreakdownQuery(BaseModel):
     filterTestAccounts: bool | None = None
     kind: Literal["MCPHarnessBreakdownQuery"] = "MCPHarnessBreakdownQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPHarnessBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
@@ -27480,7 +27528,7 @@ class MCPModelBreakdownQuery(BaseModel):
         default=None,
         description=("Number of individual models to skip when includeAllModels is enabled."),
     )
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPModelBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27498,7 +27546,7 @@ class MCPToolCallBreakdownQuery(BaseModel):
     )
     kind: Literal["MCPToolCallBreakdownQuery"] = "MCPToolCallBreakdownQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCallBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27516,7 +27564,7 @@ class MCPToolCallsAndErrorsQuery(BaseModel):
     )
     kind: Literal["MCPToolCallsAndErrorsQuery"] = "MCPToolCallsAndErrorsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCallsAndErrorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27527,8 +27575,10 @@ class MCPToolCategoriesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolCategoriesQuery"] = "MCPToolCategoriesQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCategoriesQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27539,8 +27589,10 @@ class MCPToolCategoryCountsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolCategoryCountsQuery"] = "MCPToolCategoryCountsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCategoryCountsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27669,12 +27721,14 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
         description=("Restrict to these $mcp_tool_category values; empty or omitted means all categories."),
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
         description=("Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."),
     )
     kind: Literal["MCPToolQualityDailyStatsQuery"] = "MCPToolQualityDailyStatsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolQualityDailyStatsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
@@ -27693,6 +27747,7 @@ class MCPToolQualityRowsQuery(BaseModel):
         description=("Restrict to these $mcp_tool_category values; empty or omitted means all categories."),
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolQualityRowsQuery"] = "MCPToolQualityRowsQuery"
     limit: int | None = Field(
         default=None,
@@ -27700,6 +27755,7 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of matching tools to skip.")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolQualityRowsQueryResponse | None = None
     search: str | None = Field(
         default=None,

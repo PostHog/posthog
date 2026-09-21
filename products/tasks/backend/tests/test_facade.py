@@ -608,8 +608,8 @@ class TestFacadeReadsAndMappers(TestCase):
         )
 
         # The runs this path prefetches already carry the earlier PR, so finding it costs
-        # no second trip to the database.
-        with self.assertNumQueries(3):
+        # no second trip to the database. One of the four is the read exclusion PostHog AI registers.
+        with self.assertNumQueries(4):
             dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
 
         assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
@@ -860,8 +860,9 @@ class TestFacadeReadsAndMappers(TestCase):
             )
             TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
 
-        # The page costs one inherited-PR query, whatever the number of tasks on it.
-        with self.assertNumQueries(6):
+        # The page costs one inherited-PR query, whatever the number of tasks on it. One of the
+        # seven is the read exclusion PostHog AI registers.
+        with self.assertNumQueries(7):
             dtos = facade.list_tasks(self.team.id, self.user.id, filters={})
 
         by_title = {dto.title: dto for dto in dtos}
@@ -1062,6 +1063,52 @@ class TestFacadeReadsAndMappers(TestCase):
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("prior_run_summary"), "Reviewing the API")
+
+    def test_a_registered_read_exclusion_hides_a_task_from_reads(self):
+        hidden = self._make_task()
+        shown = self._make_task()
+        exclusions = {"test": lambda team_id, user_id: [hidden.id]}
+
+        with patch.dict("products.tasks.backend.facade.task_run_signals._task_read_exclusions", exclusions, clear=True):
+            assert facade.get_task_detail(hidden.id, self.team.id, self.user.id) is None
+            assert facade.get_task_detail(shown.id, self.team.id, self.user.id) is not None
+            assert (
+                facade.run_task(hidden.id, self.team.id, self.user.id, validated_data={"mode": "interactive"}) is None
+            )
+
+    def test_run_task_refuses_when_a_start_guard_objects(self):
+        task = self._make_task()
+        guards = {"test": lambda task_id, team_id, user_id: "Not yet"}
+
+        with (
+            patch.dict("products.tasks.backend.facade.task_run_signals._task_run_start_guards", guards, clear=True),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow") as trigger,
+        ):
+            result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "interactive"})
+
+        assert result is not None and result.error is not None
+        self.assertEqual(result.error.detail, "Not yet")
+        trigger.assert_not_called()
+        assert not task.runs.exists()
+
+    def test_run_task_resumed_from_an_import_run_marks_the_new_run(self):
+        task = self._make_task()
+        import_run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={"imported_from": "conversation"}
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(import_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=import_run.id).get()
+        assert new_run.state["resume_from_import_run"] is True
+        assert "imported_from" not in new_run.state
 
     def test_run_task_resume_exposes_pending_prompt_to_agent(self):
         task = self._make_task()

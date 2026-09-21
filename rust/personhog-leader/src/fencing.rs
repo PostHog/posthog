@@ -2254,10 +2254,10 @@ pub enum HealOutcome {
 pub async fn heal_fence(
     fenced: &Arc<FencedChangelogProducers>,
     inflight: &InflightTracker,
-    authority: Option<&AuthorityClock>,
+    authority: &AuthorityClock,
     partition: u32,
 ) -> Result<HealOutcome, String> {
-    let lost_standing = authority.is_some_and(|a| !a.is_valid());
+    let lost_standing = !authority.is_valid();
     if lost_standing || fenced.holds(partition) || inflight.is_fenced(partition) {
         return Ok(HealOutcome::Intact);
     }
@@ -2292,7 +2292,7 @@ pub async fn heal_fence(
     // the broker epoch rather than re-checking the claim, so a request
     // landing here would ack a mutation with an epoch taken from the
     // partition's real owner.
-    let lost_standing = authority.is_some_and(|a| !a.is_valid());
+    let lost_standing = !authority.is_valid();
     if lost_standing || inflight.is_fenced(partition) {
         guard.keep();
         // The fence this call installed, not whatever is installed now:

@@ -29,6 +29,10 @@ from products.signals.backend.report_charts import validate_report_query
 
 _METRIC_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _RELATIVE_DATE_FROM_RE = re.compile(r"^-([1-9]\d*)(h|d|w|m|y)$")
+_RELATIVE_DATE_FROM_ERROR = (
+    "query.source.dateRange.date_from must be a relative window such as `-30d`, because the query runs again "
+    "later and must measure the same trailing period each time"
+)
 
 MAX_REPORT_METRICS = 6
 MAX_REPORT_METRICS_QUERY_CHARS = 60_000
@@ -267,13 +271,13 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
             value = {**value, "source": source}
     date_range = source.get("dateRange")
     if not isinstance(date_range, dict):
-        raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
+        raise ValueError(_RELATIVE_DATE_FROM_ERROR)
     date_from = date_range.get("date_from")
     if not isinstance(date_from, str):
-        raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
+        raise ValueError(_RELATIVE_DATE_FROM_ERROR)
     relative_window = _RELATIVE_DATE_FROM_RE.fullmatch(date_from)
     if relative_window is None:
-        raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
+        raise ValueError(_RELATIVE_DATE_FROM_ERROR)
     amount, unit = relative_window.groups()
     window_seconds = int(amount) * _RELATIVE_WINDOW_SECONDS[unit]
     if window_seconds > MAX_LIVE_METRIC_WINDOW_DAYS * _RELATIVE_WINDOW_SECONDS["d"]:

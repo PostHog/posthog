@@ -167,7 +167,7 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`, `SignalScoutNote`, `SignalProjectProfile` in `../models.py`.
 - **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with `SourceType.CROSS_SOURCE_ISSUE`.
 - **Scout fleet** — the `signals-scout-*` skills live at
-  `../../skills/signals-scout-*/` (generalist + 7 specialists). See
+  `../../skills/signals-scout-*/` (the generalist plus the specialists; the fleet list there is the roster). See
   `../../skills/AGENTS.md` for the fleet convention.
 - **Local commands** — `run_signals_scout` (one-shot run), `run_scout_suggestions` (one-shot suggestion scan / print the plan), and
   `sync_signals_scout_skills` (force a canonical-skill sync). All documented in `../management/AGENTS.md`.

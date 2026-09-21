@@ -67,6 +67,26 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         path="/inventory",
         scope="view_products",
     ),
+    "stores": CommercetoolsEndpointConfig(
+        name="stores",
+        path="/stores",
+        scope="view_stores",
+    ),
+    "channels": CommercetoolsEndpointConfig(
+        name="channels",
+        path="/channels",
+        scope="view_channels",
+    ),
+    "customer_groups": CommercetoolsEndpointConfig(
+        name="customer_groups",
+        path="/customer-groups",
+        scope="view_customer_groups",
+    ),
+    "states": CommercetoolsEndpointConfig(
+        name="states",
+        path="/states",
+        scope="view_states",
+    ),
 }
 
 ENDPOINTS = tuple(COMMERCETOOLS_ENDPOINTS.keys())

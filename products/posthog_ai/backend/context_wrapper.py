@@ -9,21 +9,14 @@ the frontend (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`); do n
 here — the frontend replay stripper keeps understanding this legacy `<posthog_context>` tag until
 the bridge is deleted.
 
-NOT deprecated: `abuild_resumed_legacy_context` (the conversation migration service) stays.
 """
 
 import re
-import json
-import time
-from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, get_args
-
-import posthoganalytics
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Literal, TypedDict, get_args
 
 if TYPE_CHECKING:
-    from posthog.models import Team, User
-
-    from products.posthog_ai.backend.models.assistant import Conversation
+    pass
 
 # Allowed attachment types.
 AttachedContextType = Literal[
@@ -39,17 +32,13 @@ AttachedContextType = Literal[
 
 ALLOWED_TYPES: frozenset[str] = frozenset(get_args(AttachedContextType))
 
-# Every open/close variant of the three context tag names, including the legacy `posthog_context`
-# this module emits. Mirrors the frontend `defang` regex in `posthogContextBlock.ts`.
+# Must stay equivalent to the frontend `defang` regex in `posthogContextBlock.ts`: every open and
+# close variant of the three context tag names, the legacy `posthog_context` this module emits included.
 _CONTEXT_TAG_PATTERN = re.compile(r"<(/?)(posthog_(?:(?:un)?trusted_)?context)")
 
 # Caps on attached-context size.
 MAX_ATTACHED_ITEMS = 32
 MAX_TEXT_LENGTH = 4096
-
-# Preamble for the one-time `<posthog_context>` block that carries a converted conversation's
-# legacy history into its first sandbox message.
-RESUMED_CONTEXT_PREFIX = "This session was resumed from the legacy implementation."
 
 
 class AttachedContext(TypedDict, total=False):
@@ -131,17 +120,15 @@ class ContextService:
 
     @staticmethod
     def _defang(text: str | int) -> str:
-        r"""Invariant: interpolated fields must never contain a literal open/close sequence of the
-        context tags, and must never contain a newline.
+        r"""Invariant: an interpolated field must never contain a literal context tag or a line break.
 
         The frontend replay stripper cuts at the FIRST `</posthog_context>`, so a raw close tag
-        inside the body would truncate the strip early and leave block remnants. A raw
-        `<posthog_trusted_context>` is worse: the system prompt tells the agent to follow that block
-        like system instructions, so an attacker-influencable value (a property filter carried in a
-        shared URL, for example) could forge one and have its contents obeyed. Line breaks are
-        escaped one level down for the same reason, so that a value carrying `\n- ` cannot forge
-        extra item lines in the block the model reads. A lone `\r` is a line break too, so it is
-        escaped along with `\r\n` and `\n`.
+        inside the body truncates the strip early and leaves block remnants. A raw
+        `<posthog_trusted_context>` is worse, because the system prompt tells the agent to follow
+        that block like system instructions: a value an attacker can influence, such as a property
+        filter carried in a shared URL, could forge one and have its contents obeyed. Line breaks
+        are escaped for the same reason one level down, so that a value carrying `\n- ` cannot forge
+        extra item lines in the block the model reads. A lone `\r` is a line break too.
 
         Must stay equivalent to the frontend `defang` in `posthogContextBlock.ts`.
         """
@@ -163,88 +150,3 @@ class ContextService:
         if name:
             line += f' ("{self._defang(name)}")'
         return line
-
-    async def abuild_resumed_legacy_context(
-        self, conversation: "Conversation", team: "Team", user: "User"
-    ) -> str | None:
-        """Render a converted conversation's legacy history into a one-time `<posthog_context>` block.
-
-        Called once, on the conversion event, while the conversation is still on the LangGraph
-        runtime: it reads the legacy state via the shared serializer path and limits it to the
-        current conversation window — the same window the agent runs on (see
-        `ee/hogai/core/agent_modes/executables.py`). Returns None when there's no readable state or
-        no renderable turns, so the caller just forwards the user's message without an empty block.
-        """
-        # Deferred: keeps the LangGraph graph-compile + compaction (heavy) off the sandbox
-        # message-routing import path — only the conversion event pays for them.
-        from ee.hogai.api.serializers import (
-            aget_conversation_state,  # noqa: PLC0415 — keeps LangGraph off the sandbox import path
-        )
-        from ee.hogai.core.agent_modes.compaction_manager import (  # noqa: PLC0415 — heavy compaction dep
-            AnthropicConversationCompactionManager,
-        )
-        from ee.hogai.utils.types import AssistantState  # noqa: PLC0415 — keeps LangGraph off the sandbox import path
-
-        started_at = time.monotonic()
-        state_result = await aget_conversation_state(conversation, team, user)
-        # Legacy conversions are assistant conversations (see CONVERSATION_TYPE_MAP); the broad
-        # AssistantMaxGraphState union also admits TaxonomyAgentState, which carries no window anchor.
-        if not isinstance(state_result.state, AssistantState):
-            return None
-
-        window = AnthropicConversationCompactionManager().get_messages_in_window(
-            state_result.state.messages, state_result.state.root_conversation_start_id
-        )
-        transcript = self._render_legacy_transcript(window)
-
-        posthoganalytics.capture(
-            distinct_id=str(user.distinct_id),
-            event="phai_legacy_conversion",
-            properties={
-                "conversation_id": str(conversation.id),
-                "messages_total": len(state_result.state.messages),
-                "window_messages": len(window),
-                "duration_ms": int((time.monotonic() - started_at) * 1000),
-            },
-            groups={"organization": str(team.organization_id)},
-        )
-
-        if not transcript:
-            return None
-        return f"<posthog_context>{RESUMED_CONTEXT_PREFIX}\n{transcript}</posthog_context>"
-
-    def _render_legacy_transcript(self, messages: Sequence[Any]) -> str:
-        """Render windowed legacy messages to a plain-text transcript for the resumed prompt.
-
-        Covers user turns, assistant prose, tool calls + results, thinking/reasoning, and context
-        messages so the new agent sees the substance of the legacy turn — not just the chat text.
-        Visualization/notebook cards degrade to a short label; types with no useful text are skipped.
-        """
-        from posthog.schema import (  # noqa: PLC0415 — large schema module
-            AssistantMessage,
-            AssistantToolCallMessage,
-            ContextMessage,
-            HumanMessage,
-            ReasoningMessage,
-        )
-
-        lines: list[str] = []
-        for message in messages:
-            if isinstance(message, HumanMessage):
-                if message.content:
-                    lines.append(f"User: {message.content}")
-            elif isinstance(message, ReasoningMessage):
-                if message.content:
-                    lines.append(f"Thinking: {message.content}")
-            elif isinstance(message, ContextMessage):
-                if message.content:
-                    lines.append(f"Context: {message.content}")
-            elif isinstance(message, AssistantMessage):
-                if message.content:
-                    lines.append(f"Assistant: {message.content}")
-                for tool_call in message.tool_calls or []:
-                    lines.append(f"Tool call {tool_call.name}({json.dumps(tool_call.args, default=str)})")
-            elif isinstance(message, AssistantToolCallMessage):
-                if message.content:
-                    lines.append(f"Tool result: {message.content}")
-        return "\n".join(lines)
