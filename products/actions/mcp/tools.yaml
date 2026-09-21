@@ -119,6 +119,9 @@ tools:
     actions-references-list:
         operation: actions_references_list
         enabled: false
+    actions-selector-match-changes-list:
+        operation: actions_selector_match_changes_list
+        enabled: false
     actions-update:
         operation: actions_update
         enabled: false
