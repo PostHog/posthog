@@ -109,6 +109,20 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         assert volume is not None
         assert volume.total == expected_total
 
+    def test_property_ndv_counts_distinct_event_property_values_for_the_team(self):
+        sync_execute(
+            "INSERT INTO property_values (team_id, property_type, property_key, property_value, property_count) VALUES "
+            f"({self.team_id}, 'event', 'plan', 'free', 3), "
+            f"({self.team_id}, 'event', 'plan', 'free', 4), "
+            f"({self.team_id}, 'event', 'plan', 'paid', 1), "
+            f"({self.team_id}, 'person', 'plan', 'enterprise', 1), "
+            f"({self.team_id + 1}, 'event', 'plan', 'trial', 1)"
+        )
+        provider = ClickHouseStatisticsProvider(today=TODAY)
+
+        assert provider.property_ndv(self.team_id, "plan") == 2
+        assert provider.property_ndv(self.team_id, "never_sent") is None
+
     def test_team_without_data_yields_none(self):
         assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
 

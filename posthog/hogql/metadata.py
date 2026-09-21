@@ -292,6 +292,7 @@ def _attach_events_scan_estimate(
         days=estimate.days,
         events=list(estimate.events),
         time_range=ScanEstimateTimeRange(estimate.time_range),
+        upper_bound=estimate.upper_bound,
     )
 
 

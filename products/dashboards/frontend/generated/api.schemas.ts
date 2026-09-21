@@ -4875,6 +4875,8 @@ export interface EventsScanEstimateApi {
     events: string[]
     rows: number
     time_range: ScanEstimateTimeRangeApi
+    /** True when an indexed filter may narrow the read by an amount the estimate does not model, so the query reads at most `rows`. */
+    upper_bound: boolean
 }
 
 export type PredicateScopeApi = (typeof PredicateScopeApi)[keyof typeof PredicateScopeApi]

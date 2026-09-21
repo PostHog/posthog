@@ -66,6 +66,12 @@ This uses the same estimator as the SQL editor, independently of the editor's di
 Missing statistics, unsupported queries, and estimator failures leave the estimate tag absent and do not prevent execution.
 The `events_scan_estimate` timing measures the added planning work.
 
+The estimate counts rows read, not rows returned, so a property filter lowers it only when a skip index can drop granules.
+An equality or `IN` filter on an event property with a bloom filter index is scaled by the share of granules expected to hold a match.
+That share comes from the number of distinct values recorded for the property in the `property_values` table.
+A filter with no usable index does not change the estimate, because the query reads every row either way.
+Any other indexed filter sets `upper_bound`, and the SQL editor then shows "Reads up to" instead of "Reads about".
+
 Use `posthog.hogql.cost.accuracy.cost_estimate_accuracy_hogql(days=7)` to generate a HogQL query over the team's archived `query_log`.
 It compares estimated rows with actual `read_rows` for successful initial queries, grouped by plan fingerprint.
 Both row counts must be positive.

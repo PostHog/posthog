@@ -103,12 +103,14 @@ const SMALL_SCAN: EventsScanEstimate = {
     days: 30,
     events: ['$pageview'],
     time_range: ScanEstimateTimeRange.Bounded,
+    upper_bound: false,
 }
 const LARGE_OPEN_SCAN: EventsScanEstimate = {
     rows: 2_100_000_000,
     days: 365,
     events: [],
     time_range: ScanEstimateTimeRange.Open,
+    upper_bound: true,
 }
 
 export const ScanEstimateWithFilters: Story = {

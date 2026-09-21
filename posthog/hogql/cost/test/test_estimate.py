@@ -15,11 +15,36 @@ from posthog.hogql.cost.statistics import EventVolume, FixedStatisticsProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property_metadata import MaterializedColumnsByTable, PropertyMetadata
 from posthog.hogql.resolver import resolve_types
+
+from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
 NOW = datetime(2026, 9, 11, tzinfo=UTC)
 # 100k events per day, 60% pageviews, 40% signups.
 VOLUME = EventVolume(total=1_000_000, by_event={"$pageview": 600_000, "signup": 400_000}, days=10)
+WHOLE_TABLE_ROWS = 100_000 * DEFAULT_RANGE_DAYS
+
+
+def _materialized(property_name: str, *, minmax: bool = False, bloom: bool = False) -> MaterializedColumn:
+    return MaterializedColumn(
+        name=f"mat_{property_name}",
+        details=MaterializedColumnDetails(table_column="properties", property_name=property_name, is_disabled=False),
+        is_nullable=False,
+        has_minmax_index=minmax,
+        has_bloom_filter_index=bloom,
+    )
+
+
+# order_id and plan have a bloom filter, duration has a minmax index, and $browser is read from the JSON blob.
+MATERIALIZED_COLUMNS: MaterializedColumnsByTable = {
+    "events": {
+        ("order_id", "properties"): _materialized("order_id", bloom=True),
+        ("plan", "properties"): _materialized("plan", bloom=True),
+        ("uncounted", "properties"): _materialized("uncounted", bloom=True),
+        ("duration", "properties"): _materialized("duration", minmax=True),
+    }
+}
 
 
 class TestEstimateEventsScan(BaseTest):
@@ -28,7 +53,13 @@ class TestEstimateEventsScan(BaseTest):
         self.context = HogQLContext(
             database=Database.create_for(team=self.team), team_id=self.team.pk, enable_select_queries=True
         )
-        self.provider = FixedStatisticsProvider(event_volume={self.team.pk: VOLUME})
+        self.context.property_metadata = PropertyMetadata(
+            event_properties={}, materialized_columns=lambda: MATERIALIZED_COLUMNS
+        )
+        self.provider = FixedStatisticsProvider(
+            event_volume={self.team.pk: VOLUME},
+            property_ndv={(self.team.pk, "order_id"): 10_000_000, (self.team.pk, "plan"): 50},
+        )
 
     def _estimate(self, sql: str) -> EventsScanEstimate | None:
         node = cast(ast.SelectQuery, resolve_types(parse_select(sql), self.context, dialect="clickhouse"))
@@ -83,6 +114,59 @@ class TestEstimateEventsScan(BaseTest):
                 " WHERE a.timestamp > now() - interval 10 day AND a.timestamp < now() AND b.event = 'signup'",
                 EventsScanEstimate(rows=15_600_000, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
             ),
+            (
+                "indexed_equality_on_a_high_cardinality_property_reads_few_granules",
+                "SELECT count() FROM events WHERE properties.order_id = 'a1'",
+                EventsScanEstimate(rows=29_888, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+            (
+                "indexed_in_list_scales_with_the_number_of_values",
+                "SELECT count() FROM events WHERE properties.order_id IN ('a1', 'a2', 'a3')",
+                EventsScanEstimate(rows=89_592, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+            (
+                "indexed_equality_on_a_low_cardinality_property_still_reads_every_granule",
+                "SELECT count() FROM events WHERE properties.plan = 'free'",
+                EventsScanEstimate(rows=WHOLE_TABLE_ROWS, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+            (
+                "two_indexed_filters_use_the_more_selective_one",
+                "SELECT count() FROM events WHERE properties.plan = 'free' AND properties.order_id = 'a1'",
+                EventsScanEstimate(rows=29_888, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+            (
+                "indexed_filter_without_a_distinct_count_is_an_upper_bound",
+                "SELECT count() FROM events WHERE properties.uncounted = 'x'",
+                EventsScanEstimate(
+                    rows=WHOLE_TABLE_ROWS,
+                    days=float(DEFAULT_RANGE_DAYS),
+                    events=(),
+                    time_range="open",
+                    upper_bound=True,
+                ),
+            ),
+            (
+                "indexed_range_filter_is_an_upper_bound",
+                "SELECT count() FROM events WHERE properties.duration > '100'",
+                EventsScanEstimate(
+                    rows=WHOLE_TABLE_ROWS,
+                    days=float(DEFAULT_RANGE_DAYS),
+                    events=(),
+                    time_range="open",
+                    upper_bound=True,
+                ),
+            ),
+            (
+                "indexed_filter_under_or_does_not_narrow_and_is_an_upper_bound",
+                "SELECT count() FROM events WHERE properties.order_id = 'a1' OR event = 'signup'",
+                EventsScanEstimate(
+                    rows=WHOLE_TABLE_ROWS,
+                    days=float(DEFAULT_RANGE_DAYS),
+                    events=(),
+                    time_range="open",
+                    upper_bound=True,
+                ),
+            ),
         ]
     )
     def test_estimates_events_scans(self, _name, sql, expected):
@@ -92,13 +176,15 @@ class TestEstimateEventsScan(BaseTest):
         [
             ("or_between_events", "SELECT count() FROM events WHERE event = '$pageview' OR event = 'signup'"),
             ("negated_event", "SELECT count() FROM events WHERE NOT event = '$pageview'"),
-            ("property_filter_is_ignored", "SELECT count() FROM events WHERE properties.$browser = 'Chrome'"),
+            ("negated_event_in_call_form", "SELECT count() FROM events WHERE not(event = '$pageview')"),
+            ("event_compared_inside_a_function", "SELECT count() FROM events WHERE ifNull(event = '$pageview', true)"),
+            ("unindexed_property_filter", "SELECT count() FROM events WHERE properties.$browser = 'Chrome'"),
             ("unparseable_bound", "SELECT count() FROM events WHERE timestamp > toStartOfMonth(now())"),
         ]
     )
     def test_predicates_it_cannot_narrow_on_widen_to_the_whole_table(self, _name, sql):
         assert self._estimate(sql) == EventsScanEstimate(
-            rows=100_000 * DEFAULT_RANGE_DAYS, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"
+            rows=WHOLE_TABLE_ROWS, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"
         )
 
     @parameterized.expand(

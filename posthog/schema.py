@@ -5202,6 +5202,13 @@ class EventsScanEstimate(BaseModel):
     )
     rows: int
     time_range: ScanEstimateTimeRange
+    upper_bound: bool = Field(
+        ...,
+        description=(
+            "True when an indexed filter may narrow the read by an amount the estimate"
+            " does not model, so the query reads at most `rows`."
+        ),
+    )
 
 
 class ExperimentApiEventSource(BaseModel):

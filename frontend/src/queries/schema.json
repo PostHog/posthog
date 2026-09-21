@@ -24502,9 +24502,13 @@
                 },
                 "time_range": {
                     "$ref": "#/definitions/ScanEstimateTimeRange"
+                },
+                "upper_bound": {
+                    "description": "True when an indexed filter may narrow the read by an amount the estimate does not model, so the query reads at most `rows`.",
+                    "type": "boolean"
                 }
             },
-            "required": ["rows", "days", "events", "time_range"],
+            "required": ["rows", "days", "events", "time_range", "upper_bound"],
             "type": "object"
         },
         "ExperimentActorsQuery": {

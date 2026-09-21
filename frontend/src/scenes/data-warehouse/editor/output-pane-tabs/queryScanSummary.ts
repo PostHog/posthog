@@ -39,8 +39,9 @@ export function summarizeScan(estimate: EventsScanEstimate): QueryScanSummary {
             : estimate.days >= 2
               ? `${Math.round(estimate.days)} days`
               : `${Math.round(estimate.days * 24)} hours`
-    // "Up to" because property filters are not part of the estimate, so a query that has them may read less.
-    return { text: `Reads up to ${rows} events (${range})`, warn: estimate.rows >= LARGE_SCAN_ROWS }
+    // "Up to" when an indexed filter may skip data by an amount the estimate does not model.
+    const qualifier = estimate.upper_bound ? 'up to' : 'about'
+    return { text: `Reads ${qualifier} ${rows} events (${range})`, warn: estimate.rows >= LARGE_SCAN_ROWS }
 }
 
 export function summarizeQueryScan(

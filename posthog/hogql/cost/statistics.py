@@ -18,6 +18,7 @@ from django.conf import settings
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.property_values import DISTRIBUTED_TABLE_NAME as PROPERTY_VALUES_TABLE
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
@@ -64,6 +65,10 @@ class StatisticsProvider(Protocol):
 
     def event_volume(self, team_id: int) -> EventVolume | None: ...
 
+    def property_ndv(self, team_id: int, property_name: str) -> int | None:
+        """How many distinct values an event property took recently."""
+        ...
+
 
 class ClickHouseStatisticsProvider:
     """Reads statistics from the rollups ClickHouse already maintains.
@@ -75,11 +80,18 @@ class ClickHouseStatisticsProvider:
     def __init__(self, *, today: date | None = None) -> None:
         self._today = today
         self._event_volume: dict[int, EventVolume | None] = {}
+        self._property_ndv: dict[tuple[int, str], int | None] = {}
 
     def event_volume(self, team_id: int) -> EventVolume | None:
         if team_id not in self._event_volume:
             self._event_volume[team_id] = self._load_event_volume(team_id)
         return self._event_volume[team_id]
+
+    def property_ndv(self, team_id: int, property_name: str) -> int | None:
+        key = (team_id, property_name)
+        if key not in self._property_ndv:
+            self._property_ndv[key] = self._load_property_ndv(team_id, property_name)
+        return self._property_ndv[key]
 
     def _load_event_volume(self, team_id: int) -> EventVolume | None:
         today = self._today or date.today()
@@ -121,12 +133,57 @@ class ClickHouseStatisticsProvider:
             days.add(row_date)
         return EventVolume(total=sum(by_event.values()), by_event=by_event, days=len(days))
 
+    def _load_property_ndv(self, team_id: int, property_name: str) -> int | None:
+        """Count the values the property-values aggregator recorded for one event property.
+
+        Only the number of distinct values is read. ``property_count`` is not a frequency, because the
+        aggregator can suppress a value it already emitted that day. The aggregator can also cap the values it
+        keeps per key, so the count is a lower bound, which makes a filter look less selective than it is and
+        widens the estimate. A property the aggregator excludes has no rows and reads as unknown.
+        """
+        try:
+            with tags_context(
+                product=Product.INTERNAL,
+                feature=Feature.SCHEMA_INTROSPECTION,
+                team_id=team_id,
+                plan_fingerprint=None,
+                estimated_rows=None,
+                estimated_bytes=None,
+            ):
+                # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a module constant table name; team_id and the property name are bound as parameters
+                rows = sync_execute(
+                    f"""
+                    SELECT uniq(property_value)
+                    FROM {settings.CLICKHOUSE_DATABASE}.{PROPERTY_VALUES_TABLE}
+                    WHERE team_id = %(team_id)s AND property_type = 'event' AND property_key = %(property_name)s
+                    """,
+                    {"team_id": team_id, "property_name": property_name},
+                    workload=Workload.OFFLINE,
+                    team_id=team_id,
+                    readonly=True,
+                )
+        except Exception:
+            logger.warning("hogql_cost_property_ndv_unavailable", team_id=team_id, exc_info=True)
+            return None
+
+        distinct_values = int(rows[0][0]) if rows else 0
+        return distinct_values or None
+
 
 class FixedStatisticsProvider:
     """Returns the statistics it was constructed with. For tests and for callers that already hold them."""
 
-    def __init__(self, *, event_volume: Mapping[int, EventVolume] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        event_volume: Mapping[int, EventVolume] | None = None,
+        property_ndv: Mapping[tuple[int, str], int] | None = None,
+    ) -> None:
         self._event_volume = dict(event_volume or {})
+        self._property_ndv = dict(property_ndv or {})
 
     def event_volume(self, team_id: int) -> EventVolume | None:
         return self._event_volume.get(team_id)
+
+    def property_ndv(self, team_id: int, property_name: str) -> int | None:
+        return self._property_ndv.get((team_id, property_name))

@@ -5983,6 +5983,8 @@ export namespace Schemas {
       events: string[];
       rows: number;
       time_range: ScanEstimateTimeRange;
+      /** True when an indexed filter may narrow the read by an amount the estimate does not model, so the query reads at most `rows`. */
+      upper_bound: boolean;
     }
 
     export type PredicateScope = typeof PredicateScope[keyof typeof PredicateScope];

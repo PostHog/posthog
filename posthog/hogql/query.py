@@ -592,6 +592,10 @@ class HogQLQueryExecutor:
         try:
             with self.timings.measure("events_scan_estimate"):
                 context = self.hogql_context or self.context
+                if context.property_metadata is None and self.clickhouse_context is not None:
+                    # Printing already loaded the property definitions onto the ClickHouse context. Sharing
+                    # them keeps the estimator from repeating that Postgres read on every execution.
+                    context = dataclasses.replace(context, property_metadata=self.clickhouse_context.property_metadata)
                 resolved = resolve_types(clone_expr(self.select_query), context, dialect="clickhouse")
                 estimate = estimate_events_scan(resolved, context, self.statistics_provider)
                 return estimate.rows if estimate is not None else None

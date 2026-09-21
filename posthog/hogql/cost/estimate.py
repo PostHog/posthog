@@ -1,13 +1,19 @@
 """A first, deliberately crude estimate of how many events a HogQL query will read.
 
     rows = events per day  ×  days in the timestamp range  ×  share of volume carried by the filtered event names
+           ×  share of granules the most selective indexed property filter leaves
 
 It covers queries whose only physical table is ``events``: a plain select, a select over a subquery or CTE,
 a UNION of such selects, or a join whose every side is one of those. Each events scan in the tree is estimated
 on its own and the scans are summed. A join to any other table, or a select with no table, gives no estimate.
-Property filters are ignored, so the number is an upper bound on what a well-indexed query reads and close to
-exact for one that is not. The estimate is advisory. It is compared against ``read_rows`` in ``query_log`` (see
-``accuracy.py``) and a wrong number costs a misleading hint, never a failed query.
+The estimate is advisory. It is compared against ``read_rows`` in ``query_log`` (see ``accuracy.py``) and a
+wrong number costs a misleading hint, never a failed query.
+
+The number is rows read, not rows returned, so a property filter counts only when a skip index can rule out
+granules for it. A filter with no usable index reads every row, which the estimate already assumes. An
+equality or IN filter on an event property with a bloom filter index narrows the read to the granules expected
+to hold a match (see ``_granule_fraction``). Any other indexed filter may narrow the read by an amount the
+estimator cannot model, so the estimate reports itself as an upper bound.
 
 Anything the estimator does not understand widens the estimate rather than narrowing it: an unparseable date
 bound means "the whole window", an unrecognised event predicate means "all events", and a predicate on an
@@ -23,12 +29,17 @@ from posthog.hogql.base import CTE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.statistics import EventVolume, StatisticsProvider
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.index_eligibility import IndexKind, eligibility_from_plan
+from posthog.hogql.property_planner import PropertyScope, plan_property_comparison
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 
 # A team's retention rarely exceeds this, and a query with no timestamp bound reads whatever exists.
 DEFAULT_RANGE_DAYS = 365
+
+# ClickHouse reads whole granules, and a skip index rules a granule out only when no row in it can match.
+GRANULE_ROWS = 8192
 
 _INTERVAL_DAYS: dict[str, float] = {
     "toIntervalSecond": 1 / 86_400,
@@ -51,6 +62,9 @@ class EventsScanEstimate:
     # ``bounded`` when both ends of the timestamp range were understood, ``open`` when the estimate fell back
     # to DEFAULT_RANGE_DAYS on at least one side.
     time_range: Literal["bounded", "open"]
+    # True when an indexed filter may narrow the read by an amount the estimator could not model, so the
+    # query reads at most ``rows``. False when every filter was accounted for and ``rows`` is a point estimate.
+    upper_bound: bool = False
 
     def __post_init__(self) -> None:
         if self.rows < 0 or self.days < 0:
@@ -68,7 +82,14 @@ def estimate_events_scan(
     if context.team_id is None:
         return None
     now = now or datetime.now(UTC)
-    scans = _events_scans(node, now, ctes={})
+    if context.property_metadata is None:
+        # Deferred for the same reason as in index_eligibility: the Django-side property-definition loader
+        # must stay off this module's import path. Without the metadata every property plans as a JSON read
+        # and no filter is ever seen as indexed.
+        from posthog.hogql.transforms.property_types import build_property_swapper  # noqa: PLC0415
+
+        build_property_swapper(node, context)
+    scans = _events_scans(node, now, context, ctes={})
     if not scans:
         return None
 
@@ -79,13 +100,24 @@ def estimate_events_scan(
     rows = 0
     days = 0.0
     bounded = True
+    upper_bound = False
     reads_every_event = False
     narrowed_to: set[str] = set()
     for scan in scans:
         fraction = _event_fraction(volume, scan.events)
-        rows += int(volume.per_day * scan.days * fraction)
+        granules_read = 1.0
+        for property_filter in scan.property_filters:
+            distinct_values = provider.property_ndv(context.team_id, property_filter.property_name)
+            if distinct_values is None:
+                upper_bound = True
+                continue
+            # The filters are not multiplied together. Properties on one event are often correlated, and the
+            # product of two fractions that assume independence narrows far more than the data does.
+            granules_read = min(granules_read, _granule_fraction(property_filter.values, distinct_values))
+        rows += int(volume.per_day * scan.days * fraction * granules_read)
         days = max(days, scan.days)
         bounded = bounded and scan.bounded
+        upper_bound = upper_bound or scan.unmodelled_filter
         if fraction < 1:
             narrowed_to.update(scan.events)
         else:
@@ -95,7 +127,29 @@ def estimate_events_scan(
         days=days,
         events=() if reads_every_event else tuple(sorted(narrowed_to)),
         time_range="bounded" if bounded else "open",
+        upper_bound=upper_bound,
     )
+
+
+def _granule_fraction(values: int, distinct_values: int) -> float:
+    """Share of granules expected to hold at least one row matching an equality on ``values`` constants.
+
+    Assumes the property's values are spread evenly over rows and over the table, because the events sort
+    key does not order by any property. Under that assumption a filter narrows the read only when the
+    property has far more distinct values than a granule has rows: a few thousand distinct values already
+    put a match in nearly every granule. Bloom filter false positives are not modelled.
+    """
+    match_probability = min(values / distinct_values, 1.0)
+    return 1.0 - (1.0 - match_probability) ** GRANULE_ROWS
+
+
+@frozen
+class _PropertyFilter:
+    """An equality or IN on an event property that a bloom filter index can prune granules for."""
+
+    property_name: str
+    # How many constants the property is compared against: one for ``=``, the set size for IN.
+    values: int
 
 
 @frozen
@@ -105,6 +159,9 @@ class _EventsScan:
     days: float
     bounded: bool
     events: frozenset[str]
+    property_filters: tuple[_PropertyFilter, ...] = ()
+    # An indexed filter applies to this scan but its effect on the read is not modelled.
+    unmodelled_filter: bool = False
 
 
 @frozen
@@ -124,7 +181,9 @@ def _events_table(table_type: ast.Type | None) -> _EventsTableRef | None:
     return None
 
 
-def _events_scans(node: ast.Expr, now: datetime, ctes: Mapping[str, CTE]) -> list[_EventsScan] | None:
+def _events_scans(
+    node: ast.Expr, now: datetime, context: HogQLContext, ctes: Mapping[str, CTE]
+) -> list[_EventsScan] | None:
     """Every events scan a query's FROM clause performs, or None when any part of it reads another table.
 
     ``ctes`` are the subquery CTEs in scope. The resolver leaves a CTE reference in the FROM clause typed
@@ -136,7 +195,7 @@ def _events_scans(node: ast.Expr, now: datetime, ctes: Mapping[str, CTE]) -> lis
         scans: list[_EventsScan] = []
         in_scope = dict(ctes)
         for branch in node.select_queries():
-            branch_scans = _events_scans(branch, now, in_scope)
+            branch_scans = _events_scans(branch, now, context, in_scope)
             if branch_scans is None:
                 return None
             scans.extend(branch_scans)
@@ -149,7 +208,7 @@ def _events_scans(node: ast.Expr, now: datetime, ctes: Mapping[str, CTE]) -> lis
     if node.ctes:
         ctes = {**ctes, **node.ctes}
 
-    predicates = _WherePredicates(now=now)
+    predicates = _WherePredicates(now=now, context=context)
     if node.where is not None:
         predicates.visit(node.where)
 
@@ -162,7 +221,7 @@ def _events_scans(node: ast.Expr, now: datetime, ctes: Mapping[str, CTE]) -> lis
         if isinstance(source, _EventsTableRef):
             scans.append(predicates.scan_for(source.alias))
         else:
-            inner = _events_scans(source, now, ctes)
+            inner = _events_scans(source, now, context, ctes)
             if inner is None:
                 return None
             scans.extend(inner)
@@ -197,19 +256,24 @@ def _event_fraction(volume: EventVolume, events: frozenset[str]) -> float:
 
 
 class _WherePredicates(TraversingVisitor):
-    """Collects timestamp bounds and event-name equality filters from a WHERE clause, per events table alias.
+    """Collects timestamp bounds, event-name filters and indexed property filters from a WHERE clause.
 
-    Only the top-level AND chain narrows the estimate. Anything under OR or NOT is skipped, because a
-    disjunction can widen the scan back to the whole table and the estimator must never narrow on it.
+    Only the top-level AND chain narrows the estimate. Anything under OR, NOT or a function call is skipped,
+    because a disjunction can widen the scan back to the whole table and the estimator must never narrow on it.
     Keyed by alias so that in a self-join ``a.timestamp > x`` narrows the scan of ``a`` and not of ``b``.
     """
 
-    def __init__(self, *, now: datetime) -> None:
+    def __init__(self, *, now: datetime, context: HogQLContext) -> None:
         super().__init__()
         self._now = now
+        self._context = context
         self._lower_bounds: dict[str | None, datetime] = {}
         self._upper_bounds: dict[str | None, datetime] = {}
         self._events: dict[str | None, set[str]] = {}
+        self._property_filters: dict[str | None, list[_PropertyFilter]] = {}
+        # Set when an indexed filter cannot be pinned to one scan or modelled. It applies to every scan of
+        # the select, because a filter under OR or on a joined table cannot be attributed to one alias.
+        self._unmodelled_filter = False
 
     def scan_for(self, alias: str | None) -> _EventsScan:
         since = self._lower_bounds.get(alias)
@@ -221,13 +285,28 @@ class _WherePredicates(TraversingVisitor):
             days=max((until - since).total_seconds() / 86_400, 0.0),
             bounded=bounded,
             events=frozenset(self._events.get(alias, ())),
+            property_filters=tuple(self._property_filters.get(alias, ())),
+            unmodelled_filter=self._unmodelled_filter,
         )
 
     def visit_or(self, node: ast.Or) -> None:
-        return
+        self._skip(node)
 
     def visit_not(self, node: ast.Not) -> None:
-        return
+        self._skip(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        # ``not (x)`` and ``or(x, y)`` parse to calls, and any other function can turn a comparison into
+        # something that no longer restricts rows. Only the call form of AND keeps its arguments as filters.
+        if node.name.lower() == "and":
+            super().visit_call(node)
+        else:
+            self._skip(node)
+
+    def _skip(self, node: ast.Expr) -> None:
+        finder = _IndexedFilterFinder(self._context)
+        finder.visit(node)
+        self._unmodelled_filter = self._unmodelled_filter or finder.found
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         return
@@ -242,6 +321,31 @@ class _WherePredicates(TraversingVisitor):
                 self._record_timestamp(alias, node.op, value_side, flipped)
             elif column == "event" and node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In):
                 self._events.setdefault(alias, set()).update(_string_constants(value_side))
+        self._record_property_filter(node)
+
+    def _record_property_filter(self, node: ast.CompareOperation) -> None:
+        plan = plan_property_comparison(node, self._context)
+        if plan is None:
+            return
+        eligibility = eligibility_from_plan(plan)
+        if not eligibility.prunes_data:
+            return
+
+        table = _events_table(plan.access.property_type.field_type.table_type)
+        value_side = node.right if plan.property_side == "left" else node.left
+        values = _constant_count(value_side)
+        modelled = (
+            plan.access.scope == PropertyScope.EVENT
+            and plan.operator in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In)
+            and IndexKind.BLOOM_FILTER in eligibility.usable_indexes
+            and values > 0
+        )
+        if table is None or not modelled:
+            self._unmodelled_filter = True
+            return
+        self._property_filters.setdefault(table.alias, []).append(
+            _PropertyFilter(property_name=plan.access.property_name, values=values)
+        )
 
     def _record_timestamp(self, alias: str | None, op: ast.CompareOperationOp, value: ast.Expr, flipped: bool) -> None:
         moment = _constant_datetime(value, self._now)
@@ -257,6 +361,24 @@ class _WherePredicates(TraversingVisitor):
         elif less:
             current = self._upper_bounds.get(alias)
             self._upper_bounds[alias] = min(current, moment) if current else moment
+
+
+class _IndexedFilterFinder(TraversingVisitor):
+    """Reports whether a subtree holds a property comparison that a skip index can prune."""
+
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__()
+        self._context = context
+        self.found = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        plan = plan_property_comparison(node, self._context)
+        if plan is not None and eligibility_from_plan(plan).prunes_data:
+            self.found = True
+        super().visit_compare_operation(node)
 
 
 def _events_column(expr: ast.Expr) -> tuple[str | None, str] | None:
@@ -282,6 +404,16 @@ def _string_constants(expr: ast.Expr) -> list[str]:
     if isinstance(expr, ast.Tuple | ast.Array):
         return [value for item in expr.exprs for value in _string_constants(item)]
     return []
+
+
+def _constant_count(expr: ast.Expr) -> int:
+    """How many constants ``expr`` lists, or 0 when any part of it is not a constant."""
+    if isinstance(expr, ast.Constant):
+        return 1
+    if isinstance(expr, ast.Tuple | ast.Array):
+        counts = [_constant_count(item) for item in expr.exprs]
+        return sum(counts) if all(counts) else 0
+    return 0
 
 
 def _constant_datetime(expr: ast.Expr, now: datetime) -> datetime | None:
