@@ -382,6 +382,18 @@ export interface maxLogicMeta {
 
 export type maxLogicType = MakeLogicType<maxLogicValues, maxLogicActions, MaxLogicProps, maxLogicMeta>
 
+function withoutIds(state: Record<string, true>, ids: string[]): Record<string, true> {
+    const present = ids.filter((id) => id in state)
+    if (present.length === 0) {
+        return state
+    }
+    const rest = { ...state }
+    for (const id of present) {
+        delete rest[id]
+    }
+    return rest
+}
+
 export const maxLogic = kea<maxLogicType>([
     props({} as MaxLogicProps),
     key((props) => props.panelId || SCENE_PANEL_ID),
@@ -490,14 +502,12 @@ export const maxLogic = kea<maxLogicType>([
             {} as Record<string, true>,
             {
                 markConversationNotFound: (state, { conversationId }) => ({ ...state, [conversationId]: true }),
-                prependOrReplaceConversation: (state, { conversation }) => {
-                    if (!(conversation.id in state)) {
-                        return state
-                    }
-                    const rest = { ...state }
-                    delete rest[conversation.id]
-                    return rest
-                },
+                prependOrReplaceConversation: (state, { conversation }) => withoutIds(state, [conversation.id]),
+                loadConversationHistorySuccess: (state, { conversationHistory }) =>
+                    withoutIds(
+                        state,
+                        conversationHistory.map((conversation) => conversation.id)
+                    ),
                 startNewConversation: () => ({}),
             },
         ],

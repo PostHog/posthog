@@ -282,18 +282,20 @@ describe('maxLogic', () => {
         expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
     })
 
-    it('asks only once for a chat the server does not have', async () => {
+    it('asks only once for a chat the server does not have, until it turns up', async () => {
         const missingConversationId = 'missing-conversation-id'
+        const missingConversation = { ...MOCK_CONVERSATION, id: missingConversationId }
         let requests = 0
+        let listed: ConversationDetail[] = []
 
         useMocks({
             ...maxMocks,
             get: {
                 ...maxMocks.get,
-                '/api/environments/:team_id/conversations/': { results: [] },
+                '/api/environments/:team_id/conversations/': () => [200, { results: listed }],
                 [`/api/environments/:team_id/conversations/${missingConversationId}`]: () => {
                     requests += 1
-                    return [404, { detail: 'Not found' }]
+                    return listed.length > 0 ? [200, missingConversation] : [404, { detail: 'Not found' }]
                 },
             },
         })
@@ -318,6 +320,19 @@ describe('maxLogic', () => {
             .toFinishAllListeners()
 
         expect(requests).toBe(1)
+
+        // A chat that turns up in the list is no longer missing, so it must be fetchable again.
+        listed = [missingConversation as ConversationDetail]
+        await expectLogic(logic, () => {
+            logic.actions.loadConversationHistory()
+        })
+            .toDispatchActions(['loadConversationHistorySuccess'])
+            .toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(missingConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(2)
     })
 
     it('manages suggestion group selection correctly', async () => {
