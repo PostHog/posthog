@@ -143,7 +143,7 @@ def normalize_site_url(raw: str) -> str:
     site = raw.strip()
 
     # The Search Console UI URL carries the property in its `resource_id` query param.
-    if site.startswith(SEARCH_CONSOLE_UI_PREFIX):
+    if is_search_console_ui_url(site):
         resource_id = parse_qs(urlparse(site).query).get("resource_id")
         if resource_id:
             site = resource_id[0].strip()

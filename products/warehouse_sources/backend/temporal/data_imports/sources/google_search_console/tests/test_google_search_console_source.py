@@ -523,9 +523,16 @@ def test_validate_credentials_rejects_the_search_console_dashboard_url(site_url)
     list_sites.assert_not_called()
 
 
-def test_validate_credentials_still_reads_a_property_out_of_a_dashboard_url():
+@pytest.mark.parametrize(
+    "site_url",
+    [
+        "https://search.google.com/search-console?resource_id=sc-domain%3Aexample.com",
+        "HTTPS://Search.Google.com/search-console?resource_id=sc-domain%3Aexample.com",
+    ],
+)
+def test_validate_credentials_still_reads_a_property_out_of_a_dashboard_url(site_url):
     config = GoogleSearchConsoleSourceConfig(
-        site_url="https://search.google.com/search-console?resource_id=sc-domain%3Aexample.com",
+        site_url=site_url,
         google_search_console_integration_id=1,
     )
     with (
