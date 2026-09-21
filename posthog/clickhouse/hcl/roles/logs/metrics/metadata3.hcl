@@ -129,7 +129,7 @@ database "posthog" {
     }
   }
   table "metric_series4" {
-    partition_by = "toDate(original_expiry_timestamp)"
+    partition_by = "toMonday(original_expiry_timestamp)"
     order_by     = ["team_id", "metric_name", "series_fingerprint", "time_bucket"]
     ttl          = "original_expiry_timestamp"
     settings = {
@@ -206,6 +206,11 @@ database "posthog" {
     }
     index "idx_timestamp_minmax" {
       expr        = "timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_time_bucket_minmax" {
+      expr        = "time_bucket"
       type        = "minmax"
       granularity = 1
     }

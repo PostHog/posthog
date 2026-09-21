@@ -1439,7 +1439,7 @@ SQL
 
   table "metric_series4" {
     order_by     = ["team_id", "metric_name", "series_fingerprint", "time_bucket"]
-    partition_by = "toDate(original_expiry_timestamp)"
+    partition_by = "toMonday(original_expiry_timestamp)"
     ttl          = "original_expiry_timestamp"
     settings = {
       index_granularity = "8192"
@@ -1515,6 +1515,11 @@ SQL
     }
     index "idx_timestamp_minmax" {
       expr        = "timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_time_bucket_minmax" {
+      expr        = "time_bucket"
       type        = "minmax"
       granularity = 1
     }

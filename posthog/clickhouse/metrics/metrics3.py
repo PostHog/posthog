@@ -69,10 +69,11 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES4_TABLE_NAME}
     INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-    INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1
+    INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+    INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
 )
 ENGINE = {ReplacingMergeTree(METRIC_SERIES4_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED, ver="timestamp")}
-PARTITION BY toDate(original_expiry_timestamp)
+PARTITION BY toMonday(original_expiry_timestamp)
 ORDER BY (team_id, metric_name, series_fingerprint, time_bucket)
 TTL original_expiry_timestamp
 SETTINGS index_granularity = 8192
