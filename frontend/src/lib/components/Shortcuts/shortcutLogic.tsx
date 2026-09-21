@@ -227,6 +227,13 @@ export const shortcutLogic = kea<shortcutLogicType>([
             const now = Date.now()
             const key = event.key.toLowerCase()
 
+            // Reset if too much time has passed (1.5s). This runs before the single-key
+            // lookup below so an abandoned sequence never suppresses a single-key shortcut.
+            if (now - cache.sequenceLastKeyTime > 1500) {
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
+            }
+
             // Check for single-key shortcuts first (immediate trigger, no sequence)
             // Since single key shortcuts trigger eagerly, sequence shortcuts need to
             // check for collisions before being implemented. We could also make this
@@ -254,11 +261,6 @@ export const shortcutLogic = kea<shortcutLogicType>([
                 return
             }
 
-            // Reset if too much time has passed (1.5s)
-            if (now - cache.sequenceLastKeyTime > 1500) {
-                cache.sequenceKeys = []
-                cache.sequenceShortcut = null
-            }
             cache.sequenceLastKeyTime = now
 
             // Build up the sequence
