@@ -109,7 +109,7 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
 const SUMMARY_PREVIEWED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
 
 const SUMMARY_NOTE =
-    'Event content is previewed. Re-run this tool with detail: "full" for complete prompts, outputs, and custom properties, or open the trace in PostHog.'
+    'Event content is previewed. Re-run this tool with detail: "full" for complete prompts and outputs, or open the trace in PostHog.'
 
 function metaReserveFor(budget: number): number {
     return Math.min(META_RESERVE, Math.floor(Math.max(0, budget) * SMALL_BUDGET_RESERVE_RATIO))
@@ -119,7 +119,7 @@ function minItemBudgetFor(budget: number): number {
     return Math.min(MIN_ITEM_BUDGET, Math.floor(Math.max(0, budget) * SMALL_BUDGET_MIN_ITEM_RATIO))
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
@@ -149,7 +149,7 @@ function encodedStringLength(value: string): number {
  * would set the clone's prototype instead of creating an own property and drop
  * the value from serialization.
  */
-function assignKey(target: Record<string, unknown>, key: string, value: unknown): void {
+export function assignKey(target: Record<string, unknown>, key: string, value: unknown): void {
     if (key === '__proto__') {
         Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true })
     } else {
