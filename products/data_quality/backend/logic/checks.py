@@ -39,7 +39,7 @@ from .errors import (
 from .exceptions import CheckNameConflict
 from .health import CheckStatusRow, roll_up_health
 from .registry import get_spec
-from .schedules import provision_metric_schedule
+from .schedules import provision_schedule
 from .serialization import compute_fingerprint
 from .spec import CheckConfig
 from .subjects import resolve_subject, subject_column_type
@@ -167,7 +167,9 @@ def upsert_check(
                     **fields,
                 )
                 if check.subject_type == SubjectType.METRIC and check.metric_id:
-                    transaction.on_commit(partial(provision_metric_schedule, check.team_id, str(check.metric_id)))
+                    transaction.on_commit(
+                        partial(provision_schedule, check.team_id, subject_type, str(check.subject_uuid))
+                    )
             return check, True
         except IntegrityError:
             # Check-then-insert race: a concurrent identical request inserted this fingerprint between

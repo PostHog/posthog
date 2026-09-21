@@ -715,7 +715,7 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         writing = request.method == "PATCH"
         subject = self._named_subject(request.data if writing else request.query_params)
         self._require_subject(subject, write=writing)
-        if subject.subject_type != SubjectType.METRIC:
+        if not api.runs_on_a_schedule(SubjectType(subject.subject_type)):
             raise ValidationError(
                 {"subject_type": f"A {subject.subject_type}'s checks run when its data changes, not on a schedule."}
             )
@@ -726,7 +726,7 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             self._require_enabled_check_access(subject)
             update = DataQualityCheckScheduleUpdateSerializer(data=request.data)
             update.is_valid(raise_exception=True)
-        schedule: api.MetricCheckSchedule | None
+        schedule: api.CheckSchedule | None
         try:
             if writing:
                 schedule = api.update_schedule(
