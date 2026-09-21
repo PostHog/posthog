@@ -188,40 +188,36 @@ export function StartupProgram(): JSX.Element {
         <div data-quill className="@container/startup-page flex min-h-full">
             <div className="@container/startup-content flex-1 min-w-0 px-3 py-6 pb-16 @min-[32rem]/startup-content:px-4">
                 <div className="mx-auto flex max-w-[1000px] flex-col gap-8">
-                    {isYC ? (
-                        <div className="flex flex-col items-center gap-4 @min-[32rem]/startup-content:mt-8">
-                            <div className="w-full max-w-60 px-4 @min-[32rem]/startup-content:max-w-100">
+                    <div className="flex flex-col items-center gap-2 @min-[32rem]/startup-content:flex-row @min-[32rem]/startup-content:items-end @min-[32rem]/startup-content:gap-4">
+                        <div className="w-24 shrink-0 @min-[32rem]/startup-content:w-35">
+                            {isYC ? (
                                 <HedgehogHogpatch className="h-auto w-full" />
-                            </div>
-                            <div className="flex flex-col gap-2 text-center">
-                                <Heading size="2xl" render={<h1 />}>
-                                    You've found our secret Y Combinator offer!
-                                </Heading>
+                            ) : (
+                                <HedhehogClimber1 className="h-auto w-full" />
+                            )}
+                        </div>
+                        <div className="flex flex-col gap-2 text-center">
+                            <Heading size="2xl" render={<h1 />}>
+                                {isYC
+                                    ? "You've found our secret Y Combinator offer!"
+                                    : isReferralProgram && referrerDisplayName
+                                      ? `PostHog x ${referrerDisplayName}`
+                                      : "Apply for PostHog's startup program"}
+                            </Heading>
+                            {isYC ? (
                                 <Text variant="muted">
                                     Get $50,000 in credits <span className="font-semibold">every. year. forever.</span>{' '}
                                     (plus extras you'll actually use) to help you get to product-market fit. You'll keep
                                     getting them until you hit $25M in funding.
                                 </Text>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 @min-[32rem]/startup-content:flex-row @min-[32rem]/startup-content:items-end @min-[32rem]/startup-content:gap-4">
-                            <div className="w-24 shrink-0 @min-[32rem]/startup-content:w-35">
-                                <HedhehogClimber1 className="h-auto w-full" />
-                            </div>
-                            <div className="flex flex-col gap-2 text-center">
-                                <Heading size="2xl" render={<h1 />}>
-                                    {isReferralProgram && referrerDisplayName
-                                        ? `PostHog x ${referrerDisplayName}`
-                                        : "Apply for PostHog's startup program"}
-                                </Heading>
+                            ) : (
                                 <Text variant="muted">
                                     Get $50,000 in credits (plus extras you'll actually use) to help you get to
                                     product-market fit.
                                 </Text>
-                            </div>
+                            )}
                         </div>
-                    )}
+                    </div>
 
                     <div className="grid items-start gap-4 @min-[56rem]/startup-content:grid-cols-2">
                         <Card flush>
