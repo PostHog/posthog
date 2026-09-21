@@ -171,7 +171,8 @@ $ uvx owners-yaml==0.2.0 lint
 ✓ owners.yaml lint passed (1 warning(s))
 ```
 
-`lint` fails on schema errors, a directory with two ownership files, and `owners.yaml` files in reserved locations.
+`lint` fails on schema errors, a directory with two ownership files, `owners.yaml` files in reserved locations, and a rule that names a directory without the trailing `/`.
+Write `docs/` for a directory, because `docs` also matches a file called `docs`.
 It warns about rule patterns that match no tracked file, and it reports coverage.
 `lint --live` also checks each team slug and `@handle` against the GitHub organization in `github_org`, or in `--org`.
 Pass the changed ownership files as arguments to check only those.

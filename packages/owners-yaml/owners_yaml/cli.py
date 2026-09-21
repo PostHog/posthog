@@ -17,9 +17,9 @@ import click
 from .census import census
 from .codeowners import project_repo
 from .github import GitHubLookupError, GitHubOrg
-from .matcher import compile_pattern, normalize_path
+from .matcher import PatternMatcher, compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
-from .schema import RepoSettings, is_simple_owners_file, normalize_owners
+from .schema import RepoSettings, is_simple_owners_file, match_is_glob, normalize_owners
 
 # GitHub Actions parses every YAML file under this directory as a workflow, in any repo.
 BUILTIN_RESERVED_DIRS = (".github/workflows/**",)
@@ -250,6 +250,19 @@ def _live_scope(owners_by_file: dict[str, set[str]], paths: tuple[str, ...]) -> 
     return {owner for rel, owners in owners_by_file.items() if rel in wanted for owner in owners}
 
 
+def _bare_directory_match(match: str, matcher: PatternMatcher, rel_paths: list[str]) -> bool:
+    """Whether a rule spells a directory without the trailing ``/``.
+
+    A literal last segment matches a file of that name and everything below a directory of that
+    name, so ``docs`` can quietly claim a file called ``docs`` too. ``docs/`` says which one is
+    meant. A tracked path below the name, rather than the name itself, shows that it is a directory.
+    """
+    if match_is_glob(match) or match.endswith("/") or "\\" in match:
+        return False
+    name = match.lstrip("/")
+    return any(rp != name and not rp.endswith(f"/{name}") and matcher.test(rp) for rp in rel_paths)
+
+
 @click.command(name="owners:lint", help="Validate owners.yaml files, conflicts, dead globs, and coverage")
 @click.option("--live", is_flag=True, help="Also validate team slugs and @handles against the GitHub org")
 @org_option
@@ -322,6 +335,8 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
             matcher = compile_pattern(rule.match)
             if not any(matcher.test(rp) for rp in rel_paths):
                 warnings.append(f"{rel}: rule '{rule.match}' matches zero tracked files (dead glob)")
+            elif _bare_directory_match(rule.match, matcher, rel_paths):
+                errors.append(f"{rel}: rule '{rule.match}' names a directory; write '{rule.match}/'")
 
     if live:
         github = GitHubOrg(_github_org(org, settings))

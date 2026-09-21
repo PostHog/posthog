@@ -301,7 +301,7 @@ This section describes the reference implementation. It is not part of the forma
 
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
 - It removes the placeholder owner `team-CHANGEME` from every owners list.
-- Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
+- Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
   | Key                  | Meaning                                                                                                                                          |

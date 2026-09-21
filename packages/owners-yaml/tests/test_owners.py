@@ -993,6 +993,29 @@ def test_cli_lint_reports_no_alias_conflict_the_resolver_does_not_see(tmp_path: 
     assert "has both" not in result.output
 
 
+@pytest.mark.parametrize(
+    "match,error",
+    [
+        ("docs", True),
+        ("/web/docs", True),
+        ("docs/", False),
+        ("README.md", False),
+        ("/web/docs/guide.md", False),
+    ],
+)
+def test_cli_lint_rejects_a_directory_rule_without_a_trailing_slash(tmp_path: Path, match: str, error: bool) -> None:
+    _write(
+        tmp_path, "owners.yaml", f"version: 1\nowners: [team-a]\nrules:\n  - match: '{match}'\n    owners: [team-b]\n"
+    )
+    _write(tmp_path, "web/docs/guide.md", "")
+    _write(tmp_path, "README.md", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert ("names a directory" in result.output) is error, result.output
+    assert (result.exit_code != 0) is error
+
+
 def test_cli_lint_reports_two_aliases_with_owners_in_one_directory(tmp_path: Path) -> None:
     _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\nalias_files: [product.yaml, package.yaml]\n")
     _write(tmp_path, "web/product.yaml", "owners:\n  - team-web\n")
