@@ -901,6 +901,13 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             )
             return None
 
+    def authenticate_header(self, request) -> str:
+        # DRF builds the WWW-Authenticate challenge from the first authenticator only, and
+        # `TeamAndOrgViewSetMixin` puts this class first on every view with `sharing_enabled_actions`.
+        # Without a challenge value DRF downgrades the 401 to a 403, so a Bearer client cannot tell an
+        # expired token from a permission error and never refreshes.
+        return self.keyword
+
 
 def _record_agent_attribution(request: Union[HttpRequest, Request], access_token: OAuthAccessToken) -> None:
     """Record a trusted task binding, or intent from a Desktop OAuth application.

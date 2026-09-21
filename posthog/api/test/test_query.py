@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 import time_machine
 from posthog.test.base import (
@@ -14,6 +15,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -50,6 +52,7 @@ from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
@@ -1371,6 +1374,50 @@ A_STORED_SCAN = stored_slot(
     )
 )
 A_CLAIMED_SCAN = json.dumps({"pending": True})
+
+
+class TestQueryOAuthChallenge(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        application = OAuthApplication.objects.create(
+            name="Test App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
+        self.expired_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_query_expired_token",
+            expires=timezone.now() - timedelta(hours=1),
+            scope="query:read",
+        )
+        self.client.logout()
+
+    @parameterized.expand(
+        [
+            ("create", "post", {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}}),
+            ("retrieve", "get", None),
+        ]
+    )
+    def test_expired_oauth_token_is_rejected_with_401(self, _label, method, payload):
+        # `sharing_enabled_actions` makes a sharing authenticator first on this view, and DRF reads
+        # the WWW-Authenticate challenge from that one alone. A missing challenge turns the 401 into
+        # a 403, which Bearer clients read as "no permission" instead of "refresh the token".
+        url = f"/api/projects/{self.team.id}/query/"
+        if method == "get":
+            url += f"{UUIDT()}/"
+        response = getattr(self.client, method)(
+            url,
+            payload,
+            HTTP_AUTHORIZATION=f"Bearer {self.expired_token.token}",
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.content
+        assert response.headers["WWW-Authenticate"].startswith("Bearer")
 
 
 class TestQueryScan(APIBaseTest):

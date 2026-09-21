@@ -121,31 +121,37 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
                 return
             }
 
+            let firstFailure: unknown = null
+            const skipOnFailure =
+                (label: string) =>
+                (e: unknown): null => {
+                    logger.warn(`${label} failed:`, e)
+                    firstFailure = firstFailure ?? e
+                    return null
+                }
+
             try {
                 const [eventTrends, topEvents, featureFlags, journeys, webOverview] = await Promise.all([
-                    client.fetchEventTrends(projectId, timeframe.days).catch((e: unknown) => {
-                        logger.warn('Event trends query failed:', e)
-                        return null
-                    }),
-                    client.fetchTopEvents(projectId, timeframe.days).catch((e: unknown) => {
-                        logger.warn('Top events query failed:', e)
-                        return null
-                    }),
-                    client.fetchFeatureFlags(projectId).catch((e: unknown) => {
-                        logger.warn('Feature flags API failed:', e)
-                        return null
-                    }),
-                    loadJourneyFunnels(client, projectId).catch((e: unknown) => {
-                        logger.warn('Customer journeys API failed:', e)
-                        return null
-                    }),
-                    client.fetchWebOverview(projectId, timeframe.value).catch((e: unknown) => {
-                        logger.warn('Web overview API failed:', e)
-                        return null
-                    }),
+                    client.fetchEventTrends(projectId, timeframe.days).catch(skipOnFailure('Event trends query')),
+                    client.fetchTopEvents(projectId, timeframe.days).catch(skipOnFailure('Top events query')),
+                    client.fetchFeatureFlags(projectId).catch(skipOnFailure('Feature flags API')),
+                    loadJourneyFunnels(client, projectId).catch(skipOnFailure('Customer journeys API')),
+                    client.fetchWebOverview(projectId, timeframe.value).catch(skipOnFailure('Web overview API')),
                 ])
 
                 if (cancelled) {
+                    return
+                }
+                // A successful request never yields null, so all-null means every request failed.
+                // Reporting that beats rendering zero visitors and no feature flags.
+                if ([eventTrends, topEvents, featureFlags, journeys, webOverview].every((r) => r === null)) {
+                    setState({
+                        ...INITIAL_STATE,
+                        loading: false,
+                        journeysLoading: false,
+                        webOverviewLoading: false,
+                        error: connectionErrorMessage(firstFailure),
+                    })
                     return
                 }
                 setState({
@@ -399,6 +405,11 @@ const OverviewTab = ({ client, projectId }: Props): JSX.Element => {
 }
 
 export default OverviewTab
+
+function connectionErrorMessage(failure: unknown): string {
+    const detail = failure instanceof Error ? failure.message : String(failure)
+    return `PostHog returned an error for every request. Check the connection in the app settings, then reload. (${detail})`
+}
 
 function formatCompact(n: number): string {
     if (n >= 1_000_000) {

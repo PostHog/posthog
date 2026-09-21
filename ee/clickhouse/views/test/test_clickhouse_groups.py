@@ -1498,7 +1498,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{other_team.id}/groups_types?sharing_access_token={sharing_configuration.access_token}"
         )
 
-        self.assertEqual(disabled_response.status_code, 403, disabled_response.json())
+        self.assertEqual(disabled_response.status_code, 401, disabled_response.json())
         self.assertEqual(
             disabled_response.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),

@@ -217,8 +217,9 @@ export class PostHogClient {
 
         let response = await fetch(url, { ...options, headers })
 
-        // If we get a 401 and we have a client_id, try refreshing the token and retrying once.
-        if (response.status === 401 && this.clientId) {
+        // An expired token surfaces as 401 on most endpoints and as 403 on a few, so both
+        // statuses have to reach the refresh.
+        if ((response.status === 401 || response.status === 403) && this.clientId) {
             await this.refreshAccessToken()
             headers.Authorization = `Bearer ${this.accessToken}`
             response = await fetch(url, { ...options, headers })
