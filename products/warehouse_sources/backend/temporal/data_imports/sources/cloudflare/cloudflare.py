@@ -4,6 +4,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from requests import Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
     ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
@@ -317,6 +319,23 @@ def _transient_status(status: int | None) -> bool:
     return status is None or status == 429 or status >= 500
 
 
+@frozen
+class TokenCheck:
+    """Outcome of checking an API token against Cloudflare.
+
+    ``status`` is ``None`` when Cloudflare was never reached, which is what keeps a refused
+    token distinguishable from a request that never got an answer.
+    """
+
+    is_valid: bool
+    status: int | None
+    reason: str | None = None
+
+    @property
+    def is_transient(self) -> bool:
+        return not self.is_valid and _transient_status(self.status)
+
+
 def _cloudflare_error(response: Response) -> str | None:
     """Cloudflare's own reason for refusing a request, from the `errors` array it returns.
 
@@ -358,13 +377,8 @@ def _succeeded(response: Response) -> bool:
         return False
 
 
-def validate_credentials(api_token: str) -> tuple[bool, int | None, str | None]:
+def validate_credentials(api_token: str) -> TokenCheck:
     """Confirm the API token can reach the data the connector syncs.
-
-    Returns ``(is_valid, status_code, reason)``. ``status_code`` is ``None`` when Cloudflare was
-    unreachable so the caller can tell a rejected token apart from a transient failure and
-    avoid telling the user their token is invalid when it may be fine. ``reason`` carries
-    Cloudflare's own error text for a definitive rejection.
 
     ``/user/tokens/verify`` only verifies *user* tokens. An account-owned token — the kind
     Cloudflare recommends for durable service integrations, created under Manage Account >
@@ -375,22 +389,32 @@ def validate_credentials(api_token: str) -> tuple[bool, int | None, str | None]:
     """
     verify = _get(api_token, "/user/tokens/verify")
     if verify is not None and _succeeded(verify):
-        return True, verify.status_code, None
+        return TokenCheck(is_valid=True, status=verify.status_code)
 
     status = verify.status_code if verify is not None else None
     if _transient_status(status):
-        return False, status, None
+        return TokenCheck(is_valid=False, status=status)
 
+    # Verify refused, but that refusal is not a verdict on the token, so these probes are what
+    # decides. A probe that never got an answer therefore leaves the question open instead of
+    # confirming the refusal — reporting "rejected" there would send someone off to rebuild a
+    # token that was fine.
+    probe_statuses: list[int | None] = []
     for path in _PARENT_PATHS.values():
         probe = _get(api_token, path, per_page=1)
         if probe is None:
-            # The verify call reached Cloudflare, so a failure here is this request's alone.
+            probe_statuses.append(None)
             continue
         if _succeeded(probe):
-            return True, probe.status_code, None
+            return TokenCheck(is_valid=True, status=probe.status_code)
+        probe_statuses.append(probe.status_code)
+
+    transient = [probe_status for probe_status in probe_statuses if _transient_status(probe_status)]
+    if transient:
+        return TokenCheck(is_valid=False, status=transient[0])
 
     assert verify is not None  # a None verify is transient, handled above
-    return False, status, _cloudflare_error(verify)
+    return TokenCheck(is_valid=False, status=status, reason=_cloudflare_error(verify))
 
 
 def cloudflare_source(
