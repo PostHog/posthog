@@ -355,6 +355,15 @@ class TestValidateAlertConfig:
                 r"funnel_step 5 is out of range \(funnel has 2 steps\)",
             ),
             (
+                "funnels_single_step_rejected",
+                {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "a"}]},
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "needs at least two steps",
+            ),
+            (
                 "funnels_trends_viz_accepted",
                 {**_funnels_query(), "funnelsFilter": {"funnelVizType": "trends"}},
                 _base_condition("absolute_value"),

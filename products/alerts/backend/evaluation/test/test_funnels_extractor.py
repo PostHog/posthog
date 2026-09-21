@@ -1,9 +1,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
 from posthog.schema import AlertConditionType
 
 from posthog.api.services.query import ExecutionMode
+from posthog.exceptions import ClickHouseBytesLimitExceeded
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
@@ -103,6 +106,24 @@ def test_result_is_unframed_single_series():
 def test_extract_raises_extraction_error(result, config, viz, condition_type, match):
     with pytest.raises(AlertExtractionError, match=match):
         _extract(result, config=config, viz=viz, condition_type=condition_type)
+
+
+def test_query_validation_error_becomes_extraction_error():
+    # The owner deleted a step, so the query runner rejects the insight. That is a config problem:
+    # it must auto-disable the alert, not be captured as an exception on every scheduled check.
+    with patch(CALC_PATH) as calc:
+        calc.side_effect = DRFValidationError("Funnels require at least two steps.")
+        with pytest.raises(AlertExtractionError, match="Funnels require at least two steps."):
+            FunnelsExtractor().extract(_alert(), MagicMock(), _query(), IF_STALE)
+
+
+def test_byte_limit_error_is_not_an_extraction_error():
+    # A byte-limit hit is a DRF ValidationError subclass, but the insight is sound — auto-disabling
+    # would silence a working alert, so it keeps the generic failure path.
+    with patch(CALC_PATH) as calc:
+        calc.side_effect = ClickHouseBytesLimitExceeded()
+        with pytest.raises(ClickHouseBytesLimitExceeded):
+            FunnelsExtractor().extract(_alert(), MagicMock(), _query(), IF_STALE)
 
 
 def test_none_result_raises_runtime_error():

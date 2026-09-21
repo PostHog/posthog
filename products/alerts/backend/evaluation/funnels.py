@@ -1,10 +1,13 @@
 from typing import Any
 
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
 from posthog.schema import AlertCondition, AlertConditionType, FunnelsAlertConfig, FunnelsQuery, IntervalType
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseBytesLimitExceeded
 from posthog.tasks.alerts.trends import query_excludes_incomplete_periods
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, lookback_intervals_for
@@ -31,6 +34,16 @@ def _trailing_date_range_override(interval: IntervalType | None, periods: int) -
         case _:
             unit = "h"
     return {"date_from": f"-{periods}{unit}"}
+
+
+def _validation_message(err: DRFValidationError) -> str:
+    """Flatten a DRF validation error into the plain sentence the query runner raised."""
+    detail = err.detail
+    if isinstance(detail, dict):
+        detail = [item for value in detail.values() for item in (value if isinstance(value, list) else [value])]
+    if not isinstance(detail, list):
+        detail = [detail]
+    return " ".join(str(item) for item in detail)
 
 
 class FunnelsExtractor:
@@ -72,14 +85,25 @@ class FunnelsExtractor:
             else _trailing_date_range_override(funnels_query.interval, lookback_intervals_for(condition))
         )
 
-        calculation_result = calculate_for_query_based_insight(
-            insight,
-            team=alert.team,
-            execution_mode=execution_mode,
-            user=alert.created_by,
-            filters_override=filters_override,
-            analytics_props={"source": EventSource.ALERT},
-        )
+        try:
+            calculation_result = calculate_for_query_based_insight(
+                insight,
+                team=alert.team,
+                execution_mode=execution_mode,
+                user=alert.created_by,
+                filters_override=filters_override,
+                analytics_props={"source": EventSource.ALERT},
+            )
+        except ClickHouseBytesLimitExceeded:
+            # A DRF ValidationError subclass, but it reports a query too big to run, not a broken
+            # insight. Let it keep the generic failure path — disabling the alert would silence a
+            # sound configuration.
+            raise
+        except DRFValidationError as err:
+            # The query runner rejects the insight itself — e.g. the owner deleted a step and left a
+            # one-step funnel. The alert can no longer be evaluated as configured, so take the
+            # auto-disable path instead of raising on every scheduled check.
+            raise AlertExtractionError(_validation_message(err)) from err
 
         # A None result means the query layer swallowed an error — surface it as RuntimeError (not
         # AlertExtractionError) so it routes to the harder failure path, matching the trends extractor

@@ -161,6 +161,11 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
         funnels_query = FunnelsQuery.model_validate(ctx.query)
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid FunnelsQuery: {e}")
+    # The funnel query runner rejects a one-step funnel, so an alert on one can never evaluate.
+    # Catch it here — this runs before every check too, so deleting a step from the insight later
+    # disables the alert and emails its owner instead of erroring on every check.
+    if len(funnels_query.series) < 2:
+        raise ValueError("Alert's insight funnel needs at least two steps")
     # Resolve the strategy first (rejects unsupported viz types), then delegate viz-specific rules to
     # the same strategy the extractor uses at eval time, so config-time and eval-time views can't drift.
     viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
