@@ -3048,6 +3048,16 @@ const api = {
                 .assembleFullUrl(true)
         },
 
+        // For fetch() callers. The download URL redirects to object storage, and connect-src does not
+        // allow that origin, so the fetch fails. direct=true serves the bytes from our origin (PNG only).
+        determineExportFetchUrl(exportId: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): string {
+            return new ApiRequest()
+                .export(exportId, teamId)
+                .withAction('content')
+                .withQueryString('direct=true')
+                .assembleFullUrl(true)
+        },
+
         async create(
             data: Partial<ExportedAssetType>,
             params: Record<string, any> = {},
