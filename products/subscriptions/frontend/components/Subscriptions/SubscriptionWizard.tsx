@@ -114,6 +114,7 @@ export function SubscriptionWizard({
         subscriptionInitialized,
         isSubscriptionSubmitting,
         subscriptionChanged,
+        subscriptionValidationErrors,
     } = useValues(subscriptionFormLogic)
     const { generatePreview, resetSubscription } = useActions(subscriptionFormLogic)
     const { preflight } = useValues(preflightLogic)
@@ -152,9 +153,11 @@ export function SubscriptionWizard({
         contentDisabledReason = 'Select at least one insight'
     }
     const emailAvailable = subscription.target_type !== 'email' || Boolean(preflight?.email_service_available)
+    const targetValueValidationError = subscriptionValidationErrors.target_value
     const destinationReady = Boolean(
         emailAvailable &&
         subscription.target_value &&
+        !targetValueValidationError &&
         (subscription.target_type !== 'slack' || subscription.integration_id)
     )
     const requiresDeliveryDays = shouldShowDayPicker(subscription.frequency, subscription.interval)
@@ -166,9 +169,11 @@ export function SubscriptionWizard({
     )
     let destinationDisabledReason: string | undefined
     if (!destinationReady) {
-        destinationDisabledReason = emailAvailable
-            ? 'Choose a destination and recipient'
-            : 'Email delivery is not configured for this PostHog instance'
+        destinationDisabledReason = !emailAvailable
+            ? 'Email delivery is not configured for this PostHog instance'
+            : typeof targetValueValidationError === 'string'
+              ? targetValueValidationError
+              : 'Choose a destination and recipient'
     }
     const currentStepIndex = steps.findIndex((step) => step.key === currentStep)
     const goToStep = (step: SubscriptionWizardStep): void => {
@@ -432,11 +437,25 @@ function SubscriptionDeliveryStep({
                     name="target_value"
                     label="Microsoft Teams webhook URL"
                     help={
-                        <>
-                            In Teams, add the Workflows app to the channel for these reports. Select the template for
-                            posting to a channel when a webhook request is received. Paste the URL it gives you here.
-                            Anyone with that URL can post to the channel, so keep it private.
-                        </>
+                        <div>
+                            <p className="m-0 mb-2">
+                                In Teams, open the channel's Workflows menu. Create a workflow that posts when a webhook
+                                request is received.
+                            </p>
+                            <p className="m-0 mb-2">
+                                Paste the URL it gives you here. It usually starts with{' '}
+                                <code>https://...logic.azure.com/...</code>.{' '}
+                                <Link
+                                    to="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"
+                                    target="_blank"
+                                    targetBlankIcon
+                                >
+                                    Learn how to create a Teams webhook
+                                </Link>
+                                .
+                            </p>
+                            <p className="m-0">Keep this URL private. Anyone with it can post to the channel.</p>
+                        </div>
                     }
                 >
                     <LemonInput
