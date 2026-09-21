@@ -70,6 +70,78 @@ describe('workflowLogic auto-save', () => {
         jest.useRealTimers()
     })
 
+    describe('a workflow managed by code', () => {
+        const codeManaged = makeWorkflow({
+            managed_by: 'code',
+            source_repository: 'github.com/example/flows',
+            source_path: 'workflows/welcome.ts',
+        })
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': codeManaged,
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        updateCalls += 1
+                        return [200, codeManaged]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('refuses a canvas mutation, so nothing is edited and nothing is saved', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowInfo({ name: 'Edited in the UI' })
+            await jest.advanceTimersByTimeAsync(5000)
+
+            expect(logic.values.workflow.name).toBe('Autosave test')
+            expect(updateCalls).toBe(0)
+            // The save button and the badge both show this, and it has to name the file
+            expect(logic.values.workflowEditDisabledReason).toContain('workflows/welcome.ts')
+        })
+    })
+
+    describe('disabling a workflow', () => {
+        const active = makeWorkflow({ status: 'active' })
+        let patchBody: Record<string, unknown> | null
+
+        beforeEach(async () => {
+            patchBody = null
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': active,
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        patchBody = (await request.json()) as Record<string, unknown>
+                        return [200, { ...active, status: 'draft' }]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('sends the status alone, so the graph cannot ride along', async () => {
+            logic.actions.saveWorkflowPartial({ status: 'draft' })
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(Object.keys(patchBody ?? {}).sort()).toEqual(['base_updated_at', 'status'])
+            expect(patchBody?.status).toBe('draft')
+        })
+    })
+
     describe('debouncing existing workflow', () => {
         beforeEach(async () => {
             initKeaTests()

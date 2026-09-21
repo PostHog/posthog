@@ -20,6 +20,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         status: 'draft',
         created_at: '2026-01-01T00:00:00Z',
         created_by: { id: 1, uuid: 'user-1', email: 'user@example.com', hedgehog_config: null },
+        created_via: null,
         updated_at: overrides.updatedAt,
         trigger: { type: 'batch', filters: { properties: [] } },
         conversion: null,
