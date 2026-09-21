@@ -51,15 +51,17 @@ from products.conversations.backend.services.delivery import (
     claim_delivery_part,
     cleanup_delivery_snapshots,
     complete_slack_body_delivery,
+    defer_delivery_part,
     drain_delivery_retention,
     due_delivery_part_ids,
     fail_delivery_part,
     is_slack_image_part_key,
     maybe_enqueue_slack_fallback,
     persist_delivery_part_payload,
+    pin_slack_fallback_payload,
     record_delivery_queue_metrics,
     schedule_delivery_retry,
-    slack_image_fallback_snapshot,
+    slack_fallback_payload,
 )
 from products.conversations.backend.services.inbound_events import (
     INBOUND_SWEEP_BATCH_SIZE,
@@ -108,6 +110,8 @@ from ..support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_miss
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
+# How long the fallback waits when a redrive puts an image back in flight.
+SLACK_FALLBACK_WAIT_SECONDS = 30
 PromptUpdateResult = Literal["updated", "missing", "transient", "permanent"]
 _PERMANENT_PROMPT_UPDATE_ERROR_CODES = frozenset(
     {
@@ -941,19 +945,16 @@ def _deliver_slack_body(claim: DeliveryClaim, runtime: SlackDeliveryRuntime) -> 
 
 
 def _deliver_slack_fallback(claim: DeliveryClaim, runtime: SlackDeliveryRuntime) -> None:
-    snapshot = slack_image_fallback_snapshot(team_id=claim.part.team_id, delivery_id=claim.part.delivery_id)
+    snapshot = pin_slack_fallback_payload(claim)
     if snapshot is None:
-        raise TransientDeliveryError("Slack image parts are still in flight", retry_after_seconds=5)
+        # A redrive put an image back in flight. Waiting is not a failed
+        # attempt, so re-arm without spending the retry budget.
+        defer_delivery_part(claim, seconds=SLACK_FALLBACK_WAIT_SECONDS, reason="images_in_flight")
+        return
     if not snapshot.urls:
         accept_delivery_part(claim, provider_message_id="")
         return
-    payload = {
-        **runtime.payload,
-        "text": "Images:\n" + "\n".join(snapshot.urls),
-        "urls": snapshot.urls,
-        "author_name": snapshot.author_name,
-        "author_email": snapshot.author_email,
-    }
+    payload = {**runtime.payload, **slack_fallback_payload(snapshot)}
     ts = _post_slack_body(
         client=runtime.client,
         team=runtime.team,
@@ -999,14 +1000,12 @@ def _deliver_slack_image(claim: DeliveryClaim, runtime: SlackDeliveryRuntime) ->
     if step == IMAGE_UPLOAD_STEP_GET:
         if image_bytes is None:
             raise PermanentDeliveryError("Image bytes are not readable for Slack upload", error_code="image_unreadable")
-        file_id, upload_url = _slack_get_upload_url_external(
-            runtime.client, filename=image_name, length=len(image_bytes)
-        )
+        target = _slack_get_upload_url_external(runtime.client, filename=image_name, length=len(image_bytes))
         payload = {
             **payload,
             "step": IMAGE_UPLOAD_STEP_BYTES,
-            "file_id": file_id,
-            "upload_url": upload_url,
+            "file_id": target.file_id,
+            "upload_url": target.upload_url,
             "length": len(image_bytes),
         }
         if not persist_delivery_part_payload(claim, payload):
@@ -1298,7 +1297,13 @@ def _filename_for_slack_image(alt: str | None, image_url: str | None) -> str:
     return "image"
 
 
-def _slack_get_upload_url_external(client: Any, *, filename: str, length: int) -> tuple[str, str]:
+@frozen
+class SlackUploadTarget:
+    file_id: str
+    upload_url: str
+
+
+def _slack_get_upload_url_external(client: Any, *, filename: str, length: int) -> SlackUploadTarget:
     try:
         get_upload_url = client.api_call(
             api_method="files.getUploadURLExternal",
@@ -1324,7 +1329,7 @@ def _slack_get_upload_url_external(client: Any, *, filename: str, length: int) -
             "files.getUploadURLExternal returned disallowed upload URL",
             error_code="disallowed_upload_url",
         )
-    return file_id, upload_url
+    return SlackUploadTarget(file_id=file_id, upload_url=upload_url)
 
 
 def _slack_post_upload_bytes(upload_url: str, image_bytes: bytes) -> None:
@@ -1388,11 +1393,11 @@ def _upload_image_to_slack_thread(
     image_bytes: bytes,
 ) -> None:
     # Slack deprecated files.upload; use external upload API flow.
-    file_id, upload_url = _slack_get_upload_url_external(client, filename=image_name, length=len(image_bytes))
-    _slack_post_upload_bytes(upload_url, image_bytes)
+    target = _slack_get_upload_url_external(client, filename=image_name, length=len(image_bytes))
+    _slack_post_upload_bytes(target.upload_url, image_bytes)
     _slack_complete_upload_external(
         client,
-        file_id=file_id,
+        file_id=target.file_id,
         image_name=image_name,
         slack_channel_id=slack_channel_id,
         slack_thread_ts=slack_thread_ts,

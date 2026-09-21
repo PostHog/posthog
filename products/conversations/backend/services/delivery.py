@@ -575,6 +575,29 @@ def schedule_delivery_retry(
     return delay
 
 
+def defer_delivery_part(claim: DeliveryClaim, *, seconds: int, reason: str) -> bool:
+    """Re-arm a claimed part for a wait that is not a failed attempt.
+
+    The claim charged an attempt on the way in. Refund it, because a part that
+    waits on another part must not spend the retry budget that real Slack
+    failures need. DELIVERY_MAX_AGE still bounds the wait.
+    """
+    now = timezone.now()
+    updated = _fenced(claim).update(
+        status=ConversationDeliveryPart.Status.PENDING,
+        due_at=now + timedelta(seconds=seconds),
+        lease_expires_at=None,
+        attempts=max(claim.part.attempts - 1, 0),
+        last_error_code=reason,
+        last_error="",
+        updated_at=now,
+    )
+    if not updated:
+        return False
+    _increment_delivery_attempt(claim.part.part_key, "deferred")
+    return True
+
+
 def persist_delivery_part_payload(claim: DeliveryClaim, payload: dict[str, Any]) -> bool:
     reject_oversized_delivery_snapshot(payload, field="payload")
     now = timezone.now()
@@ -692,13 +715,77 @@ def _slack_fallback_snapshot(image_parts: list[ConversationDeliveryPart]) -> Sla
     )
 
 
-def slack_image_fallback_snapshot(*, team_id: int, delivery_id: UUID) -> SlackFallbackSnapshot | None:
-    return _slack_fallback_snapshot(list(_image_parts_for_delivery(team_id=team_id, delivery_id=delivery_id)))
+def slack_fallback_payload(snapshot: SlackFallbackSnapshot) -> dict[str, Any]:
+    return {
+        "text": "Images:\n" + "\n".join(snapshot.urls),
+        "urls": snapshot.urls,
+        "author_name": snapshot.author_name,
+        "author_email": snapshot.author_email,
+    }
+
+
+def pin_slack_fallback_payload(claim: DeliveryClaim) -> SlackFallbackSnapshot | None:
+    """Record the failed-image set on the claimed fallback part, or report a wait.
+
+    The image rows stay locked while the payload is written, so a redrive either
+    lands before the read and returns None for a wait, or lands after the set
+    this fallback posts is on the row.
+    """
+    with transaction.atomic():
+        snapshot = _slack_fallback_snapshot(
+            list(
+                _image_parts_for_delivery(
+                    team_id=claim.part.team_id, delivery_id=claim.part.delivery_id
+                ).select_for_update()
+            )
+        )
+        if snapshot is None:
+            return None
+        if not persist_delivery_part_payload(claim, slack_fallback_payload(snapshot)):
+            return None
+        return snapshot
+
+
+def _rearm_slack_fallback(
+    part: ConversationDeliveryPart,
+    *,
+    snapshot: SlackFallbackSnapshot,
+    now: datetime,
+) -> ConversationDeliveryPart | None:
+    if part.status != ConversationDeliveryPart.Status.PENDING:
+        # A claimed fallback is already posting, and a terminal one is an
+        # operator's to redrive.
+        return None
+    payload = slack_fallback_payload(snapshot)
+    try:
+        reject_oversized_delivery_snapshot(payload, field="payload")
+    except DeliverySnapshotTooLargeError:
+        logger.warning(
+            "slack_delivery_fallback_snapshot_too_large",
+            delivery_id=str(part.delivery_id),
+        )
+        return None
+    due_at = min(part.due_at, now)
+    ConversationDeliveryPart.objects.for_team(part.team_id, canonical=True).filter(id=part.id).update(
+        payload=payload,
+        due_at=due_at,
+        updated_at=now,
+    )
+    part.payload = payload
+    part.due_at = due_at
+    return part
 
 
 def maybe_enqueue_slack_fallback(settled_part: ConversationDeliveryPart) -> ConversationDeliveryPart | None:
+    """Return the fallback part to wake once every image part of the delivery has settled.
+
+    A redrive can move an image out of a terminal state after the fallback row
+    exists, so a fallback that is already waiting is re-armed with the current
+    failed URLs rather than left for the sweeper with a stale list.
+    """
     if not is_slack_image_part_key(settled_part.part_key):
         return None
+    now = timezone.now()
     with transaction.atomic():
         snapshot = _slack_fallback_snapshot(
             list(
@@ -707,14 +794,19 @@ def maybe_enqueue_slack_fallback(settled_part: ConversationDeliveryPart) -> Conv
                 ).select_for_update()
             )
         )
-        if snapshot is None or not snapshot.urls or not snapshot.route:
+        if snapshot is None:
             return None
-        fallback_payload = {
-            "text": "Images:\n" + "\n".join(snapshot.urls),
-            "urls": snapshot.urls,
-            "author_name": snapshot.author_name,
-            "author_email": snapshot.author_email,
-        }
+        existing = (
+            ConversationDeliveryPart.objects.for_team(settled_part.team_id, canonical=True)
+            .select_for_update()
+            .filter(delivery_id=settled_part.delivery_id, part_key=DELIVERY_PART_KEY_FALLBACK)
+            .first()
+        )
+        if existing is not None:
+            return _rearm_slack_fallback(existing, snapshot=snapshot, now=now)
+        if not snapshot.urls or not snapshot.route:
+            return None
+        fallback_payload = slack_fallback_payload(snapshot)
         try:
             reject_oversized_delivery_snapshot(fallback_payload, field="payload")
             reject_oversized_delivery_snapshot(snapshot.route, field="route")

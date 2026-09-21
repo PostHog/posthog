@@ -763,6 +763,78 @@ class TestSlackDurableImageDelivery(BaseTest):
         assert fallback.status == ConversationDeliveryPart.Status.ACCEPTED
         assert client.chat_postMessage.call_count == 1
 
+    @patch("products.conversations.backend.tasks.slack.requests.post", return_value=_ok_upload_response())
+    @patch("products.conversations.backend.tasks.slack._read_image_bytes_for_slack_upload")
+    @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
+    def test_fallback_wait_does_not_spend_the_retry_budget(
+        self,
+        mock_get_client: MagicMock,
+        _avatar: MagicMock,
+        mock_read: MagicMock,
+        _post: MagicMock,
+    ) -> None:
+        self._create_reply(self.url_a)
+        client = self._slack_client()
+        mock_get_client.return_value = client
+        mock_read.return_value = None
+        process_slack_delivery_part(str(self._part(DELIVERY_PART_KEY_BODY).id))
+        image = self._process_due(self._part(slack_image_part_key(self.url_a)))
+        fallback = self._part(DELIVERY_PART_KEY_FALLBACK)
+        assert redrive_failed_delivery_part(str(image.id), wake=MagicMock()) is not None
+
+        for _ in range(DELIVERY_MAX_ATTEMPTS + 2):
+            self._process_due(fallback)
+            assert fallback.status == ConversationDeliveryPart.Status.PENDING
+        assert fallback.attempts == 0
+        assert fallback.last_error_code == "images_in_flight"
+        assert client.chat_postMessage.call_count == 1
+
+        self._process_due(self._part(slack_image_part_key(self.url_a)))
+        self._process_due(fallback)
+        assert fallback.status == ConversationDeliveryPart.Status.ACCEPTED
+        assert self.url_a in client.chat_postMessage.call_args_list[1].kwargs["text"]
+
+    @patch("products.conversations.backend.tasks.slack.requests.post", return_value=_ok_upload_response())
+    @patch("products.conversations.backend.tasks.slack._read_image_bytes_for_slack_upload")
+    @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
+    def test_redriven_image_success_refreshes_waiting_fallback_urls(
+        self,
+        mock_get_client: MagicMock,
+        _avatar: MagicMock,
+        mock_read: MagicMock,
+        _post: MagicMock,
+    ) -> None:
+        self._create_reply(self.url_a, self.url_b)
+        client = self._slack_client()
+        mock_get_client.return_value = client
+        mock_read.return_value = None
+        process_slack_delivery_part(str(self._part(DELIVERY_PART_KEY_BODY).id))
+        self._process_due(self._part(slack_image_part_key(self.url_a)))
+        image_a = self._part(slack_image_part_key(self.url_a))
+        self._process_due(self._part(slack_image_part_key(self.url_b)))
+        fallback = self._part(DELIVERY_PART_KEY_FALLBACK)
+        assert fallback.payload is not None
+        assert set(fallback.payload["urls"]) == {self.url_a, self.url_b}
+
+        assert redrive_failed_delivery_part(str(image_a.id), wake=MagicMock()) is not None
+        mock_read.side_effect = lambda _team_id, url: b"img" if url == self.url_a else None
+        image_a = self._process_due(image_a)
+        assert image_a.status == ConversationDeliveryPart.Status.ACCEPTED
+
+        fallback.refresh_from_db()
+        assert fallback.status == ConversationDeliveryPart.Status.PENDING
+        assert fallback.payload is not None
+        assert fallback.payload["urls"] == [self.url_b]
+        assert fallback.due_at <= timezone.now()
+
+        self._process_due(fallback)
+        assert fallback.status == ConversationDeliveryPart.Status.ACCEPTED
+        fallback_text = client.chat_postMessage.call_args_list[1].kwargs["text"]
+        assert self.url_b in fallback_text
+        assert self.url_a not in fallback_text
+
     @patch("products.conversations.backend.tasks.slack.requests.post")
     @patch("products.conversations.backend.tasks.slack._read_image_bytes_for_slack_upload", return_value=b"img")
     @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)

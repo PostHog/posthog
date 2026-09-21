@@ -127,6 +127,8 @@ Image and fallback failures do not change the parent's `accepted_at` or `provide
 When every image part is terminal and at least one failed, enqueue a single `fallback` part with its own `client_msg_id` and the failed image URLs.
 A second permanent image failure must not create a second fallback.
 Posting the fallback waits if any image part is open again, then includes only currently failed URLs, so a redriven image that later succeeds is not linked.
+The URL set is read under a lock on the image parts and written to the fallback part before the post, so a concurrent redrive either forces another wait or lands after the posted set is recorded.
+A wait refunds the attempt the claim charged, and the last image to settle re-arms the waiting fallback, so a long redrive cannot exhaust the fallback's retry budget.
 Manual redrive is allowed only for `failed` parts, and only after route and Slack workspace config still match the delivery's canonical team.
 Redrive keeps `client_msg_id` (and image upload substate) and stamps `redriven_at`, which restarts the max-age window so an operator can still recover a failure older than 24 hours.
 Redriving an image does not clear the parent's body acceptance.
