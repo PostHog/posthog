@@ -23896,7 +23896,9 @@ export namespace Schemas {
     } as const;
 
     /**
-     * The subject is implied by the URL (the parent saved query or table), never part of the body.
+     * A check as it reads back, and everything an edit may change about it.
+     *
+     * The subject is not one of those: it is writable only on ``DataQualityCheckCreate``.
      */
     export interface DataQualityCheck {
       readonly id: string;
@@ -23911,7 +23913,7 @@ export namespace Schemas {
        * * `metric` - metric */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table, view, or metric being checked, from the parent resource in the URL.
+         * Id of the table, view, or metric being checked. Null once the subject is deleted.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -23936,6 +23938,108 @@ export namespace Schemas {
       check_type: CheckTypeEnum;
       /** Type-specific configuration, validated against the check type's JSON schema. */
       config?: DataQualityCheckConfig;
+      /** 'error' failures mark the subject failing and notify; 'warn' failures only surface.
+       *
+       * * `error` - error
+       * * `warn` - warn */
+      severity?: DataQualityCheckSeverityEnum;
+      /** Disabled checks are never run by any trigger. */
+      enabled?: boolean;
+      /** Free-form string labels for grouping and filtering. */
+      tags?: string[];
+      /**
+         * Email of the human accountable for this check, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * When the check last executed.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
+      readonly last_status: string;
+      /**
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
+         * @nullable
+         */
+      readonly last_succeeded_at: string | null;
+      /**
+         * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+         * @nullable
+         */
+      readonly failing_since: string | null;
+      /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
+      readonly fingerprint: string;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this check.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the check, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the check, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this check. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
+     * Type-specific configuration, validated against the check type's JSON schema.
+     */
+    export type DataQualityCheckCreateConfig = { [key: string]: unknown };
+
+    /**
+     * The create body, where the subject is named for the only time in a check's life.
+     */
+    export interface DataQualityCheckCreate {
+      readonly id: string;
+      /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
+      name?: string;
+      /** Why this check exists and what a failure means. */
+      description?: string;
+      /** Kind of catalog object to check: 'table', 'view', or 'metric'.
+       *
+       * * `table` - table
+       * * `view` - view
+       * * `metric` - metric */
+      subject_type: SubjectTypeEnum;
+      /** Id of the table, view, or metric to check. */
+      subject_uuid: string;
+      /** Queryable name of the subject, refreshed on every run. */
+      readonly subject_name: string;
+      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      readonly subject_status: string;
+      /**
+         * Column the check applies to. Omit for table-scoped types like row_count.
+         * @maxLength 400
+         */
+      column_name?: string;
+      /** Which assertion to make. Determines the shape of config; see /check_types/.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
+      check_type: CheckTypeEnum;
+      /** Type-specific configuration, validated against the check type's JSON schema. */
+      config?: DataQualityCheckCreateConfig;
       /** 'error' failures mark the subject failing and notify; 'warn' failures only surface.
        *
        * * `error` - error
@@ -24187,7 +24291,7 @@ export namespace Schemas {
        * * `metric` - metric */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table, view, or metric being checked, from the parent resource in the URL.
+         * Id of the table, view, or metric being checked. Null once the subject is deleted.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -24297,6 +24401,41 @@ export namespace Schemas {
     export interface DataQualityRunRequest {
       /** Ids of the checks to run. Omit to run every enabled check in the project. */
       check_ids?: string[];
+      /** Narrow the run to one subject. Pass subject_uuid with it. Ignored when check_ids is given.
+       *
+       * * `table` - table
+       * * `view` - view
+       * * `metric` - metric */
+      subject_type?: SubjectTypeEnum;
+      /** Id of the subject to run every enabled check on. Pass subject_type with it. */
+      subject_uuid?: string;
+    }
+
+    /**
+     * Column name to ClickHouse type. Empty for a metric, and for a view that has not run yet.
+     */
+    export type DataQualitySubjectColumns = {[key: string]: string};
+
+    /**
+     * One thing a check can be authored on, whatever kind it is.
+     */
+    export interface DataQualitySubject {
+      /** Kind of object: 'table', 'view', or 'metric'. Pass it back as subject_type when creating a check.
+       *
+       * * `table` - table
+       * * `view` - view
+       * * `metric` - metric */
+      subject_type: SubjectTypeEnum;
+      /** Id of the subject. Pass it back as subject_uuid when creating a check. */
+      id: string;
+      /** Queryable name of the subject. */
+      name: string;
+      /** Label shown in the data catalog. Blank for tables and views. */
+      display_name: string;
+      /** Column name to ClickHouse type. Empty for a metric, and for a view that has not run yet. */
+      columns: DataQualitySubjectColumns;
+      /** Whether the caller may author a check on this subject. A subject that is only readable can still be the target of a relationships check. */
+      editable: boolean;
     }
 
     /**
@@ -26660,6 +26799,9 @@ export namespace Schemas {
      * * `MoEngage` - MoEngage
      * * `Monaco` - Monaco
      * * `Oneleet` - Oneleet
+     * * `Expo` - Expo
+     * * `PostNord` - PostNord
+     * * `Commslayer` - Commslayer
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -28010,6 +28152,9 @@ export namespace Schemas {
       MoEngage: 'MoEngage',
       Monaco: 'Monaco',
       Oneleet: 'Oneleet',
+      Expo: 'Expo',
+      PostNord: 'PostNord',
+      Commslayer: 'Commslayer',
     } as const;
 
     /**
@@ -29373,7 +29518,10 @@ export namespace Schemas {
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
        * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet */
+       * * `Oneleet` - Oneleet
+       * * `Expo` - Expo
+       * * `PostNord` - PostNord
+       * * `Commslayer` - Commslayer */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -31785,7 +31933,10 @@ export namespace Schemas {
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
        * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet */
+       * * `Oneleet` - Oneleet
+       * * `Expo` - Expo
+       * * `PostNord` - PostNord
+       * * `Commslayer` - Commslayer */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -41231,7 +41382,10 @@ export namespace Schemas {
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
        * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet */
+       * * `Oneleet` - Oneleet
+       * * `Expo` - Expo
+       * * `PostNord` - PostNord
+       * * `Commslayer` - Commslayer */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -42615,7 +42769,10 @@ export namespace Schemas {
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
        * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet */
+       * * `Oneleet` - Oneleet
+       * * `Expo` - Expo
+       * * `PostNord` - PostNord
+       * * `Commslayer` - Commslayer */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -59407,15 +59564,6 @@ export namespace Schemas {
       results: DataModelingJob[];
     }
 
-    export interface PaginatedDataQualityCheckList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DataQualityCheck[];
-    }
-
     export interface PaginatedDataQualityOverviewCheckList {
       count: number;
       /** @nullable */
@@ -67266,7 +67414,9 @@ export namespace Schemas {
     export type PatchedDataQualityCheckConfig = { [key: string]: unknown };
 
     /**
-     * The subject is implied by the URL (the parent saved query or table), never part of the body.
+     * A check as it reads back, and everything an edit may change about it.
+     *
+     * The subject is not one of those: it is writable only on ``DataQualityCheckCreate``.
      */
     export interface PatchedDataQualityCheck {
       readonly id?: string;
@@ -67281,7 +67431,7 @@ export namespace Schemas {
        * * `metric` - metric */
       readonly subject_type?: SubjectTypeEnum;
       /**
-         * Id of the table, view, or metric being checked, from the parent resource in the URL.
+         * Id of the table, view, or metric being checked. Null once the subject is deleted.
          * @nullable
          */
       readonly subject_uuid?: string | null;
@@ -67365,8 +67515,19 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    /**
+     * Which subject's schedule to change, and what to change about it.
+     */
     export interface PatchedDataQualityCheckScheduleUpdate {
-      /** How often all enabled checks on the metric run.
+      /** Kind of catalog object: 'table', 'view', or 'metric'.
+       *
+       * * `table` - table
+       * * `view` - view
+       * * `metric` - metric */
+      subject_type?: SubjectTypeEnum;
+      /** Id of the table, view, or metric. */
+      subject_uuid?: string;
+      /** How often all enabled checks on the subject run.
        *
        * * `1hour` - 1hour
        * * `6hour` - 6hour
@@ -87195,7 +87356,10 @@ export namespace Schemas {
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
        * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet */
+       * * `Oneleet` - Oneleet
+       * * `Expo` - Expo
+       * * `PostNord` - PostNord
+       * * `Commslayer` - Commslayer */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -88595,7 +88759,10 @@ export namespace Schemas {
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
        * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet */
+       * * `Oneleet` - Oneleet
+       * * `Expo` - Expo
+       * * `PostNord` - PostNord
+       * * `Commslayer` - Commslayer */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -89977,7 +90144,10 @@ export namespace Schemas {
        * * `HeyReach` - HeyReach
        * * `MoEngage` - MoEngage
        * * `Monaco` - Monaco
-       * * `Oneleet` - Oneleet */
+       * * `Oneleet` - Oneleet
+       * * `Expo` - Expo
+       * * `PostNord` - PostNord
+       * * `Commslayer` - Commslayer */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -101961,28 +102131,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type DataCatalogMetricsCheckSuiteRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type DataCatalogMetricsChecksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type DataCatalogMetricsRunCreateParams = {
     /**
      * Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.
@@ -102117,6 +102265,10 @@ export namespace Schemas {
 
     export type DataQualityChecksListParams = {
     /**
+     * Only the checks that make this assertion. See /check_types/.
+     */
+    check_type?: DataQualityChecksListCheckType;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -102124,7 +102276,113 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Kind of catalog object: 'table', 'view', or 'metric'.
+     */
+    subject_type?: DataQualityChecksListSubjectType;
+    /**
+     * Id of the table, view, or metric.
+     */
+    subject_uuid?: string;
     };
+
+    export type DataQualityChecksListCheckType = typeof DataQualityChecksListCheckType[keyof typeof DataQualityChecksListCheckType];
+
+
+    export const DataQualityChecksListCheckType = {
+      AcceptedValues: 'accepted_values',
+      CustomSql: 'custom_sql',
+      Freshness: 'freshness',
+      NotNull: 'not_null',
+      Relationships: 'relationships',
+      RowCount: 'row_count',
+      Unique: 'unique',
+    } as const;
+
+    export type DataQualityChecksListSubjectType = typeof DataQualityChecksListSubjectType[keyof typeof DataQualityChecksListSubjectType];
+
+
+    export const DataQualityChecksListSubjectType = {
+      Metric: 'metric',
+      Table: 'table',
+      View: 'view',
+    } as const;
+
+    export type DataQualityChecksCheckTypesListParams = {
+    /**
+     * Kind of catalog object: 'table', 'view', or 'metric'.
+     */
+    subject_type?: DataQualityChecksCheckTypesListSubjectType;
+    };
+
+    export type DataQualityChecksCheckTypesListSubjectType = typeof DataQualityChecksCheckTypesListSubjectType[keyof typeof DataQualityChecksCheckTypesListSubjectType];
+
+
+    export const DataQualityChecksCheckTypesListSubjectType = {
+      Metric: 'metric',
+      Table: 'table',
+      View: 'view',
+    } as const;
+
+    export type DataQualityChecksHealthListParams = {
+    /**
+     * Kind of catalog object: 'table', 'view', or 'metric'.
+     */
+    subject_type?: DataQualityChecksHealthListSubjectType;
+    /**
+     * Id of the table, view, or metric.
+     */
+    subject_uuid?: string;
+    };
+
+    export type DataQualityChecksHealthListSubjectType = typeof DataQualityChecksHealthListSubjectType[keyof typeof DataQualityChecksHealthListSubjectType];
+
+
+    export const DataQualityChecksHealthListSubjectType = {
+      Metric: 'metric',
+      Table: 'table',
+      View: 'view',
+    } as const;
+
+    export type DataQualityChecksOutputSchemaRetrieveParams = {
+    /**
+     * Kind of catalog object: 'table', 'view', or 'metric'.
+     */
+    subject_type?: DataQualityChecksOutputSchemaRetrieveSubjectType;
+    /**
+     * Id of the table, view, or metric.
+     */
+    subject_uuid?: string;
+    };
+
+    export type DataQualityChecksOutputSchemaRetrieveSubjectType = typeof DataQualityChecksOutputSchemaRetrieveSubjectType[keyof typeof DataQualityChecksOutputSchemaRetrieveSubjectType];
+
+
+    export const DataQualityChecksOutputSchemaRetrieveSubjectType = {
+      Metric: 'metric',
+      Table: 'table',
+      View: 'view',
+    } as const;
+
+    export type DataQualityChecksScheduleRetrieveParams = {
+    /**
+     * Kind of catalog object: 'table', 'view', or 'metric'.
+     */
+    subject_type?: DataQualityChecksScheduleRetrieveSubjectType;
+    /**
+     * Id of the table, view, or metric.
+     */
+    subject_uuid?: string;
+    };
+
+    export type DataQualityChecksScheduleRetrieveSubjectType = typeof DataQualityChecksScheduleRetrieveSubjectType[keyof typeof DataQualityChecksScheduleRetrieveSubjectType];
+
+
+    export const DataQualityChecksScheduleRetrieveSubjectType = {
+      Metric: 'metric',
+      Table: 'table',
+      View: 'view',
+    } as const;
 
     export type DataQualityRunsListParams = {
     /**
@@ -102135,7 +102393,24 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Kind of catalog object: 'table', 'view', or 'metric'.
+     */
+    subject_type?: DataQualityRunsListSubjectType;
+    /**
+     * Id of the table, view, or metric.
+     */
+    subject_uuid?: string;
     };
+
+    export type DataQualityRunsListSubjectType = typeof DataQualityRunsListSubjectType[keyof typeof DataQualityRunsListSubjectType];
+
+
+    export const DataQualityRunsListSubjectType = {
+      Metric: 'metric',
+      Table: 'table',
+      View: 'view',
+    } as const;
 
     export type DataWarehouseCheckDatabaseNameRetrieveParams = {
     /**
@@ -110683,28 +110958,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type WarehouseSavedQueriesCheckSuiteRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type WarehouseSavedQueriesChecksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
@@ -110729,28 +110982,6 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
-    };
-
-    export type WarehouseTablesCheckSuiteRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type WarehouseTablesChecksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     /**
