@@ -2009,10 +2009,10 @@ Today (8): `broadcasts`, `custom_fields`, `email_templates`, `forms`, `purchases
 
 Diffed against: <https://developers.kit.com/llms.txt>
 
-- [ ] `GET /v4/broadcasts/stats (get-stats-for-a-list-of-broadcasts) and /v4/broadcasts/{id}/stats` — opens, clicks, unsubscribes per broadcast - the headline email metric; broadcasts sync today with no performance data (high)
-- [ ] `GET /v4/tags/{id}/subscribers` — tag<->subscriber junction; without it the synced tags table cannot be joined to people (high)
-- [ ] `GET /v4/forms/{id}/subscribers` — form<->subscriber junction, the signup-source attribution table (high)
-- [ ] `GET /v4/sequences/{id}/subscribers` — sequence membership and per-subscriber sequence state (high)
+- [x] `GET /v4/broadcasts/stats (get-stats-for-a-list-of-broadcasts) and /v4/broadcasts/{id}/stats` — opens, clicks, unsubscribes per broadcast - the headline email metric; broadcasts sync today with no performance data (high)
+- [x] `GET /v4/tags/{id}/subscribers` — tag<->subscriber junction; without it the synced tags table cannot be joined to people (high)
+- [x] `GET /v4/forms/{id}/subscribers` — form<->subscriber junction, the signup-source attribution table (high)
+- [x] `GET /v4/sequences/{id}/subscribers` — sequence membership and per-subscriber sequence state (high)
 - [ ] `GET /v4/segments` — segment lookup table, entirely unsynced (high)
 - [ ] `GET /v4/sequences/{id}/emails (list-sequence-emails)` — the individual emails inside each sequence - line items for the sequences already synced (medium)
 - [ ] `GET /v4/broadcasts/{id}/clicks (get-link-clicks-for-a-broadcast)` — per-link click breakdown within a broadcast (medium)
