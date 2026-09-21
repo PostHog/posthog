@@ -3,8 +3,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
-from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
-from products.growth.backend.models import IcpScoringConfig
+from products.growth.backend.facade.scoring import validate_scoring_source
 
 
 @extend_schema_field({"type": "object", "additionalProperties": True})
@@ -15,18 +14,12 @@ class ScoringInputsField(serializers.JSONField):
 class ScoringConfigSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Saved scoring configuration identifier.")
     version = serializers.CharField(help_text="Name of this immutable scoring version.")
-    source = serializers.SerializerMethodField(help_text="Editable Hog scoring formula.")  # type: ignore[assignment]
+    source = serializers.CharField(read_only=True, help_text="Editable Hog scoring formula.")  # type: ignore[assignment]
     is_active = serializers.BooleanField(help_text="Whether scoring uses this version.")
     created_at = serializers.DateTimeField(help_text="When this version was saved.")
-    created_by_email = serializers.SerializerMethodField(help_text="Author email, or null for imported configurations.")
-
-    @extend_schema_field(serializers.CharField())
-    def get_source(self, obj: IcpScoringConfig) -> str:
-        return parse_scoring_rules(obj.scoring_rules).source
-
-    @extend_schema_field(serializers.EmailField(allow_null=True))
-    def get_created_by_email(self, obj: IcpScoringConfig) -> str | None:
-        return obj.created_by.email if obj.created_by else None
+    created_by_email = serializers.EmailField(
+        read_only=True, allow_null=True, help_text="Author email, or null for imported configurations."
+    )
 
 
 @extend_schema_serializer(many=False)
@@ -42,7 +35,7 @@ class ScoringSourceSerializer(serializers.Serializer):
 
     def validate_source(self, value: str) -> str:
         try:
-            parse_scoring_rules({"source": value})
+            validate_scoring_source(value)
         except (DjangoValidationError, ValueError) as error:
             raise serializers.ValidationError(str(error)) from error
         return value

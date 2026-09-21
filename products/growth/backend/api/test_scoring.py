@@ -7,7 +7,6 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.growth.backend.api.scoring_serializers import ScoringPreviewRequestSerializer
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache, load_active_lists
 from products.growth.backend.models import (
     EnrichmentLabelResult,
@@ -16,6 +15,7 @@ from products.growth.backend.models import (
     OrganizationEnrichment,
     OrganizationEnrichmentFetch,
 )
+from products.growth.backend.presentation.scoring_serializers import ScoringPreviewRequestSerializer
 
 _API = "/api/growth_enrichment_scoring/"
 _FORMULA = (
