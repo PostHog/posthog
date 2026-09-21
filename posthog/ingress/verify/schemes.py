@@ -42,8 +42,10 @@ class Verification:
     A scheme that checks a signed token learns more than "this is really them": the claims it
     validated name the sender and the audience. `facts` carries those to `deliveries`, so an
     incarnation can cross-check the body against what was actually signed, rather than trusting
-    a field of the body that says the same thing. An HMAC over raw bytes proves nothing beyond
-    the signature and leaves `facts` empty.
+    a field of the body that says the same thing. A fact is not always a claim: `BearerJwt` also
+    puts the key that signed the token there, because a JWKS can say what one key is allowed to
+    sign and the token cannot. An HMAC over raw bytes proves nothing beyond the signature and
+    leaves `facts` empty.
     """
 
     outcome: VerificationOutcome
