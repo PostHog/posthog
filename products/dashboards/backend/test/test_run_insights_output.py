@@ -1,6 +1,6 @@
 from datetime import date
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from products.dashboards.backend.run_insights_output import (
     parse_max_result_chars,
@@ -10,7 +10,7 @@ from products.dashboards.backend.run_insights_output import (
 )
 
 
-class TestTruncateFormattedResult(BaseTest):
+class TestTruncateFormattedResult(SimpleTestCase):
     def test_keeps_a_table_that_fits(self) -> None:
         table = "Date|Count\n2026-01-01|1"
 
@@ -39,7 +39,7 @@ class TestTruncateFormattedResult(BaseTest):
         self.assertIn("tile_ids=7", truncated)
 
 
-class TestParseQueryParams(BaseTest):
+class TestParseQueryParams(SimpleTestCase):
     def test_tile_ids_defaults_to_every_tile(self) -> None:
         self.assertIsNone(parse_tile_ids(None))
         self.assertIsNone(parse_tile_ids("  "))
@@ -51,6 +51,6 @@ class TestParseQueryParams(BaseTest):
         self.assertGreater(parse_max_result_chars(None), 0)
 
 
-class TestRenderUnsupportedResult(BaseTest):
+class TestRenderUnsupportedResult(SimpleTestCase):
     def test_renders_a_value_json_cannot_serialize(self) -> None:
         self.assertIn("2026-01-01", render_unsupported_result([{"day": date(2026, 1, 1)}]))
