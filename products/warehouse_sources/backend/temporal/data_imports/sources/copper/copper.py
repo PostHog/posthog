@@ -1,9 +1,10 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from requests import Request, Response, Session
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -35,7 +36,7 @@ COPPER_APPLICATION = "developer"
 COPPER_REQUEST_TIMEOUT = 60
 
 
-@dataclasses.dataclass
+@frozen
 class CopperResumeConfig:
     page_number: int
     # Which entry of RELATED_ITEM_PARENTS the related-items fan-out was walking. Unused by the
@@ -179,10 +180,14 @@ def _get_json(session: Session, path: str, params: dict[str, Any] | None = None)
     return response.json()
 
 
-def _iter_search_pages(
-    session: Session, path: str, page_size: int, start_page: int
-) -> Iterator[tuple[int, bool, list[dict[str, Any]]]]:
-    """Page a `/search` endpoint, yielding (page number, whether a page follows, records)."""
+@frozen
+class CopperSearchPage:
+    number: int
+    has_next_page: bool
+    records: list[dict[str, Any]]
+
+
+def _iter_search_pages(session: Session, path: str, page_size: int, start_page: int) -> Iterator[CopperSearchPage]:
     page = start_page
     while True:
         response = session.post(
@@ -196,9 +201,12 @@ def _iter_search_pages(
             timeout=COPPER_REQUEST_TIMEOUT,
         )
         response.raise_for_status()
-        records = response.json() or []
+        records = response.json()
+        if not isinstance(records, list):
+            # Reading a malformed page as empty would end the walk early and silently truncate.
+            raise ValueError(f"Copper returned a non-list search page for {path}")
         has_next_page = len(records) >= page_size
-        yield page, has_next_page, records
+        yield CopperSearchPage(number=page, has_next_page=has_next_page, records=records)
         if not has_next_page:
             return
         page += 1
@@ -234,9 +242,9 @@ def _iter_related_items(
         start_page = first_page if parent_index == first_parent else 1
         search_path = COPPER_ENDPOINTS[parent_endpoint].path
 
-        for page, has_next_page, records in _iter_search_pages(session, search_path, page_size, start_page):
+        for page in _iter_search_pages(session, search_path, page_size, start_page):
             rows: list[dict[str, Any]] = []
-            for record in records:
+            for record in page.records:
                 parent_id = record.get("id")
                 if parent_id is None:
                     continue
@@ -248,7 +256,7 @@ def _iter_related_items(
             if rows:
                 yield rows
 
-            next_parent, next_page = (parent_index, page + 1) if has_next_page else (parent_index + 1, 1)
+            next_parent, next_page = (parent_index, page.number + 1) if page.has_next_page else (parent_index + 1, 1)
             if next_parent < len(RELATED_ITEM_PARENTS):
                 # Saved after the page is yielded, so a crash re-walks it rather than skipping it.
                 resumable_source_manager.save_state(CopperResumeConfig(page_number=next_page, parent_index=next_parent))

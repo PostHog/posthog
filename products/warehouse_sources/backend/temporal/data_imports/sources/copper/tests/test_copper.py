@@ -2,6 +2,7 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -595,6 +596,17 @@ class TestRelatedItems:
         # A checkpoint past the last parent would make a retry resume onto nothing.
         assert max(saved) == len(RELATED_ITEM_PARENTS) - 1
         manager.clear_state.assert_called_once()
+
+    def test_malformed_search_page_fails_loudly(self) -> None:
+        null_page = Response()
+        null_page.status_code = 200
+        null_page._content = b"null"
+        session = _fake_api({}, {})
+        session.post.side_effect = lambda url, json=None, timeout=None: null_page
+        manager = _make_manager()
+
+        with pytest.raises(ValueError):
+            list(_iter_related_items(session, COPPER_ENDPOINTS["related_items"].path, manager, page_size=1))
 
     def test_resumes_from_the_saved_parent_and_page(self) -> None:
         session = _fake_api(
