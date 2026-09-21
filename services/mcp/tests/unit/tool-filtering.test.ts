@@ -1033,9 +1033,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
+                'posthog-ai-chat-actions',
             ])
         )
-        expect(flags).toHaveLength(37)
+        expect(flags).toHaveLength(38)
     })
 
     it('every loops tool is gated on the loops flag', () => {

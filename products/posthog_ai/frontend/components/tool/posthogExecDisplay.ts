@@ -44,9 +44,17 @@ export function parseExecCommand(command: string): { verb: PostHogExecVerb | nul
 }
 
 /**
+/**
+ * The flags the server's `parseCallFlags` (services/mcp/src/tools/exec.ts) strips before the sub-tool.
+ * Keep the two lists identical: a flag the server accepts but this list lacks turns the sub-tool into
+ * an unparsed sentinel, and the permission gate can no longer see which tool the call names.
+ */
+export const EXEC_CALL_FLAGS = ['--json', '--confirm', '--no-skills'] as const
+
+/**
  * Parses the body of a `call` command (everything after the `call` verb) into its inner sub-tool,
- * its remaining args, and the boolean flags. Strips leading `--json` / `--confirm` flags in any
- * order, mirroring the backend `parseCallFlags`, then takes the next token as the sub-tool.
+ * its remaining args, and the boolean flags. Strips leading `EXEC_CALL_FLAGS` in any order,
+ * mirroring the backend `parseCallFlags`, then takes the next token as the sub-tool.
  * `subTool` is null when no sub-tool remains, or when the next token still looks like a flag — a real
  * sub-tool name never starts with `-`. The permission gate keys destructive-tool detection off
  * `subTool`, so this MUST match the server's flag grammar: what the server strips, we strip; what it
@@ -57,29 +65,30 @@ export function parseExecCall(callBody: string): {
     args: string
     forceJson: boolean
     confirmed: boolean
+    noSkills: boolean
 } {
     let rest = callBody.trim()
     let forceJson = false
     let confirmed = false
+    let noSkills = false
     while (rest) {
         const { head, rest: next } = splitFirstToken(rest)
         if (head === '--json') {
             forceJson = true
-            rest = next
-            continue
-        }
-        if (head === '--confirm') {
+        } else if (head === '--confirm') {
             confirmed = true
-            rest = next
-            continue
+        } else if (head === '--no-skills') {
+            noSkills = true
+        } else {
+            break
         }
-        break
+        rest = next
     }
     const { head: subTool, rest: args } = splitFirstToken(rest)
     if (!subTool || subTool.startsWith('-')) {
-        return { subTool: null, args, forceJson, confirmed }
+        return { subTool: null, args, forceJson, confirmed, noSkills }
     }
-    return { subTool, args, forceJson, confirmed }
+    return { subTool, args, forceJson, confirmed, noSkills }
 }
 
 export interface PostHogExecDisplay {

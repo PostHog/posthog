@@ -4,6 +4,7 @@ import { hasScope, hasScopes } from '@/lib/api'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { isStaffOnlyTool } from '@/lib/staff-only-tools'
+import { ChatActionSchema } from '@/tools/chatActions'
 import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
@@ -47,6 +48,8 @@ export const ToolDefinitionSchema = z
         feature_entitlement: z.string().optional(),
         /** One-line selection hint surfaced in the system prompt's query tool catalog. */
         system_prompt_hint: z.string().optional(),
+        /** Follow-up actions the PostHog AI chat can offer after this tool ran. See `chatActions.ts`. */
+        actions: z.array(ChatActionSchema).optional(),
         /**
          * When true, the tool is exposed even when the client passes a `features`
          * or `tools` allowlist that wouldn't otherwise match. Reserved for

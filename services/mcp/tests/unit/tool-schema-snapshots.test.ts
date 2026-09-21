@@ -103,6 +103,7 @@ describe('Tool schema snapshots', () => {
             'billing-alerts': true,
             'billing-mcp-read-tools': true,
             'experiment-setup-context': true,
+            'posthog-ai-chat-actions': true,
         }
         const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>
             a.name.localeCompare(b.name)

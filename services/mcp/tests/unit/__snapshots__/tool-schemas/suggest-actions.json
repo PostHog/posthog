@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "actions": {
+            "description": "The actions to offer, in the order they should appear.",
+            "items": {
+                "properties": {
+                    "args": {
+                        "additionalProperties": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "boolean"
+                                }
+                            ]
+                        },
+                        "description": "Values for the `{slot}` markers in the action message, keyed by slot name.",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "key": {
+                        "description": "Action key from the \"Suggested actions\" catalog, as `<tool>.<key>`, e.g. `workflows-create.enable`.",
+                        "type": "string"
+                    }
+                },
+                "required": ["key"],
+                "type": "object"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["actions"],
+    "type": "object"
+}

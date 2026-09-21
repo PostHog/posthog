@@ -1,7 +1,13 @@
 import type { PermissionRequestRecord, ToolInvocation } from '../types/streamTypes'
 import type { PermissionOption } from '../types/wireTypes'
 import type { AgentQuestion } from './questionUtils'
-import { defaultPermissionDecision, findAllowOptionId, isPostHogExecTool, type PermissionDecision } from './toolPolicy'
+import {
+    defaultPermissionDecision,
+    findAllowOptionId,
+    isDestructiveChatActionTool,
+    isPostHogExecTool,
+    type PermissionDecision,
+} from './toolPolicy'
 
 function makeRecord(
     overrides: {
@@ -121,6 +127,49 @@ describe('toolPolicy', () => {
             ],
         ])('%s → %s', (_case, record, expected) => {
             expect(defaultPermissionDecision(record)).toEqual(expected)
+        })
+
+        // With chat actions on, a click and a typed request both land on the same card for the
+        // destructive workflow tools; without the flag the policy must not change at all.
+        it.each<[string, string, boolean, PermissionDecision]>([
+            ['workflows-enable', 'call workflows-enable {"id":"w1"}', true, 'prompt'],
+            ['workflows-publish', 'call workflows-publish {"id":"w1"}', true, 'prompt'],
+            ['workflows-enable with the flag off', 'call workflows-enable {"id":"w1"}', false, 'auto_allow'],
+            ['a non-destructive workflow tool', 'call workflows-create {"name":"x"}', true, 'auto_allow'],
+            // The server strips every flag in EXEC_CALL_FLAGS before the sub-tool, so the gate must too.
+            ['workflows-enable behind --no-skills', 'call --no-skills workflows-enable {"id":"w1"}', true, 'prompt'],
+            [
+                'workflows-enable behind two flags',
+                'call --json --no-skills workflows-enable {"id":"w1"}',
+                true,
+                'prompt',
+            ],
+            [
+                'workflows-enable behind two flags with the flag off',
+                'call --json --no-skills workflows-enable {"id":"w1"}',
+                false,
+                'auto_allow',
+            ],
+            // A call whose sub-tool cannot be read fails closed under the flag and stays as it was without it.
+            ['an unparsable call', 'call --json', true, 'prompt'],
+            ['a call behind an unknown flag', 'call --later workflows-enable {"id":"w1"}', true, 'prompt'],
+            ['an unparsable call with the flag off', 'call --json', false, 'auto_allow'],
+            ['a discovery verb', 'search workflows', true, 'auto_allow'],
+        ])('%s → %s', (_case, command, chatActionsEnabled, expected) => {
+            expect(defaultPermissionDecision(makeRecord({ input: { command } }), { chatActionsEnabled })).toEqual(
+                expected
+            )
+        })
+    })
+
+    describe('isDestructiveChatActionTool', () => {
+        it.each([
+            ['call workflows-publish {"id":"w1"}', true],
+            ['call --confirm WORKFLOWS-ENABLE {"id":"w1"}', true],
+            ['call workflows-create {}', false],
+            ['call --json', false],
+        ])('%s → %s', (command, expected) => {
+            expect(isDestructiveChatActionTool(makeRecord({ input: { command } }))).toBe(expected)
         })
     })
 

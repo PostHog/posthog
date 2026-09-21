@@ -35,6 +35,7 @@ import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
 import {
     defaultPermissionDecision,
+    isDestructiveChatActionTool,
     findAllowOptionId,
     isConnectedProjectTool,
     isFullAutoMode,
@@ -3508,12 +3509,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
             // Full-auto covers the task's selected project. Questions, plan approvals, and calls into
             // connected projects still surface because the task did not authorize them.
+            const chatActionsEnabled = !!values.featureFlags[FEATURE_FLAGS.POSTHOG_AI_CHAT_ACTIONS]
             const fullAuto =
                 isFullAutoMode(values.currentMode) &&
                 !record.questions?.length &&
                 !isPlanPermissionRequest(record) &&
-                !isConnectedProjectTool(record)
-            const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record)
+                !isConnectedProjectTool(record) &&
+                !(chatActionsEnabled && isDestructiveChatActionTool(record))
+            const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record, { chatActionsEnabled })
             if (!replayedFromHistory && decision === 'auto_allow') {
                 const optionId = findAllowOptionId(record)
                 if (optionId) {

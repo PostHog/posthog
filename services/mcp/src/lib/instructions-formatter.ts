@@ -2,10 +2,12 @@ import type { GroupType } from '@/api/client'
 import { MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET, MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
     buildAvailableToolsBlock,
+    buildChatActionsBlock,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
+    type ChatActionCatalogEntry,
     type QueryToolInfo,
     type ToolInfo,
 } from '@/lib/instructions'
@@ -15,6 +17,7 @@ import ANALYSIS_ARTIFACTS from '@/templates/sections/analysis-artifacts.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
 import BUSINESS_KNOWLEDGE_FIRST from '@/templates/sections/business-knowledge-first.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
+import CHAT_ACTIONS from '@/templates/sections/chat-actions.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
@@ -69,6 +72,8 @@ export interface InstructionsContext {
      *  resolve. Carried as a field rather than derived from `tools`, which
      *  `buildExecCommandReference` drops on purpose. */
     docsSearchEnabled?: boolean | undefined
+    /** Actions the agent may offer through `suggest-actions`; set only when that tool passed the flag gate. */
+    chatActions?: ChatActionCatalogEntry[] | undefined
 }
 
 /** Resolve the field, falling back to the advertised tool list for callers that
@@ -332,6 +337,7 @@ export class InstructionsFormatter {
             ENV_CONTEXT,
             URL_PATTERNS,
             AGENT_FEEDBACK,
+            ...(ctx.chatActions?.length ? [CHAT_ACTIONS] : []),
             EXAMPLES,
         ]
         const docsSearchEnabled = docsSearchAvailable(ctx)
@@ -340,6 +346,7 @@ export class InstructionsFormatter {
                   guidelines: ctx.guidelines,
                   queryTools: ctx.queryTools,
                   docsSearchEnabled,
+                  chatActions: ctx.chatActions,
                   ...(opts.keepEnvContext ? { metadata: ctx.metadata, groupTypes: ctx.groupTypes } : {}),
               }
             : { ...ctx, tools: undefined, docsSearchEnabled }
@@ -375,6 +382,7 @@ export class InstructionsFormatter {
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
+            chat_actions: ctx.chatActions ? buildChatActionsBlock(ctx.chatActions) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,

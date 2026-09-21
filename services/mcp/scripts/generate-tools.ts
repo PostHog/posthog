@@ -2082,6 +2082,7 @@ function generateDefinitionsJson(
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...(toolConfig.actions ? { actions: toolConfig.actions } : {}),
                 }
             } else {
                 definitions[name] = {
@@ -2105,6 +2106,7 @@ function generateDefinitionsJson(
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...(toolConfig.actions ? { actions: toolConfig.actions } : {}),
                 }
             }
         }
@@ -2318,6 +2320,26 @@ function generateQueryWrapperDefinitionsJson(
     return definitions
 }
 
+/**
+ * A `run` action names the tool the agent will call, so a typo would only surface as a refused click.
+ * Checked over the merged catalog because a YAML action may target a handwritten tool.
+ */
+export function assertChatActionTargets(
+    definitions: Record<string, { actions?: { key: string; kind: string; tool?: string }[] }>
+): void {
+    const missing: string[] = []
+    for (const [name, definition] of Object.entries(definitions)) {
+        for (const action of definition.actions ?? []) {
+            if (action.kind === 'run' && !(action.tool && action.tool in definitions)) {
+                missing.push(`${name}.${action.key} -> ${action.tool ?? '(none)'}`)
+            }
+        }
+    }
+    if (missing.length > 0) {
+        throw new Error(`Chat actions name tools that do not exist: ${missing.join(', ')}`)
+    }
+}
+
 // ------------------------------------------------------------------
 // Main
 // ------------------------------------------------------------------
@@ -2439,6 +2461,7 @@ ${spreads}
     // Combined tool definitions for external consumers (docs site)
     const handwrittenDefinitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_PATH, 'utf-8'))
     const allDefinitions = sortKeys({ ...handwrittenDefinitions, ...definitions })
+    assertChatActionTargets(allDefinitions)
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)

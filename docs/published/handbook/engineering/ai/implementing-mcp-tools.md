@@ -327,9 +327,20 @@ Product teams own their definitions and control which operations are exposed as 
        confirmed_action: # typed-confirm paradigm for destructive tools
          message: "About to {action}. Reply 'confirm' to proceed." # prompt shown to user
          action_label: Short action label # optional, defaults to tool title
+       actions: # follow-ups the PostHog AI chat offers as buttons after this tool ran
+         - key: enable # the agent addresses it as `<tool>.<key>`
+           label: Enable the thing # button label
+           kind: run # insert (fills the composer) | send (sends the message) | run (sends a message that names `tool`)
+           tool: things-enable # required for `run`, forbidden otherwise; must be visible to the caller
+           message: Enable thing {id}. # `{slot}` markers are filled from the agent's args; defaults to the label
    ```
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+
+   `actions` only take effect behind the `posthog-ai-chat-actions` feature flag: the flag exposes the
+   `suggest-actions` tool, which lists every declared action in the exec command reference, and the agent
+   picks the ones that fit at the end of its turn. Handwritten tools declare `actions` the same way in
+   `services/mcp/schema/tool-definitions.json`.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
