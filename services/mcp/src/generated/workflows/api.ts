@@ -25,6 +25,12 @@ export const HogFlowsListQueryParams = () => zod.object({
         ),
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
+    exclude_kind: zod
+        .enum(['broadcast'])
+        .optional()
+        .describe(
+            'Drop workflows of this kind from the results, e.g. `broadcast` for a list that has its own surface.'
+        ),
     id: zod.string().optional(),
     kind: zod.enum(['broadcast']).nullish().describe('\* `broadcast` - Broadcast'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
