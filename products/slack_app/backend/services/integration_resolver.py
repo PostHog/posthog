@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
 
 from django.db.models import Q
@@ -7,6 +7,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.comment.formatting import escape_slack_mrkdwn
+from posthog.dataclasses import frozen
 from posthog.helpers.slack_scopes import bot_is_ready
 from posthog.models.integration import Integration
 from posthog.models.user import User
@@ -73,7 +74,7 @@ def _resolved_or_oldest(integration: Integration | None, candidates: list[Integr
     return min(candidates, key=lambda candidate: candidate.id, default=None)
 
 
-@dataclass
+@frozen
 class ResolutionResult:
     integration: Integration | None
     source: ResolutionSource
@@ -293,7 +294,7 @@ def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> 
     return reachable if len(reachable) > 1 else []
 
 
-@dataclass
+@frozen
 class UserAndIntegrationsResolution:
     """Outcome of the user identification + access-filter step.
 
