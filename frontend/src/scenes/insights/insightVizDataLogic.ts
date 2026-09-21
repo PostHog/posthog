@@ -163,7 +163,7 @@ import type {
 import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { ActionType, AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
 
-const SLOW_QUERY_MESSAGE_AFTER = 5000
+const SLOW_QUERY_REPORT_AFTER = 5000
 
 // Stable empty list so the allEventNames selector does not recompute while actionsModel is unmounted
 const NO_ACTIONS: ActionType[] = []
@@ -196,7 +196,6 @@ export interface insightVizDataLogicValues {
     insightDataLoading: boolean // insightDataLogic
     insightQuery: DataNode<Record<string, any>> // insightDataLogic
     query: Node | null // insightDataLogic
-    queryId: string | null // insightDataLogic
     activeUsersMath: BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null
     aggregationGroupTypeIndex: GroupTypeIndex | null | undefined
     allEventNames: string[]
@@ -1338,7 +1337,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     connect(() => ({
         values: [
             insightDataLogic,
-            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError', 'queryId'],
+            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
             databaseTableListLogic,
@@ -2797,11 +2796,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // A load that passes this mark is slow, not failed. The event keeps its old name so its
         // history stays comparable, and nothing user-facing depends on it.
-        loadData: async ({ queryId }, breakpoint) => {
-            await breakpoint(SLOW_QUERY_MESSAGE_AFTER)
+        loadData: async (_, breakpoint) => {
+            await breakpoint(SLOW_QUERY_REPORT_AFTER)
 
-            // A newer load has its own listener and its own query id, so only report the one still in flight.
-            if (values.insightDataLoading && values.queryId === queryId) {
+            if (values.insightDataLoading) {
                 const tags = {
                     kind: values.querySource?.kind,
                     scene: sceneLogic.isMounted() ? sceneLogic.values.activeSceneId : null,
