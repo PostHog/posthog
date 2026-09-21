@@ -13,6 +13,7 @@ import os
 import sys
 import json
 import time
+import hashlib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -51,6 +52,17 @@ def parse_percent(raw: str | None) -> int:
         return min(int(value), 100)
     except ValueError:
         return 0
+
+
+def bucket_of(pr_number: int) -> int:
+    """The pull request's fixed rollout bucket, 0 to 99.
+
+    Pull request numbers are sequential, so `pr_number % 100` would give Depot runs of
+    consecutive pull requests and then none for the next 95. A hash spreads them while
+    every push to one pull request keeps its bucket. Python's `hash()` is salted per
+    process, so it would move a pull request between engines from one run to the next.
+    """
+    return int.from_bytes(hashlib.sha256(str(pr_number).encode()).digest()[:8], "big") % 100
 
 
 def handoff_conclusion(check_runs: list[dict], pr_number: int) -> str | None:
@@ -101,7 +113,7 @@ def decide(
         return Decision("depot", f"label {LABEL_FORCE_DEPOT}")
     if pr_number is None:
         return Decision("github", "no pull request number to hash")
-    bucket = pr_number % 100
+    bucket = bucket_of(pr_number)
     if bucket < percent:
         return Decision("depot", f"bucket {bucket} < {percent}%")
     return Decision("github", f"bucket {bucket} >= {percent}%")
