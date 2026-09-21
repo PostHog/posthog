@@ -283,6 +283,61 @@ def _tag_setting_rows(
             yield rows
 
 
+def _config_child_rows(
+    session: requests.Session, config: ConfigCatEndpointConfig, configs: list[dict[str, Any]]
+) -> Iterator[list[dict[str, Any]]]:
+    for config_row in configs:
+        config_id = _identifier(config_row, "configId")
+        rows = _get_list(session, config.path.format(configId=config_id))
+        _validate_primary_keys(rows, config.primary_keys)
+        if rows:
+            yield rows
+
+
+def _config_environment_rows(
+    session: requests.Session,
+    config: ConfigCatEndpointConfig,
+    configs: list[dict[str, Any]],
+    environment_ids: list[str],
+) -> Iterator[list[dict[str, Any]]]:
+    for config_row in configs:
+        config_id = _identifier(config_row, "configId")
+        evaluation_version = config_row.get("evaluationVersion")
+        if evaluation_version not in ("v1", "v2"):
+            raise ValueError(f"ConfigCat config {config_id} has an invalid evaluationVersion")
+        for environment_id in environment_ids:
+            if evaluation_version == "v1":
+                path = f"/v1/configs/{config_id}/environments/{environment_id}/values"
+                rows = _v1_setting_value_rows(_get(session, path), config_id, environment_id)
+            else:
+                path = config.path.format(configId=config_id, environmentId=environment_id)
+                rows = _setting_value_rows(_get(session, path), config_id, environment_id)
+            if rows:
+                yield rows
+
+
+def _product_child_rows(
+    session: requests.Session, config: ConfigCatEndpointConfig, product_id: str
+) -> Iterator[list[dict[str, Any]]]:
+    if config.parent == "product":
+        rows = _parent_scoped_rows(session, config, product_id, config.path.format(productId=product_id))
+        if rows:
+            yield rows
+        return
+
+    if config.parent == "tag":
+        yield from _tag_setting_rows(session, config, product_id)
+        return
+
+    configs = _configs(session, product_id)
+
+    if config.parent == "config":
+        yield from _config_child_rows(session, config, configs)
+        return
+
+    yield from _config_environment_rows(session, config, configs, _environment_ids(session, product_id))
+
+
 def _fan_out_rows(
     session: requests.Session, config: ConfigCatEndpointConfig, since: Optional[str]
 ) -> Iterator[list[dict[str, Any]]]:
@@ -291,42 +346,7 @@ def _fan_out_rows(
         return
 
     for product_id in _product_ids(session):
-        if config.parent == "product":
-            rows = _parent_scoped_rows(session, config, product_id, config.path.format(productId=product_id))
-            if rows:
-                yield rows
-            continue
-
-        if config.parent == "tag":
-            yield from _tag_setting_rows(session, config, product_id)
-            continue
-
-        configs = _configs(session, product_id)
-
-        if config.parent == "config":
-            for config_row in configs:
-                config_id = _identifier(config_row, "configId")
-                rows = _get_list(session, config.path.format(configId=config_id))
-                _validate_primary_keys(rows, config.primary_keys)
-                if rows:
-                    yield rows
-            continue
-
-        environment_ids = _environment_ids(session, product_id)
-        for config_row in configs:
-            config_id = _identifier(config_row, "configId")
-            evaluation_version = config_row.get("evaluationVersion")
-            if evaluation_version not in ("v1", "v2"):
-                raise ValueError(f"ConfigCat config {config_id} has an invalid evaluationVersion")
-            for environment_id in environment_ids:
-                if evaluation_version == "v1":
-                    path = f"/v1/configs/{config_id}/environments/{environment_id}/values"
-                    rows = _v1_setting_value_rows(_get(session, path), config_id, environment_id)
-                else:
-                    path = config.path.format(configId=config_id, environmentId=environment_id)
-                    rows = _setting_value_rows(_get(session, path), config_id, environment_id)
-                if rows:
-                    yield rows
+        yield from _product_child_rows(session, config, product_id)
 
 
 def _partition_kwargs(config: ConfigCatEndpointConfig) -> dict[str, Any]:
