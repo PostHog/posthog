@@ -21,6 +21,7 @@ import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSuppor
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
+import { OtherIntegrations } from 'scenes/integrations/components/OtherIntegrations'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
@@ -80,7 +81,6 @@ import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/fronte
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
-import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
     ActivityLogNotifications,
     ActivityLogOrgLevelSettings,
@@ -1781,33 +1781,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-other',
                 title: 'Other integrations',
                 description:
-                    'Integrations connected from other product areas, such as pipeline destinations, data warehouse sources, error tracking, and marketing analytics.',
-                component: (
-                    <IntegrationsList
-                        omitKinds={['slack', 'github', 'linear']}
-                        titleText=""
-                        emptyState={
-                            <div className="px-4 py-6 text-center text-sm text-secondary rounded border bg-surface-primary">
-                                <p className="mb-1">No other integrations connected</p>
-                                <p className="text-xs text-muted text-balance mb-0">
-                                    These connect from the product area that uses them:{' '}
-                                    <Link to={urls.destinations()}>pipeline destinations</Link>,{' '}
-                                    <Link to={urls.sources()}>data warehouse sources</Link>,{' '}
-                                    <Link
-                                        to={urls.settings('environment-error-tracking', 'error-tracking-integrations')}
-                                    >
-                                        error tracking
-                                    </Link>{' '}
-                                    and{' '}
-                                    <Link to={urls.settings('environment-marketing-analytics', 'marketing-settings')}>
-                                        marketing analytics
-                                    </Link>
-                                    .
-                                </p>
-                            </div>
-                        }
-                    />
-                ),
+                    'Storage connections for batch exports, plus integrations connected from other product areas such as pipeline destinations, error tracking, and marketing analytics.',
+                component: <OtherIntegrations />,
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {

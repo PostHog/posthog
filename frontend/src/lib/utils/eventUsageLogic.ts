@@ -2040,6 +2040,13 @@ export interface eventUsageLogicActions {
         error: string
         kind: string
     }
+    reportIntegrationSetupCompleted: (
+        kind: string,
+        surface: IntegrationConnectSurface
+    ) => {
+        kind: string
+        surface: IntegrationConnectSurface
+    }
     reportInviteMembersButtonClicked: () => {
         value: true
     }
@@ -2625,6 +2632,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             selfDriving,
         }),
         reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
+        reportIntegrationSetupCompleted: (kind: string, surface: IntegrationConnectSurface) => ({ kind, surface }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
@@ -3600,6 +3608,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('integration_connect_rejected', {
                 integration_kind: kind,
                 error,
+            })
+        },
+        // The in-app setup modals save without an OAuth round trip, so `integration_connect_rejected`
+        // cannot see how they end. This is the other half of the modal funnel: a connect click that
+        // reaches a stored integration.
+        reportIntegrationSetupCompleted: ({ kind, surface }) => {
+            posthog.capture('integration_setup_completed', {
+                integration_kind: kind,
+                surface,
             })
         },
         // Personal integrations are a separate table with their own connect surface, so they get

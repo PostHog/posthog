@@ -41,7 +41,7 @@ export function IntegrationChoice({
         useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
-    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    const { reportIntegrationConnectClicked, reportIntegrationSetupCompleted } = useActions(eventUsageLogic)
     // Creating an integration needs project admin, a stricter bar than the access a product needs
     // to reach this picker. Without the gate a member is sent through the provider's whole OAuth
     // flow and only finds out when the callback fails to save the connection.
@@ -99,6 +99,7 @@ export function IntegrationChoice({
 
     const handleModalComplete = (integrationId?: number): void => {
         if (typeof integrationId === 'number') {
+            reportIntegrationSetupCompleted(kind, 'pipeline_config')
             onChange?.(integrationId)
         }
         closeNewIntegrationModal()
@@ -109,15 +110,29 @@ export function IntegrationChoice({
     // When the instance doesn't have OAuth credentials for this kind, /integrations/authorize
     // 400s with "Kind not configured". Send users to the settings page instead.
     const oauthUnavailable = kind === 'slack' && !slackAvailable
+    // The disabledReason only shows on hover, and a greyed-out item with an unchanged label reads
+    // as a bug. Say it in the label so the reason is visible before the user tries to click.
+    const restrictedLabel = (label: string): string =>
+        integrationManagementRestriction ? `${label} (needs project admin)` : label
     const setupMenuItem = setupDef
-        ? {
-              ...setupDef.menuItem({
+        ? (() => {
+              const item = setupDef.menuItem({
                   kind,
                   openModal: (modalKind) => openNewIntegrationModal(modalKind, modalId),
                   uploadKey,
-              }),
-              disabledReason: integrationManagementRestriction ?? undefined,
-          }
+              })
+              return {
+                  ...item,
+                  label: restrictedLabel(item.label),
+                  onClick: item.onClick
+                      ? () => {
+                            reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
+                            item.onClick?.()
+                        }
+                      : undefined,
+                  disabledReason: integrationManagementRestriction ?? undefined,
+              }
+          })()
         : oauthUnavailable
           ? {
                 to: urls.settings('project-integrations'),
@@ -132,9 +147,11 @@ export function IntegrationChoice({
                     reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
                     beforeRedirect?.()
                 },
-                label: integrationsOfKind?.length
-                    ? `Connect to a different integration for ${kindName}`
-                    : `Connect to ${kindName}`,
+                label: restrictedLabel(
+                    integrationsOfKind?.length
+                        ? `Connect to a different integration for ${kindName}`
+                        : `Connect to ${kindName}`
+                ),
                 disabledReason: integrationManagementRestriction ?? undefined,
             }
 

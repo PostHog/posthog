@@ -130,25 +130,32 @@ describe('IntegrationChoice', () => {
         expect(onChangeSecond).not.toHaveBeenCalled()
     })
 
-    it('disables connecting for a member who cannot create integrations', async () => {
-        // Creating an integration needs project admin, which is stricter than the access a product
-        // needs to reach this picker. Members used to be sent through the provider's whole OAuth
-        // flow only to have the callback fail to save the connection.
-        initKeaTests(true, {
-            ...MOCK_DEFAULT_TEAM,
-            effective_membership_level: OrganizationMembershipLevel.Member,
-        })
+    it.each<[string, string, string]>([
+        ['oauth', 'google-ads', 'Connect to Google Ads (needs project admin)'],
+        ['setup modal', 'aws-s3', 'Configure new AWS S3 connection (needs project admin)'],
+    ])(
+        'names the missing access on the %s item for a member who cannot create integrations',
+        async (_label, kind, expectedLabel) => {
+            // Creating an integration needs project admin, which is stricter than the access a
+            // product needs to reach this picker. Members used to be sent through the provider's
+            // whole OAuth flow only to have the callback fail to save the connection. The
+            // disabledReason only shows on hover, so the label has to carry the reason too.
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                effective_membership_level: OrganizationMembershipLevel.Member,
+            })
 
-        render(
-            <Provider>
-                <IntegrationChoice integration="google-ads" onChange={jest.fn()} />
-            </Provider>
-        )
+            render(
+                <Provider>
+                    <IntegrationChoice integration={kind} onChange={jest.fn()} />
+                </Provider>
+            )
 
-        fireEvent.click(await screen.findByText('Choose Google Ads connection'))
-        const connect = await screen.findByText('Connect to Google Ads')
-        expect(connect.closest('[aria-disabled]')).toHaveAttribute('aria-disabled', 'true')
-    })
+            fireEvent.click(await screen.findByText(/^Choose .* connection$/))
+            const connect = await screen.findByText(expectedLabel)
+            expect(connect.closest('[aria-disabled]')).toHaveAttribute('aria-disabled', 'true')
+        }
+    )
 
     it('still warns when the stored id matches no integration', async () => {
         // Regression guard: a genuinely dangling reference must keep surfacing the banner.
