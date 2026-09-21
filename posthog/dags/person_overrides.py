@@ -188,7 +188,11 @@ class PopulateSnapshotTableConfig(dagster.Config):
         "value can be provided in any format that is can be parsed by ClickHouse. This value should be far enough in "
         "the past that there is no reasonable likelihood that events or overrides prior to this time have not yet been "
         "written to the database and replicated to all hosts in the cluster.",
-        default=(datetime.datetime.now() - datetime.timedelta(days=SNAPSHOT_LAG_DAYS)).strftime("%Y-%m-%d %H:%M:%S"),
+        # A factory, not a literal: a literal here is evaluated when the module is imported, so
+        # every run on a long-lived code server would reuse the window the first run consumed.
+        default_factory=lambda: (datetime.datetime.now() - datetime.timedelta(days=SNAPSHOT_LAG_DAYS)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        ),
     )
     limit: int | None = pydantic.Field(
         description="The number of rows to include in the snapshot. If provided, this can be used to limit the total "
@@ -377,7 +381,18 @@ def cleanup_snapshot_resources(dictionary: PersonOverridesSnapshotDictionary) ->
 # Job Definition
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+# Both jobs rewrite person_id on flag_evaluations from their own snapshot. The capacity wait in
+# MutationRunner keeps two mutations off a table at once, but it does not order the runs: a job
+# parked on another target's capacity can enqueue its flag_evaluations mutation after a later run
+# already finished one. This key is what a run-queue limit of 1 attaches to in Dagster deployment
+# settings; deletes_job_concurrency is the matched example. The key alone enforces nothing.
+PERSON_ID_REWRITE_CONCURRENCY_TAGS = {
+    "owner": JobOwners.TEAM_CLICKHOUSE.value,
+    "person_id_rewrite_concurrency": "v1",
+}
+
+
+@dagster.job(tags=PERSON_ID_REWRITE_CONCURRENCY_TAGS)
 def squash_person_overrides():
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
     prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
@@ -388,7 +403,7 @@ def squash_person_overrides():
     cleanup_snapshot_resources(dictionary_after_override_delete_mutations)
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(tags=PERSON_ID_REWRITE_CONCURRENCY_TAGS)
 def rewrite_flag_evaluations_person_id():
     """Apply the person overrides to flag_evaluations, without consuming them.
 

@@ -14,6 +14,7 @@ from clickhouse_driver import Client
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
 from posthog.dags.deletes import deletes_job
 from posthog.dags.person_overrides import (
+    PERSON_ID_REWRITE_CONCURRENCY_TAGS,
     GetExistingDictionaryConfig,
     PersonOverridesSnapshotDictionary,
     PersonOverridesSnapshotTable,
@@ -276,6 +277,29 @@ def test_the_daily_schedule_snapshots_the_window_ending_at_its_own_tick():
     ]
 
     assert timestamps == ["2025-05-30 04:00:00", "2025-05-31 04:00:00"]
+
+
+def test_every_run_computes_its_own_snapshot_cutoff():
+    # The cutoff used to be a literal in the field definition, which pydantic evaluates once when
+    # the module is imported. Every later run on the same code server then re-snapshotted a window
+    # the first run had already consumed: the weekly squash silently stopped rewriting events, and
+    # a manual run of either job could not repair the merges it was launched for.
+    first = PopulateSnapshotTableConfig().timestamp
+    with patch("posthog.dags.person_overrides.datetime.datetime") as clock:
+        clock.now.return_value = datetime(2030, 1, 1)
+        later = PopulateSnapshotTableConfig().timestamp
+
+    assert later == "2029-12-30 00:00:00"
+    assert later != first
+
+
+def test_both_person_id_rewrites_share_a_concurrency_key():
+    # The two jobs write person_id on flag_evaluations from separate snapshots, and the per-table
+    # capacity wait orders neither run. A Dagster run-queue limit is what serializes them, and it
+    # attaches to a tag both jobs carry, so a job that loses the key silently leaves the limit.
+    assert "person_id_rewrite_concurrency" in PERSON_ID_REWRITE_CONCURRENCY_TAGS
+    assert squash_person_overrides.tags == PERSON_ID_REWRITE_CONCURRENCY_TAGS
+    assert rewrite_flag_evaluations_person_id.tags == PERSON_ID_REWRITE_CONCURRENCY_TAGS
 
 
 def test_cleanup_job(cluster: ClickhouseCluster) -> None:
