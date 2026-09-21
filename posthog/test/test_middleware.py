@@ -1079,6 +1079,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 {},
             ),
             (
+                "warehouse_saved_queries_check_incremental",
+                "warehouse_saved_queries/check_incremental/",
+                {"query": "select 1"},
+            ),
+            (
                 "exports",
                 "exports/",
                 {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
@@ -1110,13 +1115,17 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("logs_alerts", "logs/alerts/"),
             ("logs_views", "logs/views/"),
             ("logs_sampling_rules", "logs/sampling_rules/"),
+            (
+                "warehouse_saved_query_materialize",
+                "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
+            ),
         ]
     )
-    def test_read_only_impersonation_blocks_logs_crud_siblings(self, _name, path_suffix):
+    def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
         self.login_as_other_user_read_only()
 
-        # The logs query allowlist enumerates action names precisely because the same
-        # `logs/` prefix hosts these writing viewsets.
+        # Every allowlist entry names its action exactly, because each of these prefixes also
+        # hosts mutating actions. Widening one to its prefix would reach these.
         response = self.client.post(
             f"/api/projects/{self.team.id}/{path_suffix}",
             data={},
