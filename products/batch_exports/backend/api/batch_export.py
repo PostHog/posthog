@@ -52,9 +52,7 @@ from posthog.security.url_validation import (
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
-from products.access_control.backend.property_access_control import (
-    get_restricted_properties_with_group_type_index_for_team,
-)
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.hogql_source import serialize_batch_export_query
 from products.batch_exports.backend.models.batch_export import (

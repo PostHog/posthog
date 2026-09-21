@@ -124,19 +124,13 @@ class SerializedExportProperties(CloningVisitor):
     def __init__(self, table_alias: str, context: HogQLContext) -> None:
         super().__init__()
         self.table_alias = table_alias
-        from products.event_definitions.backend.models.property_definition import PropertyDefinition  # noqa: PLC0415
+
+        from products.access_control.backend.facade.api import (  # noqa: PLC0415 — keeps Django access-control imports off the batch worker import path
+            split_restricted_property_names,
+        )
 
         restrictions = context.restricted_properties or set()
-        self.event_restrictions = {
-            restriction.name
-            for restriction in restrictions
-            if restriction.property_type == PropertyDefinition.Type.EVENT
-        }
-        self.person_restrictions = {
-            restriction.name
-            for restriction in restrictions
-            if restriction.property_type == PropertyDefinition.Type.PERSON
-        }
+        self.event_restrictions, self.person_restrictions = split_restricted_property_names(restrictions)
         if restrictions and context.uses_new_events_schema():
             self.event_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
             self.person_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
