@@ -241,7 +241,7 @@ dev = [
     "ipython~=9.3.0",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
-    "ty==0.0.74",
+    "ty==0.0.80",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.11.9",
@@ -876,6 +876,10 @@ too-many-positional-arguments = "ignore"  # Django metaprogramming signatures
 redundant-cast = "ignore"  # casts needed by mypy that ty resolves
 unused-type-ignore-comment = "ignore"  # type: ignore comments required by mypy
 unused-ignore-comment = "error"  # default is warn, which does not fail CI; error keeps stale ty: ignore directives out
+
+# Flags guards on stub and TypedDict types that runtime data does not honor
+# (billing JSON, posthoganalytics.api_key, untyped access-control callers)
+redundant-condition = "ignore"
 
 # Django lazy imports and settings indirection
 possibly-missing-submodule = "ignore"
