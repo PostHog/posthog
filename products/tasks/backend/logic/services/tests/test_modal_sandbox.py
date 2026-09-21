@@ -1596,9 +1596,11 @@ class TestModalSandboxCreateImageFallback:
         # A snapshot-restored sandbox is health-probed after create; make the probe pass.
         mock_sb.exec.return_value.poll.return_value = 0
         images_tried: list[Any] = []
+        self.names_tried: list[str] = []
 
         def sandbox_create(**kwargs: Any) -> Any:
             images_tried.append(kwargs["image"])
+            self.names_tried.append(kwargs["name"])
             if kwargs["image"] is failing_image:
                 raise RuntimeError("image build failed")
             return mock_sb
@@ -1640,6 +1642,8 @@ class TestModalSandboxCreateImageFallback:
         sandbox, images_tried = self._create_failing_on(config, failing_image=overlaid_custom, loaded_image=bare_custom)
 
         assert images_tried == [overlaid_custom, bare_custom]
+        # A reused name makes every downgrade fail with AlreadyExistsError instead.
+        assert len(set(self.names_tried)) == 2
         assert sandbox.config.image_fallback is not None
         assert "custom image posthog-dev-stack" in sandbox.config.image_fallback
 
@@ -1804,9 +1808,11 @@ class TestModalSandboxCreateImageFallback:
         custom_image: Any,
     ) -> tuple[Any, list]:
         images_tried: list[Any] = []
+        self.names_tried = []
 
         def sandbox_create(**kwargs: Any) -> Any:
             images_tried.append(kwargs["image"])
+            self.names_tried.append(kwargs["name"])
             sb = MagicMock()
             sb.object_id = f"sb-{len(images_tried)}"
             return sb
@@ -1926,6 +1932,7 @@ class TestModalSandboxCreateImageFallback:
         )
 
         assert images_tried == [custom_image, custom_image]  # same image, mount dropped
+        assert len(set(self.names_tried)) == 2
         assert sandbox.config.snapshot_restored is False
         assert sandbox.config.image_fallback is not None
         assert "directory resume snapshot im-snap-1" in sandbox.config.image_fallback
