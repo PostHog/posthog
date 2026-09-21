@@ -290,8 +290,17 @@ export function EditSubscription({
     })
     const subscriptionLoaded = !!subscription?.target_type
 
-    if (subscriptionLoading || !subscriptionLoaded) {
+    if (subscriptionLoading) {
         return <SubscriptionFormSkeleton />
+    }
+
+    if (!subscriptionLoaded) {
+        return (
+            <div className="p-4 text-center">
+                <h2>Not found</h2>
+                <p>This subscription could not be found. It may have been deleted.</p>
+            </div>
+        )
     }
 
     const _onDelete = (): void => {
