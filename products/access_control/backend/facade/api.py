@@ -34,7 +34,16 @@ from ..models.property_access_control import PropertyAccessControl
 from ..property_access_control import is_property_access_control_enabled
 from . import contracts
 from .contracts import PropertyAccessLevel
-from .user_access_control import highest_access_level, minimum_access_level, ordered_access_levels
+from .user_access_control import (
+    RESOURCE_INHERITANCE_MAP,
+    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
+    AccessControlLevel,
+    access_level_satisfied_for_resource,
+    default_access_level,
+    highest_access_level,
+    minimum_access_level,
+    ordered_access_levels,
+)
 
 
 class InvalidObjectAccessControlError(Exception):
@@ -160,6 +169,65 @@ def user_organizations_use_access_controls(*, user_id: int) -> bool:
     if not entitled:
         return False
     return AccessControl.objects.filter(team__organization_id__in=entitled).exists()
+
+
+def _level_rank(levels: list[AccessControlLevel], level: str) -> int:
+    """Position of `level` on the ladder, with an unrecognized level ranked below every real one."""
+    return levels.index(cast(AccessControlLevel, level)) if level in levels else -1
+
+
+def _grants_at_least(resource: APIScopeObject, level: str, required_level: AccessControlLevel) -> bool:
+    """Whether `level` satisfies `required_level`, reading an unrecognized level as no grant.
+
+    The access level of a row is an unvalidated string, so a value outside the ladder of the
+    resource is possible. Comparing it would raise, so treat it as restricting instead."""
+    if level not in ordered_access_levels(resource):
+        return False
+    return access_level_satisfied_for_resource(resource, cast(AccessControlLevel, level), required_level)
+
+
+def every_member_has_resource_access(
+    *, team_id: int, resource: APIScopeObject, required_level: AccessControlLevel
+) -> bool:
+    """Whether every member of the team resolves at least `required_level` on `resource`.
+
+    For a caller that builds something without a request user and hands it to many readers at
+    once — an AI-drafted ticket note, a userless precompute. Such a caller cannot honor a
+    restriction on one member, so it asks whether any restriction exists at all and leaves the
+    data out when one does.
+
+    Deliberately conservative, and for that reason the same answer under both resolution orders:
+    one restricting rule makes this False, including where highest-wins resolution would let a
+    permissive default outrank it. Erring toward withholding keeps the answer stable when an
+    organization moves to most-specific resolution.
+    """
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None:
+        return False
+
+    # Resolution reads the rows of the parent of an inheriting resource, never the child's own
+    # resource-scope rows, so the parent is what to inspect.
+    resource = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+
+    # With no rules in effect, every member sits at the built-in default for the resource.
+    if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS or not team.organization.is_feature_available(
+        AvailableFeature.ACCESS_CONTROL
+    ):
+        return _grants_at_least(resource, default_access_level(resource), required_level)
+
+    rows = list(AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=None))
+    everyone_rows = [row for row in rows if row.organization_member_id is None and row.role_id is None]
+    subject_rows = [row for row in rows if row.organization_member_id is not None or row.role_id is not None]
+
+    levels = ordered_access_levels(resource)
+    floor = (
+        max((row.access_level for row in everyone_rows), key=lambda level: _level_rank(levels, level))
+        if everyone_rows
+        else default_access_level(resource)
+    )
+    if not _grants_at_least(resource, floor, required_level):
+        return False
+    return all(_grants_at_least(resource, row.access_level, required_level) for row in subject_rows)
 
 
 # --- Write API ---

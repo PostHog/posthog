@@ -10,9 +10,12 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.comment import Comment
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.conversations.backend.ai.suggest import (
     _build_ticket_context,
     _format_enhanced_context,
@@ -421,12 +424,14 @@ class TestBuildTicketContext(BaseTest):
         assert "Seats" not in context
         assert "Deleted" not in context
 
-    def test_account_properties_need_account_access_for_every_member(self) -> None:
-        # The rendered section lands in a ticket artifact that every agent with ticket access can
-        # read, so a team that gave Customer analytics to only some members must not receive
-        # account data through an AI reply instead.
+    @parameterized.expand(["everyone", "one member", "one role"])
+    def test_account_properties_need_account_access_for_every_member(self, restricted: str) -> None:
+        # The section goes into a note that every agent with ticket access reads, and the reply run
+        # can't tell them apart. So a member the team kept out of Customer analytics must not be
+        # handed account data here, however the team wrote that restriction.
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
         account = create_account(team_id=self.team.id, name="Acme", external_id="acct-1")
@@ -436,18 +441,25 @@ class TestBuildTicketContext(BaseTest):
         self.team.save(update_fields=["conversations_settings"])
         ticket = self._create_ticket(organization_id="acct-1", identity_verified=True)
 
-        # Control: with no rule the team default grants every member account access.
+        # Control: with no rule the team default gives every member account access.
         assert "- Plan: Enterprise" in self._context(ticket)
 
-        AccessControl.objects.create(
-            team=self.team,
-            resource="customer_analytics",
-            resource_id=None,
-            access_level="none",
-        )
-        restricted = self._context(ticket)
-        assert "Account properties:" not in restricted
-        assert "Enterprise" not in restricted
+        rule: dict = {
+            "team": self.team,
+            "resource": "customer_analytics",
+            "resource_id": None,
+            "access_level": "none",
+        }
+        if restricted == "one member":
+            agent = User.objects.create_and_join(self.organization, "agent@example.com", "testtest")
+            rule["organization_member"] = OrganizationMembership.objects.get(user=agent, organization=self.organization)
+        elif restricted == "one role":
+            rule["role"] = Role.objects.create(organization=self.organization, name="Support")
+        AccessControl.objects.create(**rule)
+
+        withheld = self._context(ticket)
+        assert "Account properties:" not in withheld
+        assert "Enterprise" not in withheld
 
     def test_skips_account_section_when_account_missing_or_ca_errors(self) -> None:
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")

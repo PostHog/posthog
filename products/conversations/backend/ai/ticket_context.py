@@ -17,6 +17,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.facade.api import every_member_has_resource_access
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import OrganizationIdSource, TicketStatus
@@ -310,9 +311,7 @@ def format_account_properties(pairs: Iterable[tuple[str, object]]) -> str:
 def _default_subject_access_control(team: Team) -> SubjectAccessControl | None:
     """The access the team's default rules give every member, with no member or role of their own.
 
-    The reply run has no request user, so there is nobody to resolve access for. The section this
-    gates also becomes part of a ticket artifact that every agent with ticket access can read, so
-    the question is not what one person may read, it is what the least privileged reader may read.
+    Reading a definition name needs somebody to read as, and the reply run has no request user.
     A subject with no member and no role resolves default rules only, and it drops the org-admin
     bypass, so the answer no longer changes with which membership row the database returns first.
 
@@ -334,12 +333,14 @@ def load_account_context(team: Team, organization_id: str | None) -> str:
     if not selected or not organization_id:
         return ""
     try:
-        # The account and value reads below are team-scoped only, and what they render is readable
-        # by every agent who can open the ticket. So render it only when the team gives account
-        # access to all of its members. A team that limited Customer analytics to some members
-        # keeps that limit instead of losing it to an AI reply.
+        # The account and value reads below are team-scoped only, and what they render goes into a
+        # note that every agent who can open the ticket reads. There is no one reader to authorize
+        # here, so the section needs the whole team to hold account access. A team that limited
+        # Customer analytics to some of its members keeps that limit instead of losing it here.
+        if not every_member_has_resource_access(team_id=team.id, resource="account", required_level="viewer"):
+            return ""
         uac = _default_subject_access_control(team)
-        if uac is None or not uac.check_access_level_for_resource("account", "viewer"):
+        if uac is None:
             return ""
         account = get_account(team.id, external_id=organization_id)
         if account is None:
