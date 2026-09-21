@@ -66,10 +66,11 @@ from products.slack_app.backend.feature_flags import (
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
 from products.slack_app.backend.services import inbox_interactivity, turn_feedback
+from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
-    format_project_candidate_list,
     load_integrations,
+    pick_a_project_message,
     resolve_from_candidates,
     resolve_user_for_workspace,
     user_resolution_failure_reply,
@@ -89,6 +90,7 @@ from products.slack_app.backend.services.slack_messages import (
     SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
     SlackThreadMessage,
+    app_home_url,
     parse_slack_file_refs,
     post_slack_thread_reply,
 )
@@ -1644,11 +1646,11 @@ def _post_pick_a_project_hint(
     event: dict[str, Any],
 ) -> bool:
     """Tell the user that this workspace is connected to multiple PostHog
-    projects, and that they should pick one.
+    projects, list the ones they can reach, and point at the two ways to pick one.
 
-    The selection command differs by surface: in a channel the user mentions the app
-    (`@PostHog project <id>`), but in a DM there is no app to mention, so they just reply
-    with `project <id>`.
+    The slash command is offered rather than the `@PostHog project <id>` mention because it
+    reads the same on both surfaces this runs on: a channel mention and a DM, where there
+    is no app to mention.
 
     Returns whether the hint was posted, so callers can record whether the user was
     left with an explanation or with silence.
@@ -1658,11 +1660,11 @@ def _post_pick_a_project_hint(
     thread_ts = event.get("thread_ts") or event.get("ts")
     if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
         return False
-    pick_command = "`project <id>`" if event.get("channel_type") == "im" else "`@PostHog project <id>`"
-    text = (
-        "This Slack workspace is connected to multiple PostHog projects:\n"
-        f"{format_project_candidate_list(candidates)}\n\n"
-        f"Use {pick_command} to pick one — that also saves it as your default."
+    text = pick_a_project_message(
+        "This Slack workspace is connected to multiple PostHog projects. You can work in any of these:",
+        candidates,
+        set_command=SLASH_COMMAND_PREFIX,
+        home_tab_url=app_home_url(probe.integration),
     )
     return _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 

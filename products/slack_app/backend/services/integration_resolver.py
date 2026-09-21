@@ -5,6 +5,7 @@ from django.db.models import Q
 
 import structlog
 
+from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.helpers.slack_scopes import bot_is_ready
 from posthog.models.integration import Integration
 from posthog.models.user import User
@@ -88,6 +89,35 @@ def project_label(integration: Integration) -> str:
 
 def format_project_candidate_list(candidates: list[Integration]) -> str:
     return "\n".join(f"• `{c.team_id}` — {project_label(c)}" for c in candidates)
+
+
+def pick_a_project_message(
+    intro: str,
+    candidates: list[Integration],
+    *,
+    set_command: str,
+    home_tab_url: str | None,
+) -> str:
+    """A "which project?" reply: every project the caller can route to, then the two ways
+    to choose one.
+
+    The Home tab leads because it is one click on a dropdown, against a command that asks
+    the reader to copy an id out of the list above it. ``home_tab_url`` degrades to plain
+    text for an install that carries no app id, which is the one case ``app_home_url``
+    cannot build a deep link for.
+    """
+    # Organization and team names are tenant text, and this reply lands in a channel
+    # thread, so an unescaped `<!channel>` in a name broadcasts to everyone reading it and
+    # `<url|label>` renders a link they read as the bot's. Escaped on the way out rather
+    # than inside `format_project_candidate_list`, because that helper also builds an LLM
+    # prompt, which needs the plain name.
+    projects = escape_slack_mrkdwn(format_project_candidate_list(candidates))
+    home_tab = f"<{home_tab_url}|Home tab>" if home_tab_url else "Home tab"
+    return (
+        f"{intro}\n"
+        f"{projects}\n\n"
+        f"Pick one on the app's {home_tab}, or set your default with `{set_command} project <id>`."
+    )
 
 
 def resolve_from_candidates(
